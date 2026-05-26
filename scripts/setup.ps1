@@ -77,6 +77,10 @@ function Ensure-PowerShellModule {
 function Apply-Dotfiles {
 	Ensure-WingetPackage -CommandName chezmoi -PackageId 'twpayne.chezmoi'
 	if (-not (Test-Command chezmoi)) {
+		if ($DryRun) {
+			Write-Host "+ chezmoi apply --source $RepoRoot" -ForegroundColor DarkCyan
+			return
+		}
 		throw 'chezmoi is not available.'
 	}
 	Invoke-Step 'Apply chezmoi dotfiles' {
@@ -124,6 +128,10 @@ function Ensure-Bitwarden {
 		Ensure-WingetPackage -CommandName bw -PackageId 'Bitwarden.CLI'
 	}
 	if (-not (Test-Command bw)) {
+		if ($DryRun) {
+			Write-Host '+ require Bitwarden CLI (bw)' -ForegroundColor DarkCyan
+			return
+		}
 		throw 'Bitwarden CLI (bw) is not available.'
 	}
 }

@@ -69,6 +69,10 @@ ensure_bitwarden() {
 	if has bw; then
 		return
 	fi
+	if [ "$dry_run" -eq 1 ]; then
+		printf '+ require Bitwarden CLI (bw)\n'
+		return
+	fi
 	printf 'Bitwarden CLI is required for the selected secret-backed module.\n'
 	printf 'Install bw using your preferred Bitwarden CLI method, then rerun this script.\n'
 	return 1
@@ -77,6 +81,10 @@ ensure_bitwarden() {
 apply_dotfiles() {
 	ensure_command chezmoi chezmoi || true
 	if ! has chezmoi; then
+		if [ "$dry_run" -eq 1 ]; then
+			printf '+ chezmoi apply --source %q\n' "$repo_root"
+			return
+		fi
 		printf 'chezmoi is not installed. Install it from https://www.chezmoi.io/install/ and rerun.\n' >&2
 		return 1
 	fi
@@ -90,6 +98,10 @@ install_shell_tools() {
 wire_shell_rc() {
 	local line='[ -f "$HOME/.config/dovie-shell/shell.sh" ] && . "$HOME/.config/dovie-shell/shell.sh"'
 	for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+		if [ "$dry_run" -eq 1 ]; then
+			printf '+ ensure %q contains dovie shell source line\n' "$rc"
+			continue
+		fi
 		touch "$rc"
 		if ! grep -Fqx "$line" "$rc"; then
 			printf '%s\n' "$line" >> "$rc"
