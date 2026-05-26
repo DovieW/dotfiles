@@ -1,0 +1,9 @@
+{{- $name := promptString "Git author name" -}}
+{{- $email := promptString "Git author email" -}}
+
+[data]
+name = {{ $name | quote }}
+email = {{ $email | quote }}
+
+[bitwarden]
+command = "bw"

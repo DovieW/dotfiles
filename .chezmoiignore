@@ -1,0 +1,6 @@
+README.md
+NEW_MACHINE.md
+PROVENANCE.md
+scripts/**
+.gitignore
+.gitattributes

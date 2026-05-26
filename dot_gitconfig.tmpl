@@ -1,0 +1,25 @@
+[user]
+	name = {{ .name | quote }}
+	email = {{ .email | quote }}
+
+[init]
+	defaultBranch = main
+
+[pull]
+	rebase = false
+
+[push]
+	autoSetupRemote = true
+
+[core]
+	editor = code --wait
+	autocrlf = input
+
+[fetch]
+	prune = true
+
+[diff]
+	algorithm = histogram
+
+[rerere]
+	enabled = true

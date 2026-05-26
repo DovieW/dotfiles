@@ -1,0 +1,15 @@
+.chezmoi.local.toml
+.chezmoidata.*
+*.secret
+*.age
+*.key
+*.pem
+.env
+*.env
+auth.env
+node_modules/
+.venv/
+.cache/
+*.db
+*.sqlite
+*.Zone.Identifier
