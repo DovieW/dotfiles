@@ -587,7 +587,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     if snap_packages:
         proc = run(["snap", "list"], check=False, capture=True)
         installed_snaps = {line.split()[0] for line in proc.stdout.splitlines()[1:] if line.split()}
-        missing_snaps = [package for package in snap_packages if package not in installed_snaps]
+        missing_snaps = [
+            package
+            for package in snap_packages
+            if package not in installed_snaps and not command_exists(package)
+        ]
         failures += not doctor_check(
             "Snap packages",
             not missing_snaps,

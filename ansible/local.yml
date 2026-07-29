@@ -65,7 +65,12 @@
 
     - name: Check curated Snap applications
       ansible.builtin.command:
-        argv: [snap, list, "{{ item }}"]
+        argv:
+          - sh
+          - -c
+          - 'command -v "$1" >/dev/null 2>&1 || snap list "$1" >/dev/null 2>&1'
+          - sh
+          - "{{ item }}"
       register: dot_snap_status
       changed_when: false
       failed_when: false
