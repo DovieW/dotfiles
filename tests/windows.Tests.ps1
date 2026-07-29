@@ -1,6 +1,8 @@
-$Root = Split-Path -Parent $PSScriptRoot
-
 Describe 'Windows adapter' {
+    BeforeAll {
+        $script:Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    }
+
     It 'exists and parses' {
         $errors = $null
         [System.Management.Automation.Language.Parser]::ParseFile(

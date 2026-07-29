@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 
 @test "mbash runs non-interactively without the full bashrc" {
-  run "$BATS_TEST_DIRNAME/../config/shell/mbash" -lc 'printf "%s" "$REPOS"'
+  run env DOTFILES_ROOT="$BATS_TEST_DIRNAME/.." \
+    "$BATS_TEST_DIRNAME/../config/shell/mbash" -lc 'printf "%s" "$REPOS"'
   [ "$status" -eq 0 ]
   [ "$output" = "$HOME/repos" ]
 }
