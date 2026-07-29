@@ -96,6 +96,11 @@ to each privileged task instead of depending on a terminal-specific sudo
 timestamp. Noninteractive runs require passwordless sudo or stop before the
 play with an instruction to retry in a terminal.
 
+Ubuntu 26.04 supplies `sudo-rs`, whose PAM prompt wraps the custom token passed
+by Ansible. `dot` detects `/usr/lib/cargo/bin/sudo` and selects the repository's
+`sudo_rs` become plugin so Ansible recognizes that wrapped prefix. Other Linux
+systems continue using Ansible's standard `sudo` plugin.
+
 ## Codex Remote Control is unavailable
 
 Check the managed user service:

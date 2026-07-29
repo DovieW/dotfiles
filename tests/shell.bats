@@ -67,3 +67,47 @@
   [ "$status" -eq 0 ]
   [[ "$output" == *"Vite+ $release is installed from the managed stable channel"* ]]
 }
+
+@test "sudo-rs become plugin recognizes the wrapped PAM prompt" {
+  fake_sudo="$BATS_TEST_TMPDIR/sudo-rs"
+  playbook="$BATS_TEST_TMPDIR/sudo-rs.yml"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'prompt=' \
+    'while (($#)); do' \
+    '  case "$1" in' \
+    '    -p|--prompt) prompt="$2"; shift 2 ;;' \
+    '    -u|--user) shift 2 ;;' \
+    '    -H|-S|-n|--stdin|--non-interactive) shift ;;' \
+    '    *) break ;;' \
+    '  esac' \
+    'done' \
+    'printf "[sudo: %s] Password:" "$prompt" >&2' \
+    'IFS= read -r password' \
+    '[[ "$password" == test-password ]]' \
+    'exec "$@"' >"$fake_sudo"
+  chmod +x "$fake_sudo"
+  printf '%s\n' \
+    '---' \
+    '- name: Exercise sudo-rs become handshake' \
+    '  hosts: localhost' \
+    '  gather_facts: false' \
+    '  vars:' \
+    '    ansible_become_password: test-password' \
+    '  tasks:' \
+    '    - name: Run through the emulated sudo-rs prompt' \
+    '      ansible.builtin.command: id -u' \
+    '      become: true' \
+    '      changed_when: false' >"$playbook"
+
+  run bash -c '
+    ANSIBLE_CONFIG="$1/../ansible/ansible.cfg" \
+      ANSIBLE_BECOME_PLUGINS="$1/../ansible/become_plugins" \
+      ANSIBLE_BECOME_EXE="$2" \
+      ANSIBLE_LOCAL_TEMP="$3" \
+      ansible-playbook "$4" -i localhost, -c local --become-method sudo_rs
+  ' bash "$BATS_TEST_DIRNAME" "$fake_sudo" "$BATS_TEST_TMPDIR/ansible-tmp" "$playbook"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"failed=0"* ]]
+}

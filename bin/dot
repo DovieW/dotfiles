@@ -208,12 +208,23 @@ def ansible_become_arguments() -> list[str]:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         return []
     require_commands(["sudo"], "Install sudo or run the privileged operation as root.")
+    sudo_path = Path(shutil.which("sudo") or "sudo")
+    try:
+        resolved_sudo = sudo_path.resolve()
+    except OSError:
+        resolved_sudo = sudo_path
+    become_method = (
+        ["--become-method", "sudo_rs"]
+        if resolved_sudo == Path("/usr/lib/cargo/bin/sudo")
+        or resolved_sudo.name == "sudo-rs"
+        else []
+    )
     if sys.stdin.isatty():
         print("Administrator access is required to update managed system packages.")
-        return ["--ask-become-pass"]
+        return ["--ask-become-pass", *become_method]
     passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
     if passwordless.returncode == 0:
-        return []
+        return become_method
     raise DotError(
         "Administrator access is required for managed system packages. "
         "Run this command in an interactive terminal so Ansible can request the password."
@@ -522,6 +533,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
         command.append("--check")
     command.extend(become_arguments)
     apply_env = os.environ.copy()
+    apply_env["ANSIBLE_CONFIG"] = str(ROOT / "ansible/ansible.cfg")
+    apply_env["ANSIBLE_BECOME_PLUGINS"] = str(ROOT / "ansible/become_plugins")
     if force_kde:
         apply_env["DOTFILES_KDE_PREFLIGHT_OK"] = "1"
     run(command, cwd=ROOT, env=apply_env)

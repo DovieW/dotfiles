@@ -76,13 +76,14 @@ class DotCliTests(unittest.TestCase):
             fake_bin.mkdir()
             ansible_marker = root / "ansible-ran"
             ansible_args = root / "ansible-args"
-            (fake_bin / "sudo").write_text("#!/bin/sh\nexit 99\n")
+            (fake_bin / "sudo-rs").write_text("#!/bin/sh\nexit 99\n")
+            (fake_bin / "sudo").symlink_to(fake_bin / "sudo-rs")
             (fake_bin / "ansible-playbook").write_text(
                 "#!/bin/sh\n"
                 'printf "%s\\n" "$@" > "$DOT_TEST_ANSIBLE_ARGS"\n'
                 'touch "$DOT_TEST_ANSIBLE_MARKER"\n'
             )
-            (fake_bin / "sudo").chmod(0o755)
+            (fake_bin / "sudo-rs").chmod(0o755)
             (fake_bin / "ansible-playbook").chmod(0o755)
             env = os.environ.copy()
             env["HOME"] = str(root / "home")
@@ -119,8 +120,22 @@ class DotCliTests(unittest.TestCase):
             os.close(fd)
             self.assertEqual(os.waitstatus_to_exitcode(status), 0, output.decode(errors="replace"))
             self.assertTrue(ansible_marker.exists())
-            self.assertIn("--ask-become-pass", ansible_args.read_text().splitlines())
+            arguments = ansible_args.read_text().splitlines()
+            self.assertIn("--ask-become-pass", arguments)
+            self.assertIn("sudo_rs", arguments)
             self.assertIn(b"Administrator access is required", output)
+
+    def test_sudo_rs_become_plugin_matches_wrapped_prompt_prefix(self):
+        plugin = (ROOT / "ansible/become_plugins/sudo_rs.py").read_text()
+        self.assertIn('self.prompt = f"[sudo: {self.prompt}]"', plugin)
+        self.assertIn('name = "sudo_rs"', plugin)
+        dot = DOT.read_text()
+        self.assertIn('Path("/usr/lib/cargo/bin/sudo")', dot)
+        self.assertIn('["--become-method", "sudo_rs"]', dot)
+        self.assertIn('apply_env["ANSIBLE_CONFIG"]', dot)
+        config = (ROOT / "ansible/ansible.cfg").read_text()
+        self.assertIn("become_plugins = become_plugins", config)
+        self.assertNotIn("become_ask_pass", config)
 
     def test_codex_manifest_tracks_official_stable_channel(self):
         manifest = json.loads((ROOT / "packages/codex.yml").read_text())
