@@ -29,6 +29,8 @@ else
   compinit -C -d "$_dot_comp_dump"
 fi
 
+[[ -r "$VP_HOME/env" ]] && source "$VP_HOME/env"
+
 bindkey -e
 bindkey '^[[A' history-beginning-search-backward
 bindkey '^[[B' history-beginning-search-forward

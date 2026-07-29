@@ -450,6 +450,9 @@ def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     force_kde = getattr(args, "force_kde", False)
     if args.direct or not command_exists("ansible-playbook"):
+        if profile.get("features", {}).get("vite_plus"):
+            mode = "--check" if args.check else "--ensure"
+            run([str(ROOT / "scripts/install-vite-plus"), mode], cwd=ROOT)
         if profile.get("features", {}).get("codex_remote_control"):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-codex"), mode], cwd=ROOT)
@@ -833,6 +836,14 @@ def cmd_codex_update(_args: argparse.Namespace) -> None:
         "The supervised Remote Control service keeps its current process until "
         "the next restart. Restarting it now would disconnect active remote sessions."
     )
+
+
+def cmd_vite_plus_install(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-vite-plus"), "--install"], cwd=ROOT)
+
+
+def cmd_vite_plus_update(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-vite-plus"), "--update"], cwd=ROOT)
 
 
 def cmd_capture_kde(args: argparse.Namespace) -> None:
@@ -1276,6 +1287,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
+    if profile.get("features", {}).get("vite_plus"):
+        vite_plus_check = run(
+            [str(ROOT / "scripts/install-vite-plus"), "--check"],
+            check=False,
+            capture=True,
+        )
+        vite_plus_detail = (vite_plus_check.stdout or vite_plus_check.stderr).strip()
+        failures += not doctor_check(
+            "Vite+",
+            vite_plus_check.returncode == 0,
+            vite_plus_detail or "managed Vite+ check failed",
+        )
     if profile.get("features", {}).get("codex_remote_control"):
         codex_check = run(
             [str(ROOT / "scripts/install-codex"), "--check"],
@@ -1356,6 +1379,12 @@ def build_parser() -> argparse.ArgumentParser:
     codex_install.set_defaults(func=cmd_codex_install)
     codex_update = codex_sub.add_parser("update")
     codex_update.set_defaults(func=cmd_codex_update)
+    vite_plus = sub.add_parser("vite-plus")
+    vite_plus_sub = vite_plus.add_subparsers(dest="vite_plus_command", required=True)
+    vite_plus_install = vite_plus_sub.add_parser("install")
+    vite_plus_install.set_defaults(func=cmd_vite_plus_install)
+    vite_plus_update = vite_plus_sub.add_parser("update")
+    vite_plus_update.set_defaults(func=cmd_vite_plus_update)
     repos = sub.add_parser("repos")
     repos_sub = repos.add_subparsers(dest="repos_command", required=True)
     sync = repos_sub.add_parser("sync")

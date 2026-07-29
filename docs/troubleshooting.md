@@ -72,6 +72,19 @@ Profile Zsh with:
 PROFILE_ZSH_STARTUP=1 zsh -i -c exit
 ```
 
+## Vite+ is missing or `vp env use` does not persist
+
+Run:
+
+```bash
+scripts/install-vite-plus --check
+vp env setup --env-only
+```
+
+Then open a new shell and run `vp env doctor`. Do not manually add Vite+
+installer lines to `.bashrc` or `.zshrc`; dotfiles sources the generated
+`$VP_HOME/env` file after shell completion initialization.
+
 Use `mbash` for an intentionally minimal shell and `fullbash` to switch back to
 the complete Bash profile.
 

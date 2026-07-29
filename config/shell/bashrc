@@ -8,6 +8,7 @@ esac
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/repos/dotfiles}"
 # shellcheck source=common.sh
 [ -r "$DOTFILES_ROOT/config/shell/common.sh" ] && source "$DOTFILES_ROOT/config/shell/common.sh"
+[ -r "$VP_HOME/env" ] && source "$VP_HOME/env"
 
 shopt -s autocd cdspell checkwinsize cmdhist globstar histappend
 bind "set completion-ignore-case on"

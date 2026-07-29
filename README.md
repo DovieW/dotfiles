@@ -47,6 +47,7 @@ dot apply --profile kubuntu-laptop
 dot doctor --profile kubuntu-laptop
 dot package add ripgrep --profile common-linux
 dot codex update
+dot vite-plus update
 dot repos sync --profile kubuntu-laptop
 dot capture kde
 dot diff kde
@@ -63,6 +64,10 @@ dot
 
 `dot save` opens that workflow directly. `dot save spectacle` limits the
 selector to Spectacle preferences and keyboard shortcuts.
+
+Vite+ is a pinned first-class tool on Kubuntu and WSL. New Bash and Zsh
+sessions load its generated environment so `vp env use` can update the current
+shell without allowing the upstream installer to rewrite managed rc files.
 
 See [Architecture](docs/architecture.md), [Maintenance](docs/maintenance.md),
 and [Troubleshooting](docs/troubleshooting.md).

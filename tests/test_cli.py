@@ -47,6 +47,13 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
 
+    def test_vite_plus_manifest_is_pinned_to_official_installer(self):
+        manifest = json.loads((ROOT / "packages/vite-plus.yml").read_text())
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertRegex(manifest["release"], r"^\d+\.\d+\.\d+$")
+        self.assertEqual(manifest["installer_url"], "https://vite.plus")
+        self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
+
     def test_kde_apply_refuses_uncaptured_local_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             fake_home = Path(directory)

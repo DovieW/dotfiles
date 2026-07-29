@@ -159,6 +159,19 @@
       when: dot_profile_data.features.codex_remote_control | default(false)
       tags: [packages, config]
 
+    - name: Ensure pinned Vite+ CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/scripts/install-vite-plus"
+          - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+      register: dot_vite_plus_install
+      changed_when: >-
+        'installed and verified' in dot_vite_plus_install.stdout or
+        'shell integration generated' in dot_vite_plus_install.stdout
+      check_mode: false
+      when: dot_profile_data.features.vite_plus | default(false)
+      tags: [packages, config, shell]
+
     - name: Apply portable configuration
       ansible.builtin.command:
         argv:

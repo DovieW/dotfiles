@@ -111,3 +111,18 @@ To update Codex:
 The update leaves an already-running Remote Control process alone because
 restarting it disconnects active remote sessions. The new release takes effect
 after the next service restart or reboot.
+
+## Vite+
+
+Vite+ is pinned in `packages/vite-plus.yml`. Normal apply installs a missing
+release but refuses an implicit version change. To upgrade:
+
+1. Review the current official installer.
+2. Update `release` and `installer_sha256` in `packages/vite-plus.yml`.
+3. Run `dot vite-plus update`.
+4. Open fresh Bash and Zsh sessions and run `vp env doctor`.
+5. Run the validation suite and commit the manifest update.
+
+The installer runs with `VP_NODE_MANAGER=no`; dotfiles owns shell startup.
+`vp env setup --env-only` generates the machine-local wrapper and completion
+integration without rewriting `.bashrc` or `.zshrc`.

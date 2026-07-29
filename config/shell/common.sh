@@ -5,6 +5,7 @@ export REPOS="${REPOS:-$HOME/repos}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+export VP_HOME="${VP_HOME:-$HOME/.vite-plus}"
 export CLICOLOR=1
 
 dot_path_prepend() {
@@ -20,7 +21,7 @@ dot_path_prepend "$HOME/bin"
 dot_path_prepend "$HOME/.cargo/bin"
 dot_path_prepend "$HOME/go/bin"
 dot_path_prepend "$HOME/.bun/bin"
-dot_path_prepend "$HOME/.vite-plus/bin"
+dot_path_prepend "$VP_HOME/bin"
 dot_path_prepend "/home/linuxbrew/.linuxbrew/bin"
 export PATH
 

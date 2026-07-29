@@ -50,3 +50,20 @@
   [ "$status" -eq 1 ]
   [[ "$output" == *"Review packages/codex.yml, then run: dot codex update"* ]]
 }
+
+@test "Vite+ installer recognizes the pinned managed release" {
+  release="$(python3 -c 'import json; print(json.load(open("'"$BATS_TEST_DIRNAME"'/../packages/vite-plus.yml"))["release"])')"
+  fake_home="$BATS_TEST_TMPDIR/vite-plus-home"
+  fake_release="$fake_home/.vite-plus/$release/bin"
+  mkdir -p "$fake_release" "$fake_home/.vite-plus/bin"
+  printf '#!/bin/sh\nprintf "vp v%s\\n" "%s"\n' "$release" "$release" >"$fake_release/vp"
+  chmod +x "$fake_release/vp"
+  ln -s "$fake_home/.vite-plus/$release" "$fake_home/.vite-plus/current"
+  ln -s "$fake_release/vp" "$fake_home/.vite-plus/bin/vp"
+  printf '#!/bin/sh\n' >"$fake_home/.vite-plus/env"
+
+  run env HOME="$fake_home" VP_HOME="$fake_home/.vite-plus" \
+    "$BATS_TEST_DIRNAME/../scripts/install-vite-plus" --check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Vite+ $release is installed from the managed release"* ]]
+}

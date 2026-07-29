@@ -23,6 +23,7 @@ Linux package ownership is intentional:
 - Homebrew owns modern cross-distribution CLI tools.
 - Checksum-pinned official Debian releases own Bitwarden Desktop and Obsidian.
 - A checksum-pinned official installer owns the standalone Codex CLI release.
+- A checksum-pinned official installer owns Vite+ on Kubuntu and WSL.
 - Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
@@ -35,6 +36,19 @@ Ansible to install portable links idempotently.
 
 `bin/dot.ps1` provides Windows prerequisite checks and configuration. It never
 installs applications or prerequisites.
+
+## JavaScript toolchain
+
+Vite+ is the primary JavaScript toolchain entry point on common Linux profiles.
+Its release and reviewed installer checksum live in `packages/vite-plus.yml`.
+Bootstrap installs it with Node-manager shell mutation disabled, then generates
+the supported environment file under `VP_HOME`.
+
+The shared shell configuration exports `VP_HOME` and places `VP_HOME/bin` on
+`PATH`. Bash and Zsh source the generated environment after their completion
+systems are available, enabling the `vp env use` current-shell wrapper and
+dynamic completions. Generated runtimes, package managers, shims, caches, and
+the environment file remain machine-local under `~/.vite-plus`.
 
 ## Device identity and secrets
 
