@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+git_dir="$(git rev-parse --git-dir 2>/dev/null)" || {
+  echo "git-abort must run inside a Git repository." >&2
+  exit 1
+}
+
+if [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+  exec git rebase --abort
+elif [[ -f "$git_dir/MERGE_HEAD" ]]; then
+  exec git merge --abort
+elif [[ -f "$git_dir/CHERRY_PICK_HEAD" ]]; then
+  exec git cherry-pick --abort
+elif [[ -f "$git_dir/REVERT_HEAD" ]]; then
+  exec git revert --abort
+else
+  echo "No merge, rebase, cherry-pick, or revert is in progress."
+fi

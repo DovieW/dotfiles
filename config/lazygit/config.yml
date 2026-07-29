@@ -1,0 +1,7 @@
+reporting: "off"
+disableStartupPopups: true
+expandFocusedSidePanel: true
+git:
+  paging:
+    colorArg: always
+    pager: delta --dark --paging=never

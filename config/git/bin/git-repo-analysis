@@ -1,0 +1,608 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+const DEFAULTS = {
+  since: '1 year ago',
+  recentSince: '6 months ago',
+  top: 10,
+  velocityMonths: 18,
+  noColor: false,
+  json: false,
+  repoPath: process.cwd(),
+};
+
+function printHelp() {
+  console.log(`git-repo-analysis
+
+Usage:
+  git-repo-analysis [path] [options]
+
+Options:
+  --since <range>          History window for churn, bugs, and firefighting
+                           (default: "1 year ago")
+  --recent-since <range>   Recent window for contributor activity
+                           (default: "6 months ago")
+  --top <n>                Number of rows to show in ranked lists (default: 10)
+  --velocity-months <n>    Number of months to show in commit velocity (default: 18)
+  --json                   Emit machine-readable JSON
+  --no-color               Disable ANSI colors
+  --help                   Show this help
+`);
+}
+
+function parseArgs(argv) {
+  const options = { ...DEFAULTS };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === '--help' || arg === '-h') {
+      options.help = true;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
+      continue;
+    }
+
+    if (arg === '--no-color') {
+      options.noColor = true;
+      continue;
+    }
+
+    if (arg === '--since' || arg === '--recent-since' || arg === '--top' || arg === '--velocity-months') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`Missing value for ${arg}`);
+      }
+
+      if (arg === '--since') {
+        options.since = value;
+      } else if (arg === '--recent-since') {
+        options.recentSince = value;
+      } else if (arg === '--top') {
+        options.top = parsePositiveInteger(value, '--top');
+      } else if (arg === '--velocity-months') {
+        options.velocityMonths = parsePositiveInteger(value, '--velocity-months');
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown option: ${arg}`);
+    }
+
+    if (options.repoPath !== DEFAULTS.repoPath) {
+      throw new Error('Only one repository path can be provided');
+    }
+
+    options.repoPath = path.resolve(arg);
+  }
+
+  return options;
+}
+
+function parsePositiveInteger(value, flagName) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${flagName} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function git(cwd, args, { allowFailure = false } = {}) {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trimEnd();
+  } catch (error) {
+    if (allowFailure) {
+      return '';
+    }
+
+    const stderr = (error.stderr || '').toString().trim();
+    const command = `git ${args.join(' ')}`;
+    const message = error.code === 'ENOBUFS'
+      ? `${command} produced too much output; try narrowing the history window`
+      : (stderr || `${command} failed`);
+    throw new Error(message);
+  }
+}
+
+function parseShortlog(text) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.+)$/);
+      return match
+        ? { commits: Number.parseInt(match[1], 10), author: match[2] }
+        : null;
+    })
+    .filter(Boolean);
+}
+
+function countEntries(text) {
+  const counts = new Map();
+
+  for (const line of text.split('\n')) {
+    const entry = line.trim();
+    if (!entry) {
+      continue;
+    }
+    counts.set(entry, (counts.get(entry) || 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+function countMonths(text) {
+  const counts = new Map();
+
+  for (const line of text.split('\n')) {
+    const date = line.trim();
+    if (!date) {
+      continue;
+    }
+
+    const month = date.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      continue;
+    }
+
+    counts.set(month, (counts.get(month) || 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([month, count]) => ({ month, count }))
+    .sort((left, right) => left.month.localeCompare(right.month));
+}
+
+function monthKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+function monthStartOffset(monthOffset) {
+  const date = new Date();
+  date.setDate(1);
+  date.setHours(0, 0, 0, 0);
+  date.setMonth(date.getMonth() + monthOffset);
+  return date;
+}
+
+function fillRecentMonths(monthCounts, monthCount) {
+  const countsByMonth = new Map(monthCounts.map((entry) => [entry.month, entry.count]));
+  const start = monthStartOffset(-(monthCount - 1));
+  const months = [];
+
+  for (let index = 0; index < monthCount; index += 1) {
+    const date = new Date(start);
+    date.setMonth(start.getMonth() + index);
+    const month = monthKey(date);
+    months.push({ month, count: countsByMonth.get(month) || 0 });
+  }
+
+  return months;
+}
+
+function percent(value, total) {
+  if (!total) {
+    return 0;
+  }
+  return (value / total) * 100;
+}
+
+function truncate(value, width) {
+  if (value.length <= width) {
+    return value;
+  }
+  if (width <= 3) {
+    return value.slice(0, width);
+  }
+  return `${value.slice(0, width - 3)}...`;
+}
+
+function truncateMiddle(value, width) {
+  if (value.length <= width) {
+    return value;
+  }
+  if (width <= 5) {
+    return truncate(value, width);
+  }
+
+  const left = Math.ceil((width - 3) / 2);
+  const right = Math.floor((width - 3) / 2);
+  return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
+}
+
+function getTerminalWidth() {
+  return process.stdout.isTTY ? (process.stdout.columns || 100) : 100;
+}
+
+function renderTable(headers, rows, aligns = []) {
+  if (rows.length === 0) {
+    return '(no data)';
+  }
+
+  const terminalWidth = getTerminalWidth();
+  const widths = headers.map((header, columnIndex) => {
+    const rowWidth = rows.reduce((max, row) => {
+      return Math.max(max, String(row[columnIndex] ?? '').length);
+    }, 0);
+    return Math.max(header.length, rowWidth);
+  });
+
+  const lastColumn = widths.length - 1;
+  const totalWidth = widths.reduce((sum, width) => sum + width, 0) + ((headers.length - 1) * 2);
+  if (totalWidth > terminalWidth && lastColumn >= 0) {
+    const overflow = totalWidth - terminalWidth;
+    widths[lastColumn] = Math.max(headers[lastColumn].length + 6, widths[lastColumn] - overflow);
+  }
+
+  const formatRow = (cells) =>
+    cells
+      .map((cell, columnIndex) => {
+        const raw = String(cell ?? '');
+        const value = columnIndex === lastColumn ? truncate(raw, widths[columnIndex]) : raw;
+        return aligns[columnIndex] === 'right'
+          ? value.padStart(widths[columnIndex])
+          : value.padEnd(widths[columnIndex]);
+      })
+      .join('  ');
+
+  return [
+    formatRow(headers),
+    widths.map((width) => '-'.repeat(width)).join('  '),
+    ...rows.map(formatRow),
+  ].join('\n');
+}
+
+function makeBar(count, maxCount, width = 24) {
+  if (!count || !maxCount) {
+    return '';
+  }
+  const barWidth = Math.max(1, Math.round((count / maxCount) * width));
+  return '#'.repeat(barWidth);
+}
+
+function renderSection(title, color, char = '-') {
+  return `${color.bold(color.cyan(title))}\n${char.repeat(title.length)}`;
+}
+
+function renderMetadata(entries) {
+  const labelWidth = entries.reduce((max, [label]) => Math.max(max, label.length), 0);
+  return entries.map(([label, value]) => `${label.padEnd(labelWidth)} : ${value}`).join('\n');
+}
+
+function renderStatusPill(level, color) {
+  const text = `[${level}]`.padEnd(6);
+  if (level === 'HIGH') {
+    return color.red(text);
+  }
+  if (level === 'WARN') {
+    return color.yellow(text);
+  }
+  if (level === 'OK') {
+    return color.green(text);
+  }
+  return color.cyan(text);
+}
+
+function renderSummaryItem(level, label, value, color) {
+  return `${renderStatusPill(level, color)} ${label.padEnd(14)} ${value}`;
+}
+
+function renderRankedBars(entries, {
+  labelKey,
+  countKey,
+  extra,
+  barWidth = 18,
+  empty = '(no data)',
+}) {
+  if (entries.length === 0) {
+    return empty;
+  }
+
+  const terminalWidth = getTerminalWidth();
+  const maxCount = entries.reduce((max, entry) => Math.max(max, entry[countKey]), 0);
+  const rankWidth = String(entries.length).length;
+  const countWidth = String(maxCount).length;
+
+  return entries.map((entry, index) => {
+    const prefix = `${String(index + 1).padStart(rankWidth)}. ${String(entry[countKey]).padStart(countWidth)} ${makeBar(entry[countKey], maxCount, barWidth).padEnd(barWidth)} `;
+    const extraText = extra ? extra(entry, index) : '';
+    const availableWidth = Math.max(20, terminalWidth - prefix.length - extraText.length);
+    const label = truncateMiddle(String(entry[labelKey]), availableWidth);
+    return `${prefix}${label}${extraText}`;
+  }).join('\n');
+}
+
+function renderTimeline(entries, {
+  labelKey,
+  countKey,
+  barWidth = 24,
+  empty = '(no data)',
+}) {
+  if (entries.length === 0) {
+    return empty;
+  }
+
+  const labelWidth = entries.reduce((max, entry) => Math.max(max, String(entry[labelKey]).length), 0);
+  const maxCount = entries.reduce((max, entry) => Math.max(max, entry[countKey]), 0);
+  const countWidth = String(maxCount).length;
+
+  return entries.map((entry) => {
+    const label = String(entry[labelKey]).padEnd(labelWidth);
+    const count = String(entry[countKey]).padStart(countWidth);
+    const bar = makeBar(entry[countKey], maxCount, barWidth);
+    return `${label}  ${count}  ${bar}`;
+  }).join('\n');
+}
+
+function renderRiskList(entries) {
+  if (entries.length === 0) {
+    return 'No overlap between churn and bug hotspots.';
+  }
+
+  const terminalWidth = getTerminalWidth();
+
+  return entries.map((entry, index) => {
+    const prefix = `${index + 1}. `;
+    const file = truncateMiddle(entry.file, Math.max(24, terminalWidth - prefix.length));
+    const details = `   churn ${entry.churn} | bugs ${entry.bugs} | last ${entry.lastTouched} | owner ${entry.owner}`;
+    return `${prefix}${file}\n${truncateMiddle(details, Math.max(24, terminalWidth))}`;
+  }).join('\n');
+}
+
+function buildWatchlist(churn, bugs, cwd, limit) {
+  const churnMap = new Map(churn.map((entry) => [entry.name, entry.count]));
+  const bugMap = new Map(bugs.map((entry) => [entry.name, entry.count]));
+
+  return churn
+    .filter((entry) => bugMap.has(entry.name))
+    .map((entry) => {
+      const lastTouch = git(
+        cwd,
+        ['log', '-1', '--format=%ad%x09%an', '--date=short', '--', entry.name],
+        { allowFailure: true },
+      );
+      const [lastTouched = '-', owner = '-'] = lastTouch.split('\t');
+
+      return {
+        file: entry.name,
+        churn: entry.count,
+        bugs: bugMap.get(entry.name),
+        lastTouched,
+        owner,
+      };
+    })
+    .sort((left, right) => {
+      if (right.bugs !== left.bugs) {
+        return right.bugs - left.bugs;
+      }
+      return right.churn - left.churn || left.file.localeCompare(right.file);
+    })
+    .slice(0, limit);
+}
+
+function analyzeRepository(options) {
+  const repoRoot = git(options.repoPath, ['rev-parse', '--show-toplevel']).trim();
+  const gitCwd = repoRoot;
+  const branch = git(gitCwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const remote = git(gitCwd, ['config', '--get', 'remote.origin.url'], { allowFailure: true }) || '(no origin)';
+
+  const churn = countEntries(
+    git(gitCwd, ['log', `--since=${options.since}`, '--format=', '--name-only']),
+  );
+  const bugs = countEntries(
+    git(gitCwd, [
+      'log',
+      `--since=${options.since}`,
+      '-i',
+      '-E',
+      '--grep=fix|bug|broken|issue|error|regression',
+      '--format=',
+      '--name-only',
+    ]),
+  );
+  const contributors = parseShortlog(git(gitCwd, ['shortlog', '-sn', '--no-merges', 'HEAD']));
+  const recentContributors = parseShortlog(
+    git(gitCwd, ['shortlog', '-sn', '--no-merges', `--since=${options.recentSince}`, 'HEAD']),
+  );
+  const velocityStart = monthStartOffset(-(options.velocityMonths - 1));
+  const velocity = fillRecentMonths(
+    countMonths(
+      git(gitCwd, ['log', `--since=${velocityStart.toISOString().slice(0, 10)}`, '--format=%ad', '--date=short']),
+    ),
+    options.velocityMonths,
+  );
+  const firefighting = git(gitCwd, [
+    'log',
+    '--oneline',
+    `--since=${options.since}`,
+    '-i',
+    '-E',
+    '--grep=revert|hotfix|emergency|rollback|incident',
+  ])
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const totalContributorCommits = contributors.reduce((sum, entry) => sum + entry.commits, 0);
+  const topContributor = contributors[0] || null;
+  const topContributorShare = topContributor
+    ? percent(topContributor.commits, totalContributorCommits)
+    : 0;
+  const topContributorRecentlyActive = topContributor
+    ? recentContributors.some((entry) => entry.author === topContributor.author)
+    : false;
+
+  const watchlist = buildWatchlist(churn, bugs, gitCwd, Math.min(options.top, 5));
+  return {
+    repoRoot,
+    branch,
+    remote,
+    options,
+    contributors,
+    recentContributors,
+    topContributor,
+    topContributorShare,
+    topContributorRecentlyActive,
+    totalContributorCommits,
+    totalRecentContributorCommits: recentContributors.reduce((sum, entry) => sum + entry.commits, 0),
+    churn: churn.slice(0, options.top),
+    bugs: bugs.slice(0, options.top),
+    watchlist,
+    velocity,
+    firefightingCount: firefighting.length,
+    firefighting: firefighting.slice(0, options.top),
+  };
+}
+
+function renderText(report, useColor) {
+  const color = {
+    bold: (value) => (useColor ? `\u001b[1m${value}\u001b[22m` : value),
+    cyan: (value) => (useColor ? `\u001b[36m${value}\u001b[39m` : value),
+    yellow: (value) => (useColor ? `\u001b[33m${value}\u001b[39m` : value),
+    red: (value) => (useColor ? `\u001b[31m${value}\u001b[39m` : value),
+    green: (value) => (useColor ? `\u001b[32m${value}\u001b[39m` : value),
+  };
+
+  const repoName = path.basename(report.repoRoot);
+  const title = `Git repo analysis: ${repoName} (${report.branch})`;
+
+  let busFactorLevel = 'OK';
+  let busFactorValue = 'No clear concentration risk.';
+  if (report.topContributor) {
+    busFactorValue = `${report.topContributor.author} owns ${report.topContributorShare.toFixed(1)}% of non-merge commits`;
+    if (report.topContributorShare >= 60 && !report.topContributorRecentlyActive) {
+      busFactorLevel = 'HIGH';
+      busFactorValue = `${busFactorValue}; not active since ${report.options.recentSince}`;
+    } else if (report.topContributorShare >= 60) {
+      busFactorLevel = 'WARN';
+    }
+  }
+
+  const watchlistLevel = report.watchlist.length >= 3 ? 'WARN' : report.watchlist.length > 0 ? 'INFO' : 'OK';
+  const firefightingLevel = report.firefightingCount >= 5 ? 'WARN' : report.firefightingCount > 0 ? 'INFO' : 'OK';
+  const contributorLevel = report.recentContributors.length <= 1 ? 'WARN' : 'INFO';
+
+  return [
+    color.bold(color.cyan(title)),
+    '='.repeat(title.length),
+    renderMetadata(
+      [
+        ['repo', report.repoRoot],
+        ['remote', truncateMiddle(report.remote, Math.max(32, getTerminalWidth() - 10))],
+        ['window', `${report.options.since} (recent activity: ${report.options.recentSince})`],
+      ],
+    ),
+    '',
+    renderSection('Summary', color),
+    renderSummaryItem(
+      contributorLevel,
+      'contributors',
+      `${report.contributors.length} total, ${report.recentContributors.length} active in the recent window`,
+      color,
+    ),
+    renderSummaryItem(busFactorLevel, 'bus factor', busFactorValue, color),
+    renderSummaryItem(
+      watchlistLevel,
+      'watchlist',
+      report.watchlist.length > 0
+        ? `${report.watchlist.length} files appear in both churn and bug hotspots`
+        : 'No overlap between churn and bug hotspots',
+      color,
+    ),
+    renderSummaryItem(
+      firefightingLevel,
+      'firefighting',
+      `${report.firefightingCount} matching commits in ${report.options.since}`,
+      color,
+    ),
+    '',
+    renderSection('Read first: top risk files', color),
+    renderRiskList(report.watchlist),
+    '',
+    renderSection('Top churn hotspots', color),
+    renderRankedBars(report.churn, {
+      labelKey: 'name',
+      countKey: 'count',
+    }),
+    '',
+    renderSection('Bug hotspots', color),
+    renderRankedBars(report.bugs, {
+      labelKey: 'name',
+      countKey: 'count',
+    }),
+    '',
+    renderSection('Contributors', color),
+    renderRankedBars(report.contributors.slice(0, report.options.top), {
+      labelKey: 'author',
+      countKey: 'commits',
+      extra: (entry) => `  ${percent(entry.commits, report.totalContributorCommits).toFixed(1)}%`,
+    }),
+    '',
+    renderSection(`Recent contributors (${report.options.recentSince})`, color),
+    renderRankedBars(report.recentContributors.slice(0, report.options.top), {
+      labelKey: 'author',
+      countKey: 'commits',
+      extra: (entry) => `  ${percent(entry.commits, report.totalRecentContributorCommits).toFixed(1)}%`,
+      empty: 'No recent non-merge commits found.',
+    }),
+    '',
+    renderSection(`Commit velocity (${report.velocity.length} months shown)`, color),
+    renderTimeline(report.velocity, {
+      labelKey: 'month',
+      countKey: 'count',
+      barWidth: 24,
+    }),
+    '',
+    renderSection('Firefighting commits', color),
+    report.firefighting.length > 0 ? report.firefighting.map((line) => `- ${line}`).join('\n') : '(none found)',
+  ].join('\n');
+}
+
+function main() {
+  try {
+    const options = parseArgs(process.argv.slice(2));
+    if (options.help) {
+      printHelp();
+      return;
+    }
+
+    const report = analyzeRepository(options);
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+
+    const useColor = !options.noColor && process.stdout.isTTY;
+    console.log(renderText(report, useColor));
+  } catch (error) {
+    const message = String(error.message || '');
+    if (message.includes('not a git repository')) {
+      console.error('git-repo-analysis: current directory is not inside a Git repository. Run it from a repo or pass a repo path.');
+    } else {
+      console.error(`git-repo-analysis: ${message}`);
+    }
+    process.exitCode = 1;
+  }
+}
+
+main();

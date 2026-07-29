@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/repos/dotfiles}"
+RCFILE="$DOTFILES_ROOT/config/shell/minimal-bashrc"
+ENVFILE="$DOTFILES_ROOT/config/shell/minimal-env.sh"
+
+if [[ ! -r "$RCFILE" || ! -r "$ENVFILE" ]]; then
+  echo "Minimal Bash configuration is missing under $DOTFILES_ROOT/config/shell." >&2
+  exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+  exec bash --noprofile --rcfile "$RCFILE" -i
+fi
+
+export BASH_ENV="$ENVFILE"
+exec bash --noprofile --norc "$@"

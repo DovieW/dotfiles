@@ -1,0 +1,13 @@
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/repos/dotfiles}"
+# shellcheck source=minimal-env.sh
+[ -r "$DOTFILES_ROOT/config/shell/minimal-env.sh" ] && source "$DOTFILES_ROOT/config/shell/minimal-env.sh"
+
+HISTCONTROL=ignoreboth
+HISTSIZE=5000
+HISTFILESIZE=10000
+shopt -s histappend
+PS1='\u@\h:\w\$ '
+
+fullbash() {
+  exec bash --rcfile "$HOME/.bashrc" -i
+}

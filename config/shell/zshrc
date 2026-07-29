@@ -1,0 +1,79 @@
+# Powerlevel10k instant prompt must remain near the top.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+if [[ -n ${PROFILE_ZSH_STARTUP:-} ]]; then
+  zmodload zsh/zprof 2>/dev/null || true
+fi
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/repos/dotfiles}"
+[[ -r "$DOTFILES_ROOT/config/shell/common.sh" ]] && source "$DOTFILES_ROOT/config/shell/common.sh"
+
+HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
+mkdir -p "${HISTFILE:h}"
+HISTSIZE=500000
+SAVEHIST=500000
+setopt AUTO_CD AUTO_PUSHD EXTENDED_GLOB GLOB_DOTS INTERACTIVE_COMMENTS
+setopt SHARE_HISTORY HIST_IGNORE_ALL_DUPS HIST_IGNORE_DUPS HIST_IGNORE_SPACE
+setopt HIST_REDUCE_BLANKS HIST_NO_STORE
+unsetopt BEEP FLOW_CONTROL
+
+autoload -Uz compinit
+_dot_comp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
+mkdir -p "$_dot_comp_dir"
+_dot_comp_dump="$_dot_comp_dir/zcompdump-$ZSH_VERSION"
+if [[ ! -f "$_dot_comp_dump" || "$_dot_comp_dump" -ot "$DOTFILES_ROOT/config/shell/zshrc" ]]; then
+  compinit -d "$_dot_comp_dump"
+else
+  compinit -C -d "$_dot_comp_dump"
+fi
+
+bindkey -e
+bindkey '^[[A' history-beginning-search-backward
+bindkey '^[[B' history-beginning-search-forward
+bindkey '^P' history-beginning-search-backward
+bindkey '^N' history-beginning-search-forward
+bindkey '^[[1~' beginning-of-line
+bindkey '^[[4~' end-of-line
+bindkey '^[[1;5C' forward-word
+bindkey '^[[1;5D' backward-word
+bindkey '\e[3~' delete-char
+
+if command -v fzf >/dev/null 2>&1; then
+  eval "$(fzf --zsh 2>/dev/null)" || true
+fi
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init zsh)"
+fi
+
+_dot_brew_prefix=""
+if command -v brew >/dev/null 2>&1; then
+  _dot_brew_prefix="$(brew --prefix 2>/dev/null)"
+fi
+
+_dot_source_first() {
+  local candidate
+  for candidate in "$@"; do
+    [[ -r "$candidate" ]] && source "$candidate" && return 0
+  done
+  return 1
+}
+
+_dot_source_first \
+  "$_dot_brew_prefix/share/powerlevel10k/powerlevel10k.zsh-theme" \
+  /usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme || true
+[[ -r "$DOTFILES_ROOT/config/shell/p10k.zsh" ]] && source "$DOTFILES_ROOT/config/shell/p10k.zsh"
+
+_dot_source_first \
+  "$_dot_brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh || true
+_dot_source_first \
+  "$_dot_brew_prefix/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" \
+  /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh || true
+
+ssh() { dot_ssh_select "$@"; }
+
+if [[ -n ${PROFILE_ZSH_STARTUP:-} ]]; then
+  zprof
+fi

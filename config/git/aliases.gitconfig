@@ -1,0 +1,48 @@
+[alias]
+	a = add
+	aa = add --all
+	s = status
+	ss = status --short
+	c = commit
+	cm = commit -m
+	ca = commit -a
+	cam = commit -am
+	amend = commit --amend --no-edit
+	amendm = commit --amend --message
+	d = diff
+	ds = diff --staged
+	unmerged = diff --name-only --diff-filter=U
+	shw = show --diff-merges=first-parent
+	f = fetch
+	p = push
+	pf = push --force-with-lease
+	pl = pull
+	plp = !git pull origin $(git branch --show-current)
+	pushall = !git remote | xargs -n1 git push --all
+	l = log --graph --no-decorate -10 --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar%Creset %C(green)-%an-%Creset %s'
+	lf = log --name-only
+	la = log --oneline -10 --decorate --all
+	lp = log --oneline --decorate
+	lpa = log --oneline --decorate --all
+	ll = log -10 --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar (%cr)%Creset %C(green)-%an-%Creset%C(red)%C(bold)%d%Creset %s' --graph
+	lla = log -10 --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar (%cr)%Creset %C(green)-%an-%Creset%C(red)%C(bold)%d%Creset %s' --graph --all
+	llp = log --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar (%cr)%Creset %C(green)-%an-%Creset%C(red)%C(bold)%d%Creset %s' --graph
+	llpa = log --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar (%cr)%Creset %C(green)-%an-%Creset%C(red)%C(bold)%d%Creset %s' --graph --all
+	lls = log --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar (%cr)%Creset %C(green)-%an-%Creset%C(red)%C(bold)%d%Creset %s' --graph --stat
+	lll = log --pretty=fuller --graph --stat --patch
+	llla = log --pretty=fuller --graph --stat --patch --all
+	lr = l @{upstream}
+	llr = ll @{upstream}
+	lllr = lll @{upstream}
+	lrp = l @{push}
+	llrp = ll @{push}
+	lllrp = lll @{push}
+	aliases = config --get-regexp ^alias\\.
+	current-branch = branch --show-current
+	ce = config --edit
+	cge = config --global --edit
+	cse = config --system --edit
+	cat = cat-file -p
+	dstash = stash show -p -w stash@{0}
+	abort = !git-abort
+	switcher = !git-switcher

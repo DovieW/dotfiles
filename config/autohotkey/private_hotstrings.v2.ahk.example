@@ -1,0 +1,6 @@
+; Copy this ignored template to private_hotstrings.v2.ahk on the Windows host.
+; Keep personal details, work addresses, and internal URLs out of this repository.
+
+:*:mail@:: {
+    SendText "person@example.invalid"
+}

@@ -1,0 +1,8 @@
+gui:
+  sidePanelWidth: 0.222
+  expandFocusedSidePanel: true
+  returnImmediately: true
+  showAllContainers: true
+logs:
+  # timestamps: true
+  tail: '250'

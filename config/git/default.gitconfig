@@ -1,0 +1,47 @@
+[init]
+	defaultBranch = master
+[pull]
+	rebase = false
+[merge]
+	conflictStyle = zdiff3
+[core]
+	quotePath = false
+	editor = vim
+	fileMode = true
+	autocrlf = input
+	excludesFile = ~/repos/dotfiles/config/git/global-ignore
+	ignoreCase = false
+[rerere]
+	enabled = true
+[column]
+	ui = auto
+[branch]
+	sort = -committerdate
+[rebase]
+	autoStash = true
+	autoSquash = true
+	updateRefs = true
+[push]
+	default = current
+	autoSetupRemote = true
+	followTags = true
+[commit]
+	verbose = true
+	gpgSign = true
+[help]
+	autoCorrect = prompt
+[diff]
+	algorithm = histogram
+	colorMoved = default
+	context = 10
+	mnemonicPrefix = true
+	renames = true
+[log]
+	date = iso
+[fetch]
+	prune = true
+	pruneTags = true
+	all = true
+	tags = true
+[gpg]
+	format = ssh

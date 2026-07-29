@@ -1,0 +1,45 @@
+# shellcheck shell=bash
+
+case $- in
+  *i*) ;;
+  *) return ;;
+esac
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/repos/dotfiles}"
+# shellcheck source=common.sh
+[ -r "$DOTFILES_ROOT/config/shell/common.sh" ] && source "$DOTFILES_ROOT/config/shell/common.sh"
+
+shopt -s autocd cdspell checkwinsize cmdhist globstar histappend
+bind "set completion-ignore-case on"
+bind '"\e[A": history-search-backward'
+bind '"\e[B": history-search-forward'
+bind '"\C-p": history-search-backward'
+bind '"\C-n": history-search-forward'
+
+HISTCONTROL="erasedups:ignoreboth"
+HISTIGNORE="&:[ ]*:exit:ls:bg:fg:history:clear"
+HISTSIZE=100000
+HISTFILESIZE=100000
+HISTTIMEFORMAT='%F %T '
+
+__dot_history_sync() {
+  history -a
+  history -n
+}
+case ";${PROMPT_COMMAND:-};" in
+  *";__dot_history_sync;"*) ;;
+  *) PROMPT_COMMAND="__dot_history_sync${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+esac
+
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init bash)"
+fi
+if command -v fzf >/dev/null 2>&1 && fzf --bash >/dev/null 2>&1; then
+  eval "$(fzf --bash)"
+elif [ -r "$HOME/.fzf.bash" ]; then
+  source "$HOME/.fzf.bash"
+fi
+
+ssh() { dot_ssh_select "$@"; }
+
+PS1='\u@\h:\w\$ '

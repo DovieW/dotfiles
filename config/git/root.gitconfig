@@ -1,0 +1,5 @@
+[include]
+	path = ~/repos/dotfiles/config/git/default.gitconfig
+	path = ~/repos/dotfiles/config/git/aliases.gitconfig
+	path = ~/repos/dotfiles/config/git/delta.gitconfig
+	path = ~/.config/dotfiles/git-active.gitconfig

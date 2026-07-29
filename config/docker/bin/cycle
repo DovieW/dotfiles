@@ -1,0 +1,21 @@
+#!/bin/bash
+
+getContainer() {
+    #docker ps -a --format "{{.Names}}" | grep -E "(^|_)$1($|_)"
+    docker ps --all --format "{{.Names}}" | grep --ignore-case "$1"
+}
+
+for arg in "$@"; do
+    CONTAINER_NAME=`getContainer $arg`
+    if [[ $CONTAINER_NAME != '' ]]; then
+        echo "Restarting "$CONTAINER_NAME":"
+        docker container restart -t 0 $CONTAINER_NAME &
+    else
+        echo "No containers matching $arg found."
+    fi
+done
+
+wait $(jobs -p)
+
+dc-extras &> ~/dc-extras.log &
+

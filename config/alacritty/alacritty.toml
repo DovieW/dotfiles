@@ -1,0 +1,110 @@
+
+[terminal.shell]
+# program = "/bin/bash"
+program = "zsh"
+args = [ "-lc", "exec tmux new-session -A -s main" ]
+
+[env]
+TERM = "xterm-256color"
+
+[window]
+opacity = 1.0
+# blur = true
+decorations = "None"
+startup_mode = "Maximized"
+dynamic_title = true
+# padding = {x = 10, y = 10}
+
+[font]
+size = 12
+normal = { family = "Cascadia Code", style = "Regular" }
+# normal = { family = "MesloLGS NF", style = "Regular" }
+
+[scrolling]
+history = 15000
+
+[bell]
+
+[selection]
+save_to_clipboard = true
+
+[mouse]
+hide_when_typing = true
+
+[cursor]
+# style = { shape = "Beam", blinking = "Never" }
+# vi_mode_style = { shape = "Block", blinking = "Never" }
+
+[terminal]
+osc52 = "CopyPaste"
+
+# [hints]
+# enabled = [
+#   {hyperlinks = true, command = "open", binding = {mods = "Command", key = "Period"}}
+# ]
+
+# [[keyboard.bindings]]
+# action = "SpawnNewInstance"
+# key = "Return"
+# mods = "Control|Shift"
+
+[colors.primary]
+# background = "#0d1117"
+background = "#07090d"
+
+[general]
+live_config_reload = true
+# bright_foreground = "#CDD6F4"
+# dim_foreground = "#CDD6F4"
+# foreground = "#CDD6F4"
+# [colors.vi_mode_cursor]
+# cursor = "#B4BEFE"
+# text = "#1E1E2E"
+# [[colors.indexed_colors]]
+# color = "#F5E0DC"
+# index = 17
+# [colors.bright]
+# black = "#585B70"
+# blue = "#89B4FA"
+# cyan = "#94E2D5"
+# green = "#A6E3A1"
+# magenta = "#F5C2E7"
+# red = "#F38BA8"
+# white = "#A6ADC8"
+# yellow = "#F9E2AF"
+# [colors.cursor]
+# cursor = "#F5E0DC"
+# text = "#1E1E2E"
+# [colors.dim]
+# black = "#45475A"
+# blue = "#89B4FA"
+# cyan = "#94E2D5"
+# green = "#A6E3A1"
+# magenta = "#F5C2E7"
+# red = "#F38BA8"
+# white = "#BAC2DE"
+# yellow = "#F9E2AF"
+# [colors.hints.end]
+# background = "#A6ADC8"
+# foreground = "#1E1E2E"
+# [colors.hints.start]
+# background = "#F9E2AF"
+# foreground = "#1E1E2E"
+# [colors.normal]
+# black = "#45475A"
+# blue = "#89B4FA"
+# cyan = "#94E2D5"
+# green = "#A6E3A1"
+# magenta = "#F5C2E7"
+# red = "#F38BA8"
+# white = "#BAC2DE"
+# yellow = "#F9E2AF"
+# [colors.search.focused_match]
+# background = "#A6E3A1"
+# foreground = "#1E1E2E"
+# [colors.search.matches]
+# background = "#A6ADC8"
+# foreground = "#1E1E2E"
+# [colors.selection]
+# background = "#F5E0DC"
+# text = "#1E1E2E"

@@ -1,0 +1,8 @@
+Host github.com
+    HostName github.com
+    User git
+    IdentitiesOnly yes
+    AddKeysToAgent yes
+
+# Private host aliases belong in ~/.ssh/config.local.
+Include ~/.ssh/config.local

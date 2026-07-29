@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+filename="${1:-screenshot-$(date +%Y%m%d-%H%M%S).png}"
+linux_out="$PWD/$filename"
+
+find_flameshot() {
+  local win_path
+
+  # Try Windows PATH first
+  win_path="$(cmd.exe /C "where flameshot.exe 2>NUL" | tr -d '\r' | head -n1 || true)"
+  if [[ -n "$win_path" ]]; then
+    wslpath "$win_path"
+    return 0
+  fi
+
+  win_path="$(cmd.exe /C "where flameshot-cli.exe 2>NUL" | tr -d '\r' | head -n1 || true)"
+  if [[ -n "$win_path" ]]; then
+    wslpath "$win_path"
+    return 0
+  fi
+
+  # Common fallback install locations
+  local candidates=(
+    "/mnt/c/Program Files/Flameshot/bin/flameshot.exe"
+    "/mnt/c/Program Files/Flameshot/bin/flameshot-cli.exe"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+flameshot_bin="$(find_flameshot)" || {
+  echo "Could not find Flameshot on the Windows side." >&2
+  echo "Expected it either in Windows PATH or in C:\\Program Files\\Flameshot\\bin\\" >&2
+  exit 1
+}
+
+win_out="$(wslpath -w "$linux_out")"
+
+"$flameshot_bin" gui --path "$win_out"
+
+if [[ -f "$linux_out" ]]; then
+  printf '%s\n' "$linux_out"
+else
+  echo "No file was written. You may have cancelled the capture." >&2
+  exit 1
+fi

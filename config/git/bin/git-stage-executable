@@ -1,0 +1,75 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: git-stage-executable <path> [<path> ...]
+
+Makes the given file(s) executable locally and stages the executable bit in Git
+without relying on core.filemode being enabled.
+
+Outputs a per-file summary of what changed (disk + Git index mode).
+EOF
+}
+
+idx_mode() {
+  # Prints the index mode for path if present (e.g. 100644 / 100755); empty if untracked.
+  git ls-files -s -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Not inside a Git repository." >&2
+  exit 1
+fi
+
+for path in "$@"; do
+  if [[ ! -f "$path" ]]; then
+    echo "$path: not a file" >&2
+    exit 1
+  fi
+
+  tracked=yes
+  before_mode="$(idx_mode "$path")"
+  if [[ -z "$before_mode" ]]; then
+    tracked=no
+  fi
+
+  if [[ -x "$path" ]]; then
+    disk_msg="already executable on disk"
+  else
+    chmod +x -- "$path"
+    disk_msg="made executable on disk"
+  fi
+
+  # Stage content first, then force the executable bit in the index (works with core.filemode=false).
+  git add -- "$path"
+  git update-index --chmod=+x -- "$path"
+
+  after_mode="$(idx_mode "$path")"
+
+  if [[ "$tracked" == "no" ]]; then
+    echo "$path: was untracked; added and staged as executable (index: ${after_mode:-unknown}); $disk_msg"
+    continue
+  fi
+
+  if [[ "$before_mode" == "$after_mode" ]]; then
+    if [[ "$after_mode" == "100755" ]]; then
+      echo "$path: already tracked as executable (index: 100755); $disk_msg"
+    else
+      echo "$path: index mode unchanged (index: $after_mode); $disk_msg"
+    fi
+  else
+    echo "$path: updated index mode $before_mode -> $after_mode; $disk_msg"
+  fi
+done
+

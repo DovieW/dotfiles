@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+# Open a bash shell in a container based on partial name match
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 [partial_container_name]"
+    exit 1
+fi
+
+partial_name=$1
+matching_containers=$(docker ps --format "{{.ID}}:{{.Names}}" | awk -F: -v name="$partial_name" '$2 ~ name {print}')
+
+# Count the number of matching containers
+count=$(echo "$matching_containers" | grep -c ':')
+
+if [ $count -eq 0 ]; then
+    echo "No containers found with the partial name: $partial_name"
+    exit 1
+elif [ $count -gt 1 ]; then
+    echo "Multiple containers found with the partial name: $partial_name. Please specify:"
+    echo "$matching_containers" | cut -d ':' -f2
+    exit 1
+else
+    container_id=$(echo "$matching_containers" | head -n 1 | cut -d ':' -f1)
+    container_name=$(echo "$matching_containers" | head -n 1 | cut -d ':' -f2)
+    echo "$container_name"
+    docker exec -it --detach-keys "" $container_id /bin/bash
+fi

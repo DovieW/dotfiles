@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+readonly PROGRAM_NAME="${0##*/}"
+readonly DOCKER_KEY_URL="https://download.docker.com/linux/ubuntu/gpg"
+readonly DOCKER_REPOSITORY_URL="https://download.docker.com/linux/ubuntu"
+readonly DOCKER_PRIMARY_KEY_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+readonly DOCKER_SOURCE_FILE="/etc/apt/sources.list.d/docker.sources"
+readonly DOCKER_KEY_FILE="/etc/apt/keyrings/docker.asc"
+readonly -a DOCKER_PACKAGES=(
+  docker-ce
+  docker-ce-cli
+  containerd.io
+  docker-buildx-plugin
+  docker-compose-plugin
+)
+
+temporary_directory=""
+declare -a root_command=()
+
+usage() {
+  cat <<'EOF'
+Install or upgrade native Docker Engine and the Docker Compose plugin to the
+latest stable versions available from Docker's official Ubuntu APT repository.
+
+Usage:
+  upgrade_docker_in_wsl.sh
+  upgrade_docker_in_wsl.sh --help
+
+The script is intended for Ubuntu running directly in WSL. It validates
+Docker's signing-key fingerprint, preserves /var/lib/docker and /etc/docker,
+does not run apt autoremove, and never installs Docker Desktop.
+
+The Docker daemon may restart briefly during the package transaction.
+Containers with an appropriate restart policy should return automatically.
+EOF
+}
+
+die() {
+  printf '%s: %s\n' "$PROGRAM_NAME" "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ -n "$temporary_directory" && -d "$temporary_directory" ]]; then
+    rm -rf -- "$temporary_directory"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+version_at_least() {
+  local actual=$1
+  local minimum=$2
+  [[ "$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -n1)" == "$minimum" ]]
+}
+
+select_root_command() {
+  if ((EUID == 0)); then
+    root_command=()
+    return
+  fi
+
+  if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+    root_command=(sudo -n)
+    return
+  fi
+
+  if command -v wsl.exe >/dev/null && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    local root_id
+    root_id="$(wsl.exe --distribution "$WSL_DISTRO_NAME" --user root -- id -u 2>/dev/null | tr -d '\r')"
+    if [[ "$root_id" == 0 ]]; then
+      printf 'Using WSL root execution for distribution %s.\n' "$WSL_DISTRO_NAME"
+      root_command=(wsl.exe --distribution "$WSL_DISTRO_NAME" --user root --)
+      return
+    fi
+  fi
+
+  command -v sudo >/dev/null || die "root access is required and sudo is unavailable"
+  printf 'Sudo authentication is required; enter the password only in this terminal.\n'
+  sudo -v
+  root_command=(sudo -n)
+}
+
+run_as_root() {
+  if ((${#root_command[@]} == 0)); then
+    "$@"
+  else
+    "${root_command[@]}" "$@"
+  fi
+}
+
+package_version() {
+  dpkg-query -W -f='${Version}' "$1" 2>/dev/null || printf 'not-installed'
+}
+
+candidate_version() {
+  apt-cache policy "$1" | awk '/Candidate:/ && !found { candidate=$2; found=1 } END { if (found) print candidate; else exit 1 }'
+}
+
+if (($# > 1)); then
+  usage >&2
+  exit 2
+fi
+if (($# == 1)); then
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+fi
+
+[[ -r /etc/os-release ]] || die "/etc/os-release is unavailable"
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == ubuntu ]] || die "only Ubuntu is supported; found ${ID:-unknown}"
+[[ -n "${VERSION_CODENAME:-}" ]] || die "Ubuntu version codename is unavailable"
+grep -Eqi '(microsoft|wsl)' /proc/sys/kernel/osrelease \
+  || die "this does not appear to be WSL"
+
+architecture="$(dpkg --print-architecture)"
+[[ -n "$architecture" ]] || die "could not determine the Debian architecture"
+
+for command_name in apt-get apt-cache dpkg-query gpg curl install sort awk; do
+  command -v "$command_name" >/dev/null || {
+    if [[ "$command_name" == gpg || "$command_name" == curl ]]; then
+      continue
+    fi
+    die "required command not found: $command_name"
+  }
+done
+
+select_root_command
+
+printf 'Ubuntu: %s (%s)\n' "${VERSION_ID:-unknown}" "$VERSION_CODENAME"
+printf 'Architecture: %s\n' "$architecture"
+printf 'Docker data directory: /var/lib/docker (preserved)\n'
+if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+  docker info --format 'Before: Engine {{.ServerVersion}}, {{.Containers}} containers, {{.Images}} images, {{.Driver}} storage'
+fi
+
+printf 'Installing repository prerequisites...\n'
+run_as_root apt-get update
+run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg
+
+temporary_directory="$(mktemp -d)"
+key_candidate="$temporary_directory/docker.asc"
+source_candidate="$temporary_directory/docker.sources"
+
+curl --fail --silent --show-error --location \
+  --proto '=https' --tlsv1.2 "$DOCKER_KEY_URL" --output "$key_candidate"
+mapfile -t fingerprints < <(gpg --show-keys --with-colons "$key_candidate" 2>/dev/null | awk -F: '$1 == "fpr" { print $10 }')
+printf '%s\n' "${fingerprints[@]}" | grep -Fxq "$DOCKER_PRIMARY_KEY_FINGERPRINT" \
+  || die "Docker signing-key fingerprint did not match the pinned official key"
+printf 'Verified Docker signing key: %s\n' "$DOCKER_PRIMARY_KEY_FINGERPRINT"
+
+printf '%s\n' \
+  'Types: deb' \
+  "URIs: $DOCKER_REPOSITORY_URL" \
+  "Suites: $VERSION_CODENAME" \
+  'Components: stable' \
+  "Architectures: $architecture" \
+  "Signed-By: $DOCKER_KEY_FILE" > "$source_candidate"
+
+run_as_root install -m 0755 -d /etc/apt/keyrings
+run_as_root install -m 0644 "$key_candidate" "$DOCKER_KEY_FILE"
+run_as_root install -m 0644 "$source_candidate" "$DOCKER_SOURCE_FILE"
+run_as_root apt-get update
+
+printf 'Package plan (installed -> latest stable candidate):\n'
+for package_name in "${DOCKER_PACKAGES[@]}"; do
+  installed="$(package_version "$package_name")"
+  candidate="$(candidate_version "$package_name")"
+  [[ -n "$candidate" && "$candidate" != '(none)' ]] \
+    || die "no stable candidate is available for $package_name"
+  printf '  %s: %s -> %s\n' "$package_name" "$installed" "$candidate"
+done
+
+printf 'Installing the latest stable Docker packages; the daemon may restart...\n'
+run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DOCKER_PACKAGES[@]}"
+
+if command -v systemctl >/dev/null; then
+  run_as_root systemctl start containerd docker
+  [[ "$(systemctl is-active containerd)" == active ]] || die "containerd is not active after upgrade"
+  [[ "$(systemctl is-active docker)" == active ]] || die "Docker is not active after upgrade"
+fi
+
+docker info >/dev/null
+docker version --format 'After: client={{.Client.Version}} server={{.Server.Version}} API={{.Server.APIVersion}}'
+docker compose version
+docker buildx version
+docker info --format 'Preserved: {{.Containers}} containers, {{.Images}} images, {{.Driver}} storage at {{.DockerRootDir}}'
+
+for package_name in "${DOCKER_PACKAGES[@]}"; do
+  installed="$(package_version "$package_name")"
+  candidate="$(candidate_version "$package_name")"
+  [[ "$installed" == "$candidate" ]] \
+    || die "$package_name installed $installed but candidate is $candidate"
+done
+
+engine_version="$(docker version --format '{{.Server.Version}}')"
+compose_version="$(docker compose version --short)"
+version_at_least "$engine_version" 1 || die "could not validate the Docker Engine version"
+version_at_least "$compose_version" 1 || die "could not validate the Docker Compose version"
+
+printf 'Docker Engine and Compose are at the latest stable APT candidates.\n'
+printf 'Future upgrades are available through normal apt update/upgrade operations.\n'

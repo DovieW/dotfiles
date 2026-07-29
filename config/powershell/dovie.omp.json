@@ -1,0 +1,77 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "final_space": true,
+  "console_title_template": "{{ .Shell }} — {{ .Folder }}",
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "newline": true,
+      "segments": [
+        {
+          "type": "session",
+          "style": "plain",
+          "foreground": "#7aa2f7",
+          "template": "{{ .UserName }}@{{ .HostName }} "
+        },
+        {
+          "type": "path",
+          "style": "plain",
+          "foreground": "#9ece6a",
+          "options": {
+            "style": "folder",
+            "home_icon": "~",
+            "folder_separator_icon": " / ",
+            "mapped_locations": {
+              "C:/Users/dovie/repos": "~/repos"
+            }
+          },
+          "template": "{{ .Path }} "
+        },
+        {
+          "type": "git",
+          "style": "plain",
+          "foreground": "#bb9af7",
+          "options": {
+            "branch_icon": " ",
+            "fetch_status": false
+          },
+          "template": "{{ .HEAD }}{{ if .Working.Changed }}*{{ end }} "
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "type": "status",
+          "style": "plain",
+          "foreground": "#f7768e",
+          "template": "{{ if .Code }}exit={{ .Code }} {{ end }}"
+        },
+        {
+          "type": "text",
+          "style": "plain",
+          "foreground": "#c0caf5",
+          "template": "> "
+        }
+      ]
+    },
+    {
+      "type": "rprompt",
+      "overflow": "hidden",
+      "segments": [
+        {
+          "type": "executiontime",
+          "style": "plain",
+          "foreground": "#565f89",
+          "options": {
+            "threshold": 500
+          },
+          "template": "{{ .FormattedMs }}"
+        }
+      ]
+    }
+  ]
+}

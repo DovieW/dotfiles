@@ -1,0 +1,5 @@
+*:[Zz]one.Identifier
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+#!/bin/bash
+
+getContainer() {
+    docker ps -a --format "{{.Names}}" | grep -E "(^|_)$1($|_)"
+}
+
+# CONTAINER_NAME=$(getContainer $1)
+# lines=${2:-200}
+#
+# if [ -z "$CONTAINER_NAME" ]; then
+#     echo "No container found matching: $1"
+#     exit 1
+# fi
+#
+# echo "Watching logs for ${CONTAINER_NAME}:"
+#
+# while (docker logs --tail ${lines} -f $CONTAINER_NAME); do
+#     sleep 0.1
+#     lines=0
+# done
+
+CONTAINER_NAME=`getContainer $1`
+
+echo "Watching logs for ${CONTAINER_NAME}:"
+
+while (docker logs ``--tail 10 -f $CONTAINER_NAME); do
+    echo "$CONTAINER_NAME is not running,"
+    sleep 1
+    echo "Reconnecting..."
+done
+
