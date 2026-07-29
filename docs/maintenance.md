@@ -11,10 +11,38 @@ The command edits the manifest and applies the package role on Linux. It never
 commits. On Windows, specify `winget`, `scoop`, or `psgallery`; the package is
 recorded but not installed.
 
-External Debian applications are pinned in `packages/external-deb.yml` with an
-upstream release URL and SHA-256 digest. Update all three values together,
-review the upstream release, and run `scripts/fetch-external-deb NAME` before
-applying.
+External Debian applications declare their official GitHub source and asset
+pattern in `packages/external-deb.yml`. Apply resolves the newest non-draft,
+non-prerelease asset and verifies GitHub's published SHA-256 digest before
+installation.
+
+## Version policy
+
+Machine-level programs follow the latest stable release offered by their
+declared provider. Version numbers and mutable installer checksums are not
+committed merely to freeze a workstation:
+
+- APT, Homebrew, Snap, and Termux packages advance to current stable repository
+  candidates during a package apply.
+- Bitwarden Desktop and Obsidian resolve their latest matching stable GitHub
+  release dynamically.
+- Codex and Vite+ use their official stable channels and supported updaters.
+- Windows remains inventory-only, so dotfiles reports rather than changes its
+  application versions.
+
+Project lockfiles, `.node-version`, language runtime constraints, and explicit
+compatibility bounds are still valid pins. Those make a project repeatable;
+they do not freeze the general-purpose workstation.
+
+Update every program managed by a profile with:
+
+```bash
+dot update --profile kubuntu-laptop
+```
+
+The same action is available as **Update managed programs** in the fzf command
+palette. It updates repository-backed packages first, then invokes supported
+stable-channel updaters for Codex and Vite+.
 
 ## Update captured configuration
 
@@ -96,17 +124,16 @@ profile enables user lingering so it also remains available after logout. It
 uses the standalone Codex installation at `~/.local/bin/codex`; an npm-managed
 Codex installation does not satisfy this requirement.
 
-The pinned release, official installer URL, and reviewed installer SHA-256 are
-stored in `packages/codex.yml`. A normal apply installs Codex only when the
-managed standalone installation is absent. If the installed version differs
-from the pin, apply stops instead of silently upgrading or downgrading it.
+The official installer and stable-channel policy are stored in
+`packages/codex.yml`. A normal apply installs Codex only when the managed
+standalone installation is absent. Any healthy managed stable version is
+accepted.
 
 To update Codex:
 
-1. Download and review the current official installer.
-2. Update `release` and `installer_sha256` in `packages/codex.yml`.
-3. Run `dot codex update`.
-4. Review the diff, run the validation suite, and commit the manifest update.
+```bash
+dot codex update
+```
 
 The update leaves an already-running Remote Control process alone because
 restarting it disconnects active remote sessions. The new release takes effect
@@ -114,15 +141,16 @@ after the next service restart or reboot.
 
 ## Vite+
 
-Vite+ is pinned in `packages/vite-plus.yml`. Normal apply installs a missing
-release but refuses an implicit version change. To upgrade:
+Vite+ follows the official stable channel declared in
+`packages/vite-plus.yml`. Normal apply installs it when missing, and native
+upgrades do not create configuration drift. Either command is valid:
 
-1. Review the current official installer.
-2. Update `release` and `installer_sha256` in `packages/vite-plus.yml`.
-3. Run `dot vite-plus update`.
-4. Open fresh Bash and Zsh sessions and run `vp env doctor`.
-5. Run the validation suite and commit the manifest update.
+```bash
+vp upgrade
+dot vite-plus update
+```
 
-The installer runs with `VP_NODE_MANAGER=no`; dotfiles owns shell startup.
-`vp env setup --env-only` generates the machine-local wrapper and completion
-integration without rewriting `.bashrc` or `.zshrc`.
+`dot vite-plus update` delegates to Vite+'s stable updater when Vite+ is already
+managed. The installer runs with `VP_NODE_MANAGER=no`; dotfiles owns shell
+startup. `vp env setup --env-only` generates the machine-local wrapper and
+completion integration without rewriting `.bashrc` or `.zshrc`.

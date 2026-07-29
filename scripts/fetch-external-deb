@@ -11,30 +11,97 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$root/packages/external-deb.yml"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/debs"
 
-command -v jq >/dev/null 2>&1 || {
-  echo "jq is required." >&2
+for required in curl dpkg-deb jq sha256sum; do
+  command -v "$required" >/dev/null 2>&1 || {
+    echo "$required is required." >&2
+    exit 1
+  }
+done
+
+entry="$(jq -cer --arg name "$name" '.packages[$name] // error("unknown package")' "$manifest")"
+channel="$(jq -r '.channel' <<<"$entry")"
+source="$(jq -r '.source' <<<"$entry")"
+asset_regex="$(jq -r '.asset_regex' <<<"$entry")"
+[[ "$channel" == "stable" ]] || {
+  echo "$name must use the stable channel." >&2
+  exit 1
+}
+[[ "$source" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "Invalid GitHub source for $name." >&2
   exit 1
 }
 
-entry="$(jq -cer --arg name "$name" '.packages[$name] // error("unknown package")' "$manifest")"
-version="$(jq -r '.version' <<<"$entry")"
-url="$(jq -r '.url' <<<"$entry")"
-checksum="$(jq -r '.sha256' <<<"$entry")"
-target="$cache/${name}_${version}_amd64.deb"
+if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+  releases="$(gh api "repos/$source/releases?per_page=50")"
+else
+  releases="$(
+    curl \
+      --proto '=https' \
+      --tlsv1.2 \
+      --fail \
+      --location \
+      --retry 3 \
+      --connect-timeout 15 \
+      --silent \
+      --show-error \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'User-Agent: DovieW-dotfiles' \
+      "https://api.github.com/repos/$source/releases?per_page=50"
+  )"
+fi
+
+asset="$(
+  jq -cer --arg pattern "$asset_regex" '
+    [
+      .[]
+      | select((.draft | not) and (.prerelease | not))
+      | . as $release
+      | .assets[]
+      | select(.name | test($pattern))
+      | {
+          tag: $release.tag_name,
+          name,
+          url: .browser_download_url,
+          digest
+        }
+    ][0] // error("no stable matching Debian asset found")
+  ' <<<"$releases"
+)"
+asset_name="$(jq -r '.name' <<<"$asset")"
+url="$(jq -r '.url' <<<"$asset")"
+digest="$(jq -r '.digest' <<<"$asset")"
+[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo "GitHub did not publish a SHA-256 digest for $source asset $asset_name." >&2
+  exit 1
+}
+checksum="${digest#sha256:}"
+target="$cache/$asset_name"
 
 mkdir -p "$cache"
-if [[ -f "$target" ]] && printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status; then
+if [[ -f "$target" ]] &&
+  printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status; then
   printf '%s\n' "$target"
   exit 0
 fi
 
 temporary="${target}.partial"
 rm -f -- "$temporary"
-curl -fL --retry 3 --output "$temporary" "$url" >&2
+curl \
+  --proto '=https' \
+  --tlsv1.2 \
+  --fail \
+  --location \
+  --retry 3 \
+  --connect-timeout 15 \
+  --silent \
+  --show-error \
+  --output "$temporary" \
+  "$url"
 printf '%s  %s\n' "$checksum" "$temporary" | sha256sum --check --status || {
   rm -f -- "$temporary"
-  echo "Checksum verification failed for $name $version." >&2
+  echo "Checksum verification failed for latest stable $name asset $asset_name." >&2
   exit 1
 }
+dpkg-deb --field "$temporary" Version >/dev/null
 mv -- "$temporary" "$target"
 printf '%s\n' "$target"

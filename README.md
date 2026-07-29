@@ -25,7 +25,7 @@ unlocking Bitwarden and requests both authentication-key and signing-key
 management scopes.
 
 On the Kubuntu profile, the standalone Codex CLI is expected at
-`~/.local/bin/codex`. Applying the profile installs the pinned standalone
+`~/.local/bin/codex`. Applying the profile installs the latest stable standalone
 release when it is missing, then enables a supervised user service that keeps
 Codex Remote Control running across logins and restarts it after a failure.
 User lingering keeps the service available after logout and starts it during
@@ -44,10 +44,9 @@ The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 
 ```text
 dot apply --profile kubuntu-laptop
+dot update --profile kubuntu-laptop
 dot doctor --profile kubuntu-laptop
 dot package add ripgrep --profile common-linux
-dot codex update
-dot vite-plus update
 dot repos sync --profile kubuntu-laptop
 dot capture kde
 dot diff kde
@@ -65,7 +64,12 @@ dot
 `dot save` opens that workflow directly. `dot save spectacle` limits the
 selector to Spectacle preferences and keyboard shortcuts.
 
-Vite+ is a pinned first-class tool on Kubuntu and WSL. New Bash and Zsh
+Choose **Update managed programs** in the palette, or run `dot update`, to
+advance every program owned by the selected profile to its latest stable
+provider release. Provider-native stable updaters remain valid too.
+
+Vite+ is a first-class tool on Kubuntu and WSL and follows its stable channel.
+New Bash and Zsh
 sessions load its generated environment so `vp env use` can update the current
 shell without allowing the upstream installer to rewrite managed rc files.
 

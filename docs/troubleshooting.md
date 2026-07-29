@@ -99,9 +99,8 @@ loginctl show-user "$USER" --property=Linger
 ```
 
 If the standalone CLI is missing, rerun
-`dot apply --profile kubuntu-laptop`; the profile installs the pinned release
-from the checksum-verified official installer. If the installer checksum has
-changed, review the new installer before updating `packages/codex.yml`. Do not
-run `codex app-server daemon bootstrap` from a session currently connected
-through that daemon: bootstrapping replaces the app-server and disconnects the
-session.
+`dot apply --profile kubuntu-laptop`; the profile installs the latest stable
+release through the official installer, whose release archive verification is
+retained. Do not run `codex app-server daemon bootstrap` from a session
+currently connected through that daemon: bootstrapping replaces the app-server
+and disconnects the session.

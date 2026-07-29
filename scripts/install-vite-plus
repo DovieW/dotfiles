@@ -20,10 +20,9 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 
-manifest_values="$(
+installer_url="$(
   python3 - "$manifest" <<'PY'
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -31,19 +30,14 @@ path = Path(sys.argv[1])
 data = json.loads(path.read_text())
 if data.get("schema_version") != 1:
     raise SystemExit(f"{path}: schema_version must be 1")
-release = data.get("release", "")
+if data.get("channel") != "stable":
+    raise SystemExit(f"{path}: channel must be stable")
 url = data.get("installer_url", "")
-checksum = data.get("installer_sha256", "")
-if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", release):
-    raise SystemExit(f"{path}: invalid Vite+ release {release!r}")
 if url != "https://vite.plus":
     raise SystemExit(f"{path}: installer_url must use the official HTTPS endpoint")
-if not re.fullmatch(r"[0-9a-f]{64}", checksum):
-    raise SystemExit(f"{path}: installer_sha256 must be a lowercase SHA-256 digest")
-print(release, url, checksum, sep="\t")
+print(url)
 PY
 )"
-IFS=$'\t' read -r desired_version installer_url installer_sha256 <<<"$manifest_values"
 
 installed_version=""
 resolved_path=""
@@ -57,89 +51,80 @@ if [[ -x "$vp_path" ]]; then
   esac
 fi
 
-if [[ "$is_managed" == true && "$installed_version" == "$desired_version" ]]; then
+if [[ "$mode" == "--check" ]]; then
+  if [[ ! -x "$vp_path" ]]; then
+    echo "Vite+ is missing at $vp_path." >&2
+    exit 1
+  fi
+  if [[ "$is_managed" != true || -z "$installed_version" ]]; then
+    echo "Vite+ at $vp_path is not a healthy managed installation." >&2
+    exit 1
+  fi
   if [[ ! -r "$vp_home/env" ]]; then
-    if [[ "$mode" == "--check" ]]; then
-      echo "Vite+ shell integration is missing at $vp_home/env." >&2
-      exit 1
-    fi
+    echo "Vite+ shell integration is missing at $vp_home/env." >&2
+    exit 1
+  fi
+  echo "Vite+ $installed_version is installed from the managed stable channel."
+  exit 0
+fi
+
+if [[ "$mode" == "--ensure" && "$is_managed" == true && -n "$installed_version" ]]; then
+  if [[ ! -r "$vp_home/env" ]]; then
     "$vp_path" env setup --env-only
-    echo "Vite+ $desired_version shell integration generated."
+    echo "Vite+ $installed_version shell integration generated."
   else
-    echo "Vite+ $desired_version is installed from the managed release."
+    echo "Vite+ $installed_version is installed from the managed stable channel."
   fi
   exit 0
 fi
 
-if [[ "$mode" == "--check" ]]; then
-  if [[ ! -x "$vp_path" ]]; then
-    echo "Vite+ is missing at $vp_path." >&2
-  elif [[ "$is_managed" != true ]]; then
-    echo "Vite+ at $vp_path is not rooted in $vp_home." >&2
-  else
-    echo "Vite+ $installed_version is installed; dotfiles pins $desired_version." >&2
-  fi
-  exit 1
-fi
+if [[ "$is_managed" == true && -n "$installed_version" ]]; then
+  echo "Upgrading Vite+ from the stable channel."
+  "$vp_path" upgrade --tag latest
+else
+  for required in bash curl; do
+    command -v "$required" >/dev/null 2>&1 || {
+      echo "$required is required to install Vite+." >&2
+      exit 1
+    }
+  done
 
-if [[ "$mode" != "--update" && "$is_managed" == true ]]; then
-  echo "Vite+ $installed_version is installed; dotfiles pins $desired_version." >&2
-  echo "Review packages/vite-plus.yml, then run: dot vite-plus update" >&2
-  exit 1
-fi
-
-for required in bash curl sha256sum; do
-  command -v "$required" >/dev/null 2>&1 || {
-    echo "$required is required to install Vite+." >&2
-    exit 1
+  temporary_root="${TMPDIR:-/tmp}"
+  temporary_dir="$(mktemp -d "$temporary_root/dotfiles-vite-plus.XXXXXX")"
+  cleanup() {
+    case "$temporary_dir" in
+      "$temporary_root"/dotfiles-vite-plus.*) rm -rf -- "$temporary_dir" ;;
+    esac
   }
-done
+  trap cleanup EXIT INT TERM
+  installer="$temporary_dir/install.sh"
 
-temporary_root="${TMPDIR:-/tmp}"
-temporary_dir="$(mktemp -d "$temporary_root/dotfiles-vite-plus.XXXXXX")"
-cleanup() {
-  case "$temporary_dir" in
-    "$temporary_root"/dotfiles-vite-plus.*) rm -rf -- "$temporary_dir" ;;
-  esac
-}
-trap cleanup EXIT INT TERM
-installer="$temporary_dir/install.sh"
+  curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --retry 3 \
+    --connect-timeout 15 \
+    --silent \
+    --show-error \
+    "$installer_url" \
+    --output "$installer"
 
-curl \
-  --proto '=https' \
-  --tlsv1.2 \
-  --fail \
-  --location \
-  --retry 3 \
-  --connect-timeout 15 \
-  --silent \
-  --show-error \
-  "$installer_url" \
-  --output "$installer"
+  if [[ "$(sed -n '1p' "$installer")" != "#!/bin/bash" ]] ||
+    ! grep -Fq '# Vite+ CLI Installer' "$installer"; then
+    echo "Downloaded Vite+ installer does not have the expected structure." >&2
+    exit 1
+  fi
 
-if ! printf '%s  %s\n' "$installer_sha256" "$installer" | sha256sum --check --status; then
-  actual_sha256="$(sha256sum "$installer" | awk '{print $1}')"
-  echo "Vite+ installer checksum mismatch; refusing to execute it." >&2
-  echo "expected: $installer_sha256" >&2
-  echo "actual:   $actual_sha256" >&2
-  echo "Review the official installer before updating packages/vite-plus.yml." >&2
-  exit 1
+  echo "Installing the latest stable Vite+ release."
+  CI=1 \
+    VP_HOME="$vp_home" \
+    VP_NODE_MANAGER=no \
+    bash "$installer"
 fi
 
-if [[ "$(sed -n '1p' "$installer")" != "#!/bin/bash" ]] ||
-  ! grep -Fq '# Vite+ CLI Installer' "$installer"; then
-  echo "Downloaded Vite+ installer does not have the expected structure." >&2
-  exit 1
-fi
-
-echo "Installing pinned Vite+ release $desired_version."
-CI=1 \
-  VP_VERSION="$desired_version" \
-  VP_HOME="$vp_home" \
-  VP_NODE_MANAGER=no \
-  bash "$installer"
 "$vp_path" env setup --env-only
-
 version_output="$("$vp_path" --version 2>/dev/null || true)"
 installed_version="$(sed -n '1s/^vp v//p' <<<"$version_output")"
 resolved_path="$(readlink -f -- "$vp_path" 2>/dev/null || true)"
@@ -150,8 +135,8 @@ case "$resolved_path" in
     exit 1
     ;;
 esac
-if [[ "$installed_version" != "$desired_version" ]]; then
-  echo "Installed Vite+ version $installed_version does not match $desired_version." >&2
+if [[ -z "$installed_version" ]]; then
+  echo "Installed Vite+ did not report a version." >&2
   exit 1
 fi
-echo "Vite+ $desired_version installed and verified."
+echo "Latest stable Vite+ $installed_version installed and verified."

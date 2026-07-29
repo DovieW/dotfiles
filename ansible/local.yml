@@ -17,71 +17,32 @@
       tags: [always]
 
   tasks:
-    - name: Check APT packages
-      ansible.builtin.command:
-        argv: [dpkg-query, -W, '-f=${Status}', "{{ item }}"]
-      register: dot_apt_status
-      changed_when: false
-      failed_when: false
-      loop: "{{ dot_profile_data.packages.apt | default([]) }}"
+    # Workstation policy intentionally follows current stable repository candidates.
+    - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
+      become: true
+      ansible.builtin.apt:
+        name: "{{ dot_profile_data.packages.apt | default([]) }}"
+        state: latest
+        update_cache: true
+        cache_valid_time: 3600
       when:
         - ansible_facts.os_family == "Debian"
         - (dot_profile_data.packages.apt | default([]) | length) > 0
       tags: [packages]
 
-    - name: Install missing APT packages
-      become: true
-      ansible.builtin.apt:
-        name: >-
-          {{ dot_apt_status.results |
-             default([]) |
-             selectattr('rc', 'ne', 0) |
-             map(attribute='item') |
-             list }}
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
-      when:
-        - ansible_facts.os_family == "Debian"
-        - >-
-          dot_apt_status.results |
-          default([]) |
-          selectattr('rc', 'ne', 0) |
-          list |
-          length > 0
-      tags: [packages]
-
-    - name: Check external Debian packages
+    - name: Resolve latest stable external Debian packages
       ansible.builtin.command:
-        argv: [dpkg-query, -W, '-f=${Version}', "{{ item }}"]
-      register: dot_external_deb_status
+        argv: ["{{ dot_repo }}/scripts/fetch-external-deb", "{{ item }}"]
+      register: dot_external_deb_downloads
       changed_when: false
-      failed_when: false
+      check_mode: false
       loop: "{{ dot_profile_data.packages.deb | default([]) }}"
       when:
         - ansible_facts.os_family == "Debian"
         - (dot_profile_data.packages.deb | default([]) | length) > 0
       tags: [packages]
 
-    - name: Read external Debian package manifest
-      ansible.builtin.include_vars:
-        file: "{{ dot_repo }}/packages/external-deb.yml"
-        name: dot_external_deb_manifest
-      when: (dot_profile_data.packages.deb | default([]) | length) > 0
-      tags: [packages]
-
-    - name: Download changed external Debian packages
-      ansible.builtin.command:
-        argv: ["{{ dot_repo }}/scripts/fetch-external-deb", "{{ item.item }}"]
-      register: dot_external_deb_downloads
-      changed_when: true
-      loop: "{{ dot_external_deb_status.results | default([]) }}"
-      when: >-
-        item.rc != 0 or
-        item.stdout != dot_external_deb_manifest.packages[item.item].version
-      tags: [packages]
-
-    - name: Install changed external Debian packages
+    - name: Install latest stable external Debian packages
       become: true
       ansible.builtin.apt:
         deb: "{{ item.stdout }}"
@@ -114,7 +75,13 @@
       when: dot_brew.rc | default(1) == 0
       tags: [packages]
 
-    - name: Install Homebrew formulae
+    - name: Update Homebrew metadata
+      ansible.builtin.command: brew update
+      changed_when: false
+      when: dot_brew.rc | default(1) == 0
+      tags: [packages]
+
+    - name: Install missing Homebrew formulae
       ansible.builtin.command:
         argv: [brew, install, "{{ item }}"]
       changed_when: true
@@ -122,6 +89,23 @@
       when:
         - dot_brew.rc | default(1) == 0
         - item not in dot_brew_formulae.stdout_lines
+      tags: [packages]
+
+    - name: Read outdated Homebrew formulae
+      ansible.builtin.command: brew outdated --formula
+      register: dot_brew_outdated
+      changed_when: false
+      when: dot_brew.rc | default(1) == 0
+      tags: [packages]
+
+    - name: Upgrade managed Homebrew formulae
+      ansible.builtin.command:
+        argv: [brew, upgrade, "{{ item }}"]
+      changed_when: true
+      loop: "{{ dot_profile_data.packages.brew | default([]) }}"
+      when:
+        - dot_brew.rc | default(1) == 0
+        - item in dot_brew_outdated.stdout_lines
       tags: [packages]
 
     - name: Check curated Snap applications
@@ -148,7 +132,17 @@
       when: item.rc != 0
       tags: [packages]
 
-    - name: Ensure pinned Codex standalone CLI
+    - name: Refresh installed curated Snap applications
+      become: true
+      ansible.builtin.command:
+        argv: [snap, refresh, "{{ item.item }}"]
+      register: dot_snap_refresh
+      changed_when: "'has no updates available' not in dot_snap_refresh.stdout"
+      loop: "{{ dot_snap_status.results | default([]) }}"
+      when: item.rc == 0
+      tags: [packages]
+
+    - name: Ensure Codex standalone CLI from stable channel
       ansible.builtin.command:
         argv:
           - "{{ dot_repo }}/scripts/install-codex"
@@ -159,7 +153,7 @@
       when: dot_profile_data.features.codex_remote_control | default(false)
       tags: [packages, config]
 
-    - name: Ensure pinned Vite+ CLI
+    - name: Ensure Vite+ CLI from stable channel
       ansible.builtin.command:
         argv:
           - "{{ dot_repo }}/scripts/install-vite-plus"

@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import tempfile
@@ -23,6 +22,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
         self.assertIn("save", result.stdout)
+        self.assertIn("update", result.stdout)
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
@@ -37,22 +37,32 @@ class DotCliTests(unittest.TestCase):
         profile = json.loads((ROOT / "profiles/windows-host.yml").read_text())
         self.assertTrue(profile["features"]["windows_inventory_only"])
 
-    def test_codex_manifest_is_pinned_to_official_installer(self):
+    def test_codex_manifest_tracks_official_stable_channel(self):
         manifest = json.loads((ROOT / "packages/codex.yml").read_text())
         self.assertEqual(manifest["schema_version"], 1)
-        self.assertRegex(manifest["release"], r"^\d+\.\d+\.\d+")
+        self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(
             manifest["installer_url"],
             "https://chatgpt.com/codex/install.sh",
         )
-        self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
+        self.assertNotIn("release", manifest)
+        self.assertNotIn("installer_sha256", manifest)
 
-    def test_vite_plus_manifest_is_pinned_to_official_installer(self):
+    def test_vite_plus_manifest_tracks_official_stable_channel(self):
         manifest = json.loads((ROOT / "packages/vite-plus.yml").read_text())
         self.assertEqual(manifest["schema_version"], 1)
-        self.assertRegex(manifest["release"], r"^\d+\.\d+\.\d+$")
+        self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(manifest["installer_url"], "https://vite.plus")
-        self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
+        self.assertNotIn("release", manifest)
+        self.assertNotIn("installer_sha256", manifest)
+
+    def test_external_debs_resolve_stable_github_assets(self):
+        manifest = json.loads((ROOT / "packages/external-deb.yml").read_text())
+        for package in manifest["packages"].values():
+            self.assertEqual(package["channel"], "stable")
+            self.assertIn("/", package["source"])
+            self.assertTrue(package["asset_regex"].endswith(r"\.deb$"))
+            self.assertNotIn("version", package)
 
     def test_kde_apply_refuses_uncaptured_local_drift(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -98,6 +108,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('".config/kglobalshortcutsrc"', text)
         self.assertIn('"Settings to save › "', text)
         self.assertIn('"Save configuration changes\\tsave"', text)
+        self.assertIn('"Update managed programs\\tupdate"', text)
 
 
 if __name__ == "__main__":

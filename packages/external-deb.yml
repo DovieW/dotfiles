@@ -2,16 +2,14 @@
   "schema_version": 1,
   "packages": {
     "bitwarden": {
-      "version": "2026.4.0",
-      "url": "https://github.com/bitwarden/clients/releases/download/desktop-v2026.4.0/Bitwarden-2026.4.0-amd64.deb",
-      "sha256": "bdd4d36f978ee0843e7cc87b56e63c3b7f281b4e46cbc58e9fe44316afa96294",
-      "source": "bitwarden/clients"
+      "channel": "stable",
+      "source": "bitwarden/clients",
+      "asset_regex": "^Bitwarden-[0-9.]+-amd64\\.deb$"
     },
     "obsidian": {
-      "version": "1.12.7",
-      "url": "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.12.7/obsidian_1.12.7_amd64.deb",
-      "sha256": "3644e3ef19bcd23db4d17f7c73311b5245429391a2a48b361da93375f59712b0",
-      "source": "obsidianmd/obsidian-releases"
+      "channel": "stable",
+      "source": "obsidianmd/obsidian-releases",
+      "asset_regex": "^obsidian_[0-9.]+_amd64\\.deb$"
     }
   }
 }

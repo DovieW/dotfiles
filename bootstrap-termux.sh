@@ -6,6 +6,7 @@ if ! command -v pkg >/dev/null 2>&1; then
   exit 1
 fi
 
+pkg upgrade -y
 pkg install -y git openssh python nodejs-lts zsh
 exec "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/bin/dot" \
   bootstrap --profile termux "$@"

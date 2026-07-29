@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
-  "release": "0.2.6",
-  "installer_url": "https://vite.plus",
-  "installer_sha256": "58bb052c6a007e662e99667d65686251b16d6b39aa21155487da6d51280b3d54"
+  "channel": "stable",
+  "installer_url": "https://vite.plus"
 }

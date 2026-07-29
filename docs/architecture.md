@@ -21,12 +21,20 @@ Linux package ownership is intentional:
 
 - APT owns system libraries, desktop integration, KDE, and the login shell.
 - Homebrew owns modern cross-distribution CLI tools.
-- Checksum-pinned official Debian releases own Bitwarden Desktop and Obsidian.
-- A checksum-pinned official installer owns the standalone Codex CLI release.
-- A checksum-pinned official installer owns Vite+ on Kubuntu and WSL.
+- Official GitHub stable releases own Bitwarden Desktop and Obsidian; their
+  release-provided SHA-256 digests are verified dynamically.
+- The official stable channel owns the standalone Codex CLI release.
+- The official stable channel owns Vite+ on Kubuntu and WSL.
 - Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
+
+Program manifests declare ownership, source, and release channel rather than
+freezing workstation versions. Apply upgrades managed APT, Homebrew, external
+Debian, Snap, and Termux packages to the latest stable releases their providers
+offer. Native supported updaters such as `vp upgrade` are valid and do not
+create dotfiles drift. Project dependency lockfiles and project runtime pins
+remain authoritative inside each project.
 
 ## Adapters
 
@@ -40,9 +48,9 @@ installs applications or prerequisites.
 ## JavaScript toolchain
 
 Vite+ is the primary JavaScript toolchain entry point on common Linux profiles.
-Its release and reviewed installer checksum live in `packages/vite-plus.yml`.
-Bootstrap installs it with Node-manager shell mutation disabled, then generates
-the supported environment file under `VP_HOME`.
+Its stable-channel ownership lives in `packages/vite-plus.yml`. Bootstrap
+installs the latest stable release with Node-manager shell mutation disabled,
+then generates the supported environment file under `VP_HOME`.
 
 The shared shell configuration exports `VP_HOME` and places `VP_HOME/bin` on
 `PATH`. Bash and Zsh source the generated environment after their completion

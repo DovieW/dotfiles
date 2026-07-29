@@ -22,10 +22,9 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 
-manifest_values="$(
+installer_url="$(
   python3 - "$manifest" <<'PY'
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -33,19 +32,14 @@ path = Path(sys.argv[1])
 data = json.loads(path.read_text())
 if data.get("schema_version") != 1:
     raise SystemExit(f"{path}: schema_version must be 1")
-release = data.get("release", "")
+if data.get("channel") != "stable":
+    raise SystemExit(f"{path}: channel must be stable")
 url = data.get("installer_url", "")
-checksum = data.get("installer_sha256", "")
-if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:alpha(?:\.[0-9]+){0,2}|beta(?:\.[0-9]+)?))?", release):
-    raise SystemExit(f"{path}: invalid Codex release {release!r}")
 if url != "https://chatgpt.com/codex/install.sh":
     raise SystemExit(f"{path}: installer_url must use the official HTTPS endpoint")
-if not re.fullmatch(r"[0-9a-f]{64}", checksum):
-    raise SystemExit(f"{path}: installer_sha256 must be a lowercase SHA-256 digest")
-print(release, url, checksum, sep="\t")
+print(url)
 PY
 )"
-IFS=$'\t' read -r desired_version installer_url installer_sha256 <<<"$manifest_values"
 
 installed_version=""
 resolved_path=""
@@ -59,34 +53,26 @@ if [[ -x "$codex_path" ]]; then
   esac
 fi
 
-if [[ "$is_standalone" == true && "$installed_version" == "$desired_version" ]]; then
-  echo "Codex CLI $desired_version is installed from the managed standalone release."
-  exit 0
-fi
-
 if [[ "$mode" == "--check" ]]; then
+  if [[ "$is_standalone" == true && -n "$installed_version" ]]; then
+    echo "Codex CLI $installed_version is installed from the managed stable channel."
+    exit 0
+  fi
   if [[ ! -x "$codex_path" ]]; then
     echo "Codex standalone CLI is missing at $codex_path." >&2
-  elif [[ "$is_standalone" != true ]]; then
-    echo "Codex at $codex_path is not the managed standalone installation." >&2
   else
-    echo "Codex $installed_version is installed; dotfiles pins $desired_version." >&2
+    echo "Codex at $codex_path is not the managed standalone installation." >&2
   fi
   exit 1
 fi
 
-if [[ "$mode" != "--update" && "$is_standalone" == true ]]; then
-  echo "Codex $installed_version is installed; dotfiles pins $desired_version." >&2
-  echo "Review packages/codex.yml, then run: dot codex update" >&2
-  exit 1
+if [[ "$mode" == "--ensure" && "$is_standalone" == true && -n "$installed_version" ]]; then
+  echo "Codex CLI $installed_version is installed from the managed stable channel."
+  exit 0
 fi
 
 command -v curl >/dev/null 2>&1 || {
   echo "curl is required to install Codex." >&2
-  exit 1
-}
-command -v sha256sum >/dev/null 2>&1 || {
-  echo "sha256sum is required to verify the Codex installer." >&2
   exit 1
 }
 
@@ -112,27 +98,18 @@ curl \
   "$installer_url" \
   --output "$installer"
 
-if ! printf '%s  %s\n' "$installer_sha256" "$installer" | sha256sum --check --status; then
-  actual_sha256="$(sha256sum "$installer" | awk '{print $1}')"
-  echo "Codex installer checksum mismatch; refusing to execute it." >&2
-  echo "expected: $installer_sha256" >&2
-  echo "actual:   $actual_sha256" >&2
-  echo "Review the new official installer before updating packages/codex.yml." >&2
-  exit 1
-fi
-
 if [[ "$(sed -n '1p' "$installer")" != "#!/bin/sh" ]] ||
-  ! grep -Fq 'https://releases.openai.com/codex' "$installer"; then
-  echo "Downloaded Codex installer does not have the expected structure." >&2
+  ! grep -Fq 'https://releases.openai.com/codex' "$installer" ||
+  ! grep -Fq 'verify_archive_digest' "$installer"; then
+  echo "Downloaded Codex installer does not have the expected verified-release structure." >&2
   exit 1
 fi
 
-echo "Installing pinned Codex standalone release $desired_version."
+echo "Installing the latest stable Codex standalone release."
 CODEX_NON_INTERACTIVE=1 \
-  CODEX_RELEASE="$desired_version" \
   CODEX_INSTALL_DIR="$install_dir" \
   CODEX_HOME="$codex_home" \
-  sh "$installer" --release "$desired_version"
+  sh "$installer" --release latest
 
 version_output="$("$codex_path" --version 2>/dev/null || true)"
 installed_version="${version_output##* }"
@@ -144,8 +121,8 @@ case "$resolved_path" in
     exit 1
     ;;
 esac
-if [[ "$installed_version" != "$desired_version" ]]; then
-  echo "Installed Codex version $installed_version does not match $desired_version." >&2
+if [[ -z "$installed_version" ]]; then
+  echo "Installed Codex did not report a version." >&2
   exit 1
 fi
-echo "Codex CLI $desired_version installed and verified."
+echo "Latest stable Codex CLI $installed_version installed and verified."

@@ -450,6 +450,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     force_kde = getattr(args, "force_kde", False)
     if args.direct or not command_exists("ansible-playbook"):
+        if profile["name"] == "termux" and not args.check:
+            packages = profile.get("packages", {}).get("pkg", [])
+            if packages:
+                run(["pkg", "upgrade", "-y"])
+                run(["pkg", "install", "-y", *packages])
         if profile.get("features", {}).get("vite_plus"):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-vite-plus"), mode], cwd=ROOT)
@@ -846,6 +851,29 @@ def cmd_vite_plus_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-vite-plus"), "--update"], cwd=ROOT)
 
 
+def cmd_update(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    if profile.get("features", {}).get("windows_inventory_only"):
+        raise DotError(
+            "Windows is inventory-only; update applications with their native "
+            "stable channels, then recapture the inventory."
+        )
+    cmd_apply(
+        argparse.Namespace(
+            profile=args.profile,
+            tags="packages",
+            check=False,
+            direct=False,
+            force_kde=False,
+        )
+    )
+    if profile.get("features", {}).get("codex_remote_control"):
+        cmd_codex_update(args)
+    if profile.get("features", {}).get("vite_plus"):
+        cmd_vite_plus_update(args)
+    print(f"Updated managed programs for {profile['name']} to their latest stable releases.")
+
+
 def cmd_capture_kde(args: argparse.Namespace) -> None:
     selected = set(args.only or [])
     known_names = {Path(relative).name for relative in KDE_FILES}
@@ -1119,6 +1147,7 @@ def cmd_palette() -> None:
         "Save configuration changes\tsave",
         "Review configuration drift\tdiff",
         "Apply Kubuntu profile\tapply",
+        "Update managed programs\tupdate",
         "Run Kubuntu doctor\tdoctor",
         "Run validation suite\ttest",
         "Exit\texit",
@@ -1143,6 +1172,8 @@ def cmd_palette() -> None:
                 force_kde=False,
             )
         )
+    elif action == "update":
+        cmd_update(argparse.Namespace(profile="kubuntu-laptop"))
     elif action == "doctor":
         cmd_doctor(argparse.Namespace(profile="kubuntu-laptop"))
     elif action == "test":
@@ -1171,38 +1202,80 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     apt_packages = packages.get("apt", [])
     if apt_packages and command_exists("dpkg-query"):
         missing_apt = []
+        outdated_apt = []
         for package in apt_packages:
-            proc = run(
-                ["dpkg-query", "-W", "-f=${Status}", package],
-                check=False,
-                capture=True,
-            )
-            if proc.returncode or "install ok installed" not in proc.stdout:
-                missing_apt.append(package)
-        failures += not doctor_check(
-            "APT packages",
-            not missing_apt,
-            "all present" if not missing_apt else f"missing {', '.join(missing_apt)}",
-        )
-    deb_packages = packages.get("deb", [])
-    if deb_packages and command_exists("dpkg-query"):
-        deb_manifest = load_json(ROOT / "packages/external-deb.yml").get("packages", {})
-        missing_deb = []
-        for package in deb_packages:
             proc = run(
                 ["dpkg-query", "-W", "-f=${Version}", package],
                 check=False,
                 capture=True,
             )
-            expected = deb_manifest.get(package, {}).get("version")
-            if proc.returncode or proc.stdout != expected:
-                missing_deb.append(f"{package}={expected}")
+            if proc.returncode:
+                missing_apt.append(package)
+                continue
+            if command_exists("apt-cache") and command_exists("dpkg"):
+                policy = run(["apt-cache", "policy", package], check=False, capture=True)
+                candidate = next(
+                    (
+                        line.split(":", 1)[1].strip()
+                        for line in policy.stdout.splitlines()
+                        if line.strip().startswith("Candidate:")
+                    ),
+                    "",
+                )
+                if candidate and candidate != "(none)":
+                    comparison = run(
+                        ["dpkg", "--compare-versions", proc.stdout.strip(), "ge", candidate],
+                        check=False,
+                    )
+                    if comparison.returncode != 0:
+                        outdated_apt.append(f"{package} ({proc.stdout.strip()} < {candidate})")
+        failures += not doctor_check(
+            "APT packages",
+            not missing_apt and not outdated_apt,
+            "all present at latest repository candidates"
+            if not missing_apt and not outdated_apt
+            else "; ".join(
+                part
+                for part in (
+                    f"missing {', '.join(missing_apt)}" if missing_apt else "",
+                    f"outdated {', '.join(outdated_apt)}" if outdated_apt else "",
+                )
+                if part
+            ),
+        )
+    deb_packages = packages.get("deb", [])
+    if deb_packages and command_exists("dpkg-query") and command_exists("dpkg-deb"):
+        stale_deb = []
+        for package in deb_packages:
+            installed = run(
+                ["dpkg-query", "-W", "-f=${Version}", package],
+                check=False,
+                capture=True,
+            )
+            latest_asset = run(
+                [str(ROOT / "scripts/fetch-external-deb"), package],
+                check=False,
+                capture=True,
+            )
+            if installed.returncode or latest_asset.returncode:
+                stale_deb.append(package)
+                continue
+            latest = run(
+                ["dpkg-deb", "--field", latest_asset.stdout.strip(), "Version"],
+                check=False,
+                capture=True,
+            )
+            if latest.returncode or installed.stdout.strip() != latest.stdout.strip():
+                stale_deb.append(
+                    f"{package} ({installed.stdout.strip() or 'missing'} -> "
+                    f"{latest.stdout.strip() or 'unknown'})"
+                )
         failures += not doctor_check(
             "External Debian packages",
-            not missing_deb,
-            "all pinned versions present"
-            if not missing_deb
-            else f"missing {', '.join(missing_deb)}",
+            not stale_deb,
+            "all at latest stable releases"
+            if not stale_deb
+            else f"missing or outdated {', '.join(stale_deb)}",
         )
     brew_packages = packages.get("brew", [])
     if brew_packages:
@@ -1212,11 +1285,34 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             proc = run(["brew", "list", "--formula"], check=False, capture=True)
             installed = set(proc.stdout.splitlines())
             missing_brew = [package for package in brew_packages if package not in installed]
+            outdated = run(["brew", "outdated", "--formula"], check=False, capture=True)
+            outdated_brew = sorted(set(outdated.stdout.splitlines()) & set(brew_packages))
             failures += not doctor_check(
                 "Homebrew packages",
-                not missing_brew,
-                "all present" if not missing_brew else f"missing {', '.join(missing_brew)}",
+                not missing_brew and not outdated_brew,
+                "all present at latest stable releases"
+                if not missing_brew and not outdated_brew
+                else "; ".join(
+                    part
+                    for part in (
+                        f"missing {', '.join(missing_brew)}" if missing_brew else "",
+                        f"outdated {', '.join(outdated_brew)}" if outdated_brew else "",
+                    )
+                    if part
+                ),
             )
+    pkg_packages = packages.get("pkg", [])
+    if pkg_packages and command_exists("pkg"):
+        proc = run(["pkg", "list-installed"], check=False, capture=True)
+        installed_pkg = {line.split("/", 1)[0] for line in proc.stdout.splitlines() if "/" in line}
+        missing_pkg = [package for package in pkg_packages if package not in installed_pkg]
+        failures += not doctor_check(
+            "Termux packages",
+            not missing_pkg,
+            "all present; pkg upgrade supplies latest stable repository releases"
+            if not missing_pkg
+            else f"missing {', '.join(missing_pkg)}",
+        )
     snap_packages = packages.get("snap", [])
     if snap_packages:
         proc = run(["snap", "list"], check=False, capture=True)
@@ -1365,6 +1461,9 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--profile", required=True)
     doctor.set_defaults(func=cmd_doctor)
+    update = sub.add_parser("update")
+    update.add_argument("--profile", required=True)
+    update.set_defaults(func=cmd_update)
     package = sub.add_parser("package")
     package_sub = package.add_subparsers(dest="package_command", required=True)
     add = package_sub.add_parser("add")
