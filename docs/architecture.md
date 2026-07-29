@@ -102,3 +102,9 @@ Only the reviewed allowlist in `bin/dot` is portable. KDE Wallet, recent files,
 caches, session state, and KScreen's hardware identifiers are excluded. Every
 replaced destination is backed up before a managed copy is installed, so KDE
 and applications cannot mutate the repository during normal use.
+
+The Kubuntu power policy never suspends automatically on AC, battery, or low
+battery, and closing the lid does nothing. Pressing the physical power button
+still suspends, as do explicit Sleep actions in the UI. PowerDevil owns the
+live desktop behavior; a matching systemd-logind drop-in is the fallback if
+PowerDevil is unavailable. Display topology remains host-local.

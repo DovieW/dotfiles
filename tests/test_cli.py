@@ -238,6 +238,26 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Save configuration changes\\tsave"', text)
         self.assertIn('"Update managed programs\\tupdate"', text)
 
+    def test_kubuntu_never_sleeps_automatically(self):
+        cli = DOT.read_text()
+        powerdevil = (ROOT / "config/kde/.config/powerdevilrc").read_text()
+        for profile in ("AC", "Battery", "LowBattery"):
+            section = f"[{profile}][SuspendAndShutdown]"
+            self.assertIn(section, powerdevil)
+        self.assertEqual(powerdevil.count("AutoSuspendAction=0"), 3)
+        self.assertEqual(powerdevil.count("LidAction=0"), 3)
+        self.assertEqual(powerdevil.count("PowerButtonAction=1"), 3)
+        logind = (ROOT / "config/systemd/logind/60-dotfiles-lid.conf").read_text()
+        self.assertIn("HandleLidSwitch=ignore", logind)
+        self.assertIn("HandleLidSwitchExternalPower=ignore", logind)
+        self.assertIn("HandleLidSwitchDocked=ignore", logind)
+        self.assertIn("HandlePowerKey=suspend", logind)
+        self.assertIn("IdleAction=ignore", logind)
+        self.assertIn('"restart", "plasma-powerdevil.service"', cli)
+        self.assertIn('"live lid action"', cli)
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
+
 
 if __name__ == "__main__":
     unittest.main()

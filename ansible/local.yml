@@ -188,6 +188,33 @@
         '0 configuration change(s)' not in dot_direct_apply.stdout
       tags: [config, shell, git, kde]
 
+    - name: Create the systemd-logind configuration directory
+      become: true
+      ansible.builtin.file:
+        path: /etc/systemd/logind.conf.d
+        state: directory
+        mode: "0755"
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde]
+
+    - name: Install the system lid and manual-sleep fallback policy
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/systemd/logind/60-dotfiles-lid.conf"
+        dest: /etc/systemd/logind.conf.d/60-dotfiles-lid.conf
+        mode: "0644"
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde]
+
+    - name: Report when the system lid fallback becomes active
+      ansible.builtin.debug:
+        msg: >-
+          The systemd-logind lid fallback is installed and will be guaranteed
+          after the next reboot. PowerDevil's matching live policy is active
+          immediately.
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde]
+
     - name: Provision Segoe UI Variable from Windows
       ansible.builtin.command:
         argv: ["{{ dot_repo }}/scripts/provision-segoe"]

@@ -41,6 +41,7 @@ KDE_FILES = (
     ".config/spectaclerc",
     ".config/kcminputrc",
     ".config/kscreenlockerrc",
+    ".config/powerdevilrc",
     ".config/plasmarc",
     ".config/plasma-org.kde.plasma.desktop-appletsrc",
     ".local/share/konsole/Dovie.profile",
@@ -64,6 +65,7 @@ KDE_LABELS = {
     ".config/spectaclerc": "Spectacle preferences",
     ".config/kcminputrc": "Mouse and input",
     ".config/kscreenlockerrc": "Lock screen",
+    ".config/powerdevilrc": "Power and lid behavior",
     ".config/plasmarc": "Plasma appearance",
     ".config/plasma-org.kde.plasma.desktop-appletsrc": "Panels and widgets",
     ".local/share/konsole/Dovie.profile": "Konsole profile",
@@ -410,12 +412,21 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
     if features.get("kde"):
+        powerdevil_changed = False
         for relative in KDE_FILES:
             source = ROOT / "config/kde" / relative
             if source.exists():
                 destination = Path.home() / relative
-                changes += int(copy_managed_kde_file(relative, source, destination))
+                file_changed = copy_managed_kde_file(relative, source, destination)
+                changes += int(file_changed)
+                if relative == ".config/powerdevilrc" and file_changed:
+                    powerdevil_changed = True
         record_kde_baseline()
+        if powerdevil_changed and command_exists("systemctl"):
+            run(
+                ["systemctl", "--user", "restart", "plasma-powerdevil.service"],
+                check=False,
+            )
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -496,6 +507,10 @@ def cmd_apply(args: argparse.Namespace) -> None:
     package_apply_selected = not selected_tags or bool(
         selected_tags & {"packages", "docker"}
     )
+    kde_system_apply_selected = (
+        profile.get("features", {}).get("kde", False)
+        and (not selected_tags or "kde" in selected_tags)
+    )
     managed_packages = profile.get("packages", {})
     privileged_packages = any(
         managed_packages.get(provider)
@@ -503,7 +518,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
     ) or profile.get("features", {}).get("docker_engine", False)
     become_arguments = (
         ansible_become_arguments()
-        if package_apply_selected and privileged_packages
+        if (package_apply_selected and privileged_packages) or kde_system_apply_selected
         else []
     )
     direct_apply_selected = not selected_tags or bool(
@@ -1508,6 +1523,54 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         session = os.environ.get("XDG_SESSION_DESKTOP", "")
         failures += not doctor_check("KDE session", "KDE" in session.upper(), session or "unknown")
         failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
+        powerdevil_source = ROOT / "config/kde/.config/powerdevilrc"
+        powerdevil_live = Path.home() / ".config/powerdevilrc"
+        powerdevil_matches = (
+            powerdevil_live.exists()
+            and kde_digest(".config/powerdevilrc", powerdevil_live)
+            == kde_digest(".config/powerdevilrc", powerdevil_source)
+        )
+        failures += not doctor_check(
+            "automatic sleep policy",
+            powerdevil_matches,
+            "lid ignored and automatic sleep disabled; power button sleeps"
+            if powerdevil_matches
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        if command_exists("busctl"):
+            live_lid = run(
+                [
+                    "busctl",
+                    "--user",
+                    "call",
+                    "org.kde.Solid.PowerManagement",
+                    "/org/kde/Solid/PowerManagement/Actions/HandleButtonEvents",
+                    "org.kde.Solid.PowerManagement.Actions.HandleButtonEvents",
+                    "lidAction",
+                ],
+                check=False,
+                capture=True,
+            )
+            failures += not doctor_check(
+                "live lid action",
+                live_lid.returncode == 0 and live_lid.stdout.strip() == "i 0",
+                "do nothing"
+                if live_lid.returncode == 0 and live_lid.stdout.strip() == "i 0"
+                else "restart plasma-powerdevil.service or reapply the KDE profile",
+            )
+        logind_source = ROOT / "config/systemd/logind/60-dotfiles-lid.conf"
+        logind_live = Path("/etc/systemd/logind.conf.d/60-dotfiles-lid.conf")
+        logind_matches = (
+            logind_live.exists()
+            and logind_live.read_bytes() == logind_source.read_bytes()
+        )
+        failures += not doctor_check(
+            "system lid fallback",
+            logind_matches,
+            "installed; guaranteed after reboot"
+            if logind_matches
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
     if profile.get("features", {}).get("vite_plus"):

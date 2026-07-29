@@ -64,6 +64,20 @@ is backed up for rollback.
 Log out and back in after restoring panel or shortcut configuration. Portable
 setup intentionally does not run `kscreen-doctor` or replace KScreen state.
 
+## Closing the lid suspends the laptop
+
+The managed policy ignores lid closure and disables automatic suspend for AC,
+battery, and low-battery profiles. It preserves manual Sleep and the physical
+power button. Apply both the live PowerDevil policy and the system fallback:
+
+```bash
+dot apply --profile kubuntu-laptop --tags kde
+```
+
+Enter the administrator password when prompted. PowerDevil is restarted only
+when its managed configuration changes. The systemd-logind fallback is
+guaranteed after the next reboot. Verify both layers with `dot doctor`.
+
 ## Shell startup is slow
 
 Profile Zsh with:
