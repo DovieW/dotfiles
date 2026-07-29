@@ -270,6 +270,43 @@ def apply_direct(profile_name: str) -> int:
             source = ROOT / "config/docker/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
+    if features.get("codex_remote_control"):
+        unit_name = "codex-remote-control.service"
+        source = ROOT / "config/systemd/user" / unit_name
+        destination = Path.home() / ".config/systemd/user" / unit_name
+        unit_changed = link_file(source, destination)
+        changes += int(unit_changed)
+        codex = Path.home() / ".local/bin/codex"
+        if command_exists("systemctl") and codex.exists():
+            # The unit is linked into place, so its contents can change even
+            # when the destination symlink itself is already correct.
+            run(["systemctl", "--user", "daemon-reload"])
+            enabled = run(
+                ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            active = run(
+                ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            if not enabled or not active:
+                run(["systemctl", "--user", "enable", "--now", unit_name])
+                changes += 1
+            if command_exists("loginctl"):
+                linger = run(
+                    ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
+                    check=False,
+                    capture=True,
+                )
+                if linger.returncode != 0 or linger.stdout.strip() != "yes":
+                    run(["loginctl", "enable-linger", getpass.getuser()])
+                    changes += 1
+        elif not codex.exists():
+            print(
+                f"Codex standalone CLI is missing at {codex}; "
+                f"{unit_name} was installed but not enabled.",
+                file=sys.stderr,
+            )
     print(f"Applied {profile_name}: {changes} configuration change(s)")
     return changes
 
@@ -796,6 +833,41 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
+    if profile.get("features", {}).get("codex_remote_control"):
+        codex = Path.home() / ".local/bin/codex"
+        failures += not doctor_check(
+            "Codex standalone CLI",
+            codex.exists(),
+            str(codex),
+        )
+        unit_name = "codex-remote-control.service"
+        enabled = run(
+            ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+            check=False,
+        ).returncode == 0
+        active = run(
+            ["systemctl", "--user", "is-active", "--quiet", unit_name],
+            check=False,
+        ).returncode == 0
+        failures += not doctor_check(
+            "Codex Remote Control",
+            enabled and active,
+            "enabled and active"
+            if enabled and active
+            else f"{unit_name} is not {'enabled' if not enabled else 'active'}",
+        )
+        linger = run(
+            ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
+            check=False,
+            capture=True,
+        )
+        failures += not doctor_check(
+            "Codex boot persistence",
+            linger.returncode == 0 and linger.stdout.strip() == "yes",
+            "systemd user lingering enabled"
+            if linger.returncode == 0 and linger.stdout.strip() == "yes"
+            else "enable with loginctl enable-linger",
+        )
     if failures:
         raise DotError(f"Doctor found {failures} failing check(s)")
 

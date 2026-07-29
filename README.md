@@ -21,6 +21,12 @@ When secrets are enabled, bootstrap runs GitHub's browser authorization before
 unlocking Bitwarden and requests both authentication-key and signing-key
 management scopes.
 
+On the Kubuntu profile, the standalone Codex CLI is expected at
+`~/.local/bin/codex`. Applying the profile installs and enables a supervised
+user service that keeps Codex Remote Control running across logins and restarts
+it after a failure. User lingering keeps the service available after logout and
+starts it during boot without waiting for an interactive login.
+
 For a new vault, create the private bootstrap note once from a permission-locked
 local draft:
 

@@ -4,6 +4,7 @@
   "inherits": ["common-linux"],
   "account": "personal",
   "features": {
+    "codex_remote_control": true,
     "kde": true,
     "windows_fonts": true
   },

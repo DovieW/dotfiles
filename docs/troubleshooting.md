@@ -60,3 +60,18 @@ PROFILE_ZSH_STARTUP=1 zsh -i -c exit
 
 Use `mbash` for an intentionally minimal shell and `fullbash` to switch back to
 the complete Bash profile.
+
+## Codex Remote Control is unavailable
+
+Check the managed user service:
+
+```bash
+systemctl --user status codex-remote-control.service
+journalctl --user -u codex-remote-control.service --since today
+loginctl show-user "$USER" --property=Linger
+```
+
+If the standalone CLI is missing, reinstall it with the official Codex
+installer and rerun `dot apply --profile kubuntu-laptop`. Do not run
+`codex app-server daemon bootstrap` from a session currently connected through
+that daemon: bootstrapping replaces the app-server and disconnects the session.

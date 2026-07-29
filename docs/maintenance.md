@@ -52,3 +52,18 @@ dot doctor --profile kubuntu-laptop
 ```
 
 The second apply must report zero configuration changes.
+
+## Codex Remote Control
+
+The Kubuntu profile manages `codex-remote-control.service` as a systemd user
+service. Inspect it with:
+
+```bash
+systemctl --user status codex-remote-control.service
+journalctl --user -u codex-remote-control.service
+```
+
+The service starts during boot and systemd restarts it after a failure. The
+profile enables user lingering so it also remains available after logout. It
+uses the standalone Codex installation at `~/.local/bin/codex`; an npm-managed
+Codex installation does not satisfy this requirement.
