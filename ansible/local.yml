@@ -17,16 +17,38 @@
       tags: [always]
 
   tasks:
-    - name: Install APT packages
+    - name: Check APT packages
+      ansible.builtin.command:
+        argv: [dpkg-query, -W, '-f=${Status}', "{{ item }}"]
+      register: dot_apt_status
+      changed_when: false
+      failed_when: false
+      loop: "{{ dot_profile_data.packages.apt | default([]) }}"
+      when:
+        - ansible_facts.os_family == "Debian"
+        - (dot_profile_data.packages.apt | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Install missing APT packages
       become: true
       ansible.builtin.apt:
-        name: "{{ dot_profile_data.packages.apt | default([]) }}"
+        name: >-
+          {{ dot_apt_status.results |
+             default([]) |
+             selectattr('rc', 'ne', 0) |
+             map(attribute='item') |
+             list }}
         state: present
         update_cache: true
         cache_valid_time: 3600
       when:
         - ansible_facts.os_family == "Debian"
-        - (dot_profile_data.packages.apt | default([]) | length) > 0
+        - >-
+          dot_apt_status.results |
+          default([]) |
+          selectattr('rc', 'ne', 0) |
+          list |
+          length > 0
       tags: [packages]
 
     - name: Check Homebrew availability
@@ -105,7 +127,9 @@
       ansible.builtin.command:
         argv: ["{{ dot_repo }}/scripts/provision-segoe"]
       register: dot_segoe
-      changed_when: dot_segoe.rc == 0 and "installed" in dot_segoe.stdout
+      changed_when: >-
+        dot_segoe.rc == 0 and
+        dot_segoe.stdout is match('^Segoe UI Variable installed ')
       failed_when: false
       when: dot_profile_data.features.windows_fonts | default(false)
       tags: [fonts, kde]
@@ -128,4 +152,5 @@
       when:
         - dot_profile_data.features.shell | default(false)
         - ansible_facts.system != "Windows"
+        - ansible_facts.user_shell != "/usr/bin/zsh"
       tags: [shell]

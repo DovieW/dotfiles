@@ -32,9 +32,16 @@ else
   export EDITOR=nano VISUAL=nano FCEDIT=nano
 fi
 
-if [ -S "$HOME/.bitwarden-ssh-agent.sock" ]; then
-  export SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock"
-fi
+for dot_bw_socket in \
+  "$HOME/snap/bitwarden/current/.bitwarden-ssh-agent.sock" \
+  "$HOME/.bitwarden-ssh-agent.sock"
+do
+  if [ -S "$dot_bw_socket" ]; then
+    export SSH_AUTH_SOCK="$dot_bw_socket"
+    break
+  fi
+done
+unset dot_bw_socket
 
 alias g='git'
 alias t='tmux'
