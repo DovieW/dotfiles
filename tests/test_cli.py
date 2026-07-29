@@ -234,9 +234,54 @@ class DotCliTests(unittest.TestCase):
         text = DOT.read_text()
         self.assertIn('".config/spectaclerc"', text)
         self.assertIn('".config/kglobalshortcutsrc"', text)
+        self.assertIn('"panel": {', text)
+        self.assertIn('"Panel geometry and visibility"', text)
         self.assertIn('"Settings to save › "', text)
         self.assertIn('"Save configuration changes\\tsave"', text)
         self.assertIn('"Update managed programs\\tupdate"', text)
+
+    def test_native_plasma_panel_and_application_palette_are_managed(self):
+        cli = DOT.read_text()
+        panel = (ROOT / "config/kde/.config/plasma-org.kde.plasma.desktop-appletsrc").read_text()
+        geometry = (ROOT / "config/kde/.config/plasmashellrc").read_text()
+        runners = (ROOT / "config/kde/.config/krunnerrc").read_text()
+        shortcuts = (ROOT / "config/kde/.config/kglobalshortcutsrc").read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
+        colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
+
+        self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
+        self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
+        self.assertNotIn("plugin=org.kde.plasma.kickoff", panel)
+        self.assertNotIn("plugin=org.kde.plasma.pager", panel)
+        self.assertNotIn("plugin=org.kde.plasma.showdesktop", panel)
+        self.assertIn("middleClickAction=Close", panel)
+        self.assertIn("showOnlyCurrentDesktop=true", panel)
+        self.assertIn("panelLengthMode=0", geometry)
+        self.assertIn("panelVisibility=1", geometry)
+        self.assertIn("thickness=40", geometry)
+
+        enabled = [
+            line
+            for line in runners.splitlines()
+            if line.endswith("Enabled=true")
+        ]
+        self.assertEqual(enabled, ["krunner_servicesEnabled=true"])
+        self.assertIn("FreeFloating=true", runners)
+        self.assertIn("_launch=Alt+Space\\tAlt+F2", shortcuts)
+        self.assertIn("Meta=org.kde.krunner,/App,,toggleDisplay", kwin)
+        self.assertIn("Show Desktop=Meta+D", shortcuts)
+
+        self.assertIn("ColorScheme=GitHubDark", kdeglobals)
+        self.assertIn("LookAndFeelPackage=org.kde.breezedark.desktop", kdeglobals)
+        self.assertIn("BackgroundNormal=13,17,23", colors)
+        self.assertIn('".config/plasmashellrc": {"Updates"}', cli)
+        self.assertIn('"systemctl", "--user", "stop", "plasma-plasmashell.service"', cli)
+        self.assertIn('"systemctl", "--user", "restart", "plasma-krunner.service"', cli)
+        self.assertIn('"qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"', cli)
+        self.assertIn("restore_backup(backup_run_id)", cli)
+        self.assertIn('"Plasma panel layout"', cli)
+        self.assertIn('"KRunner application palette"', cli)
 
     def test_kubuntu_never_sleeps_automatically(self):
         cli = DOT.read_text()

@@ -90,6 +90,13 @@ selected file or a non-empty Git index is rejected.
 `dot save` jumps directly to the selector. `dot save spectacle` restricts it
 to Spectacle preferences and keyboard shortcuts.
 
+`dot save panel` restricts the selector to the Plasma panel, its geometry,
+KRunner, shortcuts, and the GitHub Dark appearance files. Panel deployment is
+transactional: dotfiles creates one backup run, stops Plasma Shell before
+replacing panel state, and restores that backup automatically if Plasma does
+not restart. The successful apply prints the run ID for an explicit
+`dot rollback RUN_ID`.
+
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 
 ```bash

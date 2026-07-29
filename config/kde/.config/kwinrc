@@ -4,6 +4,9 @@ Id_2=7d416e18-68fa-41fa-bc45-52cce1d1e0e3
 Number=2
 Rows=1
 
+[ModifierOnlyShortcuts]
+Meta=org.kde.krunner,/App,,toggleDisplay
+
 [Plugins]
 scaleEnabled=false
 

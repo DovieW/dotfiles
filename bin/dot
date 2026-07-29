@@ -38,16 +38,25 @@ KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
     ".config/kglobalshortcutsrc",
+    ".config/krunnerrc",
     ".config/spectaclerc",
     ".config/kcminputrc",
     ".config/kscreenlockerrc",
     ".config/powerdevilrc",
     ".config/plasmarc",
+    ".config/plasmashellrc",
     ".config/plasma-org.kde.plasma.desktop-appletsrc",
+    ".local/share/color-schemes/GitHubDark.colors",
     ".local/share/konsole/Dovie.profile",
 )
 KDE_BASELINE = STATE_DIR / "kde-baseline.json"
 KDE_IGNORED_KEYS = {
+    ".config/plasma-org.kde.plasma.desktop-appletsrc": {
+        (
+            "Containments][1][Wallpaper][org.kde.image][General",
+            "DarkLightScheduleState",
+        ),
+    },
     ".config/kscreenlockerrc": {
         ("Greeter][Wallpaper][org.kde.image][General", "DarkLightScheduleState"),
     },
@@ -57,23 +66,34 @@ KDE_IGNORED_KEYS = {
 }
 KDE_IGNORED_SECTIONS = {
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
+    ".config/plasmashellrc": {"Updates"},
 }
 KDE_LABELS = {
     ".config/kdeglobals": "KDE appearance",
     ".config/kwinrc": "Windows, desktops, and tiling",
     ".config/kglobalshortcutsrc": "Keyboard shortcuts",
+    ".config/krunnerrc": "Application palette",
     ".config/spectaclerc": "Spectacle preferences",
     ".config/kcminputrc": "Mouse and input",
     ".config/kscreenlockerrc": "Lock screen",
     ".config/powerdevilrc": "Power and lid behavior",
     ".config/plasmarc": "Plasma appearance",
+    ".config/plasmashellrc": "Panel geometry and visibility",
     ".config/plasma-org.kde.plasma.desktop-appletsrc": "Panels and widgets",
+    ".local/share/color-schemes/GitHubDark.colors": "GitHub Dark color scheme",
     ".local/share/konsole/Dovie.profile": "Konsole profile",
+}
+KDE_SOURCE_OVERRIDES = {
+    ".local/share/color-schemes/GitHubDark.colors": ROOT / "config/kde/GitHubDark.colors",
 }
 
 
 class DotError(RuntimeError):
     pass
+
+
+def kde_source(relative: str) -> Path:
+    return KDE_SOURCE_OVERRIDES.get(relative, ROOT / "config/kde" / relative)
 
 
 def run(
@@ -252,6 +272,18 @@ def backup_paths(paths: list[Path]) -> str:
     return run_id
 
 
+def restore_backup(run_id: str) -> None:
+    root = BACKUP_DIR / run_id
+    manifest = load_json(root / "manifest.json")
+    for record in manifest:
+        path = Path(record["path"])
+        if record.get("existed") and record.get("backup"):
+            backup = Path(record["backup"])
+            atomic_bytes(path, backup.read_bytes())
+        elif not record.get("existed") and (path.exists() or path.is_symlink()):
+            path.unlink()
+
+
 def link_file(source: Path, destination: Path) -> bool:
     destination = destination.expanduser()
     if destination.is_symlink() and destination.resolve() == source.resolve():
@@ -300,12 +332,84 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
     return (normalized + "\n").encode("utf-8") if normalized else b""
 
 
+def kde_section_blocks(content: bytes) -> dict[str, list[str]]:
+    """Return complete KConfig section blocks, including their headers."""
+    blocks: dict[str, list[str]] = {}
+    section = ""
+    for line in content.decode("utf-8").splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            blocks.setdefault(section, []).append(line)
+        elif section:
+            blocks.setdefault(section, []).append(line)
+    return blocks
+
+
+def kde_destination_content(relative: str, source: bytes, destination: Path) -> bytes:
+    """Combine managed KDE state with host-local runtime residue."""
+    managed = portable_kde_content(relative, source)
+    if not destination.is_file() or destination.is_symlink():
+        return managed
+
+    live = destination.read_bytes()
+    live_sections = kde_section_blocks(live)
+    lines = managed.decode("utf-8").splitlines(keepends=True)
+
+    for section, key in sorted(KDE_IGNORED_KEYS.get(relative, set())):
+        value_line = next(
+            (
+                line
+                for line in live_sections.get(section, [])
+                if line.strip().split("=", 1)[0] == key
+            ),
+            None,
+        )
+        if value_line is None:
+            continue
+        header = f"[{section}]"
+        try:
+            start = next(index for index, line in enumerate(lines) if line.strip() == header)
+        except StopIteration:
+            if lines and lines[-1].strip():
+                lines.append("\n")
+            lines.extend([header + "\n", value_line])
+            continue
+        end = next(
+            (
+                index
+                for index in range(start + 1, len(lines))
+                if lines[index].strip().startswith("[")
+                and lines[index].strip().endswith("]")
+            ),
+            len(lines),
+        )
+        lines.insert(end, value_line)
+
+    for section in sorted(KDE_IGNORED_SECTIONS.get(relative, set())):
+        block = live_sections.get(section)
+        if not block:
+            continue
+        if lines and lines[-1].strip():
+            lines.append("\n")
+        lines.extend(block)
+
+    normalized = "".join(lines).rstrip()
+    return (normalized + "\n").encode("utf-8") if normalized else b""
+
+
 def kde_digest(relative: str, path: Path) -> str:
     return hashlib.sha256(portable_kde_content(relative, path.read_bytes())).hexdigest()
 
 
-def copy_managed_kde_file(relative: str, source: Path, destination: Path) -> bool:
-    content = portable_kde_content(relative, source.read_bytes())
+def copy_managed_kde_file(
+    relative: str,
+    source: Path,
+    destination: Path,
+    *,
+    backup: bool = True,
+) -> bool:
+    content = kde_destination_content(relative, source.read_bytes(), destination)
     mode = source.stat().st_mode & 0o777
     if (
         not destination.is_symlink()
@@ -315,7 +419,8 @@ def copy_managed_kde_file(relative: str, source: Path, destination: Path) -> boo
         destination.chmod(mode)
         return False
     if destination.exists() or destination.is_symlink():
-        backup_paths([destination])
+        if backup:
+            backup_paths([destination])
         destination.unlink()
     return atomic_bytes(destination, content, mode)
 
@@ -334,7 +439,7 @@ def record_kde_baseline() -> None:
     """Record only files whose repository and live copies currently agree."""
     files: dict[str, str] = {}
     for relative in KDE_FILES:
-        expected = ROOT / "config/kde" / relative
+        expected = kde_source(relative)
         actual = Path.home() / relative
         if (
             expected.is_file()
@@ -354,7 +459,7 @@ def check_kde_apply_conflicts(*, force: bool = False) -> None:
     baseline = kde_baseline()
     conflicts: list[str] = []
     for relative in KDE_FILES:
-        expected = ROOT / "config/kde" / relative
+        expected = kde_source(relative)
         actual = Path.home() / relative
         if not expected.is_file() or not actual.is_file() or actual.is_symlink():
             continue
@@ -414,14 +519,109 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
     if features.get("kde"):
         powerdevil_changed = False
-        for relative in KDE_FILES:
-            source = ROOT / "config/kde" / relative
-            if source.exists():
-                destination = Path.home() / relative
-                file_changed = copy_managed_kde_file(relative, source, destination)
+        candidates = [
+            (relative, kde_source(relative), Path.home() / relative)
+            for relative in KDE_FILES
+            if kde_source(relative).exists()
+        ]
+        pending = [
+            (relative, source, destination)
+            for relative, source, destination in candidates
+            if destination.is_symlink()
+            or not destination.exists()
+            or portable_kde_content(relative, destination.read_bytes())
+            != portable_kde_content(relative, source.read_bytes())
+        ]
+        panel_files = {
+            ".config/plasma-org.kde.plasma.desktop-appletsrc",
+            ".config/plasmashellrc",
+        }
+        panel_changed = any(relative in panel_files for relative, _, _ in pending)
+        krunner_changed = any(
+            relative in {".config/krunnerrc", ".config/kglobalshortcutsrc"}
+            for relative, _, _ in pending
+        )
+        kwin_changed = any(relative == ".config/kwinrc" for relative, _, _ in pending)
+        backup_run_id = backup_paths([destination for _, _, destination in pending]) if pending else ""
+        plasma_stopped = False
+        try:
+            if panel_changed and command_exists("systemctl"):
+                stopped = run(
+                    ["systemctl", "--user", "stop", "plasma-plasmashell.service"],
+                    check=False,
+                    capture=True,
+                )
+                if stopped.returncode:
+                    raise DotError(
+                        "Could not stop Plasma Shell before replacing its panel state: "
+                        + (stopped.stderr.strip() or f"exit code {stopped.returncode}")
+                    )
+                plasma_stopped = True
+            for relative, source, destination in pending:
+                file_changed = copy_managed_kde_file(
+                    relative,
+                    source,
+                    destination,
+                    backup=False,
+                )
                 changes += int(file_changed)
                 if relative == ".config/powerdevilrc" and file_changed:
                     powerdevil_changed = True
+            if plasma_stopped:
+                started = run(
+                    ["systemctl", "--user", "start", "plasma-plasmashell.service"],
+                    check=False,
+                    capture=True,
+                )
+                if started.returncode:
+                    raise DotError(
+                        "Plasma Shell did not restart after the panel update: "
+                        + (started.stderr.strip() or f"exit code {started.returncode}")
+                    )
+                plasma_stopped = False
+            if krunner_changed and command_exists("systemctl"):
+                restarted = run(
+                    ["systemctl", "--user", "restart", "plasma-krunner.service"],
+                    check=False,
+                    capture=True,
+                )
+                if restarted.returncode:
+                    raise DotError(
+                        "KRunner did not reload after its configuration update: "
+                        + (restarted.stderr.strip() or f"exit code {restarted.returncode}")
+                    )
+            if kwin_changed and command_exists("qdbus6"):
+                reconfigured = run(
+                    ["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
+                    check=False,
+                    capture=True,
+                )
+                if reconfigured.returncode:
+                    raise DotError(
+                        "KWin did not reload after its shortcut update: "
+                        + (reconfigured.stderr.strip() or f"exit code {reconfigured.returncode}")
+                    )
+            if backup_run_id:
+                print(f"KDE backup created: {backup_run_id}")
+        except Exception:
+            if backup_run_id:
+                restore_backup(backup_run_id)
+            if plasma_stopped and command_exists("systemctl"):
+                run(
+                    ["systemctl", "--user", "start", "plasma-plasmashell.service"],
+                    check=False,
+                )
+            if krunner_changed and command_exists("systemctl"):
+                run(
+                    ["systemctl", "--user", "restart", "plasma-krunner.service"],
+                    check=False,
+                )
+            if kwin_changed and command_exists("qdbus6"):
+                run(
+                    ["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
+                    check=False,
+                )
+            raise
         record_kde_baseline()
         if powerdevil_changed and command_exists("systemctl"):
             run(
@@ -489,6 +689,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     force_kde = getattr(args, "force_kde", False)
     if args.direct or not command_exists("ansible-playbook"):
+        if profile.get("features", {}).get("kde") and not args.check:
+            check_kde_apply_conflicts(force=force_kde)
         if profile["name"] == "termux" and not args.check:
             packages = profile.get("packages", {}).get("pkg", [])
             if packages:
@@ -952,7 +1154,7 @@ def cmd_capture_kde(args: argparse.Namespace) -> None:
             continue
         source = Path.home() / relative
         if source.is_file():
-            destination = ROOT / "config/kde" / relative
+            destination = kde_source(relative)
             content = portable_kde_content(relative, source.read_bytes())
             captured += int(atomic_bytes(destination, content))
     record_kde_baseline()
@@ -960,7 +1162,7 @@ def cmd_capture_kde(args: argparse.Namespace) -> None:
 
 
 def kde_file_diff(relative: str) -> list[str]:
-    expected = ROOT / "config/kde" / relative
+    expected = kde_source(relative)
     actual = Path.home() / relative
     if not expected.exists() and not actual.exists():
         return []
@@ -1049,6 +1251,15 @@ def save_commit_message(selected: list[str]) -> str:
 
 def cmd_save(args: argparse.Namespace) -> None:
     preset = {
+        "panel": {
+            ".config/kdeglobals",
+            ".config/kglobalshortcutsrc",
+            ".config/krunnerrc",
+            ".config/plasmarc",
+            ".config/plasmashellrc",
+            ".config/plasma-org.kde.plasma.desktop-appletsrc",
+            ".local/share/color-schemes/GitHubDark.colors",
+        },
         "spectacle": {
             ".config/spectaclerc",
             ".config/kglobalshortcutsrc",
@@ -1115,7 +1326,7 @@ def cmd_save(args: argparse.Namespace) -> None:
             return
 
     names = [Path(relative).name for relative in selected]
-    paths = [ROOT / "config/kde" / relative for relative in selected]
+    paths = [kde_source(relative) for relative in selected]
     dirty_targets = run(
         ["git", "status", "--porcelain", "--", *map(str, paths)],
         cwd=ROOT,
@@ -1189,15 +1400,7 @@ def cmd_diff_kde(_args: argparse.Namespace) -> None:
 
 
 def cmd_rollback(args: argparse.Namespace) -> None:
-    root = BACKUP_DIR / args.run_id
-    manifest = load_json(root / "manifest.json")
-    for record in manifest:
-        path = Path(record["path"])
-        if record.get("existed") and record.get("backup"):
-            backup = Path(record["backup"])
-            atomic_bytes(path, backup.read_bytes())
-        elif not record.get("existed") and (path.exists() or path.is_symlink()):
-            path.unlink()
+    restore_backup(args.run_id)
     print(f"Restored backup {args.run_id}")
 
 
@@ -1553,8 +1756,124 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             )
     if profile.get("features", {}).get("kde"):
         session = os.environ.get("XDG_SESSION_DESKTOP", "")
-        failures += not doctor_check("KDE session", "KDE" in session.upper(), session or "unknown")
+        plasma_session_active = (
+            command_exists("systemctl")
+            and run(
+                ["systemctl", "--user", "is-active", "--quiet", "plasma-plasmashell.service"],
+                check=False,
+            ).returncode
+            == 0
+        )
+        kde_session = "KDE" in session.upper() or plasma_session_active
+        failures += not doctor_check(
+            "KDE session",
+            kde_session,
+            session or ("plasma-plasmashell.service active" if plasma_session_active else "unknown"),
+        )
         failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
+        panel_layout_path = Path.home() / ".config/plasma-org.kde.plasma.desktop-appletsrc"
+        panel_layout = panel_layout_path.read_text(encoding="utf-8") if panel_layout_path.exists() else ""
+        required_panel_state = (
+            "plugin=org.kde.plasma.taskmanager",
+            "plugin=org.kde.plasma.panelspacer",
+            "middleClickAction=Close",
+            "showOnlyCurrentDesktop=true",
+            "showOnlyCurrentScreen=false",
+            "launchers=applications:google-chrome.desktop,applications:org.kde.konsole.desktop,applications:obsidian.desktop",
+            "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
+            "hiddenItems=org.kde.plasma.notifications",
+            "dateDisplayFormat=BelowTime",
+        )
+        forbidden_panel_state = (
+            "plugin=org.kde.plasma.kickoff",
+            "plugin=org.kde.plasma.pager",
+            "plugin=org.kde.plasma.showdesktop",
+            "plugin=org.kde.plasma.icontasks",
+        )
+        panel_layout_ok = (
+            all(value in panel_layout for value in required_panel_state)
+            and all(value not in panel_layout for value in forbidden_panel_state)
+        )
+        failures += not doctor_check(
+            "Plasma panel layout",
+            panel_layout_ok,
+            "native centered task manager, minimal tray, and compact clock"
+            if panel_layout_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        panel_geometry_path = Path.home() / ".config/plasmashellrc"
+        panel_geometry = panel_geometry_path.read_text(encoding="utf-8") if panel_geometry_path.exists() else ""
+        required_geometry = (
+            "alignment=1",
+            "floating=0",
+            "panelLengthMode=0",
+            "panelVisibility=1",
+            "thickness=40",
+        )
+        panel_geometry_ok = all(value in panel_geometry for value in required_geometry)
+        failures += not doctor_check(
+            "Plasma panel geometry",
+            panel_geometry_ok,
+            "full-width 40px bottom panel with auto-hide"
+            if panel_geometry_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        krunner_path = Path.home() / ".config/krunnerrc"
+        krunner = krunner_path.read_text(encoding="utf-8") if krunner_path.exists() else ""
+        enabled_runners = re.findall(r"^(.+)Enabled=true$", krunner, re.MULTILINE)
+        palette_ok = "FreeFloating=true" in krunner and enabled_runners == ["krunner_services"]
+        failures += not doctor_check(
+            "KRunner application palette",
+            palette_ok,
+            "centered with only the Applications provider enabled"
+            if palette_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        shortcuts_path = Path.home() / ".config/kglobalshortcutsrc"
+        shortcuts = shortcuts_path.read_text(encoding="utf-8") if shortcuts_path.exists() else ""
+        kwin_path = Path.home() / ".config/kwinrc"
+        kwin = kwin_path.read_text(encoding="utf-8") if kwin_path.exists() else ""
+        shortcuts_ok = (
+            "Meta=org.kde.krunner,/App,,toggleDisplay" in kwin
+            and "_launch=Alt+Space\\tAlt+F2" in shortcuts
+            and "activate application launcher=none" in shortcuts
+            and "Show Desktop=Meta+D" in shortcuts
+        )
+        failures += not doctor_check(
+            "desktop palette shortcuts",
+            shortcuts_ok,
+            "Meta opens KRunner; Alt+Space is retained; Meta+D shows the desktop"
+            if shortcuts_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        github_scheme = Path.home() / ".local/share/color-schemes/GitHubDark.colors"
+        kdeglobals_path = Path.home() / ".config/kdeglobals"
+        kdeglobals = kdeglobals_path.read_text(encoding="utf-8") if kdeglobals_path.exists() else ""
+        github_scheme_ok = (
+            github_scheme.exists()
+            and kde_digest(".local/share/color-schemes/GitHubDark.colors", github_scheme)
+            == kde_digest(
+                ".local/share/color-schemes/GitHubDark.colors",
+                kde_source(".local/share/color-schemes/GitHubDark.colors"),
+            )
+            and "ColorScheme=GitHubDark" in kdeglobals
+            and "LookAndFeelPackage=org.kde.breezedark.desktop" in kdeglobals
+        )
+        failures += not doctor_check(
+            "GitHub Dark KDE theme",
+            github_scheme_ok,
+            "GitHub Dark colors with native Breeze desktop components"
+            if github_scheme_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        if command_exists("systemctl"):
+            failures += not doctor_check(
+                "Plasma Shell",
+                plasma_session_active,
+                "active"
+                if plasma_session_active
+                else "plasma-plasmashell.service is not active",
+            )
         powerdevil_source = ROOT / "config/kde/.config/powerdevilrc"
         powerdevil_live = Path.home() / ".config/powerdevilrc"
         powerdevil_matches = (
@@ -1795,7 +2114,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     capture.set_defaults(func=cmd_capture_kde)
     save = sub.add_parser("save")
-    save.add_argument("target", nargs="?", choices=["spectacle"])
+    save.add_argument("target", nargs="?", choices=["panel", "spectacle"])
     save.add_argument(
         "--yes",
         action="store_true",

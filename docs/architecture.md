@@ -119,3 +119,12 @@ disabled because driver 595.84 crashes while querying the current PZCN55WW
 firmware. This does not disable GPU acceleration or runtime D3 suspension; it
 only removes Dynamic Boost's extra CPU/GPU power shifting under load. Reassess
 the workaround after a future NVIDIA driver or Lenovo firmware update.
+
+The Kubuntu desktop uses a full-width, always-auto-hidden native Plasma panel.
+Two flexible spacers approximately center the traditional Task Manager; the
+panel contains no launcher, pager, or Show Desktop widget. KWin's
+modifier-only shortcut maps Meta directly to a centered KRunner instance whose
+Applications provider is the only enabled runner; Alt+Space remains a fallback.
+Meta+D and Plasma's native four-finger downward gesture expose the desktop.
+GitHub Dark is a tracked KDE color scheme layered onto Breeze components, so no
+third-party Plasma code is required.

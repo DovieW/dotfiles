@@ -1,11 +1,11 @@
+# SPDX-License-Identifier: MIT
+
 [ColorEffects:Disabled]
-ChangeSelectionColor=
 Color=48,54,61
 ColorAmount=0
 ColorEffect=0
 ContrastAmount=0.65
 ContrastEffect=1
-Enable=
 IntensityAmount=0.1
 IntensityEffect=2
 
@@ -133,24 +133,16 @@ ForegroundPositive=63,185,80
 ForegroundVisited=188,140,255
 
 [General]
-BrowserApplication=google-chrome.desktop
 ColorScheme=GitHubDark
-fixed=Cascadia Code,10,-1,5,50,0,0,0,0,0
-font=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
-menuFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
-smallestReadableFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
-toolBarFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
+Name=GitHub Dark
+shadeSortColumn=true
 
 [KDE]
-AnimationDurationFactor=0.5
-DndBehavior=MoveIfSameDevice
-LookAndFeelPackage=org.kde.breezedark.desktop
-SmoothScroll=false
+contrast=4
 
 [WM]
 activeBackground=22,27,34
 activeBlend=230,237,243
-activeFont=Segoe UI Variable,10,-1,5,63,0,0,0,0,0
 activeForeground=230,237,243
 inactiveBackground=13,17,23
 inactiveBlend=125,133,144

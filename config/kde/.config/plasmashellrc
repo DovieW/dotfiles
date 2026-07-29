@@ -1,0 +1,11 @@
+[General]
+Number of Actions=0
+
+[PlasmaViews][Panel 2]
+alignment=1
+floating=0
+panelLengthMode=0
+panelVisibility=1
+
+[PlasmaViews][Panel 2][Defaults]
+thickness=40
