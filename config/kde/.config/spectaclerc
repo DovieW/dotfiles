@@ -1,0 +1,11 @@
+[General]
+clipboardGroup=PostScreenshotCopyImage
+
+[GuiConfig]
+quitAfterSaveCopyExport=true
+
+[ImageSave]
+translatedScreenshotsFolder=Screenshots
+
+[VideoSave]
+translatedScreencastsFolder=Screencasts

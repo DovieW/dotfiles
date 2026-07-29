@@ -29,6 +29,17 @@ dot apply --profile kubuntu-laptop
 
 Never capture the complete `.config` directory.
 
+To capture only reviewed files, repeat `--only` with allowlisted basenames:
+
+```bash
+dot capture kde --only spectaclerc --only kglobalshortcutsrc
+```
+
+`dot apply` records the last deployed KDE hashes. If a managed live file has
+changed since that deployment, apply stops instead of overwriting it. Review
+with `dot diff kde` and capture the intended file. `--force-kde` is reserved
+for an intentional repository-to-machine replacement; backups are still made.
+
 ## Rotate a device key
 
 Remove the named device item from Bitwarden and revoke its authentication and

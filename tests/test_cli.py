@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +45,33 @@ class DotCliTests(unittest.TestCase):
             "https://chatgpt.com/codex/install.sh",
         )
         self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
+
+    def test_kde_apply_refuses_uncaptured_local_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_home = Path(directory)
+            config = fake_home / ".config"
+            config.mkdir()
+            shutil.copy2(ROOT / "config/kde/.config/kdeglobals", config / "kdeglobals")
+            shortcuts = config / "kglobalshortcutsrc"
+            shortcuts.write_text("[local-change]\nshortcut=Meta+S\n")
+            env = os.environ.copy()
+            env["HOME"] = str(fake_home)
+            env["XDG_STATE_HOME"] = str(fake_home / ".local/state")
+            result = subprocess.run(
+                [
+                    str(DOT),
+                    "apply",
+                    "--profile",
+                    "kubuntu-laptop",
+                    "--direct",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refusing to overwrite KDE configuration drift", result.stderr)
+            self.assertEqual(shortcuts.read_text(), "[local-change]\nshortcut=Meta+S\n")
 
 
 if __name__ == "__main__":

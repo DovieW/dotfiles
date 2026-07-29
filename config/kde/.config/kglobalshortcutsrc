@@ -7,6 +7,10 @@ Switch to Last-Used Keyboard Layout=Meta+Alt+L,Meta+Alt+L,
 Switch to Next Keyboard Layout=Meta+Alt+K,Meta+Alt+K,
 _k_friendly_name=Keyboard Layout Switcher
 
+[codex-desktop]
+_k_friendly_name=ChatGPT
+global-dictation=Alt+\\,,Ctrl+Alt+Shift+D,Global dictation
+
 [kaccess]
 Toggle Screen Reader On and Off=Meta+Alt+S,Meta+Alt+S,Toggle Screen Reader On and Off
 _k_friendly_name=Accessibility
@@ -260,14 +264,22 @@ previous activity=Meta+Shift+A,none,Walk through activities (Reverse)
 repeat_action=,,Manually Invoke Action on Current Clipboard
 show dashboard=Ctrl+F12,Ctrl+F12,Show Desktop
 show-barcode=,,Show Barcode…
-show-on-mouse-pos=Meta+V,Meta+V,Show Clipboard Items at Mouse Position
+show-on-mouse-pos=Meta+V\tCtrl+`,Meta+V,Show Clipboard Items at Mouse Position
 switch to next activity=,,Switch to Next Activity
 switch to previous activity=,,Switch to Previous Activity
 toggle do not disturb=,,Toggle do not disturb
 
 [services][org.kde.spectacle.desktop]
+ActiveWindowScreenShot=Alt+Print
 CurrentMonitorScreenShot=
+FullScreenScreenShot=Print
 OpenWithoutScreenshot=
+RecordRegion=\tMeta+R
+RecordScreen=
+RecordWindow=
+RectangularRegionScreenShot=Meta+Shift+S
+WindowUnderCursorScreenShot=
+_launch=\t
 
 [wacomtablet]
 Map to fullscreen=Meta+Ctrl+F,Meta+Ctrl+F,Map to fullscreen

@@ -47,6 +47,20 @@ List backups under `~/.local/state/dotfiles/backups`, then run:
 dot rollback RUN_ID
 ```
 
+### KDE apply refuses local drift
+
+This means an allowlisted KDE file changed through System Settings or an
+application after its last deployment. Review it before choosing a direction:
+
+```bash
+dot diff kde
+dot capture kde --only NAME
+```
+
+Use `dot apply --profile kubuntu-laptop --force-kde` only when the committed
+repository copy should intentionally replace the live file. The replaced file
+is backed up for rollback.
+
 Log out and back in after restoring panel or shortcut configuration. Portable
 setup intentionally does not run `kscreen-doctor` or replace KScreen state.
 

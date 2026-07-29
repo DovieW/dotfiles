@@ -8,6 +8,7 @@ import base64
 import datetime as dt
 import difflib
 import getpass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -37,12 +38,25 @@ KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
     ".config/kglobalshortcutsrc",
+    ".config/spectaclerc",
     ".config/kcminputrc",
     ".config/kscreenlockerrc",
     ".config/plasmarc",
     ".config/plasma-org.kde.plasma.desktop-appletsrc",
     ".local/share/konsole/Dovie.profile",
 )
+KDE_BASELINE = STATE_DIR / "kde-baseline.json"
+KDE_IGNORED_KEYS = {
+    ".config/kscreenlockerrc": {
+        ("Greeter][Wallpaper][org.kde.image][General", "DarkLightScheduleState"),
+    },
+    ".config/spectaclerc": {
+        ("ImageSave", "lastImageSaveLocation"),
+    },
+}
+KDE_IGNORED_SECTIONS = {
+    ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
+}
 
 
 class DotError(RuntimeError):
@@ -224,10 +238,118 @@ def copy_managed_file(source: Path, destination: Path) -> bool:
     return atomic_bytes(destination, content, mode)
 
 
-def apply_direct(profile_name: str) -> int:
+def portable_kde_content(relative: str, content: bytes) -> bytes:
+    """Remove runtime residue from an otherwise portable KConfig file."""
+    ignored_keys = KDE_IGNORED_KEYS.get(relative, set())
+    ignored_sections = KDE_IGNORED_SECTIONS.get(relative, set())
+    section = ""
+    kept: list[str] = []
+    for line in content.decode("utf-8").splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            if section in ignored_sections:
+                continue
+        if section in ignored_sections:
+            continue
+        key = stripped.split("=", 1)[0] if "=" in stripped else ""
+        if (section, key) in ignored_keys:
+            continue
+        kept.append(line)
+    normalized = "".join(kept).rstrip()
+    return (normalized + "\n").encode("utf-8") if normalized else b""
+
+
+def kde_digest(relative: str, path: Path) -> str:
+    return hashlib.sha256(portable_kde_content(relative, path.read_bytes())).hexdigest()
+
+
+def copy_managed_kde_file(relative: str, source: Path, destination: Path) -> bool:
+    content = portable_kde_content(relative, source.read_bytes())
+    mode = source.stat().st_mode & 0o777
+    if (
+        not destination.is_symlink()
+        and destination.exists()
+        and portable_kde_content(relative, destination.read_bytes()) == content
+    ):
+        destination.chmod(mode)
+        return False
+    if destination.exists() or destination.is_symlink():
+        backup_paths([destination])
+        destination.unlink()
+    return atomic_bytes(destination, content, mode)
+
+
+def kde_baseline() -> dict[str, str]:
+    if not KDE_BASELINE.exists():
+        return {}
+    payload = load_json(KDE_BASELINE)
+    return {
+        str(path): str(digest)
+        for path, digest in payload.get("files", {}).items()
+    }
+
+
+def record_kde_baseline() -> None:
+    """Record only files whose repository and live copies currently agree."""
+    files: dict[str, str] = {}
+    for relative in KDE_FILES:
+        expected = ROOT / "config/kde" / relative
+        actual = Path.home() / relative
+        if (
+            expected.is_file()
+            and actual.is_file()
+            and not actual.is_symlink()
+            and portable_kde_content(relative, expected.read_bytes())
+            == portable_kde_content(relative, actual.read_bytes())
+        ):
+            files[relative] = kde_digest(relative, expected)
+    payload = {"schema_version": 1, "files": files}
+    atomic_text(KDE_BASELINE, json.dumps(payload, indent=2) + "\n", 0o600)
+
+
+def check_kde_apply_conflicts(*, force: bool = False) -> None:
+    if force:
+        return
+    baseline = kde_baseline()
+    conflicts: list[str] = []
+    for relative in KDE_FILES:
+        expected = ROOT / "config/kde" / relative
+        actual = Path.home() / relative
+        if not expected.is_file() or not actual.is_file() or actual.is_symlink():
+            continue
+        expected_digest = kde_digest(relative, expected)
+        actual_digest = kde_digest(relative, actual)
+        if expected_digest == actual_digest:
+            continue
+        previous_digest = baseline.get(relative)
+        if previous_digest is None:
+            reason = "has uncaptured local state"
+        elif actual_digest == previous_digest:
+            continue
+        elif expected_digest == previous_digest:
+            reason = "has newer local changes"
+        else:
+            reason = "changed both locally and in dotfiles"
+        conflicts.append(f"{actual} {reason}")
+    if conflicts:
+        detail = "\n  ".join(conflicts)
+        raise DotError(
+            "Refusing to overwrite KDE configuration drift:\n"
+            f"  {detail}\n"
+            "Review with `dot diff kde`, then capture the intended files with "
+            "`dot capture kde --only NAME`; use --force-kde only for an "
+            "intentional repository-to-machine replacement."
+        )
+
+
+def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
     profile = load_profile(profile_name)
     features = profile.get("features", {})
     changes = 0
+    force_kde = force_kde or os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") == "1"
+    if features.get("kde"):
+        check_kde_apply_conflicts(force=force_kde)
     if features.get("shell"):
         mappings = {
             ROOT / "config/shell/bashrc": Path.home() / ".bashrc",
@@ -253,7 +375,8 @@ def apply_direct(profile_name: str) -> int:
             source = ROOT / "config/kde" / relative
             if source.exists():
                 destination = Path.home() / relative
-                changes += int(copy_managed_file(source, destination))
+                changes += int(copy_managed_kde_file(relative, source, destination))
+        record_kde_baseline()
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -313,14 +436,26 @@ def apply_direct(profile_name: str) -> int:
 
 def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    force_kde = getattr(args, "force_kde", False)
     if args.direct or not command_exists("ansible-playbook"):
         if profile.get("features", {}).get("codex_remote_control"):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-codex"), mode], cwd=ROOT)
         if not args.direct:
             print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
-        apply_direct(args.profile)
+        apply_direct(args.profile, force_kde=force_kde)
         return
+    selected_tags = set((args.tags or "").replace(",", " ").split())
+    direct_apply_selected = not selected_tags or bool(
+        selected_tags & {"config", "shell", "git", "kde"}
+    )
+    kde_apply_selected = (
+        profile.get("features", {}).get("kde")
+        and direct_apply_selected
+        and not args.check
+    )
+    if kde_apply_selected:
+        check_kde_apply_conflicts(force=force_kde)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     runtime_profile = STATE_DIR / "runtime-profile.json"
     atomic_text(runtime_profile, json.dumps({"dot_profile_data": profile}, indent=2) + "\n", 0o600)
@@ -338,7 +473,12 @@ def cmd_apply(args: argparse.Namespace) -> None:
         command.extend(["--tags", args.tags])
     if args.check:
         command.append("--check")
-    run(command, cwd=ROOT)
+    apply_env = os.environ.copy()
+    if force_kde:
+        apply_env["DOTFILES_KDE_PREFLIGHT_OK"] = "1"
+    run(command, cwd=ROOT, env=apply_env)
+    if kde_apply_selected:
+        record_kde_baseline()
 
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:
@@ -360,7 +500,15 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         require_commands(["git", "python3"], "Install Git and Python 3 with the system package manager.")
     if not args.skip_secrets:
         cmd_secrets_sync(argparse.Namespace(profile=args.profile, device=device, no_register=False))
-    cmd_apply(argparse.Namespace(profile=args.profile, tags=None, check=False, direct=False))
+    cmd_apply(
+        argparse.Namespace(
+            profile=args.profile,
+            tags=None,
+            check=False,
+            direct=False,
+            force_kde=True,
+        )
+    )
 
 
 def bw_session() -> tuple[str, bool]:
@@ -675,13 +823,27 @@ def cmd_codex_update(_args: argparse.Namespace) -> None:
     )
 
 
-def cmd_capture_kde(_args: argparse.Namespace) -> None:
+def cmd_capture_kde(args: argparse.Namespace) -> None:
+    selected = set(args.only or [])
+    known_names = {Path(relative).name for relative in KDE_FILES}
+    unknown = selected - known_names
+    if unknown:
+        raise DotError(
+            "Unknown KDE capture file(s): "
+            + ", ".join(sorted(unknown))
+            + ". Choose from: "
+            + ", ".join(sorted(known_names))
+        )
     captured = 0
     for relative in KDE_FILES:
+        if selected and Path(relative).name not in selected:
+            continue
         source = Path.home() / relative
         if source.is_file():
             destination = ROOT / "config/kde" / relative
-            captured += int(atomic_bytes(destination, source.read_bytes()))
+            content = portable_kde_content(relative, source.read_bytes())
+            captured += int(atomic_bytes(destination, content))
+    record_kde_baseline()
     print(f"Captured {captured} changed KDE file(s). Display topology, wallets, caches, and history were excluded.")
 
 
@@ -692,8 +854,20 @@ def cmd_diff_kde(_args: argparse.Namespace) -> None:
         actual = Path.home() / relative
         if not expected.exists() and not actual.exists():
             continue
-        left = expected.read_text(errors="replace").splitlines(True) if expected.exists() else []
-        right = actual.read_text(errors="replace").splitlines(True) if actual.exists() else []
+        left = (
+            portable_kde_content(relative, expected.read_bytes())
+            .decode("utf-8", errors="replace")
+            .splitlines(True)
+            if expected.exists()
+            else []
+        )
+        right = (
+            portable_kde_content(relative, actual.read_bytes())
+            .decode("utf-8", errors="replace")
+            .splitlines(True)
+            if actual.exists()
+            else []
+        )
         diff = list(difflib.unified_diff(left, right, fromfile=str(expected), tofile=str(actual)))
         if diff:
             differences += 1
@@ -905,6 +1079,11 @@ def build_parser() -> argparse.ArgumentParser:
     apply.add_argument("--tags")
     apply.add_argument("--check", action="store_true")
     apply.add_argument("--direct", action="store_true")
+    apply.add_argument(
+        "--force-kde",
+        action="store_true",
+        help="replace conflicting live KDE files after backing them up",
+    )
     apply.set_defaults(func=cmd_apply)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--profile", required=True)
@@ -940,6 +1119,12 @@ def build_parser() -> argparse.ArgumentParser:
     secret_sync.set_defaults(func=cmd_secrets_sync)
     capture = sub.add_parser("capture")
     capture.add_argument("target", choices=["kde"])
+    capture.add_argument(
+        "--only",
+        action="append",
+        metavar="NAME",
+        help="capture only a named allowlisted file; may be repeated",
+    )
     capture.set_defaults(func=cmd_capture_kde)
     diff = sub.add_parser("diff")
     diff.add_argument("target", choices=["kde"])

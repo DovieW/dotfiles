@@ -190,7 +190,3 @@ knownItems=org.kde.kdeconnect,org.kde.plasma.vault,org.kde.kupapplet,org.kde.pla
 
 [Containments][2][General]
 AppletOrder=3;4;5;6;7;22;23
-
-[ScreenMapping]
-itemsOnDisabledScreens=
-screenMapping=desktop:/org.kubuntu.web.home.desktop,0,f3d5c531-461f-4a86-8806-5e669352d341,desktop:/org.kfocus.web.howtos.desktop,0,f3d5c531-461f-4a86-8806-5e669352d341
