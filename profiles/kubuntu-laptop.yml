@@ -8,6 +8,7 @@
     "docker_engine": true,
     "kde": true,
     "nvidia_driver": true,
+    "nvidia_dynamic_boost": false,
     "windows_fonts": true
   },
   "packages": {

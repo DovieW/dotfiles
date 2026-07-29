@@ -113,4 +113,9 @@ Performance policy is profile-specific: AC uses performance, battery uses
 balanced, and low battery uses power-saver. Kubuntu installs the NVIDIA desktop
 driver currently marked recommended by `ubuntu-drivers`, without hard-coding a
 driver branch, and keeps hybrid graphics in PRIME on-demand mode so Intel drives
-the desktop while NVIDIA remains available for explicit workloads.
+the desktop while NVIDIA remains available for explicit workloads. On the
+IdeaPad Pro 5 16IAH10, the optional `nvidia-powerd` Dynamic Boost daemon is
+disabled because driver 595.84 crashes while querying the current PZCN55WW
+firmware. This does not disable GPU acceleration or runtime D3 suspension; it
+only removes Dynamic Boost's extra CPU/GPU power shifting under load. Reassess
+the workaround after a future NVIDIA driver or Lenovo firmware update.

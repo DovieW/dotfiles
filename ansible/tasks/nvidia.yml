@@ -61,12 +61,32 @@
     - not ansible_check_mode
     - dot_prime_mode.stdout | default('') | trim != 'on-demand'
 
+- name: Disable unstable NVIDIA Dynamic Boost on affected firmware
+  become: true
+  ansible.builtin.systemd_service:
+    name: nvidia-powerd.service
+    enabled: false
+    state: stopped
+  when:
+    - not ansible_check_mode
+    - not (dot_profile_data.features.nvidia_dynamic_boost | default(true) | bool)
+
+- name: Clear the disabled Dynamic Boost failure state
+  become: true
+  ansible.builtin.command:
+    argv: [systemctl, reset-failed, nvidia-powerd.service]
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - not (dot_profile_data.features.nvidia_dynamic_boost | default(true) | bool)
+
 - name: Report NVIDIA reboot requirement
   ansible.builtin.debug:
     msg: >-
       {{ dot_nvidia_recommended_package }} is installed with PRIME on-demand.
       Reboot before validating nvidia-smi, the loaded kernel module, and runtime
-      power management.
+      power management. NVIDIA Dynamic Boost is
+      {{ 'enabled' if dot_profile_data.features.nvidia_dynamic_boost | default(true) else 'disabled because it crashes with this laptop firmware' }}.
   when: not ansible_check_mode
 
 - name: Explain NVIDIA check mode

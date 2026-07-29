@@ -1602,12 +1602,37 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if nvidia_loaded
                 else "reboot after dot apply --profile kubuntu-laptop --tags gpu",
             )
+            nvidia_smi = run(
+                ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+                check=False,
+                capture=True,
+            )
+            failures += not doctor_check(
+                "NVIDIA userspace",
+                nvidia_smi.returncode == 0,
+                nvidia_smi.stdout.strip()
+                if nvidia_smi.returncode == 0
+                else "nvidia-smi cannot communicate with the loaded driver",
+            )
             prime = run(["prime-select", "query"], check=False, capture=True)
             failures += not doctor_check(
                 "NVIDIA PRIME mode",
                 prime.returncode == 0 and prime.stdout.strip() == "on-demand",
                 prime.stdout.strip() or "prime-select unavailable",
             )
+            if not profile.get("features", {}).get("nvidia_dynamic_boost", True):
+                dynamic_boost = run(
+                    ["systemctl", "is-enabled", "nvidia-powerd.service"],
+                    check=False,
+                    capture=True,
+                )
+                failures += not doctor_check(
+                    "NVIDIA Dynamic Boost workaround",
+                    dynamic_boost.stdout.strip() in {"disabled", "masked"},
+                    "disabled; normal GPU acceleration and runtime suspension remain available"
+                    if dynamic_boost.stdout.strip() in {"disabled", "masked"}
+                    else "run dot apply --profile kubuntu-laptop --tags gpu",
+                )
         if command_exists("busctl"):
             live_lid = run(
                 [

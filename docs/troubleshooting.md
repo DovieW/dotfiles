@@ -91,6 +91,13 @@ The role follows the package marked `recommended` by `ubuntu-drivers` and sets
 PRIME on-demand. After reboot, verify the loaded driver, PRIME mode, and the
 rest of the workstation with `dot doctor --profile kubuntu-laptop`.
 
+On the IdeaPad Pro 5 16IAH10 with PZCN55WW firmware, driver 595.84's optional
+`nvidia-powerd` Dynamic Boost daemon crashes while reading SBIOS power data.
+The Kubuntu profile disables that daemon to prevent repeated crash reports.
+Normal NVIDIA acceleration and runtime D3 battery savings remain enabled. A
+future driver or firmware update should be tested before removing the
+workaround.
+
 ## Shell startup is slow
 
 Profile Zsh with:
