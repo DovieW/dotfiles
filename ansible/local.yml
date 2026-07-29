@@ -148,6 +148,17 @@
       when: item.rc != 0
       tags: [packages]
 
+    - name: Ensure pinned Codex standalone CLI
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/scripts/install-codex"
+          - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+      register: dot_codex_install
+      changed_when: "'installed and verified' in dot_codex_install.stdout"
+      check_mode: false
+      when: dot_profile_data.features.codex_remote_control | default(false)
+      tags: [packages, config]
+
     - name: Apply portable configuration
       ansible.builtin.command:
         argv:

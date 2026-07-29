@@ -22,10 +22,11 @@ unlocking Bitwarden and requests both authentication-key and signing-key
 management scopes.
 
 On the Kubuntu profile, the standalone Codex CLI is expected at
-`~/.local/bin/codex`. Applying the profile installs and enables a supervised
-user service that keeps Codex Remote Control running across logins and restarts
-it after a failure. User lingering keeps the service available after logout and
-starts it during boot without waiting for an interactive login.
+`~/.local/bin/codex`. Applying the profile installs the pinned standalone
+release when it is missing, then enables a supervised user service that keeps
+Codex Remote Control running across logins and restarts it after a failure.
+User lingering keeps the service available after logout and starts it during
+boot without waiting for an interactive login.
 
 For a new vault, create the private bootstrap note once from a permission-locked
 local draft:
@@ -42,6 +43,7 @@ The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 dot apply --profile kubuntu-laptop
 dot doctor --profile kubuntu-laptop
 dot package add ripgrep --profile common-linux
+dot codex update
 dot repos sync --profile kubuntu-laptop
 dot capture kde
 dot diff kde

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "release": "0.146.0",
+  "installer_url": "https://chatgpt.com/codex/install.sh",
+  "installer_sha256": "ba92dd27e5c06f0d3bbc58bfa4b9cfb6599cd2742fbb1f92a2765e6c07dedb5a"
+}

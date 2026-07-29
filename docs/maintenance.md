@@ -67,3 +67,19 @@ The service starts during boot and systemd restarts it after a failure. The
 profile enables user lingering so it also remains available after logout. It
 uses the standalone Codex installation at `~/.local/bin/codex`; an npm-managed
 Codex installation does not satisfy this requirement.
+
+The pinned release, official installer URL, and reviewed installer SHA-256 are
+stored in `packages/codex.yml`. A normal apply installs Codex only when the
+managed standalone installation is absent. If the installed version differs
+from the pin, apply stops instead of silently upgrading or downgrading it.
+
+To update Codex:
+
+1. Download and review the current official installer.
+2. Update `release` and `installer_sha256` in `packages/codex.yml`.
+3. Run `dot codex update`.
+4. Review the diff, run the validation suite, and commit the manifest update.
+
+The update leaves an already-running Remote Control process alone because
+restarting it disconnects active remote sessions. The new release takes effect
+after the next service restart or reboot.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -16,6 +17,7 @@ class DotCliTests(unittest.TestCase):
         result = self.run_dot("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bootstrap", result.stdout)
+        self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
 
     def test_profiles_are_parseable(self):
@@ -30,6 +32,16 @@ class DotCliTests(unittest.TestCase):
     def test_windows_profile_does_not_install(self):
         profile = json.loads((ROOT / "profiles/windows-host.yml").read_text())
         self.assertTrue(profile["features"]["windows_inventory_only"])
+
+    def test_codex_manifest_is_pinned_to_official_installer(self):
+        manifest = json.loads((ROOT / "packages/codex.yml").read_text())
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertRegex(manifest["release"], r"^\d+\.\d+\.\d+")
+        self.assertEqual(
+            manifest["installer_url"],
+            "https://chatgpt.com/codex/install.sh",
+        )
+        self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", manifest["installer_sha256"]))
 
 
 if __name__ == "__main__":
