@@ -575,6 +575,26 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             not missing_apt,
             "all present" if not missing_apt else f"missing {', '.join(missing_apt)}",
         )
+    deb_packages = packages.get("deb", [])
+    if deb_packages and command_exists("dpkg-query"):
+        deb_manifest = load_json(ROOT / "packages/external-deb.yml").get("packages", {})
+        missing_deb = []
+        for package in deb_packages:
+            proc = run(
+                ["dpkg-query", "-W", "-f=${Version}", package],
+                check=False,
+                capture=True,
+            )
+            expected = deb_manifest.get(package, {}).get("version")
+            if proc.returncode or proc.stdout != expected:
+                missing_deb.append(f"{package}={expected}")
+        failures += not doctor_check(
+            "External Debian packages",
+            not missing_deb,
+            "all pinned versions present"
+            if not missing_deb
+            else f"missing {', '.join(missing_deb)}",
+        )
     brew_packages = packages.get("brew", [])
     if brew_packages:
         if not command_exists("brew"):

@@ -51,6 +51,45 @@
           length > 0
       tags: [packages]
 
+    - name: Check external Debian packages
+      ansible.builtin.command:
+        argv: [dpkg-query, -W, '-f=${Version}', "{{ item }}"]
+      register: dot_external_deb_status
+      changed_when: false
+      failed_when: false
+      loop: "{{ dot_profile_data.packages.deb | default([]) }}"
+      when:
+        - ansible_facts.os_family == "Debian"
+        - (dot_profile_data.packages.deb | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Read external Debian package manifest
+      ansible.builtin.include_vars:
+        file: "{{ dot_repo }}/packages/external-deb.yml"
+        name: dot_external_deb_manifest
+      when: (dot_profile_data.packages.deb | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Download changed external Debian packages
+      ansible.builtin.command:
+        argv: ["{{ dot_repo }}/scripts/fetch-external-deb", "{{ item.item }}"]
+      register: dot_external_deb_downloads
+      changed_when: true
+      loop: "{{ dot_external_deb_status.results | default([]) }}"
+      when: >-
+        item.rc != 0 or
+        item.stdout != dot_external_deb_manifest.packages[item.item].version
+      tags: [packages]
+
+    - name: Install changed external Debian packages
+      become: true
+      ansible.builtin.apt:
+        deb: "{{ item.stdout }}"
+        state: present
+      loop: "{{ dot_external_deb_downloads.results | default([]) }}"
+      when: not item.skipped | default(false)
+      tags: [packages]
+
     - name: Check Homebrew availability
       ansible.builtin.command: brew --version
       register: dot_brew

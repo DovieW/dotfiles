@@ -11,6 +11,11 @@ The command edits the manifest and applies the package role on Linux. It never
 commits. On Windows, specify `winget`, `scoop`, or `psgallery`; the package is
 recorded but not installed.
 
+External Debian applications are pinned in `packages/external-deb.yml` with an
+upstream release URL and SHA-256 digest. Update all three values together,
+review the upstream release, and run `scripts/fetch-external-deb NAME` before
+applying.
+
 ## Update captured configuration
 
 Edit portable files in this repository directly. For a reviewed KDE change:

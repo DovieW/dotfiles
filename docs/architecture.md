@@ -21,7 +21,8 @@ Linux package ownership is intentional:
 
 - APT owns system libraries, desktop integration, KDE, and the login shell.
 - Homebrew owns modern cross-distribution CLI tools.
-- Snap is limited to curated Kubuntu desktop exceptions.
+- Checksum-pinned official Debian releases own Bitwarden Desktop and Obsidian.
+- Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
 

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+name="${1:-}"
+if [[ -z "$name" ]]; then
+  echo "Usage: fetch-external-deb PACKAGE" >&2
+  exit 2
+fi
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="$root/packages/external-deb.yml"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/debs"
+
+command -v jq >/dev/null 2>&1 || {
+  echo "jq is required." >&2
+  exit 1
+}
+
+entry="$(jq -cer --arg name "$name" '.packages[$name] // error("unknown package")' "$manifest")"
+version="$(jq -r '.version' <<<"$entry")"
+url="$(jq -r '.url' <<<"$entry")"
+checksum="$(jq -r '.sha256' <<<"$entry")"
+target="$cache/${name}_${version}_amd64.deb"
+
+mkdir -p "$cache"
+if [[ -f "$target" ]] && printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status; then
+  printf '%s\n' "$target"
+  exit 0
+fi
+
+temporary="${target}.partial"
+rm -f -- "$temporary"
+curl -fL --retry 3 --output "$temporary" "$url" >&2
+printf '%s  %s\n' "$checksum" "$temporary" | sha256sum --check --status || {
+  rm -f -- "$temporary"
+  echo "Checksum verification failed for $name $version." >&2
+  exit 1
+}
+mv -- "$temporary" "$target"
+printf '%s\n' "$target"
