@@ -67,23 +67,19 @@ class DotCliTests(unittest.TestCase):
                 env=env,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Run `sudo -v` in an interactive terminal", result.stderr)
+            self.assertIn("Run this command in an interactive terminal", result.stderr)
 
-    def test_interactive_package_apply_prompts_for_sudo_before_ansible(self):
+    def test_interactive_package_apply_asks_ansible_for_become_password(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            sudo_marker = root / "sudo-authorized"
             ansible_marker = root / "ansible-ran"
-            (fake_bin / "sudo").write_text(
-                "#!/bin/sh\n"
-                'if [ "$1" = "-n" ]; then exit 1; fi\n'
-                'if [ "$1" = "-v" ]; then touch "$DOT_TEST_SUDO_MARKER"; exit 0; fi\n'
-                "exit 2\n"
-            )
+            ansible_args = root / "ansible-args"
+            (fake_bin / "sudo").write_text("#!/bin/sh\nexit 99\n")
             (fake_bin / "ansible-playbook").write_text(
                 "#!/bin/sh\n"
+                'printf "%s\\n" "$@" > "$DOT_TEST_ANSIBLE_ARGS"\n'
                 'touch "$DOT_TEST_ANSIBLE_MARKER"\n'
             )
             (fake_bin / "sudo").chmod(0o755)
@@ -91,8 +87,8 @@ class DotCliTests(unittest.TestCase):
             env = os.environ.copy()
             env["HOME"] = str(root / "home")
             env["XDG_STATE_HOME"] = str(root / "state")
-            env["DOT_TEST_SUDO_MARKER"] = str(sudo_marker)
             env["DOT_TEST_ANSIBLE_MARKER"] = str(ansible_marker)
+            env["DOT_TEST_ANSIBLE_ARGS"] = str(ansible_args)
             env["PATH"] = os.pathsep.join(
                 [str(fake_bin), "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin"]
             )
@@ -122,8 +118,8 @@ class DotCliTests(unittest.TestCase):
             _, status = os.waitpid(pid, 0)
             os.close(fd)
             self.assertEqual(os.waitstatus_to_exitcode(status), 0, output.decode(errors="replace"))
-            self.assertTrue(sudo_marker.exists())
             self.assertTrue(ansible_marker.exists())
+            self.assertIn("--ask-become-pass", ansible_args.read_text().splitlines())
             self.assertIn(b"Administrator access is required", output)
 
     def test_codex_manifest_tracks_official_stable_channel(self):

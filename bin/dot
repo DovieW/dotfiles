@@ -204,22 +204,20 @@ def require_commands(names: list[str], remediation: str) -> None:
         raise DotError(f"Missing prerequisites: {', '.join(missing)}\n{remediation}")
 
 
-def ensure_sudo_authorization() -> None:
+def ansible_become_arguments() -> list[str]:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return
+        return []
     require_commands(["sudo"], "Install sudo or run the privileged operation as root.")
-    cached = run(["sudo", "-n", "true"], check=False, capture=True)
-    if cached.returncode == 0:
-        return
-    if not sys.stdin.isatty():
-        raise DotError(
-            "Administrator access is required for managed system packages. "
-            "Run `sudo -v` in an interactive terminal, then retry."
-        )
-    print("Administrator access is required to update managed system packages.")
-    authorized = run(["sudo", "-v"], check=False)
-    if authorized.returncode != 0:
-        raise DotError("Administrator authentication failed; no privileged changes were made.")
+    if sys.stdin.isatty():
+        print("Administrator access is required to update managed system packages.")
+        return ["--ask-become-pass"]
+    passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
+    if passwordless.returncode == 0:
+        return []
+    raise DotError(
+        "Administrator access is required for managed system packages. "
+        "Run this command in an interactive terminal so Ansible can request the password."
+    )
 
 
 def backup_paths(paths: list[Path]) -> str:
@@ -490,8 +488,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
         managed_packages.get(provider)
         for provider in ("apt", "deb", "snap")
     )
-    if package_apply_selected and privileged_packages:
-        ensure_sudo_authorization()
+    become_arguments = (
+        ansible_become_arguments()
+        if package_apply_selected and privileged_packages
+        else []
+    )
     direct_apply_selected = not selected_tags or bool(
         selected_tags & {"config", "shell", "git", "kde"}
     )
@@ -519,6 +520,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         command.extend(["--tags", args.tags])
     if args.check:
         command.append("--check")
+    command.extend(become_arguments)
     apply_env = os.environ.copy()
     if force_kde:
         apply_env["DOTFILES_KDE_PREFLIGHT_OK"] = "1"

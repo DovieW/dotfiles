@@ -90,11 +90,11 @@ the complete Bash profile.
 
 ## Package updates fail before the first APT task
 
-Interactive `dot apply` and `dot update` runs preflight sudo authorization
-before Ansible starts. They reuse a valid sudo timestamp or prompt once with
-`sudo -v`. Noninteractive runs cannot request a password and instead stop with
-an instruction to authorize sudo in a terminal before retrying. No package
-task runs when this preflight fails.
+Interactive `dot apply` and `dot update` runs tell Ansible to request its become
+password before the play starts. Ansible then supplies that password directly
+to each privileged task instead of depending on a terminal-specific sudo
+timestamp. Noninteractive runs require passwordless sudo or stop before the
+play with an instruction to retry in a terminal.
 
 ## Codex Remote Control is unavailable
 
