@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "name": "windows-host",
+  "inherits": [],
+  "account": "personal",
+  "features": {
+    "windows_inventory_only": true,
+    "git": true,
+    "repositories": true
+  },
+  "packages": {
+    "winget": ["Bitwarden.Bitwarden", "Git.Git", "Microsoft.PowerShell", "Microsoft.VisualStudioCode", "Microsoft.WindowsTerminal"],
+    "scoop": ["autohotkey", "bat", "fd", "fzf", "jq", "ripgrep", "zoxide"],
+    "psgallery": ["posh-git", "PSFzf", "Terminal-Icons"]
+  }
+}

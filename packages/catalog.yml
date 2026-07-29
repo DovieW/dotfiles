@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "linux_cli": "brew",
+    "linux_system": "apt",
+    "termux": "pkg",
+    "windows": "record"
+  },
+  "tools": {
+    "ansible": {"provider": "brew"},
+    "bat": {"provider": "brew"},
+    "curl": {"provider": "apt"},
+    "fd": {"provider": "brew"},
+    "fzf": {"provider": "brew"},
+    "git": {"provider": "apt"},
+    "jq": {"provider": "brew"},
+    "ripgrep": {"provider": "brew"},
+    "shellcheck": {"provider": "brew"},
+    "tmux": {"provider": "brew"},
+    "yq": {"provider": "brew"},
+    "zoxide": {"provider": "brew"},
+    "zsh": {"provider": "apt"}
+  }
+}

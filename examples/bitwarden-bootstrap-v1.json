@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "git_identities": {
+    "personal": {
+      "name": "Example Person",
+      "email": "person@example.invalid"
+    },
+    "work": {
+      "name": "Example Person",
+      "email": "person@work.example.invalid"
+    }
+  },
+  "repositories": [
+    {
+      "name": "example",
+      "url": "git@github.com:example/example.git",
+      "path": "~/repos/example",
+      "profiles": ["kubuntu-laptop", "wsl-personal"],
+      "account": "personal"
+    }
+  ]
+}

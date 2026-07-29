@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dotfiles profile",
+  "type": "object",
+  "required": ["schema_version", "name", "inherits", "packages"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "inherits": {"type": "array", "items": {"type": "string"}},
+    "account": {"enum": ["personal", "work"]},
+    "features": {"type": "object", "additionalProperties": {"type": "boolean"}},
+    "packages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string"},
+        "uniqueItems": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

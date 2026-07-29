@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "common-linux",
+  "inherits": [],
+  "account": "personal",
+  "features": {
+    "shell": true,
+    "git": true,
+    "repositories": true,
+    "kde": false,
+    "windows_inventory_only": false
+  },
+  "packages": {
+    "apt": ["build-essential", "curl", "git", "openssh-client", "python3", "python3-venv", "zsh"],
+    "brew": ["ansible", "ansible-lint", "bash", "bat", "bitwarden-cli", "eza", "fd", "fzf", "gh", "git-delta", "jq", "powerlevel10k", "ripgrep", "shellcheck", "tmux", "yamllint", "yq", "zoxide", "zsh-autosuggestions", "zsh-syntax-highlighting"],
+    "snap": [],
+    "pkg": [],
+    "winget": [],
+    "scoop": [],
+    "psgallery": []
+  }
+}

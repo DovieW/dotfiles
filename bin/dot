@@ -1,0 +1,640 @@
+#!/usr/bin/env python3
+"""One entry point for Dovie's reproducible environment."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import datetime as dt
+import difflib
+import getpass
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PROFILE_DIR = ROOT / "profiles"
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dotfiles"
+BACKUP_DIR = STATE_DIR / "backups"
+BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
+KDE_FILES = (
+    ".config/kdeglobals",
+    ".config/kwinrc",
+    ".config/kglobalshortcutsrc",
+    ".config/kcminputrc",
+    ".config/kscreenlockerrc",
+    ".config/plasmarc",
+    ".config/plasma-org.kde.plasma.desktop-appletsrc",
+    ".local/share/konsole/Dovie.profile",
+)
+
+
+class DotError(RuntimeError):
+    pass
+
+
+def run(
+    args: list[str],
+    *,
+    check: bool = True,
+    capture: bool = False,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+        env=env,
+        cwd=cwd,
+    )
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DotError(f"Cannot read {path}: {exc}") from exc
+
+
+def merge(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    result = json.loads(json.dumps(left))
+    for key, value in right.items():
+        if key == "inherits":
+            continue
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge(result[key], value)
+        elif isinstance(value, list) and isinstance(result.get(key), list):
+            result[key] = list(dict.fromkeys(result[key] + value))
+        else:
+            result[key] = value
+    return result
+
+
+def normalize_profile(name: str) -> str:
+    return "common-linux" if name == "common" else name
+
+
+def load_profile(name: str, stack: tuple[str, ...] = ()) -> dict[str, Any]:
+    name = normalize_profile(name)
+    if name in stack:
+        raise DotError(f"Profile inheritance cycle: {' -> '.join(stack + (name,))}")
+    path = PROFILE_DIR / f"{name}.yml"
+    data = load_json(path)
+    if data.get("schema_version") != 1 or data.get("name") != name:
+        raise DotError(f"Invalid profile header in {path}")
+    combined: dict[str, Any] = {"inherits": [], "features": {}, "packages": {}}
+    for parent in data.get("inherits", []):
+        combined = merge(combined, load_profile(parent, stack + (name,)))
+    return merge(combined, data)
+
+
+def atomic_text(path: Path, text: str, mode: int | None = None) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        if mode is not None:
+            path.chmod(mode)
+        return False
+    temp = path.with_name(f".{path.name}.dot-tmp")
+    temp.write_text(text, encoding="utf-8")
+    if mode is not None:
+        temp.chmod(mode)
+    temp.replace(path)
+    return True
+
+
+def atomic_bytes(path: Path, content: bytes, mode: int | None = None) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_bytes() == content:
+        if mode is not None:
+            path.chmod(mode)
+        return False
+    temp = path.with_name(f".{path.name}.dot-tmp")
+    temp.write_bytes(content)
+    if mode is not None:
+        temp.chmod(mode)
+    temp.replace(path)
+    return True
+
+
+def infer_platform() -> str:
+    if os.environ.get("TERMUX_VERSION") or Path("/data/data/com.termux").exists():
+        return "termux"
+    if platform.system() == "Windows":
+        return "windows"
+    try:
+        if "microsoft" in Path("/proc/version").read_text().lower():
+            return "wsl"
+    except OSError:
+        pass
+    return "linux"
+
+
+def inferred_device_id() -> str:
+    host = socket.gethostname()
+    if infer_platform() == "wsl":
+        command = Path("/mnt/c/Windows/System32/hostname.exe")
+        if command.exists():
+            proc = run([str(command)], check=False, capture=True)
+            if proc.returncode == 0 and proc.stdout.strip():
+                host = proc.stdout.strip()
+    value = re.sub(r"[^a-z0-9-]+", "-", host.lower()).strip("-")
+    return value or "unnamed-device"
+
+
+def ensure_device(explicit: str | None = None) -> str:
+    path = CONFIG_DIR / "device.json"
+    existing = load_json(path) if path.exists() else {}
+    device = explicit or existing.get("device_id") or inferred_device_id()
+    payload = {"schema_version": 1, "device_id": device}
+    atomic_text(path, json.dumps(payload, indent=2) + "\n", 0o600)
+    return device
+
+
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def require_commands(names: list[str], remediation: str) -> None:
+    missing = [name for name in names if not command_exists(name)]
+    if missing:
+        raise DotError(f"Missing prerequisites: {', '.join(missing)}\n{remediation}")
+
+
+def backup_paths(paths: list[Path]) -> str:
+    run_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    destination = BACKUP_DIR / run_id
+    manifest: list[dict[str, Any]] = []
+    for path in paths:
+        expanded = path.expanduser()
+        record: dict[str, Any] = {"path": str(expanded), "existed": expanded.exists()}
+        if expanded.exists() and expanded.is_file():
+            relative = str(expanded).lstrip("/")
+            target = destination / "files" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(expanded, target)
+            record["backup"] = str(target)
+        manifest.append(record)
+    destination.mkdir(parents=True, exist_ok=True)
+    atomic_text(destination / "manifest.json", json.dumps(manifest, indent=2) + "\n", 0o600)
+    return run_id
+
+
+def link_file(source: Path, destination: Path) -> bool:
+    destination = destination.expanduser()
+    if destination.is_symlink() and destination.resolve() == source.resolve():
+        return False
+    if destination.exists() or destination.is_symlink():
+        backup_paths([destination])
+        destination.unlink()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(source)
+    return True
+
+
+def apply_direct(profile_name: str) -> int:
+    profile = load_profile(profile_name)
+    features = profile.get("features", {})
+    changes = 0
+    if features.get("shell"):
+        mappings = {
+            ROOT / "config/shell/bashrc": Path.home() / ".bashrc",
+            ROOT / "config/shell/zshrc": Path.home() / ".zshrc",
+            ROOT / "config/shell/p10k.zsh": Path.home() / ".p10k.zsh",
+            ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
+        }
+        for source, destination in mappings.items():
+            changes += int(link_file(source, destination))
+    if features.get("git"):
+        include = ROOT / "config/git/root.gitconfig"
+        proc = run(["git", "config", "--global", "--get-all", "include.path"], check=False, capture=True)
+        includes = proc.stdout.splitlines() if proc.returncode == 0 else []
+        if str(include) not in includes:
+            run(["git", "config", "--global", "--add", "include.path", str(include)])
+            changes += 1
+        for tool in ("git-abort", "git-repo-analysis", "git-stage-executable", "git-switcher"):
+            source = ROOT / "config/git/bin" / tool
+            if source.exists():
+                changes += int(link_file(source, Path.home() / ".local/bin" / tool))
+    if features.get("kde"):
+        for relative in KDE_FILES:
+            source = ROOT / "config/kde" / relative
+            if source.exists():
+                destination = Path.home() / relative
+                changes += int(link_file(source, destination))
+        desktop_mappings = {
+            ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
+            ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
+            ROOT / "config/lazydocker/config.yml": Path.home() / ".config/lazydocker/config.yml",
+            ROOT / "config/mpv/input.conf": Path.home() / ".config/mpv/input.conf",
+            ROOT / "config/mpv/mpv.conf": Path.home() / ".config/mpv/mpv.conf",
+            ROOT / "config/mpv/script-opts/thumbfast.conf": Path.home() / ".config/mpv/script-opts/thumbfast.conf",
+            ROOT / "config/flameshot/hereshot": Path.home() / ".local/bin/hereshot",
+        }
+        for source, destination in desktop_mappings.items():
+            changes += int(link_file(source, destination))
+    if features.get("wsl") or features.get("kde"):
+        for tool in ("clogs", "cshell", "cycle"):
+            source = ROOT / "config/docker/bin" / tool
+            if source.exists():
+                changes += int(link_file(source, Path.home() / ".local/bin" / tool))
+    print(f"Applied {profile_name}: {changes} configuration change(s)")
+    return changes
+
+
+def cmd_apply(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    if args.direct or not command_exists("ansible-playbook"):
+        if not args.direct:
+            print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
+        apply_direct(args.profile)
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    runtime_profile = STATE_DIR / "runtime-profile.json"
+    atomic_text(runtime_profile, json.dumps({"dot_profile_data": profile}, indent=2) + "\n", 0o600)
+    command = [
+        "ansible-playbook",
+        "-i",
+        str(ROOT / "ansible/inventory.ini"),
+        str(ROOT / "ansible/local.yml"),
+        "-e",
+        f"dot_profile={normalize_profile(args.profile)}",
+        "-e",
+        f"@{runtime_profile}",
+    ]
+    if args.tags:
+        command.extend(["--tags", args.tags])
+    if args.check:
+        command.append("--check")
+    run(command, cwd=ROOT)
+
+
+def cmd_bootstrap(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    device = ensure_device(args.device)
+    print(f"Profile: {profile['name']}; device: {device}")
+    detected = infer_platform()
+    if profile["name"] == "windows-host":
+        required = ["git", "bw", "gh", "pwsh"]
+        missing = [cmd for cmd in required if not command_exists(cmd)]
+        if missing:
+            print("Windows inventory-only mode. Install prerequisites manually:")
+            print("  winget install Git.Git Bitwarden.CLI GitHub.cli Microsoft.PowerShell")
+            raise DotError(f"Missing prerequisites: {', '.join(missing)}")
+        return
+    if detected == "termux":
+        require_commands(["pkg"], "Run: pkg install git openssh python nodejs-lts zsh")
+    else:
+        require_commands(["git", "python3"], "Install Git and Python 3 with the system package manager.")
+    if not args.skip_secrets:
+        cmd_secrets_sync(argparse.Namespace(profile=args.profile, device=device, no_register=False))
+    cmd_apply(argparse.Namespace(profile=args.profile, tags=None, check=False, direct=False))
+
+
+def bw_session() -> tuple[str, bool]:
+    require_commands(["bw"], "Install Bitwarden CLI, then run `bw login`.")
+    status = run(["bw", "status"], capture=True)
+    state = json.loads(status.stdout).get("status")
+    if state == "unauthenticated":
+        raise DotError("Bitwarden CLI is not logged in. Run `bw login` once, then retry.")
+    if state == "unlocked":
+        session = os.environ.get("BW_SESSION")
+        if not session:
+            raise DotError("Bitwarden reports unlocked but no scoped session is available; run `bw lock` and retry.")
+        return session, False
+    proc = run(["bw", "unlock", "--raw"], capture=True)
+    return proc.stdout.strip(), True
+
+
+def bw_get_item(name: str, session: str, *, required: bool = True) -> dict[str, Any] | None:
+    proc = run(["bw", "get", "item", name, "--session", session], check=False, capture=True)
+    if proc.returncode:
+        if required:
+            raise DotError(f"Bitwarden item not found: {name}")
+        return None
+    return json.loads(proc.stdout)
+
+
+def bw_create_item(item: dict[str, Any], session: str) -> dict[str, Any]:
+    encoded = base64.b64encode(json.dumps(item).encode()).decode()
+    proc = run(["bw", "create", "item", encoded, "--session", session], capture=True)
+    return json.loads(proc.stdout)
+
+
+def key_parts(item: dict[str, Any]) -> tuple[str, str]:
+    ssh = item.get("sshKey") or {}
+    private = ssh.get("privateKey")
+    public = ssh.get("publicKey")
+    if not private or not public:
+        raise DotError(f"Bitwarden SSH item {item.get('name')} lacks a private/public key pair")
+    return private, public
+
+
+def create_device_key(item_name: str, session: str) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="dot-ssh-") as directory:
+        key = Path(directory) / "id_ed25519"
+        run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", item_name, "-f", str(key)])
+        private = key.read_text(encoding="utf-8")
+        public = key.with_suffix(".pub").read_text(encoding="utf-8").strip()
+        fingerprint = run(["ssh-keygen", "-lf", str(key.with_suffix(".pub"))], capture=True).stdout.split()[1]
+    item = {
+        "type": 5,
+        "name": item_name,
+        "favorite": False,
+        "sshKey": {"privateKey": private, "publicKey": public, "fingerprint": fingerprint},
+    }
+    return bw_create_item(item, session)
+
+
+def github_register(public_path: Path, label: str) -> None:
+    if not command_exists("gh"):
+        print("gh is missing; SSH key registration remains pending.", file=sys.stderr)
+        return
+    if run(["gh", "auth", "status"], check=False, capture=True).returncode:
+        print("gh is not authenticated; run `gh auth login`, then rerun `dot secrets sync`.", file=sys.stderr)
+        return
+    existing = run(["gh", "ssh-key", "list"], check=False, capture=True)
+    public_text = public_path.read_text(encoding="utf-8").strip()
+    fingerprint = run(["ssh-keygen", "-lf", str(public_path)], capture=True).stdout.split()[1]
+    if fingerprint in existing.stdout:
+        return
+    for key_type in ("authentication", "signing"):
+        proc = run(
+            ["gh", "ssh-key", "add", str(public_path), "--title", label, "--type", key_type],
+            check=False,
+            capture=True,
+        )
+        if proc.returncode and "already" not in proc.stderr.lower():
+            print(f"GitHub {key_type} registration failed: {proc.stderr.strip()}", file=sys.stderr)
+
+
+def write_identity(profile: dict[str, Any], bootstrap: dict[str, Any], public_key: Path) -> None:
+    account = profile.get("account", "personal")
+    identity = bootstrap.get("git_identities", {}).get(account)
+    if not identity:
+        raise DotError(f"Bitwarden bootstrap item has no git identity for {account}")
+    content = (
+        "[user]\n"
+        f"\tname = {identity['name']}\n"
+        f"\temail = {identity['email']}\n"
+        f"\tsigningkey = {public_key}\n"
+    )
+    identity_path = CONFIG_DIR / f"git-{account}.gitconfig"
+    atomic_text(identity_path, content, 0o600)
+    atomic_text(
+        CONFIG_DIR / "git-active.gitconfig",
+        f"[include]\n\tpath = {identity_path}\n",
+        0o600,
+    )
+
+
+def cmd_secrets_sync(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    device = ensure_device(args.device)
+    account = profile.get("account", "personal")
+    session, should_lock = bw_session()
+    try:
+        bootstrap_item = bw_get_item(BW_BOOTSTRAP_ITEM, session)
+        try:
+            bootstrap = json.loads(bootstrap_item.get("notes") or "{}")
+        except json.JSONDecodeError as exc:
+            raise DotError(f"{BW_BOOTSTRAP_ITEM} notes must contain valid JSON: {exc}") from exc
+        item_name = f"dotfiles/ssh/{account}/{device}"
+        item = bw_get_item(item_name, session, required=False)
+        if item is None:
+            print(f"Creating per-device SSH key in Bitwarden: {item_name}")
+            item = create_device_key(item_name, session)
+        private, public = key_parts(item)
+        ssh_dir = Path.home() / ".ssh"
+        ssh_dir.mkdir(mode=0o700, exist_ok=True)
+        public_path = ssh_dir / f"dotfiles-{account}-{device}.pub"
+        atomic_text(public_path, public.rstrip() + "\n", 0o644)
+        if profile.get("features", {}).get("materialize_ssh_key"):
+            private_path = public_path.with_suffix("")
+            atomic_text(private_path, private.rstrip() + "\n", 0o600)
+        write_identity(profile, bootstrap, public_path)
+        if not args.no_register:
+            github_register(public_path, f"{device}-{account}")
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def parse_bootstrap(session: str) -> dict[str, Any]:
+    item = bw_get_item(BW_BOOTSTRAP_ITEM, session)
+    try:
+        return json.loads(item.get("notes") or "{}")
+    except json.JSONDecodeError as exc:
+        raise DotError(f"{BW_BOOTSTRAP_ITEM} notes are not valid JSON: {exc}") from exc
+
+
+def cmd_repos_sync(args: argparse.Namespace) -> None:
+    profile_name = normalize_profile(args.profile)
+    session, should_lock = bw_session()
+    try:
+        manifest = parse_bootstrap(session)
+        for repo in manifest.get("repositories", []):
+            if profile_name not in repo.get("profiles", []):
+                continue
+            destination = Path(os.path.expandvars(os.path.expanduser(repo["path"])))
+            if (destination / ".git").exists():
+                print(f"Updating {repo['name']}")
+                run(["git", "-C", str(destination), "fetch", "--all", "--prune", "--tags"])
+            elif destination.exists():
+                raise DotError(f"Clone destination exists but is not a Git repository: {destination}")
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                print(f"Cloning {repo['name']}")
+                run(["git", "clone", repo["url"], str(destination)])
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def cmd_package_add(args: argparse.Namespace) -> None:
+    profile_name = normalize_profile(args.profile)
+    path = PROFILE_DIR / f"{profile_name}.yml"
+    profile = load_json(path)
+    provider = args.provider
+    if provider is None:
+        catalog = load_json(ROOT / "packages/catalog.yml")
+        entry = catalog.get("tools", {}).get(args.name)
+        if entry:
+            provider = entry["provider"]
+        elif profile_name == "termux":
+            provider = "pkg"
+        elif profile_name == "windows-host":
+            raise DotError("Windows packages are inventory-only; specify --provider winget, scoop, or psgallery.")
+        else:
+            provider = "brew"
+    allowed = {"apt", "brew", "snap", "pkg", "winget", "scoop", "psgallery"}
+    if provider not in allowed:
+        raise DotError(f"Unsupported provider {provider}; choose one of {', '.join(sorted(allowed))}")
+    packages = profile.setdefault("packages", {}).setdefault(provider, [])
+    if args.name in packages:
+        print(f"{args.name} already exists in {profile_name}:{provider}")
+        return
+    packages.append(args.name)
+    packages.sort(key=str.casefold)
+    atomic_text(path, json.dumps(profile, indent=2) + "\n")
+    print(f"Added {args.name} to {profile_name}:{provider}; no commit was created.")
+    if profile_name != "windows-host" and not args.no_apply:
+        cmd_apply(argparse.Namespace(profile=profile_name, tags="packages", check=False, direct=False))
+
+
+def cmd_capture_kde(_args: argparse.Namespace) -> None:
+    captured = 0
+    for relative in KDE_FILES:
+        source = Path.home() / relative
+        if source.is_file():
+            destination = ROOT / "config/kde" / relative
+            captured += int(atomic_bytes(destination, source.read_bytes()))
+    print(f"Captured {captured} changed KDE file(s). Display topology, wallets, caches, and history were excluded.")
+
+
+def cmd_diff_kde(_args: argparse.Namespace) -> None:
+    differences = 0
+    for relative in KDE_FILES:
+        expected = ROOT / "config/kde" / relative
+        actual = Path.home() / relative
+        if not expected.exists() and not actual.exists():
+            continue
+        left = expected.read_text(errors="replace").splitlines(True) if expected.exists() else []
+        right = actual.read_text(errors="replace").splitlines(True) if actual.exists() else []
+        diff = list(difflib.unified_diff(left, right, fromfile=str(expected), tofile=str(actual)))
+        if diff:
+            differences += 1
+            sys.stdout.writelines(diff)
+    if differences:
+        raise DotError(f"KDE drift found in {differences} file(s)")
+    print("KDE allowlist matches.")
+
+
+def cmd_rollback(args: argparse.Namespace) -> None:
+    root = BACKUP_DIR / args.run_id
+    manifest = load_json(root / "manifest.json")
+    for record in manifest:
+        path = Path(record["path"])
+        if record.get("existed") and record.get("backup"):
+            backup = Path(record["backup"])
+            atomic_bytes(path, backup.read_bytes())
+        elif not record.get("existed") and (path.exists() or path.is_symlink()):
+            path.unlink()
+    print(f"Restored backup {args.run_id}")
+
+
+def doctor_check(label: str, ok: bool, detail: str) -> bool:
+    print(f"[{'OK' if ok else 'FAIL'}] {label}: {detail}")
+    return ok
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    failures = 0
+    expected_platform = {
+        "kubuntu-laptop": "linux",
+        "wsl-personal": "wsl",
+        "wsl-work": "wsl",
+        "windows-host": "windows",
+        "termux": "termux",
+    }.get(profile["name"])
+    actual_platform = infer_platform()
+    failures += not doctor_check("platform", actual_platform == expected_platform, f"{actual_platform}; expected {expected_platform}")
+    failures += not doctor_check("device", (CONFIG_DIR / "device.json").exists(), str(CONFIG_DIR / "device.json"))
+    if profile.get("features", {}).get("shell"):
+        failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")
+        failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
+    if profile.get("features", {}).get("git"):
+        include = str(ROOT / "config/git/root.gitconfig")
+        proc = run(["git", "config", "--global", "--get-all", "include.path"], check=False, capture=True)
+        failures += not doctor_check("git include", include in proc.stdout.splitlines(), include)
+        identity = CONFIG_DIR / f"git-{profile.get('account', 'personal')}.gitconfig"
+        failures += not doctor_check("git identity", identity.exists(), str(identity))
+    if profile.get("features", {}).get("kde"):
+        session = os.environ.get("XDG_SESSION_DESKTOP", "")
+        failures += not doctor_check("KDE session", "KDE" in session.upper(), session or "unknown")
+        failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
+        segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
+        failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
+    if failures:
+        raise DotError(f"Doctor found {failures} failing check(s)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="dot")
+    sub = parser.add_subparsers(dest="command", required=True)
+    bootstrap = sub.add_parser("bootstrap")
+    bootstrap.add_argument("--profile", required=True)
+    bootstrap.add_argument("--device")
+    bootstrap.add_argument("--skip-secrets", action="store_true")
+    bootstrap.set_defaults(func=cmd_bootstrap)
+    apply = sub.add_parser("apply")
+    apply.add_argument("--profile", required=True)
+    apply.add_argument("--tags")
+    apply.add_argument("--check", action="store_true")
+    apply.add_argument("--direct", action="store_true")
+    apply.set_defaults(func=cmd_apply)
+    doctor = sub.add_parser("doctor")
+    doctor.add_argument("--profile", required=True)
+    doctor.set_defaults(func=cmd_doctor)
+    package = sub.add_parser("package")
+    package_sub = package.add_subparsers(dest="package_command", required=True)
+    add = package_sub.add_parser("add")
+    add.add_argument("name")
+    add.add_argument("--profile", required=True)
+    add.add_argument("--provider")
+    add.add_argument("--no-apply", action="store_true")
+    add.set_defaults(func=cmd_package_add)
+    repos = sub.add_parser("repos")
+    repos_sub = repos.add_subparsers(dest="repos_command", required=True)
+    sync = repos_sub.add_parser("sync")
+    sync.add_argument("--profile", required=True)
+    sync.set_defaults(func=cmd_repos_sync)
+    secrets = sub.add_parser("secrets")
+    secrets_sub = secrets.add_subparsers(dest="secrets_command", required=True)
+    secret_sync = secrets_sub.add_parser("sync")
+    secret_sync.add_argument("--profile", required=True)
+    secret_sync.add_argument("--device")
+    secret_sync.add_argument("--no-register", action="store_true")
+    secret_sync.set_defaults(func=cmd_secrets_sync)
+    capture = sub.add_parser("capture")
+    capture.add_argument("target", choices=["kde"])
+    capture.set_defaults(func=cmd_capture_kde)
+    diff = sub.add_parser("diff")
+    diff.add_argument("target", choices=["kde"])
+    diff.set_defaults(func=cmd_diff_kde)
+    rollback = sub.add_parser("rollback")
+    rollback.add_argument("run_id")
+    rollback.set_defaults(func=cmd_rollback)
+    return parser
+
+
+def main() -> int:
+    try:
+        args = build_parser().parse_args()
+        args.func(args)
+        return 0
+    except DotError as exc:
+        print(f"dot: {exc}", file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as exc:
+        print(f"dot: command failed ({exc.returncode}): {' '.join(exc.cmd)}", file=sys.stderr)
+        if exc.stderr:
+            print(exc.stderr.strip(), file=sys.stderr)
+        return exc.returncode or 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

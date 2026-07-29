@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "kubuntu-laptop",
+  "inherits": ["common-linux"],
+  "account": "personal",
+  "features": {
+    "kde": true,
+    "windows_fonts": true
+  },
+  "packages": {
+    "apt": ["fonts-cascadia-code", "kde-config-gtk-style", "kio-extras", "konsole", "plasma-workspace", "xclip"],
+    "brew": ["flameshot", "lazydocker", "lazygit", "mpv"],
+    "snap": ["obsidian"]
+  }
+}

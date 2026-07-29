@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "policy": "record-only",
+  "captured_from": "General/Brain/Setups/Windows Setup.md",
+  "reviewed": "2026-07-28",
+  "winget": {
+    "core": [
+      "7zip.7zip",
+      "Bitwarden.Bitwarden",
+      "Git.Git",
+      "GitHub.cli",
+      "Google.Chrome",
+      "Microsoft.PowerShell",
+      "Microsoft.PowerToys",
+      "Microsoft.VisualStudioCode",
+      "Microsoft.WindowsTerminal",
+      "Obsidian.Obsidian",
+      "voidtools.Everything"
+    ],
+    "development": [
+      "Bruno.Bruno",
+      "GitButler.GitButler",
+      "Google.AndroidStudio",
+      "Microsoft.VisualStudioCode.Insiders",
+      "Ollama.Ollama",
+      "PortSwigger.BurpSuite.Community",
+      "QMK.QMKToolbox",
+      "WinSCP.WinSCP",
+      "ZedIndustries.Zed"
+    ],
+    "desktop": [
+      "AltSnap.AltSnap",
+      "AntibodySoftware.WizTree",
+      "AntoineAflalo.SoundSwitch",
+      "Flameshot.Flameshot",
+      "KDE.KDEConnect",
+      "KDE.Okular",
+      "Klocman.BulkCrapUninstaller",
+      "MartiCliment.UniGetUI",
+      "NirSoft.ShellExView",
+      "NirSoft.ShellMenuView",
+      "RamenSoftware.Windhawk"
+    ],
+    "media": [
+      "Audacity.Audacity",
+      "CodecGuide.K-LiteCodecPack.Full",
+      "HandBrake.HandBrake",
+      "IrfanSkiljan.IrfanView",
+      "IrfanSkiljan.IrfanView.PlugIns",
+      "MPC-BE.MPC-BE",
+      "OBSProject.OBSStudio",
+      "VideoLAN.VLC",
+      "calibre.calibre",
+      "qBittorrent.qBittorrent"
+    ],
+    "network": [
+      "MullvadVPN.MullvadVPN",
+      "OpenVPNTechnologies.OpenVPN",
+      "RustDesk.RustDesk",
+      "TorProject.TorBrowser",
+      "WireGuard.WireGuard",
+      "tailscale.tailscale"
+    ]
+  },
+  "scoop": [
+    "adb",
+    "autohotkey",
+    "bat",
+    "bitwarden-cli",
+    "delta",
+    "eza",
+    "fd",
+    "ffmpeg",
+    "fzf",
+    "git-filter-repo",
+    "jq",
+    "pandoc",
+    "python",
+    "rclone",
+    "ripgrep",
+    "scrcpy",
+    "shellcheck",
+    "uv",
+    "vim",
+    "yt-dlp",
+    "zoxide"
+  ],
+  "psgallery": [
+    "AudioDeviceCmdlets",
+    "posh-git",
+    "PSFzf",
+    "Terminal-Icons"
+  ]
+}

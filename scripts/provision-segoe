@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fonts/windows-segoe"
+target="$target_dir/SegUIVar.ttf"
+
+if [[ -s "$target" ]]; then
+  echo "Segoe UI Variable already installed: $target"
+  exit 0
+fi
+
+candidates=(
+  /mnt/c/Windows/Fonts/SegUIVar.ttf
+  /run/media/"$USER"/*/Windows/Fonts/SegUIVar.ttf
+  /media/"$USER"/*/Windows/Fonts/SegUIVar.ttf
+)
+
+source_font=""
+for candidate in "${candidates[@]}"; do
+  if [[ -s "$candidate" ]]; then
+    source_font="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$source_font" ]]; then
+  echo "Segoe UI Variable skipped: no mounted Windows/Fonts/SegUIVar.ttf was found."
+  exit 2
+fi
+
+mkdir -p "$target_dir"
+install -m 0644 "$source_font" "$target"
+command -v fc-cache >/dev/null 2>&1 && fc-cache -f "$target_dir" >/dev/null
+echo "Segoe UI Variable installed from the mounted Windows installation."

@@ -1,0 +1,109 @@
+---
+- name: Apply the selected dotfiles profile
+  hosts: local
+  gather_facts: true
+  vars:
+    dot_repo: "{{ playbook_dir | dirname }}"
+  pre_tasks:
+    - name: Validate runtime profile
+      ansible.builtin.assert:
+        that:
+          - dot_profile_data.schema_version == 1
+          - dot_profile_data.name == dot_profile
+          - dot_profile_data.packages is mapping
+        fail_msg: Run this playbook through bin/dot so inherited profile data is supplied.
+      tags: [always]
+
+  tasks:
+    - name: Install APT packages
+      become: true
+      ansible.builtin.apt:
+        name: "{{ dot_profile_data.packages.apt | default([]) }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when:
+        - ansible_facts.os_family == "Debian"
+        - (dot_profile_data.packages.apt | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Check Homebrew availability
+      ansible.builtin.command: brew --version
+      register: dot_brew
+      changed_when: false
+      failed_when: false
+      when: (dot_profile_data.packages.brew | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Require Homebrew for shared CLI packages
+      ansible.builtin.assert:
+        that: dot_brew.rc == 0
+        fail_msg: >-
+          Homebrew is required for shared CLI tools. Install it from
+          https://brew.sh, then rerun dot apply.
+      when: (dot_profile_data.packages.brew | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Read installed Homebrew formulae
+      ansible.builtin.command: brew list --formula
+      register: dot_brew_formulae
+      changed_when: false
+      when: dot_brew.rc | default(1) == 0
+      tags: [packages]
+
+    - name: Install Homebrew formulae
+      ansible.builtin.command:
+        argv: [brew, install, "{{ item }}"]
+      loop: "{{ dot_profile_data.packages.brew | default([]) }}"
+      when:
+        - dot_brew.rc | default(1) == 0
+        - item not in dot_brew_formulae.stdout_lines
+      tags: [packages]
+
+    - name: Install curated Snap applications
+      become: true
+      community.general.snap:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ dot_profile_data.packages.snap | default([]) }}"
+      when: (dot_profile_data.packages.snap | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Apply portable configuration
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/bin/dot"
+          - apply
+          - --profile
+          - "{{ dot_profile }}"
+          - --direct
+      register: dot_direct_apply
+      changed_when: "'Applied ' in dot_direct_apply.stdout and '0 configuration change(s)' not in dot_direct_apply.stdout"
+      tags: [config, shell, git, kde]
+
+    - name: Provision Segoe UI Variable from Windows
+      ansible.builtin.command:
+        argv: ["{{ dot_repo }}/scripts/provision-segoe"]
+      register: dot_segoe
+      changed_when: dot_segoe.rc == 0 and "installed" in dot_segoe.stdout
+      failed_when: false
+      when: dot_profile_data.features.windows_fonts | default(false)
+      tags: [fonts, kde]
+
+    - name: Report unavailable Segoe source
+      ansible.builtin.debug:
+        msg: "{{ dot_segoe.stdout | default('Segoe provisioning did not run') }}"
+      when:
+        - dot_profile_data.features.windows_fonts | default(false)
+        - dot_segoe.rc | default(0) != 0
+      tags: [fonts, kde]
+
+    - name: Make Zsh the login shell
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        shell: /usr/bin/zsh
+      when:
+        - dot_profile_data.features.shell | default(false)
+        - ansible_facts.system != "Windows"
+      tags: [shell]

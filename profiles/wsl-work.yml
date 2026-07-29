@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "wsl-work",
+  "inherits": ["common-linux"],
+  "account": "work",
+  "features": {
+    "wsl": true,
+    "materialize_ssh_key": true
+  },
+  "packages": {
+    "apt": ["wslu"],
+    "brew": ["docker", "docker-compose"]
+  }
+}

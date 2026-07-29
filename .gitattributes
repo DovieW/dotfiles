@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.reg text eol=crlf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.zip binary
+*.ptb binary

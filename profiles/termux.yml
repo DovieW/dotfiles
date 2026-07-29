@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "termux",
+  "inherits": [],
+  "account": "personal",
+  "features": {
+    "shell": true,
+    "git": true,
+    "repositories": true,
+    "materialize_ssh_key": true
+  },
+  "packages": {
+    "pkg": ["bat", "fd", "fzf", "git", "nodejs-lts", "openssh", "python", "ripgrep", "tmux", "zsh"]
+  }
+}
