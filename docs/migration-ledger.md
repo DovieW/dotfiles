@@ -7,6 +7,7 @@ means its reusable configuration now has an authoritative replacement here.
 | Source | Latest substantive activity | Decision | Destination or reason |
 |---|---:|---|---|
 | `other/linux_setup/shell` | 2026-06-11 | Move | `config/shell`; Zsh, full Bash, and `mbash` |
+| `other/linux_setup/tmux` | 2025-12-16 | Move and clean | `config/tmux`; TPM and plugins are provisioned from upstream |
 | `programs/git` | 2026-04-20 | Move | `config/git`; stale B&H/Kalman variants retired |
 | `programs/powershell` | 2026-01-15 | Move | `config/powershell` |
 | `programs/docker` | 2026-07-15 | Move and replace | `config/docker` helpers; one-off WSL updater replaced by the native Docker Ansible role |

@@ -54,6 +54,14 @@ dot apply --profile kubuntu-laptop --tags docker
 Use the matching WSL profile name inside WSL. The Docker role is idempotent and
 does not remove `/var/lib/docker`, images, containers, volumes, or `/etc/docker`.
 
+Tmux uses `~/.config/tmux/tmux.conf`, linked to the authoritative repository
+copy. TPM and configured plugins are installed and updated from their upstream
+default branches by `dot apply` and `dot update`. Apply only this subsystem with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags packages,tmux
+```
+
 ## Update captured configuration
 
 Edit portable files in this repository directly. For a reviewed KDE change:

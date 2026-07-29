@@ -397,6 +397,7 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
             ROOT / "config/shell/zshrc": Path.home() / ".zshrc",
             ROOT / "config/shell/p10k.zsh": Path.home() / ".p10k.zsh",
             ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
+            ROOT / "config/tmux/tmux.conf": Path.home() / ".config/tmux/tmux.conf",
         }
         for source, destination in mappings.items():
             changes += int(link_file(source, destination))
@@ -522,7 +523,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         else []
     )
     direct_apply_selected = not selected_tags or bool(
-        selected_tags & {"config", "shell", "git", "kde"}
+        selected_tags & {"config", "shell", "git", "kde", "tmux"}
     )
     kde_apply_selected = (
         profile.get("features", {}).get("kde")
@@ -1478,6 +1479,35 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             str(dot_command),
         )
         failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
+        tmux_config = Path.home() / ".config/tmux/tmux.conf"
+        failures += not doctor_check(
+            "tmux configuration",
+            tmux_config.is_symlink()
+            and tmux_config.resolve() == (ROOT / "config/tmux/tmux.conf").resolve(),
+            str(tmux_config),
+        )
+        plugin_root = Path.home() / ".config/tmux/plugins"
+        expected_tmux_plugins = {
+            "minimal-tmux-status",
+            "tmux-continuum",
+            "tmux-fzf-url",
+            "tmux-resurrect",
+            "tmux-sensible",
+            "tmux-sidebar",
+            "tmux-thumbs",
+            "tmux-yank",
+            "tpm",
+        }
+        missing_tmux_plugins = sorted(
+            plugin for plugin in expected_tmux_plugins if not (plugin_root / plugin).is_dir()
+        )
+        failures += not doctor_check(
+            "tmux plugins",
+            not missing_tmux_plugins,
+            "all configured plugins installed"
+            if not missing_tmux_plugins
+            else f"missing {', '.join(missing_tmux_plugins)}; rerun dot apply",
+        )
         login_shell = os.environ.get("SHELL", "")
         if os.name != "nt":
             try:

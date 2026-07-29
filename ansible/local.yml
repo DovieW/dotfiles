@@ -186,7 +186,45 @@
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde]
+      tags: [config, shell, git, kde, tmux]
+
+    - name: Install or update tmux plugin manager
+      ansible.builtin.git:
+        repo: https://github.com/tmux-plugins/tpm.git
+        dest: "{{ ansible_facts.env.HOME }}/.config/tmux/plugins/tpm"
+        version: master
+        update: true
+      when: dot_profile_data.features.shell | default(false)
+      tags: [config, shell, tmux]
+
+    - name: Install configured tmux plugins
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_facts.env.HOME }}/.config/tmux/plugins/tpm/bin/install_plugins"
+      register: dot_tmux_plugins_install
+      changed_when: "'Installing' in dot_tmux_plugins_install.stdout"
+      failed_when: >-
+        dot_tmux_plugins_install.rc != 0 or
+        'FATAL:' in dot_tmux_plugins_install.stderr
+      environment:
+        PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
+      when: dot_profile_data.features.shell | default(false)
+      tags: [config, shell, tmux]
+
+    - name: Update configured tmux plugins
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_facts.env.HOME }}/.config/tmux/plugins/tpm/bin/update_plugins"
+          - all
+      register: dot_tmux_plugins_update
+      changed_when: false
+      failed_when: >-
+        dot_tmux_plugins_update.rc != 0 or
+        'FATAL:' in dot_tmux_plugins_update.stderr
+      environment:
+        PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
+      when: dot_profile_data.features.shell | default(false)
+      tags: [config, shell, tmux]
 
     - name: Create the systemd-logind configuration directory
       become: true

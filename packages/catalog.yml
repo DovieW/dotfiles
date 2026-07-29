@@ -14,9 +14,11 @@
     "fzf": {"provider": "brew"},
     "git": {"provider": "apt"},
     "jq": {"provider": "brew"},
+    "navi": {"provider": "brew"},
     "ripgrep": {"provider": "brew"},
     "shellcheck": {"provider": "brew"},
     "tmux": {"provider": "brew"},
+    "tree": {"provider": "brew"},
     "yq": {"provider": "brew"},
     "zoxide": {"provider": "brew"},
     "zsh": {"provider": "apt"}

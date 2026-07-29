@@ -258,6 +258,20 @@ class DotCliTests(unittest.TestCase):
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
 
+    def test_tmux_configuration_is_managed(self):
+        cli = DOT.read_text()
+        config = (ROOT / "config/tmux/tmux.conf").read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn('ROOT / "config/tmux/tmux.conf"', cli)
+        self.assertIn('Path.home() / ".config/tmux/tmux.conf"', cli)
+        self.assertIn("set -g prefix C-Space", config)
+        self.assertIn("tmux-plugins/tpm", config)
+        self.assertIn("~/.config/tmux/plugins/tpm/tpm", config)
+        self.assertIn("Install or update tmux plugin manager", playbook)
+        self.assertIn("Install configured tmux plugins", playbook)
+        self.assertIn("'FATAL:' in dot_tmux_plugins_install.stderr", playbook)
+        self.assertIn('{"config", "shell", "git", "kde", "tmux"}', cli)
+
 
 if __name__ == "__main__":
     unittest.main()
