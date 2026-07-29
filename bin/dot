@@ -850,6 +850,7 @@ def cmd_capture_kde(args: argparse.Namespace) -> None:
 
 def cmd_diff_kde(_args: argparse.Namespace) -> None:
     differences = 0
+    output: list[str] = []
     for relative in KDE_FILES:
         expected = ROOT / "config/kde" / relative
         actual = Path.home() / relative
@@ -872,8 +873,20 @@ def cmd_diff_kde(_args: argparse.Namespace) -> None:
         diff = list(difflib.unified_diff(left, right, fromfile=str(expected), tofile=str(actual)))
         if diff:
             differences += 1
-            sys.stdout.writelines(diff)
+            output.extend(diff)
     if differences:
+        rendered = "".join(output)
+        if command_exists("delta") and sys.stdout.isatty():
+            proc = subprocess.run(
+                ["delta", "--paging=always"],
+                input=rendered,
+                text=True,
+                check=False,
+            )
+            if proc.returncode not in (0, 1):
+                raise DotError(f"delta failed with exit code {proc.returncode}")
+        else:
+            sys.stdout.write(rendered)
         raise DotError(f"KDE drift found in {differences} file(s)")
     print("KDE allowlist matches.")
 

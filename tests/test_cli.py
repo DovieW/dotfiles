@@ -79,6 +79,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('ROOT / "bin/dot": Path.home() / ".local/bin/dot"', text)
         self.assertTrue(source.is_file())
 
+    def test_kde_diff_uses_delta_interactively(self):
+        text = DOT.read_text()
+        self.assertIn('["delta", "--paging=always"]', text)
+        self.assertIn("sys.stdout.isatty()", text)
+
 
 if __name__ == "__main__":
     unittest.main()

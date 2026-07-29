@@ -39,6 +39,8 @@ dot capture kde --only spectaclerc --only kglobalshortcutsrc
 changed since that deployment, apply stops instead of overwriting it. Review
 with `dot diff kde` and capture the intended file. `--force-kde` is reserved
 for an intentional repository-to-machine replacement; backups are still made.
+In an interactive terminal, `dot diff kde` uses Delta as its pager; redirected
+output remains a standard unified diff suitable for logs and automation.
 
 ## Rotate a device key
 
