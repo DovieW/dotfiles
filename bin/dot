@@ -648,8 +648,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check("GitHub CLI", command_exists("gh"), shutil.which("gh") or "not installed")
         if profile["name"] == "kubuntu-laptop":
             agent_sockets = [
-                Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
                 Path.home() / ".bitwarden-ssh-agent.sock",
+                Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
             ]
             active_socket = next((path for path in agent_sockets if path.is_socket()), None)
             failures += not doctor_check(

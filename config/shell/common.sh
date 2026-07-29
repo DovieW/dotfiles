@@ -33,8 +33,8 @@ else
 fi
 
 for dot_bw_socket in \
-  "$HOME/snap/bitwarden/current/.bitwarden-ssh-agent.sock" \
-  "$HOME/.bitwarden-ssh-agent.sock"
+  "$HOME/.bitwarden-ssh-agent.sock" \
+  "$HOME/snap/bitwarden/current/.bitwarden-ssh-agent.sock"
 do
   if [ -S "$dot_bw_socket" ]; then
     export SSH_AUTH_SOCK="$dot_bw_socket"
