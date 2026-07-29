@@ -78,6 +78,19 @@ Enter the administrator password when prompted. PowerDevil is restarted only
 when its managed configuration changes. The systemd-logind fallback is
 guaranteed after the next reboot. Verify both layers with `dot doctor`.
 
+## NVIDIA is still using Nouveau
+
+Apply the dynamically recommended Ubuntu desktop driver and reboot:
+
+```bash
+dot apply --profile kubuntu-laptop --tags gpu
+sudo reboot
+```
+
+The role follows the package marked `recommended` by `ubuntu-drivers` and sets
+PRIME on-demand. After reboot, verify the loaded driver, PRIME mode, and the
+rest of the workstation with `dot doctor --profile kubuntu-laptop`.
+
 ## Shell startup is slow
 
 Profile Zsh with:

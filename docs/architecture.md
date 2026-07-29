@@ -108,3 +108,9 @@ battery, and closing the lid does nothing. Pressing the physical power button
 still suspends, as do explicit Sleep actions in the UI. PowerDevil owns the
 live desktop behavior; a matching systemd-logind drop-in is the fallback if
 PowerDevil is unavailable. Display topology remains host-local.
+
+Performance policy is profile-specific: AC uses performance, battery uses
+balanced, and low battery uses power-saver. Kubuntu installs the NVIDIA desktop
+driver currently marked recommended by `ubuntu-drivers`, without hard-coding a
+driver branch, and keeps hybrid graphics in PRIME on-demand mode so Intel drives
+the desktop while NVIDIA remains available for explicit workloads.

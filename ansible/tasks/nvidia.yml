@@ -1,0 +1,77 @@
+---
+- name: Validate NVIDIA driver operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+    fail_msg: The managed NVIDIA desktop driver is supported only on Ubuntu and Kubuntu.
+
+- name: Install Ubuntu driver selection support
+  become: true
+  ansible.builtin.apt:
+    name: ubuntu-drivers-common
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Read Ubuntu's recommended hardware drivers
+  ansible.builtin.command:
+    argv: [ubuntu-drivers, devices]
+  register: dot_ubuntu_drivers
+  changed_when: false
+
+- name: Resolve Ubuntu's recommended NVIDIA desktop package
+  ansible.builtin.set_fact:
+    dot_nvidia_recommended_package: >-
+      {{ (dot_ubuntu_drivers.stdout_lines
+          | select('search', '^driver\s+:\s+nvidia-driver-.*recommended\s*$')
+          | first
+          | default('')).split()[2] | default('') }}
+
+- name: Require an Ubuntu-recommended NVIDIA driver
+  ansible.builtin.assert:
+    that:
+      - dot_nvidia_recommended_package | length > 0
+      - dot_nvidia_recommended_package is match('^nvidia-driver-[0-9]+(-open)?$')
+    fail_msg: >-
+      Ubuntu did not report one unambiguous recommended NVIDIA desktop driver.
+      Review `ubuntu-drivers devices`; no graphics package was changed.
+
+- name: Install or upgrade Ubuntu's recommended NVIDIA driver
+  become: true
+  ansible.builtin.apt:
+    name: "{{ dot_nvidia_recommended_package }}"
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+- name: Read the current PRIME mode
+  ansible.builtin.command:
+    argv: [prime-select, query]
+  register: dot_prime_mode
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Keep Intel as default and NVIDIA available on demand
+  become: true
+  ansible.builtin.command:
+    argv: [prime-select, on-demand]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - dot_prime_mode.stdout | default('') | trim != 'on-demand'
+
+- name: Report NVIDIA reboot requirement
+  ansible.builtin.debug:
+    msg: >-
+      {{ dot_nvidia_recommended_package }} is installed with PRIME on-demand.
+      Reboot before validating nvidia-smi, the loaded kernel module, and runtime
+      power management.
+  when: not ansible_check_mode
+
+- name: Explain NVIDIA check mode
+  ansible.builtin.debug:
+    msg: >-
+      Ubuntu recommends {{ dot_nvidia_recommended_package }}. A real apply will
+      install its latest repository candidate and select PRIME on-demand.
+  when: ansible_check_mode

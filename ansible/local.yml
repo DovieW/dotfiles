@@ -25,6 +25,14 @@
       when: dot_profile_data.features.docker_engine | default(false)
       tags: [packages, docker]
 
+    - name: Configure Ubuntu's recommended NVIDIA driver
+      ansible.builtin.include_tasks:
+        file: tasks/nvidia.yml
+        apply:
+          tags: [packages, gpu]
+      when: dot_profile_data.features.nvidia_driver | default(false)
+      tags: [packages, gpu]
+
     # Workstation policy intentionally follows current stable repository candidates.
     - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
       become: true

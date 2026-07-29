@@ -179,7 +179,7 @@ class DotCliTests(unittest.TestCase):
 
     def test_docker_tag_requests_privilege_and_doctor_checks_runtime(self):
         text = DOT.read_text()
-        self.assertIn('selected_tags & {"packages", "docker"}', text)
+        self.assertIn('selected_tags & {"packages", "docker", "gpu"}', text)
         self.assertIn('get("docker_engine", False)', text)
         self.assertIn('"Docker socket access"', text)
         self.assertIn('"WSL native Docker mode"', text)
@@ -247,6 +247,9 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(powerdevil.count("AutoSuspendAction=0"), 3)
         self.assertEqual(powerdevil.count("LidAction=0"), 3)
         self.assertEqual(powerdevil.count("PowerButtonAction=1"), 3)
+        self.assertIn("[AC][Performance]\nPowerProfile=performance", powerdevil)
+        self.assertIn("[Battery][Performance]\nPowerProfile=balanced", powerdevil)
+        self.assertIn("[LowBattery][Performance]\nPowerProfile=power-saver", powerdevil)
         logind = (ROOT / "config/systemd/logind/60-dotfiles-lid.conf").read_text()
         self.assertIn("HandleLidSwitch=ignore", logind)
         self.assertIn("HandleLidSwitchExternalPower=ignore", logind)
@@ -257,6 +260,18 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"live lid action"', cli)
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
+
+    def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        role = (ROOT / "ansible/tasks/nvidia.yml").read_text()
+        cli = DOT.read_text()
+        self.assertTrue(profile["features"]["nvidia_driver"])
+        self.assertIn("ubuntu-drivers, devices", role)
+        self.assertIn("recommended", role)
+        self.assertIn("state: latest", role)
+        self.assertIn("prime-select, on-demand", role)
+        self.assertNotIn("nvidia-driver-595", role)
+        self.assertIn('{"packages", "docker", "gpu"}', cli)
 
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()

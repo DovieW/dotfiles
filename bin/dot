@@ -506,7 +506,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         return
     selected_tags = set((args.tags or "").replace(",", " ").split())
     package_apply_selected = not selected_tags or bool(
-        selected_tags & {"packages", "docker"}
+        selected_tags & {"packages", "docker", "gpu"}
     )
     kde_system_apply_selected = (
         profile.get("features", {}).get("kde", False)
@@ -516,7 +516,9 @@ def cmd_apply(args: argparse.Namespace) -> None:
     privileged_packages = any(
         managed_packages.get(provider)
         for provider in ("apt", "deb", "snap")
-    ) or profile.get("features", {}).get("docker_engine", False)
+    ) or profile.get("features", {}).get("docker_engine", False) or profile.get(
+        "features", {}
+    ).get("nvidia_driver", False)
     become_arguments = (
         ansible_become_arguments()
         if (package_apply_selected and privileged_packages) or kde_system_apply_selected
@@ -1563,10 +1565,49 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "automatic sleep policy",
             powerdevil_matches,
+            "AC performance, battery balanced, low battery power-saver; "
             "lid ignored and automatic sleep disabled; power button sleeps"
             if powerdevil_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        if profile.get("features", {}).get("nvidia_driver"):
+            recommended = run(
+                ["ubuntu-drivers", "devices"],
+                check=False,
+                capture=True,
+            )
+            recommended_match = re.search(
+                r"^driver\s+:\s+(nvidia-driver-\S+).*recommended\s*$",
+                recommended.stdout,
+                re.MULTILINE,
+            )
+            recommended_package = recommended_match.group(1) if recommended_match else ""
+            installed_driver = run(
+                ["dpkg-query", "-W", "-f=${db:Status-Status}", recommended_package],
+                check=False,
+                capture=True,
+            ) if recommended_package else None
+            failures += not doctor_check(
+                "NVIDIA recommended driver",
+                installed_driver is not None
+                and installed_driver.returncode == 0
+                and installed_driver.stdout.strip() == "installed",
+                recommended_package or "Ubuntu reported no recommended driver",
+            )
+            nvidia_loaded = Path("/proc/driver/nvidia/version").exists()
+            failures += not doctor_check(
+                "NVIDIA runtime",
+                nvidia_loaded,
+                "NVIDIA kernel driver loaded"
+                if nvidia_loaded
+                else "reboot after dot apply --profile kubuntu-laptop --tags gpu",
+            )
+            prime = run(["prime-select", "query"], check=False, capture=True)
+            failures += not doctor_check(
+                "NVIDIA PRIME mode",
+                prime.returncode == 0 and prime.stdout.strip() == "on-demand",
+                prime.stdout.strip() or "prime-select unavailable",
+            )
         if command_exists("busctl"):
             live_lid = run(
                 [
