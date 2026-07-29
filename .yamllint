@@ -5,3 +5,4 @@ rules:
     max: 120
   truthy:
     allowed-values: ['true', 'false']
+    check-keys: false

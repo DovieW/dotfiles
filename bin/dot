@@ -553,15 +553,66 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     actual_platform = infer_platform()
     failures += not doctor_check("platform", actual_platform == expected_platform, f"{actual_platform}; expected {expected_platform}")
     failures += not doctor_check("device", (CONFIG_DIR / "device.json").exists(), str(CONFIG_DIR / "device.json"))
+    packages = profile.get("packages", {})
+    apt_packages = packages.get("apt", [])
+    if apt_packages and command_exists("dpkg-query"):
+        missing_apt = []
+        for package in apt_packages:
+            proc = run(
+                ["dpkg-query", "-W", "-f=${Status}", package],
+                check=False,
+                capture=True,
+            )
+            if proc.returncode or "install ok installed" not in proc.stdout:
+                missing_apt.append(package)
+        failures += not doctor_check(
+            "APT packages",
+            not missing_apt,
+            "all present" if not missing_apt else f"missing {', '.join(missing_apt)}",
+        )
+    brew_packages = packages.get("brew", [])
+    if brew_packages:
+        if not command_exists("brew"):
+            failures += not doctor_check("Homebrew packages", False, "brew is not installed")
+        else:
+            proc = run(["brew", "list", "--formula"], check=False, capture=True)
+            installed = set(proc.stdout.splitlines())
+            missing_brew = [package for package in brew_packages if package not in installed]
+            failures += not doctor_check(
+                "Homebrew packages",
+                not missing_brew,
+                "all present" if not missing_brew else f"missing {', '.join(missing_brew)}",
+            )
+    snap_packages = packages.get("snap", [])
+    if snap_packages:
+        proc = run(["snap", "list"], check=False, capture=True)
+        installed_snaps = {line.split()[0] for line in proc.stdout.splitlines()[1:] if line.split()}
+        missing_snaps = [package for package in snap_packages if package not in installed_snaps]
+        failures += not doctor_check(
+            "Snap packages",
+            not missing_snaps,
+            "all present" if not missing_snaps else f"missing {', '.join(missing_snaps)}",
+        )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")
         failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
+        login_shell = os.environ.get("SHELL") or getpass.getuser()
+        failures += not doctor_check(
+            "login shell",
+            login_shell.endswith("/zsh"),
+            login_shell,
+        )
     if profile.get("features", {}).get("git"):
         include = str(ROOT / "config/git/root.gitconfig")
         proc = run(["git", "config", "--global", "--get-all", "include.path"], check=False, capture=True)
         failures += not doctor_check("git include", include in proc.stdout.splitlines(), include)
         identity = CONFIG_DIR / f"git-{profile.get('account', 'personal')}.gitconfig"
         failures += not doctor_check("git identity", identity.exists(), str(identity))
+        failures += not doctor_check("Bitwarden CLI", command_exists("bw"), shutil.which("bw") or "not installed")
+        failures += not doctor_check("GitHub CLI", command_exists("gh"), shutil.which("gh") or "not installed")
+        if profile["name"] == "kubuntu-laptop":
+            agent_socket = Path.home() / ".bitwarden-ssh-agent.sock"
+            failures += not doctor_check("Bitwarden SSH agent", agent_socket.is_socket(), str(agent_socket))
     if profile.get("features", {}).get("kde"):
         session = os.environ.get("XDG_SESSION_DESKTOP", "")
         failures += not doctor_check("KDE session", "KDE" in session.upper(), session or "unknown")

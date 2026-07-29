@@ -8,7 +8,7 @@
     "materialize_ssh_key": true
   },
   "packages": {
-    "apt": ["wslu"],
+    "apt": [],
     "brew": ["docker", "docker-compose"]
   }
 }

@@ -11,7 +11,9 @@
           - dot_profile_data.schema_version == 1
           - dot_profile_data.name == dot_profile
           - dot_profile_data.packages is mapping
-        fail_msg: Run this playbook through bin/dot so inherited profile data is supplied.
+        fail_msg: >-
+          Run this playbook through bin/dot so inherited profile data is
+          supplied.
       tags: [always]
 
   tasks:
@@ -54,19 +56,30 @@
     - name: Install Homebrew formulae
       ansible.builtin.command:
         argv: [brew, install, "{{ item }}"]
+      changed_when: true
       loop: "{{ dot_profile_data.packages.brew | default([]) }}"
       when:
         - dot_brew.rc | default(1) == 0
         - item not in dot_brew_formulae.stdout_lines
       tags: [packages]
 
-    - name: Install curated Snap applications
-      become: true
-      community.general.snap:
-        name: "{{ item }}"
-        state: present
+    - name: Check curated Snap applications
+      ansible.builtin.command:
+        argv: [snap, list, "{{ item }}"]
+      register: dot_snap_status
+      changed_when: false
+      failed_when: false
       loop: "{{ dot_profile_data.packages.snap | default([]) }}"
       when: (dot_profile_data.packages.snap | default([]) | length) > 0
+      tags: [packages]
+
+    - name: Install curated Snap applications
+      become: true
+      ansible.builtin.command:
+        argv: [snap, install, "{{ item.item }}"]
+      changed_when: true
+      loop: "{{ dot_snap_status.results | default([]) }}"
+      when: item.rc != 0
       tags: [packages]
 
     - name: Apply portable configuration
@@ -78,7 +91,9 @@
           - "{{ dot_profile }}"
           - --direct
       register: dot_direct_apply
-      changed_when: "'Applied ' in dot_direct_apply.stdout and '0 configuration change(s)' not in dot_direct_apply.stdout"
+      changed_when: >-
+        'Applied ' in dot_direct_apply.stdout and
+        '0 configuration change(s)' not in dot_direct_apply.stdout
       tags: [config, shell, git, kde]
 
     - name: Provision Segoe UI Variable from Windows
@@ -92,7 +107,9 @@
 
     - name: Report unavailable Segoe source
       ansible.builtin.debug:
-        msg: "{{ dot_segoe.stdout | default('Segoe provisioning did not run') }}"
+        msg: >-
+          {{ dot_segoe.stdout |
+             default('Segoe provisioning did not run') }}
       when:
         - dot_profile_data.features.windows_fonts | default(false)
         - dot_segoe.rc | default(0) != 0

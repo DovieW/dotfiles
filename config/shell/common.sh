@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared interactive shell settings. Keep this file valid in both Bash and Zsh.
 
 export REPOS="${REPOS:-$HOME/repos}"
@@ -69,7 +70,7 @@ v() {
 }
 
 mkcd() {
-  mkdir -p -- "$1" && cd -- "$1"
+  mkdir -p -- "$1" && cd -- "$1" || return
 }
 
 dot_ssh_select() {

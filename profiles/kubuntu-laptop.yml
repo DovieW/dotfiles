@@ -8,8 +8,8 @@
     "windows_fonts": true
   },
   "packages": {
-    "apt": ["fonts-cascadia-code", "kde-config-gtk-style", "kio-extras", "konsole", "plasma-workspace", "xclip"],
-    "brew": ["flameshot", "lazydocker", "lazygit", "mpv"],
+    "apt": ["flameshot", "fonts-cascadia-code", "kde-config-gtk-style", "kio-extras", "konsole", "mpv", "plasma-workspace", "xclip"],
+    "brew": ["lazydocker", "lazygit"],
     "snap": ["obsidian"]
   }
 }
