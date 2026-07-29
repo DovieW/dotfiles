@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+failed=0
+
+if find . -path ./.git -prune -o -type f \
+  \( -iname '*.ttf' -o -iname '*.otf' -o -iname '*.woff' -o -iname '*.woff2' \) \
+  -print | grep -q .; then
+  echo "Forbidden font binary found." >&2
+  failed=1
+fi
+
+if rg -n -I --hidden \
+  -g '!.git/**' -g '!scripts/check-public-safety' -g '!tests/**' -g '!docs/**' -g '!*.example' \
+  '(BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY|BW_SESSION[[:space:]]*=|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})' \
+  . >/tmp/dotfiles-public-safety.matches; then
+  sed 's/:.*/: [redacted match]/' /tmp/dotfiles-public-safety.matches >&2
+  failed=1
+fi
+rm -f /tmp/dotfiles-public-safety.matches
+
+if find . -path ./.git -prune -o -type f -printf '%P\n' \
+  | grep -E '(^|/)(id_(rsa|ed25519|ecdsa)|[^/]*\.env|auth\.env)$' >/dev/null; then
+  echo "Forbidden key or env filename is tracked." >&2
+  failed=1
+fi
+
+if [[ $failed -ne 0 ]]; then
+  echo "Public-safety scan failed." >&2
+  exit 1
+fi
+echo "Public-safety scan passed."

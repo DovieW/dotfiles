@@ -1,0 +1,40 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+          python3 -m pip install --user ansible ansible-lint yamllint
+      - name: Validate
+        run: ./tests/run
+      - name: Ansible lint
+        run: ansible-lint ansible/local.yml
+      - name: YAML lint
+        run: yamllint ansible .github
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Force -Scope CurrentUser
+      - name: Test Windows adapter
+        shell: pwsh
+        run: Invoke-Pester tests/windows.Tests.ps1 -CI

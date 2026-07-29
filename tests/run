@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+python3 tests/validate_profiles.py
+python3 -m unittest tests/test_cli.py
+
+if command -v shellcheck >/dev/null 2>&1; then
+  mapfile -t shell_files < <(find bin config scripts tests -type f \
+    \( -name '*.sh' -o -name mbash -o -name dot -o -name 'git-*' -o -name provision-segoe \) \
+    -not -name git-repo-analysis -print)
+  shellcheck "${shell_files[@]}"
+else
+  echo "SKIP shellcheck: not installed"
+fi
+
+if command -v bats >/dev/null 2>&1; then
+  bats tests/shell.bats
+else
+  echo "SKIP bats: not installed"
+fi
+
+if command -v ansible-playbook >/dev/null 2>&1; then
+  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
+  mkdir -p "$state_dir"
+  python3 -c 'import json,sys; from pathlib import Path; sys.path.insert(0, "bin")' 2>/dev/null || true
+  ansible-playbook -i ansible/inventory.ini ansible/local.yml --syntax-check \
+    -e dot_profile=kubuntu-laptop \
+    -e '{"dot_profile_data":{"schema_version":1,"name":"kubuntu-laptop","packages":{},"features":{}}}'
+else
+  echo "SKIP ansible syntax: not installed"
+fi
+
+scripts/check-public-safety
