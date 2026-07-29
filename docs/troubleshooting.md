@@ -88,6 +88,14 @@ installer lines to `.bashrc` or `.zshrc`; dotfiles sources the generated
 Use `mbash` for an intentionally minimal shell and `fullbash` to switch back to
 the complete Bash profile.
 
+## Package updates fail before the first APT task
+
+Interactive `dot apply` and `dot update` runs preflight sudo authorization
+before Ansible starts. They reuse a valid sudo timestamp or prompt once with
+`sudo -v`. Noninteractive runs cannot request a password and instead stop with
+an instruction to authorize sudo in a terminal before retrying. No package
+task runs when this preflight fails.
+
 ## Codex Remote Control is unavailable
 
 Check the managed user service:

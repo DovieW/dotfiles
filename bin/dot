@@ -204,6 +204,24 @@ def require_commands(names: list[str], remediation: str) -> None:
         raise DotError(f"Missing prerequisites: {', '.join(missing)}\n{remediation}")
 
 
+def ensure_sudo_authorization() -> None:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return
+    require_commands(["sudo"], "Install sudo or run the privileged operation as root.")
+    cached = run(["sudo", "-n", "true"], check=False, capture=True)
+    if cached.returncode == 0:
+        return
+    if not sys.stdin.isatty():
+        raise DotError(
+            "Administrator access is required for managed system packages. "
+            "Run `sudo -v` in an interactive terminal, then retry."
+        )
+    print("Administrator access is required to update managed system packages.")
+    authorized = run(["sudo", "-v"], check=False)
+    if authorized.returncode != 0:
+        raise DotError("Administrator authentication failed; no privileged changes were made.")
+
+
 def backup_paths(paths: list[Path]) -> str:
     run_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     destination = BACKUP_DIR / run_id
@@ -466,6 +484,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
         apply_direct(args.profile, force_kde=force_kde)
         return
     selected_tags = set((args.tags or "").replace(",", " ").split())
+    package_apply_selected = not selected_tags or "packages" in selected_tags
+    managed_packages = profile.get("packages", {})
+    privileged_packages = any(
+        managed_packages.get(provider)
+        for provider in ("apt", "deb", "snap")
+    )
+    if package_apply_selected and privileged_packages:
+        ensure_sudo_authorization()
     direct_apply_selected = not selected_tags or bool(
         selected_tags & {"config", "shell", "git", "kde"}
     )
