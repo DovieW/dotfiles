@@ -57,6 +57,17 @@ KDE_IGNORED_KEYS = {
 KDE_IGNORED_SECTIONS = {
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
 }
+KDE_LABELS = {
+    ".config/kdeglobals": "KDE appearance",
+    ".config/kwinrc": "Windows, desktops, and tiling",
+    ".config/kglobalshortcutsrc": "Keyboard shortcuts",
+    ".config/spectaclerc": "Spectacle preferences",
+    ".config/kcminputrc": "Mouse and input",
+    ".config/kscreenlockerrc": "Lock screen",
+    ".config/plasmarc": "Plasma appearance",
+    ".config/plasma-org.kde.plasma.desktop-appletsrc": "Panels and widgets",
+    ".local/share/konsole/Dovie.profile": "Konsole profile",
+}
 
 
 class DotError(RuntimeError):
@@ -848,29 +859,215 @@ def cmd_capture_kde(args: argparse.Namespace) -> None:
     print(f"Captured {captured} changed KDE file(s). Display topology, wallets, caches, and history were excluded.")
 
 
+def kde_file_diff(relative: str) -> list[str]:
+    expected = ROOT / "config/kde" / relative
+    actual = Path.home() / relative
+    if not expected.exists() and not actual.exists():
+        return []
+    left = (
+        portable_kde_content(relative, expected.read_bytes())
+        .decode("utf-8", errors="replace")
+        .splitlines(True)
+        if expected.exists()
+        else []
+    )
+    right = (
+        portable_kde_content(relative, actual.read_bytes())
+        .decode("utf-8", errors="replace")
+        .splitlines(True)
+        if actual.exists()
+        else []
+    )
+    return list(
+        difflib.unified_diff(
+            left,
+            right,
+            fromfile=str(expected),
+            tofile=str(actual),
+        )
+    )
+
+
+def fzf_choose(
+    rows: list[str],
+    *,
+    prompt: str,
+    header: str = "",
+    multi: bool = False,
+    preview: str | None = None,
+    with_nth: str = "1",
+) -> list[str]:
+    require_commands(["fzf"], "Install fzf, then rerun the command.")
+    command = [
+        "fzf",
+        "--height=85%",
+        "--layout=reverse",
+        "--border=rounded",
+        f"--prompt={prompt}",
+        "--delimiter=\t",
+        f"--with-nth={with_nth}",
+    ]
+    if header:
+        command.extend(["--header", header])
+    if multi:
+        command.extend(
+            [
+                "--multi",
+                "--bind=ctrl-a:select-all,ctrl-d:deselect-all",
+            ]
+        )
+    if preview:
+        command.extend(
+            [
+                "--preview",
+                preview,
+                "--preview-window=right,65%,border-left",
+            ]
+        )
+    proc = subprocess.run(
+        command,
+        input="\n".join(rows) + "\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode in (1, 130):
+        return []
+    if proc.returncode:
+        raise DotError(f"fzf failed with exit code {proc.returncode}")
+    return [line for line in proc.stdout.splitlines() if line]
+
+
+def save_commit_message(selected: list[str]) -> str:
+    labels = [KDE_LABELS[relative].lower() for relative in selected]
+    if len(labels) == 1:
+        return f"update {labels[0]}"
+    if len(labels) == 2:
+        return f"update {labels[0]} and {labels[1]}"
+    return "update KDE settings"
+
+
+def cmd_save(args: argparse.Namespace) -> None:
+    preset = {
+        "spectacle": {
+            ".config/spectaclerc",
+            ".config/kglobalshortcutsrc",
+        },
+    }
+    allowed = preset.get(args.target, set(KDE_FILES))
+    drift: dict[str, list[str]] = {}
+    for relative in KDE_FILES:
+        if relative not in allowed:
+            continue
+        diff = kde_file_diff(relative)
+        if diff:
+            drift[relative] = diff
+    if not drift:
+        print("No managed configuration changes to save.")
+        return
+
+    if args.yes:
+        selected = list(drift)
+        action = "save"
+    else:
+        if not sys.stdin.isatty():
+            raise DotError("Interactive selection is unavailable; rerun with --yes.")
+        with tempfile.TemporaryDirectory(prefix="dot-fzf-") as directory:
+            rows: list[str] = []
+            for index, (relative, diff) in enumerate(drift.items()):
+                preview_path = Path(directory) / f"{index}.diff"
+                preview_path.write_text("".join(diff), encoding="utf-8")
+                rows.append(
+                    "\t".join(
+                        [
+                            KDE_LABELS[relative],
+                            Path(relative).name,
+                            str(preview_path),
+                            relative,
+                        ]
+                    )
+                )
+            choices = fzf_choose(
+                rows,
+                prompt="Settings to save › ",
+                header="Tab: toggle  Ctrl-A: all  Ctrl-D: none  Enter: continue",
+                multi=True,
+                preview="delta --paging=never < {3}",
+                with_nth="1,2",
+            )
+            selected = [choice.split("\t", 3)[3] for choice in choices]
+        if not selected:
+            print("Nothing selected.")
+            return
+        action_rows = [
+            "Save, validate, commit, and push\tsave",
+            "Capture in dotfiles without committing\tcapture",
+            "Cancel\tcancel",
+        ]
+        action_choice = fzf_choose(
+            action_rows,
+            prompt="Action › ",
+            header="Enter: choose  Esc: cancel",
+        )
+        action = action_choice[0].split("\t", 1)[1] if action_choice else "cancel"
+        if action == "cancel":
+            print("Save cancelled.")
+            return
+
+    names = [Path(relative).name for relative in selected]
+    paths = [ROOT / "config/kde" / relative for relative in selected]
+    dirty_targets = run(
+        ["git", "status", "--porcelain", "--", *map(str, paths)],
+        cwd=ROOT,
+        capture=True,
+    ).stdout.strip()
+    if dirty_targets:
+        raise DotError(
+            "Selected dotfiles already have uncommitted repository changes:\n"
+            f"{dirty_targets}\nReview or commit them before capturing live state."
+        )
+    if action == "save":
+        staged = run(["git", "diff", "--cached", "--quiet"], cwd=ROOT, check=False)
+        if staged.returncode:
+            raise DotError(
+                "The Git index already contains staged changes. "
+                "Commit or unstage them before saving settings."
+            )
+
+    originals = {
+        path: path.read_bytes() if path.exists() else None
+        for path in paths
+    }
+    cmd_capture_kde(argparse.Namespace(only=names))
+    if action == "capture":
+        print("Captured selected settings in dotfiles; they remain uncommitted.")
+        return
+
+    validation = run([str(ROOT / "tests/run")], cwd=ROOT, check=False)
+    if validation.returncode:
+        restore_captured_files(originals)
+        record_kde_baseline()
+        raise DotError("Validation failed; the repository capture was rolled back.")
+    run(["git", "add", "--", *map(str, paths)], cwd=ROOT)
+    run(["git", "commit", "-m", save_commit_message(selected)], cwd=ROOT)
+    run(["git", "push"], cwd=ROOT)
+    print("Saved and pushed the selected settings.")
+
+
+def restore_captured_files(originals: dict[Path, bytes | None]) -> None:
+    for path, content in originals.items():
+        if content is None:
+            if path.exists() or path.is_symlink():
+                path.unlink()
+        else:
+            atomic_bytes(path, content)
+
+
 def cmd_diff_kde(_args: argparse.Namespace) -> None:
     differences = 0
     output: list[str] = []
     for relative in KDE_FILES:
-        expected = ROOT / "config/kde" / relative
-        actual = Path.home() / relative
-        if not expected.exists() and not actual.exists():
-            continue
-        left = (
-            portable_kde_content(relative, expected.read_bytes())
-            .decode("utf-8", errors="replace")
-            .splitlines(True)
-            if expected.exists()
-            else []
-        )
-        right = (
-            portable_kde_content(relative, actual.read_bytes())
-            .decode("utf-8", errors="replace")
-            .splitlines(True)
-            if actual.exists()
-            else []
-        )
-        diff = list(difflib.unified_diff(left, right, fromfile=str(expected), tofile=str(actual)))
+        diff = kde_file_diff(relative)
         if diff:
             differences += 1
             output.extend(diff)
@@ -902,6 +1099,43 @@ def cmd_rollback(args: argparse.Namespace) -> None:
         elif not record.get("existed") and (path.exists() or path.is_symlink()):
             path.unlink()
     print(f"Restored backup {args.run_id}")
+
+
+def cmd_palette() -> None:
+    if not sys.stdin.isatty():
+        raise DotError("The interactive command palette requires a terminal; use `dot --help`.")
+    rows = [
+        "Save configuration changes\tsave",
+        "Review configuration drift\tdiff",
+        "Apply Kubuntu profile\tapply",
+        "Run Kubuntu doctor\tdoctor",
+        "Run validation suite\ttest",
+        "Exit\texit",
+    ]
+    choice = fzf_choose(
+        rows,
+        prompt="dot › ",
+        header="Type to filter  Enter: run  Esc: exit",
+    )
+    action = choice[0].split("\t", 1)[1] if choice else "exit"
+    if action == "save":
+        cmd_save(argparse.Namespace(target=None, yes=False))
+    elif action == "diff":
+        cmd_diff_kde(argparse.Namespace())
+    elif action == "apply":
+        cmd_apply(
+            argparse.Namespace(
+                profile="kubuntu-laptop",
+                tags=None,
+                check=False,
+                direct=False,
+                force_kde=False,
+            )
+        )
+    elif action == "doctor":
+        cmd_doctor(argparse.Namespace(profile="kubuntu-laptop"))
+    elif action == "test":
+        run([str(ROOT / "tests/run")], cwd=ROOT)
 
 
 def doctor_check(label: str, ok: bool, detail: str) -> bool:
@@ -1088,7 +1322,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dot")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--profile", required=True)
     bootstrap.add_argument("--device")
@@ -1146,6 +1380,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="capture only a named allowlisted file; may be repeated",
     )
     capture.set_defaults(func=cmd_capture_kde)
+    save = sub.add_parser("save")
+    save.add_argument("target", nargs="?", choices=["spectacle"])
+    save.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip the interactive diff confirmation",
+    )
+    save.set_defaults(func=cmd_save)
     diff = sub.add_parser("diff")
     diff.add_argument("target", choices=["kde"])
     diff.set_defaults(func=cmd_diff_kde)
@@ -1158,7 +1400,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     try:
         args = build_parser().parse_args()
-        args.func(args)
+        if hasattr(args, "func"):
+            args.func(args)
+        else:
+            cmd_palette()
         return 0
     except DotError as exc:
         print(f"dot: {exc}", file=sys.stderr)

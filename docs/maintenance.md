@@ -29,6 +29,21 @@ dot apply --profile kubuntu-laptop
 
 Never capture the complete `.config` directory.
 
+For routine changes, open the fzf command palette:
+
+```bash
+dot
+```
+
+Choose **Save configuration changes**. The next fzf view lists only drifted
+managed files, supports multi-selection, and shows a live Delta preview.
+Choose **Save, validate, commit, and push** to finish the complete workflow.
+Unrelated unstaged repository work is preserved, while an already-dirty
+selected file or a non-empty Git index is rejected.
+
+`dot save` jumps directly to the selector. `dot save spectacle` restricts it
+to Spectacle preferences and keyboard shortcuts.
+
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 
 ```bash

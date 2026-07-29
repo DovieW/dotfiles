@@ -53,5 +53,16 @@ dot diff kde
 dot rollback RUN_ID
 ```
 
+Run `dot` with no arguments for the fzf command palette. Its save workflow
+shows only changed managed files, provides a Delta preview, supports
+multi-selection, validates, creates a signed commit, and pushes:
+
+```bash
+dot
+```
+
+`dot save` opens that workflow directly. `dot save spectacle` limits the
+selector to Spectacle preferences and keyboard shortcuts.
+
 See [Architecture](docs/architecture.md), [Maintenance](docs/maintenance.md),
 and [Troubleshooting](docs/troubleshooting.md).

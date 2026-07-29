@@ -22,6 +22,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bootstrap", result.stdout)
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
+        self.assertIn("save", result.stdout)
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
@@ -83,6 +84,13 @@ class DotCliTests(unittest.TestCase):
         text = DOT.read_text()
         self.assertIn('["delta", "--paging=always"]', text)
         self.assertIn("sys.stdout.isatty()", text)
+
+    def test_fzf_save_covers_preferences_and_shortcuts(self):
+        text = DOT.read_text()
+        self.assertIn('".config/spectaclerc"', text)
+        self.assertIn('".config/kglobalshortcutsrc"', text)
+        self.assertIn('"Settings to save › "', text)
+        self.assertIn('"Save configuration changes\\tsave"', text)
 
 
 if __name__ == "__main__":
