@@ -1,5 +1,7 @@
 [General]
+autoSaveImage=true
 clipboardGroup=PostScreenshotCopyImage
+launchAction=DoNotTakeScreenshot
 
 [GuiConfig]
 quitAfterSaveCopyExport=true

@@ -274,12 +274,12 @@ ActiveWindowScreenShot=Alt+Print
 CurrentMonitorScreenShot=
 FullScreenScreenShot=Print
 OpenWithoutScreenshot=
-RecordRegion=\tMeta+R
+RecordRegion=\t
 RecordScreen=
 RecordWindow=
 RectangularRegionScreenShot=Meta+Shift+S
 WindowUnderCursorScreenShot=
-_launch=\t
+_launch=Ctrl+Alt+Shift+Print\t
 
 [wacomtablet]
 Map to fullscreen=Meta+Ctrl+F,Meta+Ctrl+F,Map to fullscreen
