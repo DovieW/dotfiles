@@ -12,6 +12,9 @@ git clone https://github.com/DovieW/dotfiles ~/repos/dotfiles
 ~/repos/dotfiles/bin/dot bootstrap --profile kubuntu-laptop
 ```
 
+Bootstrap links the canonical CLI to `~/.local/bin/dot`; afterward, use the
+short `dot` command shown throughout this documentation.
+
 Available profiles are `kubuntu-laptop`, `wsl-personal`, `wsl-work`,
 `windows-host`, and `termux`.
 

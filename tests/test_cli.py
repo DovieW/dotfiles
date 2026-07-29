@@ -73,6 +73,12 @@ class DotCliTests(unittest.TestCase):
             self.assertIn("Refusing to overwrite KDE configuration drift", result.stderr)
             self.assertEqual(shortcuts.read_text(), "[local-change]\nshortcut=Meta+S\n")
 
+    def test_linux_shell_profile_installs_dot_command(self):
+        source = (ROOT / "bin/dot").resolve()
+        text = DOT.read_text()
+        self.assertIn('ROOT / "bin/dot": Path.home() / ".local/bin/dot"', text)
+        self.assertTrue(source.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

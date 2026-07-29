@@ -352,6 +352,7 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
         check_kde_apply_conflicts(force=force_kde)
     if features.get("shell"):
         mappings = {
+            ROOT / "bin/dot": Path.home() / ".local/bin/dot",
             ROOT / "config/shell/bashrc": Path.home() / ".bashrc",
             ROOT / "config/shell/zshrc": Path.home() / ".zshrc",
             ROOT / "config/shell/p10k.zsh": Path.home() / ".p10k.zsh",
@@ -974,6 +975,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")
+        dot_command = Path.home() / ".local/bin/dot"
+        failures += not doctor_check(
+            "dot command",
+            dot_command.is_symlink() and dot_command.resolve() == (ROOT / "bin/dot").resolve(),
+            str(dot_command),
+        )
         failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
         login_shell = os.environ.get("SHELL", "")
         if os.name != "nt":
