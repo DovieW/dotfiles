@@ -27,10 +27,6 @@ __dot_history_sync() {
   history -a
   history -n
 }
-case ";${PROMPT_COMMAND:-};" in
-  *";__dot_history_sync;"*) ;;
-  *) PROMPT_COMMAND="__dot_history_sync${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
-esac
 
 if command -v zoxide >/dev/null 2>&1; then
   eval "$(zoxide init bash)"
@@ -43,4 +39,41 @@ fi
 
 ssh() { dot_ssh_select "$@"; }
 
-PS1='\u@\h:\w\$ '
+__dot_bash_prompt() {
+  local last_status="${1:-0}"
+  local reset='\[\e[0m\]'
+  local cyan='\[\e[1;36m\]'
+  local blue='\[\e[1;34m\]'
+  local magenta='\[\e[1;35m\]'
+  local green='\[\e[1;32m\]'
+  local red='\[\e[1;31m\]'
+  local identity=''
+  local git_segment=''
+  local branch=''
+  local prompt_color="$green"
+  local status_segment=''
+
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    identity='\u@\h  '
+  fi
+  if command -v git >/dev/null 2>&1; then
+    branch="$(command git symbolic-ref --quiet --short HEAD 2>/dev/null ||
+      command git rev-parse --short HEAD 2>/dev/null || true)"
+    [[ -n "$branch" ]] && git_segment="  ${magenta}git:${branch}${reset}"
+  fi
+  if ((last_status != 0)); then
+    prompt_color="$red"
+    status_segment=" ${red}[${last_status}]${reset}"
+  fi
+
+  PS1="${cyan}bash${reset}  ${identity}${blue}\w${reset}${git_segment}\n${prompt_color}❯${reset}${status_segment} "
+}
+
+__dot_bash_prompt_command() {
+  local last_status=$?
+  __dot_history_sync
+  __dot_bash_prompt "$last_status"
+}
+
+PROMPT_COMMAND=__dot_bash_prompt_command
+__dot_bash_prompt 0

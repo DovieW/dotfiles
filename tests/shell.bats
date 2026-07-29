@@ -7,6 +7,28 @@
   [ "$output" = "$HOME/repos" ]
 }
 
+@test "mbash prompt is visibly labeled without dynamic work" {
+  run env DOTFILES_ROOT="$BATS_TEST_DIRNAME/.." \
+    bash --noprofile --rcfile "$BATS_TEST_DIRNAME/../config/shell/minimal-bashrc" \
+    -ic 'printf "%s" "$PS1"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[mbash]"* ]]
+  run grep -E 'command -v|git |\$\(' "$BATS_TEST_DIRNAME/../config/shell/minimal-bashrc"
+  [ "$status" -eq 1 ]
+}
+
+@test "full Bash prompt shows mode path Git context and exit status" {
+  run env DOTFILES_ROOT="$BATS_TEST_DIRNAME/.." \
+    bash --noprofile --rcfile "$BATS_TEST_DIRNAME/../config/shell/bashrc" \
+    -ic '__dot_bash_prompt 7; printf "%s" "$PS1"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bash"* ]]
+  [[ "$output" == *'\w'* ]]
+  [[ "$output" == *"git:"* ]]
+  [[ "$output" == *"[7]"* ]]
+  [[ "$output" == *"❯"* ]]
+}
+
 @test "shell startup files do not persist a Bitwarden session" {
   run grep -R -E 'export[[:space:]]+BW_SESSION|BW_SESSION=' "$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 1 ]

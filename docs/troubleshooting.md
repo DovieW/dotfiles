@@ -86,7 +86,9 @@ installer lines to `.bashrc` or `.zshrc`; dotfiles sources the generated
 `$VP_HOME/env` file after shell completion initialization.
 
 Use `mbash` for an intentionally minimal shell and `fullbash` to switch back to
-the complete Bash profile.
+the complete Bash profile. Minimal mode is visibly labeled `[mbash]` and keeps
+its prompt static. Full Bash uses a two-line prompt with the current directory,
+Git branch when applicable, and the previous command's nonzero exit status.
 
 ## Package updates fail before the first APT task
 

@@ -6,7 +6,9 @@ HISTCONTROL=ignoreboth
 HISTSIZE=5000
 HISTFILESIZE=10000
 shopt -s histappend
-PS1='\u@\h:\w\$ '
+# Keep this prompt static: mbash must not run subprocesses or inspect tools at
+# startup or before each command.
+PS1='\[\e[1;33m\][mbash]\[\e[0m\] \u@\h:\[\e[1;34m\]\w\[\e[0m\]\$ '
 
 fullbash() {
   exec bash --rcfile "$HOME/.bashrc" -i
