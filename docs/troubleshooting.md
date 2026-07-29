@@ -5,9 +5,22 @@
 Run `bw status`. If it reports unauthenticated, run `bw login` once. Do not add
 `BW_SESSION` to `.bashrc`, `.zshrc`, an env file, or this repository.
 
+If this is the first machine and the bootstrap Secure Note does not exist, run:
+
+```bash
+dot secrets initialize --draft ~/.config/dotfiles/bootstrap-draft.json
+```
+
+Initialization refuses to overwrite an existing note.
+
 ## GitHub registration is pending
 
-Install GitHub CLI, run `gh auth login`, and rerun:
+Install GitHub CLI, authorize both SSH key-management scopes, and rerun:
+
+```bash
+gh auth login -h github.com -p ssh -w \
+  -s admin:public_key,admin:ssh_signing_key
+```
 
 ```bash
 dot secrets sync --profile PROFILE

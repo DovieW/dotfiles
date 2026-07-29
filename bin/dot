@@ -32,6 +32,7 @@ STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dotfiles"
 BACKUP_DIR = STATE_DIR / "backups"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
+GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -209,6 +210,20 @@ def link_file(source: Path, destination: Path) -> bool:
     return True
 
 
+def copy_managed_file(source: Path, destination: Path) -> bool:
+    """Deploy an app-owned file without letting the app mutate the repository."""
+    destination = destination.expanduser()
+    content = source.read_bytes()
+    mode = source.stat().st_mode & 0o777
+    if not destination.is_symlink() and destination.exists() and destination.read_bytes() == content:
+        destination.chmod(mode)
+        return False
+    if destination.exists() or destination.is_symlink():
+        backup_paths([destination])
+        destination.unlink()
+    return atomic_bytes(destination, content, mode)
+
+
 def apply_direct(profile_name: str) -> int:
     profile = load_profile(profile_name)
     features = profile.get("features", {})
@@ -238,7 +253,7 @@ def apply_direct(profile_name: str) -> int:
             source = ROOT / "config/kde" / relative
             if source.exists():
                 destination = Path.home() / relative
-                changes += int(link_file(source, destination))
+                changes += int(copy_managed_file(source, destination))
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -249,7 +264,7 @@ def apply_direct(profile_name: str) -> int:
             ROOT / "config/flameshot/hereshot": Path.home() / ".local/bin/hereshot",
         }
         for source, destination in desktop_mappings.items():
-            changes += int(link_file(source, destination))
+            changes += int(copy_managed_file(source, destination))
     if features.get("wsl") or features.get("kde"):
         for tool in ("clogs", "cshell", "cycle"):
             source = ROOT / "config/docker/bin" / tool
@@ -316,10 +331,16 @@ def bw_session() -> tuple[str, bool]:
         raise DotError("Bitwarden CLI is not logged in. Run `bw login` once, then retry.")
     if state == "unlocked":
         session = os.environ.get("BW_SESSION")
-        if not session:
-            raise DotError("Bitwarden reports unlocked but no scoped session is available; run `bw lock` and retry.")
-        return session, False
-    proc = run(["bw", "unlock", "--raw"], capture=True)
+        if session:
+            return session, False
+    # Capture only the session token. The password prompt is written to stderr
+    # and must remain attached to the terminal so it is visible to the user.
+    proc = subprocess.run(
+        ["bw", "unlock", "--raw"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
     return proc.stdout.strip(), True
 
 
@@ -334,7 +355,16 @@ def bw_get_item(name: str, session: str, *, required: bool = True) -> dict[str, 
 
 def bw_create_item(item: dict[str, Any], session: str) -> dict[str, Any]:
     encoded = base64.b64encode(json.dumps(item).encode()).decode()
-    proc = run(["bw", "create", "item", encoded, "--session", session], capture=True)
+    # Read the encoded item from stdin so private material is never exposed in
+    # the process list or an exception's command arguments.
+    proc = subprocess.run(
+        ["bw", "create", "item", "--session", session],
+        input=encoded,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     return json.loads(proc.stdout)
 
 
@@ -358,24 +388,85 @@ def create_device_key(item_name: str, session: str) -> dict[str, Any]:
         "type": 5,
         "name": item_name,
         "favorite": False,
-        "sshKey": {"privateKey": private, "publicKey": public, "fingerprint": fingerprint},
+        "sshKey": {
+            "privateKey": private,
+            "publicKey": public,
+            "keyFingerprint": fingerprint,
+        },
     }
     return bw_create_item(item, session)
 
 
-def github_register(public_path: Path, label: str) -> None:
+def github_auth_state() -> tuple[bool, set[str]]:
     if not command_exists("gh"):
-        print("gh is missing; SSH key registration remains pending.", file=sys.stderr)
-        return
-    if run(["gh", "auth", "status"], check=False, capture=True).returncode:
-        print("gh is not authenticated; run `gh auth login`, then rerun `dot secrets sync`.", file=sys.stderr)
-        return
+        return False, set()
+    proc = run(["gh", "auth", "status", "--hostname", "github.com"], check=False, capture=True)
+    output = f"{proc.stdout}\n{proc.stderr}"
+    match = re.search(r"Token scopes:\s*(.+)", output)
+    scopes = set(re.findall(r"'([^']+)'", match.group(1))) if match else set()
+    return proc.returncode == 0, scopes
+
+
+def ensure_github_authorization() -> None:
+    require_commands(
+        ["gh"],
+        "Install GitHub CLI, then rerun bootstrap. On Debian/Ubuntu: sudo apt install gh",
+    )
+    authenticated, scopes = github_auth_state()
+    scope_list = ",".join(sorted(GITHUB_REQUIRED_SCOPES))
+    if not authenticated:
+        print("GitHub authentication is required; opening the browser login flow.")
+        run(
+            [
+                "gh",
+                "auth",
+                "login",
+                "--hostname",
+                "github.com",
+                "--git-protocol",
+                "ssh",
+                "--web",
+                "--scopes",
+                scope_list,
+            ]
+        )
+        authenticated, scopes = github_auth_state()
+    missing = GITHUB_REQUIRED_SCOPES - scopes
+    if authenticated and missing:
+        print(f"GitHub needs SSH key-management permissions: {', '.join(sorted(missing))}")
+        run(
+            [
+                "gh",
+                "auth",
+                "refresh",
+                "--hostname",
+                "github.com",
+                "--scopes",
+                ",".join(sorted(missing)),
+            ]
+        )
+        authenticated, scopes = github_auth_state()
+    missing = GITHUB_REQUIRED_SCOPES - scopes
+    if not authenticated or missing:
+        raise DotError(
+            "GitHub CLI authorization is incomplete. Run: "
+            f"gh auth refresh -h github.com -s {scope_list}"
+        )
+
+
+def github_register(public_path: Path, label: str) -> None:
+    ensure_github_authorization()
     existing = run(["gh", "ssh-key", "list"], check=False, capture=True)
     public_text = public_path.read_text(encoding="utf-8").strip()
-    fingerprint = run(["ssh-keygen", "-lf", str(public_path)], capture=True).stdout.split()[1]
-    if fingerprint in existing.stdout:
-        return
+    public_key = " ".join(public_text.split()[:2])
+    listed_keys = []
+    for line in existing.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 3:
+            listed_keys.append((fields[1].strip(), fields[-1].strip()))
     for key_type in ("authentication", "signing"):
+        if (public_key, key_type) in listed_keys:
+            continue
         proc = run(
             ["gh", "ssh-key", "add", str(public_path), "--title", label, "--type", key_type],
             check=False,
@@ -409,6 +500,10 @@ def cmd_secrets_sync(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     device = ensure_device(args.device)
     account = profile.get("account", "personal")
+    if not args.no_register:
+        # Complete browser authorization before unlocking Bitwarden so a vault
+        # session is never held open while waiting on GitHub.
+        ensure_github_authorization()
     session, should_lock = bw_session()
     try:
         bootstrap_item = bw_get_item(BW_BOOTSTRAP_ITEM, session)
@@ -432,6 +527,35 @@ def cmd_secrets_sync(args: argparse.Namespace) -> None:
         write_identity(profile, bootstrap, public_path)
         if not args.no_register:
             github_register(public_path, f"{device}-{account}")
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def cmd_secrets_initialize(args: argparse.Namespace) -> None:
+    draft_path = Path(args.draft).expanduser()
+    bootstrap = load_json(draft_path)
+    if bootstrap.get("schema_version") != 1:
+        raise DotError(f"{draft_path} must use bootstrap schema_version 1")
+    session, should_lock = bw_session()
+    try:
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        if bw_get_item(BW_BOOTSTRAP_ITEM, session, required=False) is not None:
+            raise DotError(
+                f"Bitwarden item {BW_BOOTSTRAP_ITEM} already exists; "
+                "initialization will not overwrite it"
+            )
+        item = {
+            "type": 2,
+            "name": BW_BOOTSTRAP_ITEM,
+            "favorite": False,
+            "notes": json.dumps(bootstrap, indent=2),
+            "secureNote": {"type": 0},
+        }
+        created = bw_create_item(item, session)
+        if created.get("name") != BW_BOOTSTRAP_ITEM:
+            raise DotError("Bitwarden returned an unexpected item after initialization")
+        print(f"Created Bitwarden secure note: {BW_BOOTSTRAP_ITEM}")
     finally:
         if should_lock:
             run(["bw", "lock"], check=False)
@@ -646,6 +770,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check("git identity", identity.exists(), str(identity))
         failures += not doctor_check("Bitwarden CLI", command_exists("bw"), shutil.which("bw") or "not installed")
         failures += not doctor_check("GitHub CLI", command_exists("gh"), shutil.which("gh") or "not installed")
+        gh_authenticated, gh_scopes = github_auth_state()
+        missing_scopes = GITHUB_REQUIRED_SCOPES - gh_scopes
+        failures += not doctor_check(
+            "GitHub authorization",
+            gh_authenticated and not missing_scopes,
+            "authenticated with SSH key-management scopes"
+            if gh_authenticated and not missing_scopes
+            else f"missing {', '.join(sorted(missing_scopes)) or 'authentication'}",
+        )
         if profile["name"] == "kubuntu-laptop":
             agent_sockets = [
                 Path.home() / ".bitwarden-ssh-agent.sock",
@@ -699,6 +832,9 @@ def build_parser() -> argparse.ArgumentParser:
     sync.set_defaults(func=cmd_repos_sync)
     secrets = sub.add_parser("secrets")
     secrets_sub = secrets.add_subparsers(dest="secrets_command", required=True)
+    secret_initialize = secrets_sub.add_parser("initialize")
+    secret_initialize.add_argument("--draft", required=True)
+    secret_initialize.set_defaults(func=cmd_secrets_initialize)
     secret_sync = secrets_sub.add_parser("sync")
     secret_sync.add_argument("--profile", required=True)
     secret_sync.add_argument("--device")
@@ -725,7 +861,9 @@ def main() -> int:
         print(f"dot: {exc}", file=sys.stderr)
         return 1
     except subprocess.CalledProcessError as exc:
-        print(f"dot: command failed ({exc.returncode}): {' '.join(exc.cmd)}", file=sys.stderr)
+        command = exc.cmd if isinstance(exc.cmd, list) else [str(exc.cmd)]
+        program = Path(str(command[0])).name if command else "external command"
+        print(f"dot: {program} failed with exit code {exc.returncode}", file=sys.stderr)
         if exc.stderr:
             print(exc.stderr.strip(), file=sys.stderr)
         return exc.returncode or 1

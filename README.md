@@ -17,6 +17,18 @@ Available profiles are `kubuntu-laptop`, `wsl-personal`, `wsl-work`,
 
 The bootstrap command checks prerequisites before changing anything. Windows
 bootstrap is inventory-only and never installs prerequisites or applications.
+When secrets are enabled, bootstrap runs GitHub's browser authorization before
+unlocking Bitwarden and requests both authentication-key and signing-key
+management scopes.
+
+For a new vault, create the private bootstrap note once from a permission-locked
+local draft:
+
+```bash
+dot secrets initialize --draft ~/.config/dotfiles/bootstrap-draft.json
+```
+
+The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 
 ## Daily commands
 

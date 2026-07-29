@@ -60,4 +60,5 @@ files. A session unlocked by `dot` is locked in a `finally` path.
 
 Only the reviewed allowlist in `bin/dot` is portable. KDE Wallet, recent files,
 caches, session state, and KScreen's hardware identifiers are excluded. Every
-replaced destination is backed up before linking.
+replaced destination is backed up before a managed copy is installed, so KDE
+and applications cannot mutate the repository during normal use.
