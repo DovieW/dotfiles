@@ -9,7 +9,7 @@ means its reusable configuration now has an authoritative replacement here.
 | `other/linux_setup/shell` | 2026-06-11 | Move | `config/shell`; Zsh, full Bash, and `mbash` |
 | `programs/git` | 2026-04-20 | Move | `config/git`; stale B&H/Kalman variants retired |
 | `programs/powershell` | 2026-01-15 | Move | `config/powershell` |
-| `programs/docker` | 2026-07-15 | Move helpers | `config/docker`; WSL updater preserved |
+| `programs/docker` | 2026-07-15 | Move and replace | `config/docker` helpers; one-off WSL updater replaced by the native Docker Ansible role |
 | `programs/autohotkey` | 2026-05-20 | Move active v2 | `config/autohotkey`; private hotstrings excluded |
 | `programs/flameshot` | 2026-04-21 | Move | `config/flameshot` |
 | `programs/alacritty` | 2024-10-30 | Move and repair | `config/alacritty` |

@@ -44,6 +44,16 @@ The same action is available as **Update managed programs** in the fzf command
 palette. It updates repository-backed packages first, then invokes supported
 stable-channel updaters for Codex and Vite+.
 
+Docker Engine, Compose, and Buildx advance through Docker's official stable APT
+repository during the same update. To apply or repair only Docker:
+
+```bash
+dot apply --profile kubuntu-laptop --tags docker
+```
+
+Use the matching WSL profile name inside WSL. The Docker role is idempotent and
+does not remove `/var/lib/docker`, images, containers, volumes, or `/etc/docker`.
+
 ## Update captured configuration
 
 Edit portable files in this repository directly. For a reviewed KDE change:

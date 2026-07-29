@@ -73,5 +73,10 @@ New Bash and Zsh
 sessions load its generated environment so `vp env use` can update the current
 shell without allowing the upstream installer to rewrite managed rc files.
 
+Kubuntu and both WSL profiles own a native Docker Engine, Docker Compose, and
+Buildx installation from Docker's official stable Ubuntu repository. WSL does
+not use Docker Desktop integration. See [Docker](docs/docker.md) before first
+applying a WSL profile.
+
 See [Architecture](docs/architecture.md), [Maintenance](docs/maintenance.md),
-and [Troubleshooting](docs/troubleshooting.md).
+[Docker](docs/docker.md), and [Troubleshooting](docs/troubleshooting.md).

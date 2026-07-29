@@ -25,6 +25,8 @@ Linux package ownership is intentional:
   release-provided SHA-256 digests are verified dynamically.
 - The official stable channel owns the standalone Codex CLI release.
 - The official stable channel owns Vite+ on Kubuntu and WSL.
+- Docker's official stable Ubuntu APT repository owns native Docker Engine,
+  Compose, and Buildx on Kubuntu and WSL.
 - Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
@@ -35,6 +37,21 @@ Debian, Snap, and Termux packages to the latest stable releases their providers
 offer. Native supported updaters such as `vp upgrade` are valid and do not
 create dotfiles drift. Project dependency lockfiles and project runtime pins
 remain authoritative inside each project.
+
+## Docker
+
+The `docker_engine` feature configures Docker CE from Docker's official Ubuntu
+APT repository. Kubuntu and WSL use the same engine packages and command-line
+plugins. WSL runs its own daemon inside the distribution; the profiles do not
+install Homebrew Docker clients and do not use Docker Desktop integration.
+
+The WSL preflight runs before Docker package mutations. It requires systemd and
+rejects a CLI or active socket injected by Docker Desktop, preventing two
+engines from competing for the same CLI and context. Docker and containerd are
+enabled through systemd.
+The interactive user is appended to the `docker` group, so the first apply
+requires a WSL restart or a normal Linux logout/login before that membership is
+active in every shell.
 
 ## Adapters
 

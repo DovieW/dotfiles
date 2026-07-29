@@ -5,6 +5,7 @@
   "account": "personal",
   "features": {
     "codex_remote_control": true,
+    "docker_engine": true,
     "kde": true,
     "windows_fonts": true
   },

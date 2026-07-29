@@ -1,0 +1,188 @@
+---
+- name: Validate Docker Engine operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.distribution_release | length > 0
+    fail_msg: >-
+      Native Docker Engine is supported here only on Ubuntu and Kubuntu.
+
+- name: Inspect WSL systemd state
+  ansible.builtin.stat:
+    path: /run/systemd/system
+  register: dot_wsl_systemd
+  when: dot_profile_data.features.wsl | default(false)
+
+- name: Require systemd for native Docker in WSL
+  ansible.builtin.assert:
+    that:
+      - dot_wsl_systemd.stat.isdir | default(false)
+      - ansible_facts.service_mgr == "systemd"
+    fail_msg: >-
+      Native Docker in WSL requires WSL 2 with systemd. Update WSL from an
+      elevated PowerShell window with `wsl --update`. If systemd is not already
+      enabled, add `[boot]` and `systemd=true` to /etc/wsl.conf, then run
+      `wsl --shutdown` in PowerShell and retry dot apply.
+  when: dot_profile_data.features.wsl | default(false)
+
+- name: Resolve the active WSL Docker socket
+  ansible.builtin.command:
+    argv: [readlink, -f, /var/run/docker.sock]
+  register: dot_wsl_docker_socket
+  changed_when: false
+  failed_when: false
+  when: dot_profile_data.features.wsl | default(false)
+
+- name: Resolve the active WSL Docker CLI
+  ansible.builtin.command:
+    argv: [bash, -lc, "command -v docker >/dev/null && readlink -f \"$(command -v docker)\" || true"]
+  register: dot_wsl_docker_cli
+  changed_when: false
+  when: dot_profile_data.features.wsl | default(false)
+
+- name: Reject mixed Docker Desktop and native WSL engines
+  ansible.builtin.assert:
+    that:
+      - not (dot_wsl_docker_socket.stdout | default('')).startswith('/mnt/wsl/docker-desktop/')
+      - not (dot_wsl_docker_cli.stdout | default('')).startswith('/mnt/wsl/docker-desktop/')
+    fail_msg: >-
+      Docker Desktop WSL integration is active for this distribution. Disable
+      it in Docker Desktop under Settings > Resources > WSL Integration (or
+      uninstall Docker Desktop), run `wsl --shutdown`, and retry. Dotfiles owns
+      a native Docker Engine inside this WSL distribution; the two engines must
+      not be mixed.
+  when: dot_profile_data.features.wsl | default(false)
+
+- name: Remove packages that conflict with Docker CE
+  become: true
+  ansible.builtin.apt:
+    name:
+      - containerd
+      - docker-compose
+      - docker-compose-v2
+      - docker-doc
+      - docker.io
+      - podman-docker
+      - runc
+    state: absent
+
+- name: Install Docker repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create APT keyring directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download Docker's official signing key
+  become: true
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+    force: true
+  when: not ansible_check_mode
+
+- name: Read Docker signing-key fingerprints
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /etc/apt/keyrings/docker.asc
+  register: dot_docker_key
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate Docker signing key
+  ansible.builtin.assert:
+    that: "'9DC858229FC7DD38854AE2D88D81803C0EBFCD88' in dot_docker_key.stdout"
+    fail_msg: >-
+      Docker's downloaded signing key did not contain the expected official
+      primary fingerprint. No Docker repository packages will be installed.
+  when: not ansible_check_mode
+
+- name: Configure Docker's stable Ubuntu repository
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://download.docker.com/linux/ubuntu
+      Suites: {{ ansible_facts.distribution_release }}
+      Components: stable
+      Architectures: {{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
+      Signed-By: /etc/apt/keyrings/docker.asc
+
+- name: Install or upgrade Docker Engine to latest stable
+  become: true
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+- name: Add the interactive user to the Docker group
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: docker
+    append: true
+  when: not ansible_check_mode
+
+- name: Enable and start native Docker services
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - containerd
+    - docker
+  when: not ansible_check_mode
+
+- name: Verify Docker Engine and plugins
+  become: true
+  ansible.builtin.command:
+    argv: [docker, "{{ item }}"]
+  loop:
+    - info
+    - version
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify Docker Compose plugin
+  ansible.builtin.command:
+    argv: [docker, compose, version]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify Docker Buildx plugin
+  ansible.builtin.command:
+    argv: [docker, buildx, version]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Explain Docker check mode
+  ansible.builtin.debug:
+    msg: >-
+      Docker host preflight passed. A real apply will verify the signing key,
+      install the latest stable engine and plugins, enable services, and grant
+      the interactive user Docker-socket access.
+  when: ansible_check_mode

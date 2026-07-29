@@ -493,12 +493,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
         apply_direct(args.profile, force_kde=force_kde)
         return
     selected_tags = set((args.tags or "").replace(",", " ").split())
-    package_apply_selected = not selected_tags or "packages" in selected_tags
+    package_apply_selected = not selected_tags or bool(
+        selected_tags & {"packages", "docker"}
+    )
     managed_packages = profile.get("packages", {})
     privileged_packages = any(
         managed_packages.get(provider)
         for provider in ("apt", "deb", "snap")
-    )
+    ) or profile.get("features", {}).get("docker_engine", False)
     become_arguments = (
         ansible_become_arguments()
         if package_apply_selected and privileged_packages
@@ -1368,6 +1370,90 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             not missing_snaps,
             "all present" if not missing_snaps else f"missing {', '.join(missing_snaps)}",
         )
+    if profile.get("features", {}).get("docker_engine"):
+        docker_packages = (
+            "containerd.io",
+            "docker-buildx-plugin",
+            "docker-ce",
+            "docker-ce-cli",
+            "docker-compose-plugin",
+        )
+        missing_docker = []
+        for package in docker_packages:
+            installed = run(
+                ["dpkg-query", "-W", "-f=${db:Status-Status}", package],
+                check=False,
+                capture=True,
+            )
+            if installed.returncode != 0 or installed.stdout.strip() != "installed":
+                missing_docker.append(package)
+        failures += not doctor_check(
+            "Docker packages",
+            not missing_docker,
+            "official engine, Compose, and Buildx installed"
+            if not missing_docker
+            else f"missing {', '.join(missing_docker)}",
+        )
+        docker_location = shutil.which("docker")
+        docker_path = Path(docker_location) if docker_location else None
+        failures += not doctor_check(
+            "Docker CLI ownership",
+            docker_path is not None and docker_path.resolve() == Path("/usr/bin/docker"),
+            str(docker_path) if docker_path is not None else "not installed",
+        )
+        docker_active = run(
+            ["systemctl", "is-active", "--quiet", "docker"],
+            check=False,
+        ).returncode == 0
+        containerd_active = run(
+            ["systemctl", "is-active", "--quiet", "containerd"],
+            check=False,
+        ).returncode == 0
+        failures += not doctor_check(
+            "Docker services",
+            docker_active and containerd_active,
+            "docker and containerd active"
+            if docker_active and containerd_active
+            else "run dot apply --profile " + profile["name"] + " --tags docker",
+        )
+        try:
+            import grp
+
+            docker_group = grp.getgrnam("docker")
+            has_docker_group = (
+                getpass.getuser() in docker_group.gr_mem
+                or os.getgid() == docker_group.gr_gid
+            )
+        except (ImportError, KeyError):
+            has_docker_group = False
+        failures += not doctor_check(
+            "Docker socket access",
+            has_docker_group,
+            "user is assigned to docker group; log out and back in after first apply"
+            if has_docker_group
+            else "user is not assigned to docker group",
+        )
+        compose = run(["docker", "compose", "version"], check=False, capture=True)
+        buildx = run(["docker", "buildx", "version"], check=False, capture=True)
+        failures += not doctor_check(
+            "Docker plugins",
+            compose.returncode == 0 and buildx.returncode == 0,
+            "Compose and Buildx available"
+            if compose.returncode == 0 and buildx.returncode == 0
+            else "Docker Compose or Buildx plugin is unavailable",
+        )
+        if profile.get("features", {}).get("wsl"):
+            systemd_ready = Path("/run/systemd/system").is_dir()
+            docker_socket = Path("/var/run/docker.sock")
+            socket_target = str(docker_socket.resolve()) if docker_socket.exists() else ""
+            desktop_integration = socket_target.startswith("/mnt/wsl/docker-desktop/")
+            failures += not doctor_check(
+                "WSL native Docker mode",
+                systemd_ready and not desktop_integration,
+                "systemd active; Docker Desktop integration absent"
+                if systemd_ready and not desktop_integration
+                else "enable WSL systemd and disable Docker Desktop WSL integration",
+            )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")
         dot_command = Path.home() / ".local/bin/dot"

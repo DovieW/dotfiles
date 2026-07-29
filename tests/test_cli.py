@@ -156,6 +156,34 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
 
+    def test_kubuntu_and_wsl_own_native_docker_engine(self):
+        for name in ("kubuntu-laptop", "wsl-personal", "wsl-work"):
+            profile = json.loads((ROOT / f"profiles/{name}.yml").read_text())
+            self.assertTrue(profile["features"]["docker_engine"])
+        for name in ("wsl-personal", "wsl-work"):
+            profile = json.loads((ROOT / f"profiles/{name}.yml").read_text())
+            self.assertNotIn("docker", profile["packages"]["brew"])
+            self.assertNotIn("docker-compose", profile["packages"]["brew"])
+
+    def test_docker_role_uses_official_native_engine_and_guards_wsl(self):
+        role = (ROOT / "ansible/tasks/docker.yml").read_text()
+        self.assertIn("https://download.docker.com/linux/ubuntu", role)
+        self.assertIn("docker-ce", role)
+        self.assertIn("docker-compose-plugin", role)
+        self.assertIn("docker-buildx-plugin", role)
+        self.assertIn("/run/systemd/system", role)
+        self.assertIn("/mnt/wsl/docker-desktop/", role)
+        self.assertIn("/var/run/docker.sock", role)
+        self.assertIn("Docker Desktop WSL integration is active", role)
+        self.assertIn("groups: docker", role)
+
+    def test_docker_tag_requests_privilege_and_doctor_checks_runtime(self):
+        text = DOT.read_text()
+        self.assertIn('selected_tags & {"packages", "docker"}', text)
+        self.assertIn('get("docker_engine", False)', text)
+        self.assertIn('"Docker socket access"', text)
+        self.assertIn('"WSL native Docker mode"', text)
+
     def test_external_debs_resolve_stable_github_assets(self):
         manifest = json.loads((ROOT / "packages/external-deb.yml").read_text())
         for package in manifest["packages"].values():

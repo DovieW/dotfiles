@@ -17,6 +17,14 @@
       tags: [always]
 
   tasks:
+    - name: Configure native Docker Engine
+      ansible.builtin.include_tasks:
+        file: tasks/docker.yml
+        apply:
+          tags: [packages, docker]
+      when: dot_profile_data.features.docker_engine | default(false)
+      tags: [packages, docker]
+
     # Workstation policy intentionally follows current stable repository candidates.
     - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
       become: true

@@ -4,11 +4,12 @@
   "inherits": ["common-linux"],
   "account": "work",
   "features": {
+    "docker_engine": true,
     "wsl": true,
     "materialize_ssh_key": true
   },
   "packages": {
     "apt": [],
-    "brew": ["docker", "docker-compose"]
+    "brew": []
   }
 }

@@ -103,6 +103,26 @@ by Ansible. `dot` detects `/usr/lib/cargo/bin/sudo` and selects the repository's
 `sudo_rs` become plugin so Ansible recognizes that wrapped prefix. Other Linux
 systems continue using Ansible's standard `sudo` plugin.
 
+## Docker is unavailable
+
+Run the profile-specific checks and repair only Docker:
+
+```bash
+dot doctor --profile kubuntu-laptop
+dot apply --profile kubuntu-laptop --tags docker
+```
+
+After the first apply, log out and back in so the new `docker` group membership
+reaches the desktop session. Membership in this group grants root-equivalent
+control through the Docker daemon; it is intentional for this personal
+workstation profile.
+
+In WSL, dotfiles owns a native engine rather than Docker Desktop integration.
+If preflight says systemd is unavailable, update WSL, enable systemd in
+`/etc/wsl.conf`, and run `wsl --shutdown` from PowerShell. If it detects the
+Docker Desktop proxy, disable that distribution under Docker Desktop's WSL
+Integration settings, shut WSL down, and retry. Do not keep both engines active.
+
 ## Codex Remote Control is unavailable
 
 Check the managed user service:
