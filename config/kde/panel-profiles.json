@@ -1,6 +1,28 @@
 {
   "schema_version": 1,
   "default": "windows-classic",
+  "tray": {
+    "shown_items": [
+      "org.kde.plasma.networkmanagement",
+      "org.kde.plasma.volume",
+      "org.kde.plasma.battery"
+    ],
+    "hidden_items": [
+      "org.kde.plasma.notifications",
+      "org.kde.plasma.brightness",
+      "Bitwarden_status_icon_1",
+      "org.kde.plasma.devicenotifier",
+      "org.kde.kscreen",
+      "org.kde.kdeconnect",
+      "org.kde.plasma.keyboardlayout",
+      "org.kde.plasma.keyboardindicator",
+      "org.kde.plasma.printmanager",
+      "org.kde.kupapplet",
+      "org.kde.plasma.clipboard",
+      "org.kde.plasma.manage-inputmethod",
+      "kded6"
+    ]
+  },
   "profiles": {
     "windows-classic": {
       "label": "Windows Classic",

@@ -274,16 +274,28 @@ def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def panel_profiles() -> dict[str, dict[str, Any]]:
+def panel_manifest() -> dict[str, Any]:
     payload = load_json(PANEL_PROFILES_FILE)
     profiles = payload.get("profiles")
     default = payload.get("default")
+    tray = payload.get("tray")
     if (
         payload.get("schema_version") != 1
         or not isinstance(profiles, dict)
         or default not in profiles
+        or not isinstance(tray, dict)
     ):
         raise DotError(f"Invalid panel profile manifest: {PANEL_PROFILES_FILE}")
+    for key in ("shown_items", "hidden_items"):
+        items = tray.get(key)
+        if (
+            not isinstance(items, list)
+            or not all(isinstance(item, str) and item for item in items)
+            or len(items) != len(set(items))
+        ):
+            raise DotError(f"Panel tray policy {key!r} must be a unique string list.")
+    if set(tray["shown_items"]) & set(tray["hidden_items"]):
+        raise DotError("Panel tray items cannot be both shown and hidden.")
     required = {
         "label",
         "description",
@@ -306,12 +318,19 @@ def panel_profiles() -> dict[str, dict[str, Any]]:
             profile["width_percent"], int
         ):
             raise DotError(f"Panel profile {name!r} requires a width percentage.")
-    return profiles
+    return payload
+
+
+def panel_profiles() -> dict[str, dict[str, Any]]:
+    return panel_manifest()["profiles"]
+
+
+def panel_tray_policy() -> dict[str, list[str]]:
+    return panel_manifest()["tray"]
 
 
 def default_panel_profile() -> str:
-    payload = load_json(PANEL_PROFILES_FILE)
-    panel_profiles()
+    payload = panel_manifest()
     return str(payload["default"])
 
 
@@ -2977,6 +2996,7 @@ def plasma_evaluate(script: str) -> str:
 
 def panel_profile_script(profile_name: str) -> str:
     profile = panel_profiles()[profile_name]
+    tray_policy = panel_tray_policy()
     task_plugin = (
         "org.kde.plasma.taskmanager"
         if profile["task_manager"] == "labels"
@@ -2996,6 +3016,8 @@ def panel_profile_script(profile_name: str) -> str:
         "floating": profile["floating"],
         "spacers": profile["spacers"],
         "show_date": profile["show_date"],
+        "tray_shown": ",".join(tray_policy["shown_items"]),
+        "tray_hidden": ",".join(tray_policy["hidden_items"]),
         "launchers": (
             "applications:google-chrome.desktop,"
             "applications:com.mitchellh.ghostty.desktop,"
@@ -3064,8 +3086,8 @@ if (cfg.spacers) {{
 
 const tray = panel.addWidget("org.kde.plasma.systemtray");
 configure(tray, ["General"], {{
-    hiddenItems: "org.kde.plasma.notifications",
-    shownItems: "org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery"
+    hiddenItems: cfg.tray_hidden,
+    shownItems: cfg.tray_shown
 }});
 const clock = panel.addWidget("org.kde.plasma.digitalclock");
 configure(clock, ["Appearance"], {{
@@ -3104,13 +3126,21 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
         if profile["task_manager"] == "labels"
         else "org.kde.plasma.icontasks"
     )
+    tray_policy = panel_tray_policy()
     probe = """
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[];
+ const p=ps[0]; let types=[], trayShown="", trayHidden="";
  for (let i=0;i<p.widgetIds.length;++i) {
-  const w=p.widgetById(p.widgetIds[i]); if (w) types.push(w.type);
+  const w=p.widgetById(p.widgetIds[i]); if (w) {
+   types.push(w.type);
+   if (w.type==="org.kde.plasma.systemtray") {
+    w.currentConfigGroup=["General"];
+    trayShown=w.readConfig("shownItems","");
+    trayHidden=w.readConfig("hiddenItems","");
+   }
+  }
  }
  let black=true, iconFree=true; const ds=desktops();
  for (let i=0;i<ds.length;++i) {
@@ -3124,7 +3154,8 @@ else {
  }
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
-  p.minimumLength,p.maximumLength,types.join(","),black,iconFree
+  p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
+  trayShown,trayHidden
  ].join("|"));
 }
 """
@@ -3132,7 +3163,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 10:
+    if len(parts) != 12:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -3145,6 +3176,8 @@ else {
         types,
         black,
         icon_free,
+        tray_shown,
+        tray_hidden,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -3177,6 +3210,14 @@ else {
         return False, "desktop is not solid black"
     if icon_free != "true":
         return False, "desktop icons are not hidden"
+    if set(filter(None, tray_shown.split(","))) != set(
+        tray_policy["shown_items"]
+    ):
+        return False, "always-shown tray icons do not match"
+    if set(filter(None, tray_hidden.split(","))) != set(
+        tray_policy["hidden_items"]
+    ):
+        return False, "always-hidden tray icons do not match"
     return True, str(profile["description"])
 
 
@@ -3192,7 +3233,101 @@ def panel_profile_items() -> list[tuple[str, str, str]]:
     ]
 
 
-def switch_panel_profile(profile_name: str) -> None:
+def live_panel_tray_policy() -> dict[str, list[str]]:
+    output = plasma_evaluate(
+        """
+const ps=panels();
+if (!ps.length) { print("{}"); }
+else {
+ const trays=ps[0].widgets("org.kde.plasma.systemtray");
+ if (!trays.length) { print("{}"); }
+ else {
+  const tray=trays[0]; tray.currentConfigGroup=["General"];
+  function items(key) {
+   const value=tray.readConfig(key,"");
+   return value ? value.split(",").filter(item => item.length) : [];
+  }
+  print(JSON.stringify({
+   shown_items: items("shownItems"),
+   hidden_items: items("hiddenItems")
+  }));
+ }
+}
+"""
+    )
+    try:
+        policy = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise DotError(f"Could not read Plasma's live tray policy: {output}") from exc
+    if not all(isinstance(policy.get(key), list) for key in ("shown_items", "hidden_items")):
+        raise DotError("The live Plasma panel has no readable System Tray policy.")
+    return {
+        key: list(dict.fromkeys(str(item) for item in policy[key] if str(item)))
+        for key in ("shown_items", "hidden_items")
+    }
+
+
+def save_live_panel_tray_policy() -> None:
+    dirty = run(
+        ["git", "status", "--porcelain", "--", str(PANEL_PROFILES_FILE)],
+        cwd=ROOT,
+        capture=True,
+    ).stdout.strip()
+    if dirty:
+        raise DotError(
+            "The panel profile manifest already has uncommitted changes. "
+            "Review or commit it before saving the live tray."
+        )
+    staged = run(["git", "diff", "--cached", "--quiet"], cwd=ROOT, check=False)
+    if staged.returncode:
+        raise DotError(
+            "The Git index already contains staged changes. "
+            "Commit or unstage them before saving the live tray."
+        )
+
+    policy = live_panel_tray_policy()
+    payload = panel_manifest()
+    if payload["tray"] == policy:
+        print("The live System Tray policy already matches dotfiles.")
+        return
+    original = PANEL_PROFILES_FILE.read_bytes()
+    payload["tray"] = policy
+    atomic_text(
+        PANEL_PROFILES_FILE,
+        json.dumps(payload, indent=2) + "\n",
+        0o644,
+    )
+    committed = False
+    try:
+        panel_manifest()
+        matches, detail = panel_profile_matches(active_panel_profile())
+        if not matches:
+            raise DotError(f"Captured tray policy did not validate: {detail}")
+        validation = run([str(ROOT / "tests/run")], cwd=ROOT, check=False)
+        if validation.returncode:
+            raise DotError("Validation failed after capturing the tray policy.")
+        env = nvim_git_environment()
+        run(["git", "add", "--", str(PANEL_PROFILES_FILE)], cwd=ROOT)
+        run(
+            ["git", "commit", "-m", "update Plasma System Tray policy"],
+            cwd=ROOT,
+            env=env,
+        )
+        committed = True
+        run(["git", "push"], cwd=ROOT, env=env)
+    except Exception:
+        if not committed:
+            atomic_bytes(PANEL_PROFILES_FILE, original, 0o644)
+            run(
+                ["git", "restore", "--staged", "--", str(PANEL_PROFILES_FILE)],
+                cwd=ROOT,
+                check=False,
+            )
+        raise
+    print("Saved, validated, committed, and pushed the live System Tray policy.")
+
+
+def switch_panel_profile(profile_name: str, *, force: bool = False) -> None:
     profiles = panel_profiles()
     if profile_name not in profiles:
         raise DotError(
@@ -3201,7 +3336,7 @@ def switch_panel_profile(profile_name: str) -> None:
         )
     current = active_panel_profile()
     matches_current, _current_detail = panel_profile_matches(current)
-    if current == profile_name and matches_current:
+    if current == profile_name and matches_current and not force:
         print(f"Panel profile {profile_name} is already active.")
         return
     panel_paths = [
@@ -3243,6 +3378,9 @@ def cmd_panel(args: argparse.Namespace) -> None:
         return
     if action == "use":
         switch_panel_profile(args.profile_name)
+        return
+    if action == "save":
+        save_live_panel_tray_policy()
         return
     if not sys.stdin.isatty():
         raise DotError("Interactive panel selection requires a terminal.")
@@ -3375,6 +3513,11 @@ def palette_apply_menu(profile: str) -> None:
         ("config", "Portable configuration", "Repair managed links and copied application settings"),
         ("kde", "KDE desktop", "Apply captured Plasma, shortcuts, panel, and power settings"),
         (
+            "panel",
+            "Selected taskbar profile",
+            f"Rebuild {active_panel_profile()} including the saved System Tray policy",
+        ),
+        (
             "lockscreen",
             "Lock screen",
             "Install the managed theme, private wallpaper, and fallback policy",
@@ -3396,11 +3539,75 @@ def palette_apply_menu(profile: str) -> None:
         action = fzf_menu(items, prompt="apply › ")
         if action in (None, "back"):
             return
+        if action == "panel":
+            palette_execute(
+                lambda: switch_panel_profile(active_panel_profile(), force=True)
+            )
+        else:
+            palette_execute(
+                lambda: palette_apply(
+                    profile,
+                    None if action in {"all", "check"} else action,
+                    check=action == "check",
+                )
+            )
+
+
+def palette_panel_menu() -> None:
+    while True:
+        action = fzf_menu(
+            [
+                (
+                    "status",
+                    "Check live taskbar",
+                    "Validate geometry, widget order, tray visibility, and desktop policy",
+                ),
+                (
+                    "switch",
+                    "Switch taskbar profile",
+                    f"Choose one of four native Plasma layouts · {active_panel_profile()} active",
+                ),
+                (
+                    "save-tray",
+                    "Save System Tray choices",
+                    "Capture always shown, automatic, and always hidden icons; validate, commit, and push",
+                ),
+                (
+                    "reapply",
+                    "Reapply selected profile",
+                    "Rebuild the active taskbar from its declarative profile",
+                ),
+                (
+                    "list",
+                    "List taskbar profiles",
+                    "Print every profile and its description",
+                ),
+                ("back", "Back", "Return to Save and configuration"),
+            ],
+            prompt="taskbar › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "switch":
+            selected = fzf_menu(
+                panel_profile_items(),
+                prompt="panel profile › ",
+                header="Type to filter  Enter: apply  Esc: back",
+            )
+            if selected:
+                palette_execute(lambda: switch_panel_profile(selected))
+            continue
+        if action == "reapply":
+            selected = active_panel_profile()
+            palette_execute(lambda: switch_panel_profile(selected, force=True))
+            continue
+        panel_action = "save" if action == "save-tray" else action
         palette_execute(
-            lambda: palette_apply(
-                profile,
-                None if action in {"all", "check"} else action,
-                check=action == "check",
+            lambda: cmd_panel(
+                argparse.Namespace(
+                    panel_action=panel_action,
+                    profile_name=None,
+                )
             )
         )
 
@@ -3416,13 +3623,13 @@ def palette_configuration_menu(profile: str) -> None:
                 ),
                 (
                     "save-panel",
-                    "Save panel and palette",
-                    "Capture the taskbar, launcher, appearance, and shortcuts",
+                    "Save panel-adjacent settings",
+                    "Capture launcher, appearance, KRunner, and shortcuts—not generated taskbar structure",
                 ),
                 (
-                    "panel-profiles",
-                    "Switch taskbar profile",
-                    f"Choose one of four native Plasma layouts · {active_panel_profile()} active",
+                    "panel",
+                    "Taskbar and System Tray",
+                    "Status, profiles, tray visibility, repair, and saving",
                 ),
                 (
                     "save-spectacle",
@@ -3506,14 +3713,8 @@ def palette_configuration_menu(profile: str) -> None:
                     )
                 )
             continue
-        if action == "panel-profiles":
-            selected = fzf_menu(
-                panel_profile_items(),
-                prompt="panel profile › ",
-                header="Type to filter  Enter: apply  Esc: back",
-            )
-            if selected:
-                palette_execute(lambda: switch_panel_profile(selected))
+        if action == "panel":
+            palette_panel_menu()
             continue
 
         def execute() -> None:
@@ -3827,6 +4028,11 @@ def palette_diagnostics_menu(profile: str) -> None:
                 ("tests", "Run validation suite", "Execute schemas, unit tests, shell tests, and safety scans"),
                 ("updates", "Check pending updates", "Read-only report across managed update providers"),
                 ("drift", "Review KDE drift", "Compare live allowlisted settings against dotfiles"),
+                (
+                    "panel",
+                    "Check taskbar and System Tray",
+                    "Validate profile geometry, widget order, tray visibility, and desktop policy",
+                ),
                 ("nvim", "Test Neovim", "Run the managed headless smoke test"),
                 ("gestures", "Test gestures", "Validate InputActions build, effect, and configuration"),
                 ("services", "Show failed system services", "List failed system and user units"),
@@ -3854,6 +4060,13 @@ def palette_diagnostics_menu(profile: str) -> None:
                 )
             elif action == "drift":
                 cmd_diff_kde(argparse.Namespace())
+            elif action == "panel":
+                cmd_panel(
+                    argparse.Namespace(
+                        panel_action="status",
+                        profile_name=None,
+                    )
+                )
             elif action == "nvim":
                 cmd_nvim(
                     argparse.Namespace(
@@ -5399,6 +5612,8 @@ def build_parser() -> argparse.ArgumentParser:
     panel_list.set_defaults(func=cmd_panel)
     panel_status = panel_sub.add_parser("status")
     panel_status.set_defaults(func=cmd_panel)
+    panel_save = panel_sub.add_parser("save")
+    panel_save.set_defaults(func=cmd_panel)
     panel_use = panel_sub.add_parser("use")
     panel_use.add_argument("profile_name")
     panel_use.set_defaults(func=cmd_panel)

@@ -49,6 +49,18 @@ class DotCliTests(unittest.TestCase):
             ],
         )
         profiles = manifest["profiles"]
+        self.assertEqual(
+            manifest["tray"]["shown_items"],
+            [
+                "org.kde.plasma.networkmanagement",
+                "org.kde.plasma.volume",
+                "org.kde.plasma.battery",
+            ],
+        )
+        self.assertIn(
+            "Bitwarden_status_icon_1",
+            manifest["tray"]["hidden_items"],
+        )
         self.assertEqual(profiles["windows-refined"]["width_percent"], 94)
         self.assertEqual(profiles["centered-compact"]["width_percent"], 62)
         self.assertEqual(profiles["centered-compact"]["task_manager"], "icons")
@@ -63,6 +75,13 @@ class DotCliTests(unittest.TestCase):
             cli,
         )
         self.assertIn('return False, "widget order does not match"', cli)
+        self.assertIn(
+            'return False, "always-hidden tray icons do not match"',
+            cli,
+        )
+        self.assertIn('"Save System Tray choices"', cli)
+        self.assertIn('"Check taskbar and System Tray"', cli)
+        self.assertIn('panel_sub.add_parser("save")', cli)
 
     def test_panel_list_uses_classic_as_the_host_default(self):
         with tempfile.TemporaryDirectory() as directory:

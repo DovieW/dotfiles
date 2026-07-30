@@ -136,6 +136,9 @@ dock, theme bundle, or third-party widget:
 
 The selected profile is host-local and survives a normal `dot apply`. Use
 `dot panel list`, `dot panel status`, or `dot panel use NAME` for scripting.
+After changing System Tray entries in Plasma, `dot panel save` captures their
+**Always shown**, **Shown when relevant**, and **Always hidden** policy, validates
+it, and commits and pushes the manifest.
 Every switch records a recovery snapshot and prints its rollback ID. Normally,
 switch back visually with `dot panel use windows-classic`; the snapshot remains
 available for deeper recovery.
