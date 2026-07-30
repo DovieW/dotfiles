@@ -5,11 +5,27 @@ Number=2
 Rows=1
 
 [Plugins]
+blendchangesEnabled=false
 dot-dolphinEnabled=true
+fadeEnabled=false
+fadedesktopEnabled=false
+fadingpopupsEnabled=false
+fullscreenEnabled=false
+glideEnabled=false
 kwin_gesturesEnabled=true
+magiclampEnabled=false
+maximizeEnabled=false
 scaleEnabled=false
 screenedgeEnabled=false
 shakecursorEnabled=false
+sheetEnabled=false
+slideEnabled=false
+slidebackEnabled=false
+slidingpopupsEnabled=false
+squashEnabled=false
+translucencyEnabled=false
+windowapertureEnabled=false
+wobblywindowsEnabled=false
 
 [Windows]
 ElectricBorderCooldown=50

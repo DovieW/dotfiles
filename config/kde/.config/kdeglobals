@@ -144,7 +144,7 @@ smallestReadableFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
 toolBarFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
 
 [KDE]
-AnimationDurationFactor=0.5
+AnimationDurationFactor=0
 DndBehavior=MoveIfSameDevice
 LookAndFeelPackage=org.kde.breezedark.desktop
 SmoothScroll=false

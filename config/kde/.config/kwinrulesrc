@@ -1,10 +1,28 @@
 [General]
-count=1
-rules=dolphin-skip-taskbar
+count=3
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops
 
 [dolphin-skip-taskbar]
 Description=Keep Dolphin out of the taskbar
-wmclass=org.kde.dolphin
-wmclassmatch=1
 skiptaskbar=true
 skiptaskbarrule=2
+wmclass=org.kde.dolphin
+wmclassmatch=1
+
+[emoji-selector-ephemeral]
+Description=Keep Emoji Selector out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=org.kde.plasma.emojier
+wmclassmatch=1
+
+[ghostty-all-desktops]
+Description=Keep Ghostty on all virtual desktops
+desktops=
+desktopsrule=2
+wmclass=com.mitchellh.ghostty
+wmclassmatch=1

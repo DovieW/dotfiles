@@ -37,6 +37,25 @@ NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
+KWIN_DISABLED_EFFECTS = (
+    "blendchanges",
+    "fade",
+    "fadedesktop",
+    "fadingpopups",
+    "fullscreen",
+    "glide",
+    "magiclamp",
+    "maximize",
+    "scale",
+    "sheet",
+    "slide",
+    "slideback",
+    "slidingpopups",
+    "squash",
+    "translucency",
+    "windowaperture",
+    "wobblywindows",
+)
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -786,6 +805,16 @@ def apply_direct(
                     raise DotError(
                         "KWin did not reload after its shortcut update: "
                         + (reconfigured.stderr.strip() or f"exit code {reconfigured.returncode}")
+                    )
+                for effect_name in KWIN_DISABLED_EFFECTS:
+                    run(
+                        [
+                            "qdbus6",
+                            "org.kde.KWin",
+                            "/Effects",
+                            "org.kde.kwin.Effects.unloadEffect",
+                            effect_name,
+                        ]
                     )
             if shortcuts_changed:
                 sync_managed_kglobal_shortcuts()
@@ -3864,6 +3893,62 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             dolphin_taskbar_ok,
             "hidden from the taskbar but retained in Alt+Tab"
             if dolphin_taskbar_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        emoji_ephemeral_ok = all(
+            value in dolphin_rules
+            for value in (
+                "[emoji-selector-ephemeral]",
+                "wmclass=org.kde.plasma.emojier",
+                "skippager=true",
+                "skippagerrule=2",
+                "skipswitcher=true",
+                "skipswitcherrule=2",
+                "skiptaskbar=true",
+                "skiptaskbarrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "Emoji Selector window rule",
+            emoji_ephemeral_ok,
+            "ephemeral: absent from the taskbar, pager, and Alt+Tab"
+            if emoji_ephemeral_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        ghostty_desktops_ok = all(
+            value in dolphin_rules
+            for value in (
+                "[ghostty-all-desktops]",
+                "wmclass=com.mitchellh.ghostty",
+                "desktops=\n",
+                "desktopsrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "Ghostty virtual desktop rule",
+            ghostty_desktops_ok,
+            "available on every virtual desktop"
+            if ghostty_desktops_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        kdeglobals_path = Path.home() / ".config/kdeglobals"
+        kdeglobals = (
+            kdeglobals_path.read_text(encoding="utf-8")
+            if kdeglobals_path.exists()
+            else ""
+        )
+        animations_disabled = (
+            "AnimationDurationFactor=0" in kdeglobals
+            and all(
+                f"{effect}Enabled=false" in kwin
+                for effect in KWIN_DISABLED_EFFECTS
+            )
+        )
+        failures += not doctor_check(
+            "KDE window animations",
+            animations_disabled,
+            "disabled for movement, switching, opening, closing, and snapping"
+            if animations_disabled
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         if profile.get("features", {}).get("inputactions"):

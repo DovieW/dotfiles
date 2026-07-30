@@ -472,6 +472,27 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Window Close"', cli)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
+        self.assertIn("AnimationDurationFactor=0", kdeglobals)
+        for effect in (
+            "blendchanges",
+            "fade",
+            "fadedesktop",
+            "fadingpopups",
+            "fullscreen",
+            "glide",
+            "magiclamp",
+            "maximize",
+            "scale",
+            "sheet",
+            "slide",
+            "slideback",
+            "slidingpopups",
+            "squash",
+            "translucency",
+            "windowaperture",
+            "wobblywindows",
+        ):
+            self.assertIn(f"{effect}Enabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
         self.assertIn("ElectricBorderCooldown=50", kwin)
 
@@ -490,6 +511,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"systemctl", "--user", "stop", "plasma-plasmashell.service"', cli)
         self.assertIn('"systemctl", "--user", "restart", "plasma-krunner.service"', cli)
         self.assertIn('"qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"', cli)
+        self.assertIn('"org.kde.kwin.Effects.unloadEffect"', cli)
         self.assertIn("restore_backup(backup_run_id)", cli)
         self.assertIn('"Plasma panel layout"', cli)
         self.assertIn('"Plasma panel reveal"', cli)
@@ -519,6 +541,17 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclassmatch=1", rules)
         self.assertIn("skiptaskbar=true", rules)
         self.assertIn("skiptaskbarrule=2", rules)
+        self.assertIn("rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops", rules)
+        self.assertIn("[emoji-selector-ephemeral]", rules)
+        self.assertIn("wmclass=org.kde.plasma.emojier", rules)
+        self.assertIn("skippager=true", rules)
+        self.assertIn("skippagerrule=2", rules)
+        self.assertIn("skipswitcher=true", rules)
+        self.assertIn("skipswitcherrule=2", rules)
+        self.assertIn("[ghostty-all-desktops]", rules)
+        self.assertIn("wmclass=com.mitchellh.ghostty", rules)
+        self.assertIn("desktops=\n", rules)
+        self.assertIn("desktopsrule=2", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-dolphin-launch.service", script)
