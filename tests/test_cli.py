@@ -24,6 +24,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("doctor", result.stdout)
         self.assertIn("gestures", result.stdout)
         self.assertIn("nvim", result.stdout)
+        self.assertIn("panel", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("tailscale", result.stdout)
         self.assertIn("update", result.stdout)
@@ -31,6 +32,47 @@ class DotCliTests(unittest.TestCase):
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
             self.assertEqual(json.loads(path.read_text())["schema_version"], 1)
+
+    def test_panel_profiles_are_complete_and_distinct(self):
+        manifest = json.loads(
+            (ROOT / "config/kde/panel-profiles.json").read_text()
+        )
+        self.assertEqual(manifest["default"], "windows-classic")
+        self.assertEqual(
+            list(manifest["profiles"]),
+            [
+                "windows-classic",
+                "windows-refined",
+                "centered-compact",
+                "unified-pill",
+            ],
+        )
+        profiles = manifest["profiles"]
+        self.assertEqual(profiles["windows-refined"]["width_percent"], 94)
+        self.assertEqual(profiles["centered-compact"]["width_percent"], 62)
+        self.assertEqual(profiles["centered-compact"]["task_manager"], "icons")
+        self.assertEqual(profiles["unified-pill"]["length_mode"], "fit")
+        self.assertFalse(profiles["unified-pill"]["spacers"])
+        cli = DOT.read_text()
+        self.assertIn('panel.lengthMode = cfg.length_mode', cli)
+        self.assertIn('panel.floating = cfg.floating', cli)
+        self.assertIn('ds[i].wallpaperPlugin = "org.kde.color"', cli)
+
+    def test_panel_list_uses_classic_as_the_host_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = os.environ.copy()
+            env["XDG_CONFIG_HOME"] = directory
+            result = subprocess.run(
+                [str(DOT), "panel", "list"],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("* windows-classic", result.stdout)
+        self.assertIn("windows-refined", result.stdout)
+        self.assertIn("centered-compact", result.stdout)
+        self.assertIn("unified-pill", result.stdout)
 
     def test_unknown_profile_is_actionable(self):
         result = self.run_dot("doctor", "--profile", "does-not-exist")
@@ -493,6 +535,9 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
         self.assertIn("plugin=org.kde.desktopcontainment", panel)
+        self.assertIn("wallpaperplugin=org.kde.color", panel)
+        self.assertIn("Color=0,0,0", panel)
+        self.assertNotIn("[Containments][1][Wallpaper][org.kde.image]", panel)
         self.assertNotIn("plugin=org.kde.plasma.folder", panel)
         self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
         self.assertEqual(panel.count("plugin=org.kde.plasma.kickoff"), 1)
@@ -650,8 +695,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Breeze_Light"', cli)
         self.assertIn("AudioFeedback=false", plasma_pa)
         self.assertIn('".config/plasmaparc"', cli)
-        self.assertIn('".config/plasmashellrc": {"Updates"}', cli)
-        self.assertIn('"systemctl", "--user", "stop", "plasma-plasmashell.service"', cli)
+        self.assertIn('"Updates", "PlasmaViews][Panel 2][Defaults"', cli)
+        self.assertIn("plasma_evaluate(panel_profile_script(selected_panel))", cli)
         self.assertIn('"systemctl", "--user", "restart", "plasma-krunner.service"', cli)
         self.assertIn('"qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"', cli)
         self.assertIn('"org.kde.kwin.Effects.unloadEffect"', cli)

@@ -64,6 +64,19 @@ is backed up for rollback.
 Log out and back in after restoring panel or shortcut configuration. Portable
 setup intentionally does not run `kscreen-doctor` or replace KScreen state.
 
+### A taskbar profile does not match its description
+
+Inspect the selected and live state:
+
+```bash
+dot panel status
+dot diff kde
+```
+
+Use `dot panel use windows-classic` to return to the baseline. Profile switches
+refuse to overwrite unsaved panel changes and print a rollback ID after every
+successful change.
+
 ## The lock screen is blank, stock, or still shows media
 
 Preview the managed package without actually locking:

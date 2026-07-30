@@ -209,10 +209,18 @@ firmware. This does not disable GPU acceleration or runtime D3 suspension; it
 only removes Dynamic Boost's extra CPU/GPU power shifting under load. Reassess
 the workaround after a future NVIDIA driver or Lenovo firmware update.
 
-The Kubuntu desktop uses a full-width, always-auto-hidden native Plasma panel.
-The native Kickoff launcher stays at the far left while two flexible spacers
-approximately center the traditional Task Manager; the panel contains no pager
-or Show Desktop widget. Meta opens Kickoff. Alt+Space opens a centered KRunner
+The Kubuntu desktop has four declarative, always-auto-hidden native Plasma
+panel profiles. Windows Classic is the full-width 40px default. Windows
+Refined floats a labeled 94% bar, Centered Compact uses a 62% icon bar, and
+Unified Pill fits the launcher, icon tasks, tray, and clock into one floating
+panel. The declarative manifest is the source of truth while Plasma-generated
+containment IDs and geometry remain host-local. The selection is stored outside
+Git and is reapplied after normal configuration reconciliation. No profile uses
+Latte Dock, downloaded widgets,
+or a global theme bundle. Every profile also enforces the desktop's solid-black
+color containment; taskbar switching never selects or installs an image
+wallpaper. The panel contains no pager or Show Desktop widget.
+Meta opens Kickoff. Alt+Space opens a centered KRunner
 instance whose Applications provider is the only enabled runner. The panel's
 screen-edge highlight is disabled and its pointer activation delay is zero.
 Meta+D and Plasma's native four-finger downward gesture expose the desktop.

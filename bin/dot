@@ -77,11 +77,14 @@ KDE_FILES = (
     ".config/powerdevilrc",
     ".config/plasmarc",
     ".config/plasmashellrc",
-    ".config/plasma-org.kde.plasma.desktop-appletsrc",
     ".local/share/color-schemes/GitHubDark.colors",
     ".local/share/konsole/Dovie.profile",
 )
 KDE_BASELINE = STATE_DIR / "kde-baseline.json"
+PANEL_PROFILES_FILE = ROOT / "config/kde/panel-profiles.json"
+PANEL_PROFILE_STATE = CONFIG_DIR / "panel-profile"
+PANEL_LAYOUT_FILE = ".config/plasma-org.kde.plasma.desktop-appletsrc"
+PANEL_GEOMETRY_FILE = ".config/plasmashellrc"
 KDE_IGNORED_KEYS = {
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {
         (
@@ -96,11 +99,20 @@ KDE_IGNORED_KEYS = {
     ".config/spectaclerc": {
         ("ImageSave", "lastImageSaveLocation"),
     },
+    ".config/plasmashellrc": {
+        ("PlasmaViews][Panel 2", "alignment"),
+        ("PlasmaViews][Panel 2", "floating"),
+        ("PlasmaViews][Panel 2", "maxLength"),
+        ("PlasmaViews][Panel 2", "minLength"),
+        ("PlasmaViews][Panel 2", "offset"),
+        ("PlasmaViews][Panel 2", "panelLengthMode"),
+        ("PlasmaViews][Panel 2", "panelVisibility"),
+    },
 }
 KDE_IGNORED_SECTIONS = {
     ".config/kglobalshortcutsrc": {"services][org.kde.krunner.desktop"},
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
-    ".config/plasmashellrc": {"Updates"},
+    ".config/plasmashellrc": {"Updates", "PlasmaViews][Panel 2][Defaults"},
 }
 KDE_LABELS = {
     ".config/kdeglobals": "KDE appearance",
@@ -256,6 +268,82 @@ def ensure_device(explicit: str | None = None) -> str:
 
 def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def panel_profiles() -> dict[str, dict[str, Any]]:
+    payload = load_json(PANEL_PROFILES_FILE)
+    profiles = payload.get("profiles")
+    default = payload.get("default")
+    if (
+        payload.get("schema_version") != 1
+        or not isinstance(profiles, dict)
+        or default not in profiles
+    ):
+        raise DotError(f"Invalid panel profile manifest: {PANEL_PROFILES_FILE}")
+    required = {
+        "label",
+        "description",
+        "floating",
+        "length_mode",
+        "width_percent",
+        "height",
+        "task_manager",
+        "spacers",
+        "show_date",
+    }
+    for name, profile in profiles.items():
+        if not isinstance(profile, dict) or not required.issubset(profile):
+            raise DotError(f"Panel profile {name!r} is incomplete.")
+        if profile["length_mode"] not in {"fill", "fit", "custom"}:
+            raise DotError(f"Panel profile {name!r} has an invalid length mode.")
+        if profile["task_manager"] not in {"labels", "icons"}:
+            raise DotError(f"Panel profile {name!r} has an invalid task manager.")
+        if profile["length_mode"] == "custom" and not isinstance(
+            profile["width_percent"], int
+        ):
+            raise DotError(f"Panel profile {name!r} requires a width percentage.")
+    return profiles
+
+
+def default_panel_profile() -> str:
+    payload = load_json(PANEL_PROFILES_FILE)
+    panel_profiles()
+    return str(payload["default"])
+
+
+def active_panel_profile() -> str:
+    profiles = panel_profiles()
+    if not PANEL_PROFILE_STATE.is_file():
+        return default_panel_profile()
+    selected = PANEL_PROFILE_STATE.read_text(encoding="utf-8").strip()
+    return selected if selected in profiles else default_panel_profile()
+
+
+def panel_screen_width() -> int:
+    """Read the active logical display width without consulting KScreen state."""
+    if command_exists("qdbus6"):
+        support = run(
+            ["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.supportInformation"],
+            check=False,
+            capture=True,
+        )
+        if support.returncode == 0:
+            widths = [
+                int(match.group(1))
+                for match in re.finditer(
+                    r"^Geometry:\s*-?\d+,-?\d+,(\d+)x\d+\s*$",
+                    support.stdout,
+                    re.MULTILINE,
+                )
+            ]
+            if widths:
+                return max(widths)
+    return 1646
+
+
+def expected_kde_content(relative: str, profile_name: str | None = None) -> bytes:
+    del profile_name
+    return kde_source(relative).read_bytes()
 
 
 def require_commands(names: list[str], remediation: str) -> None:
@@ -464,9 +552,15 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
             section = stripped[1:-1]
-            if section in ignored_sections:
+            if section in ignored_sections or (
+                relative == PANEL_GEOMETRY_FILE
+                and section.startswith("PlasmaViews][Panel ")
+            ):
                 continue
-        if section in ignored_sections:
+        if section in ignored_sections or (
+            relative == PANEL_GEOMETRY_FILE
+            and section.startswith("PlasmaViews][Panel ")
+        ):
             continue
         key = stripped.split("=", 1)[0] if "=" in stripped else ""
         if (section, key) in ignored_keys:
@@ -561,6 +655,15 @@ def kde_destination_content(relative: str, source: bytes, destination: Path) -> 
         if lines and lines[-1].strip():
             lines.append("\n")
         lines.extend(block)
+    if relative == PANEL_GEOMETRY_FILE:
+        for section, block in sorted(live_sections.items()):
+            if not section.startswith("PlasmaViews][Panel "):
+                continue
+            if section in KDE_IGNORED_SECTIONS.get(relative, set()):
+                continue
+            if lines and lines[-1].strip():
+                lines.append("\n")
+            lines.extend(block)
 
     normalized = "".join(lines).rstrip()
     return (normalized + "\n").encode("utf-8") if normalized else b""
@@ -576,8 +679,14 @@ def copy_managed_kde_file(
     destination: Path,
     *,
     backup: bool = True,
+    profile_name: str | None = None,
 ) -> bool:
-    content = kde_destination_content(relative, source.read_bytes(), destination)
+    source_content = (
+        expected_kde_content(relative, profile_name)
+        if source == kde_source(relative)
+        else source.read_bytes()
+    )
+    content = kde_destination_content(relative, source_content, destination)
     mode = source.stat().st_mode & 0o777
     if (
         not destination.is_symlink()
@@ -603,7 +712,7 @@ def kde_baseline() -> dict[str, str]:
     }
 
 
-def record_kde_baseline() -> None:
+def record_kde_baseline(panel_profile: str | None = None) -> None:
     """Record only files whose repository and live copies currently agree."""
     files: dict[str, str] = {}
     for relative in KDE_FILES:
@@ -613,10 +722,15 @@ def record_kde_baseline() -> None:
             expected.is_file()
             and actual.is_file()
             and not actual.is_symlink()
-            and portable_kde_content(relative, expected.read_bytes())
-            == portable_kde_content(relative, actual.read_bytes())
         ):
-            files[relative] = kde_digest(relative, expected)
+            expected_content = expected_kde_content(relative, panel_profile)
+            if portable_kde_content(
+                relative, expected_content
+            ) != portable_kde_content(relative, actual.read_bytes()):
+                continue
+            files[relative] = hashlib.sha256(
+                portable_kde_content(relative, expected_content)
+            ).hexdigest()
     payload = {"schema_version": 1, "files": files}
     atomic_text(KDE_BASELINE, json.dumps(payload, indent=2) + "\n", 0o600)
 
@@ -637,7 +751,9 @@ def check_kde_apply_conflicts(
         actual = Path.home() / relative
         if not expected.is_file() or not actual.is_file() or actual.is_symlink():
             continue
-        expected_digest = kde_digest(relative, expected)
+        expected_digest = hashlib.sha256(
+            portable_kde_content(relative, expected_kde_content(relative))
+        ).hexdigest()
         actual_digest = kde_digest(relative, actual)
         if expected_digest == actual_digest:
             continue
@@ -993,6 +1109,13 @@ def apply_direct(
             if backup_run_id:
                 print(f"KDE backup created: {backup_run_id}")
         except Exception:
+            if panel_changed and not plasma_stopped and command_exists("systemctl"):
+                stopped = run(
+                    ["systemctl", "--user", "stop", "plasma-plasmashell.service"],
+                    check=False,
+                    capture=True,
+                )
+                plasma_stopped = stopped.returncode == 0
             if backup_run_id:
                 restore_backup(backup_run_id)
             if plasma_stopped and command_exists("systemctl"):
@@ -1011,6 +1134,26 @@ def apply_direct(
                     check=False,
                 )
             raise
+        if (
+            command_exists("qdbus6")
+            and command_exists("systemctl")
+            and run(
+                [
+                    "systemctl",
+                    "--user",
+                    "is-active",
+                    "--quiet",
+                    "plasma-plasmashell.service",
+                ],
+                check=False,
+            ).returncode
+            == 0
+        ):
+            selected_panel = active_panel_profile()
+            plasma_evaluate(panel_profile_script(selected_panel))
+            matches, detail = panel_profile_matches(selected_panel)
+            if not matches:
+                raise DotError(f"Managed panel did not validate: {detail}")
         record_kde_baseline()
         if powerdevil_changed and command_exists("systemctl"):
             run(
@@ -2301,6 +2444,15 @@ def cmd_capture_kde(args: argparse.Namespace) -> None:
         if source.is_file():
             destination = kde_source(relative)
             content = portable_kde_content(relative, source.read_bytes())
+            if relative in {PANEL_LAYOUT_FILE, PANEL_GEOMETRY_FILE}:
+                content = portable_kde_content(
+                    relative,
+                    render_panel_profile(
+                        relative,
+                        content,
+                        default_panel_profile(),
+                    ),
+                )
             captured += int(atomic_bytes(destination, content))
     record_kde_baseline()
     print(f"Captured {captured} changed KDE file(s). Display topology, wallets, caches, and history were excluded.")
@@ -2312,7 +2464,7 @@ def kde_file_diff(relative: str) -> list[str]:
     if not expected.exists() and not actual.exists():
         return []
     left = (
-        portable_kde_content(relative, expected.read_bytes())
+        portable_kde_content(relative, expected_kde_content(relative))
         .decode("utf-8", errors="replace")
         .splitlines(True)
         if expected.exists()
@@ -2767,6 +2919,333 @@ def cmd_rollback(args: argparse.Namespace) -> None:
     print(f"Restored backup {args.run_id}")
 
 
+def kconfig_get(content: bytes, section: str, key: str) -> str | None:
+    current = ""
+    for line in content.decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped[1:-1]
+        elif current == section and "=" in line:
+            candidate, value = line.split("=", 1)
+            if candidate.strip() == key:
+                return value.strip()
+    return None
+
+
+def plasma_evaluate(script: str) -> str:
+    if not command_exists("qdbus6"):
+        raise DotError("qdbus6 is required to manage the live Plasma panel.")
+    proc = run(
+        [
+            "qdbus6",
+            "org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell.evaluateScript",
+            script,
+        ],
+        check=False,
+        capture=True,
+    )
+    if proc.returncode:
+        raise DotError(
+            "Plasma rejected the panel script: "
+            + (proc.stderr.strip() or f"exit code {proc.returncode}")
+        )
+    return proc.stdout.strip()
+
+
+def panel_profile_script(profile_name: str) -> str:
+    profile = panel_profiles()[profile_name]
+    task_plugin = (
+        "org.kde.plasma.taskmanager"
+        if profile["task_manager"] == "labels"
+        else "org.kde.plasma.icontasks"
+    )
+    length = (
+        round(panel_screen_width() * profile["width_percent"] / 100)
+        if profile["length_mode"] == "custom"
+        else 0
+    )
+    values = {
+        "profile": profile_name,
+        "task": task_plugin,
+        "height": profile["height"],
+        "length_mode": profile["length_mode"],
+        "length": length,
+        "floating": profile["floating"],
+        "spacers": profile["spacers"],
+        "show_date": profile["show_date"],
+        "launchers": (
+            "applications:google-chrome.desktop,"
+            "applications:com.mitchellh.ghostty.desktop,"
+            "applications:obsidian.desktop"
+        ),
+    }
+    data = json.dumps(values)
+    return f"""
+const cfg = {data};
+const launchers = cfg.launchers;
+let ps = panels();
+let panel = ps.length ? ps[0] : new Panel;
+panel.location = "bottom";
+panel.hiding = "autohide";
+panel.alignment = "center";
+panel.height = cfg.height;
+panel.lengthMode = cfg.length_mode;
+panel.offset = 0;
+panel.floating = cfg.floating;
+if (cfg.length_mode === "custom") {{
+    panel.minimumLength = cfg.length;
+    panel.maximumLength = cfg.length;
+}}
+
+function widgetsOf(type) {{
+    let found = [];
+    const ids = panel.widgetIds;
+    for (let i = 0; i < ids.length; ++i) {{
+        const widget = panel.widgetById(ids[i]);
+        if (widget && widget.type === type) found.push(widget);
+    }}
+    return found;
+}}
+function ensureWidget(type) {{
+    const found = widgetsOf(type);
+    return found.length ? found[0] : panel.addWidget(type);
+}}
+function configure(widget, group, values) {{
+    widget.currentConfigGroup = group;
+    for (const key in values) widget.writeConfig(key, values[key]);
+    widget.reloadConfig();
+}}
+
+const kickoff = ensureWidget("org.kde.plasma.kickoff");
+configure(kickoff, ["General"], {{
+    icon: "start-here-kubuntu",
+    showAppsByName: "true",
+    systemFavorites: "suspend\\\\,hibernate\\\\,reboot\\\\,shutdown"
+}});
+kickoff.globalShortcut = "Alt+F1";
+
+let task = widgetsOf(cfg.task)[0];
+const otherTaskType = cfg.task === "org.kde.plasma.taskmanager"
+    ? "org.kde.plasma.icontasks" : "org.kde.plasma.taskmanager";
+const oldTasks = widgetsOf(otherTaskType);
+let oldTaskIndex = oldTasks.length ? oldTasks[0].index : 2;
+for (let i = 0; i < oldTasks.length; ++i) oldTasks[i].remove();
+if (!task) {{
+    task = panel.addWidget(cfg.task);
+    task.index = oldTaskIndex;
+}}
+configure(task, [], {{launchers: launchers}});
+configure(task, ["General"], {{
+    groupPopups: "true",
+    groupingStrategy: "1",
+    launchers: launchers,
+    middleClickAction: "Close",
+    onlyGroupWhenFull: "false",
+    separateLaunchers: "false",
+    showOnlyCurrentDesktop: "true",
+    showOnlyCurrentScreen: "false",
+    wheelEnabled: "false"
+}});
+
+let spacers = widgetsOf("org.kde.plasma.panelspacer");
+if (cfg.spacers) {{
+    while (spacers.length < 2) {{
+        const spacer = panel.addWidget("org.kde.plasma.panelspacer");
+        configure(spacer, ["General"], {{expanding: "true"}});
+        spacers.push(spacer);
+    }}
+}} else {{
+    for (let i = 0; i < spacers.length; ++i) spacers[i].remove();
+    spacers = [];
+}}
+
+const tray = ensureWidget("org.kde.plasma.systemtray");
+configure(tray, ["General"], {{
+    hiddenItems: "org.kde.plasma.notifications",
+    shownItems: "org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery"
+}});
+const clock = ensureWidget("org.kde.plasma.digitalclock");
+configure(clock, ["Appearance"], {{
+    dateDisplayFormat: "BelowTime",
+    dateFormat: "shortDate",
+    showDate: cfg.show_date ? "true" : "false",
+    showSeconds: "false"
+}});
+
+kickoff.index = 0;
+if (cfg.spacers) {{
+    spacers[0].index = 1;
+    task.index = 2;
+    spacers[1].index = 3;
+    tray.index = 4;
+    clock.index = 5;
+}} else {{
+    task.index = 1;
+    tray.index = 2;
+    clock.index = 3;
+}}
+
+const ds = desktops();
+for (let i = 0; i < ds.length; ++i) {{
+    ds[i].wallpaperPlugin = "org.kde.color";
+    ds[i].currentConfigGroup = ["Wallpaper", "org.kde.color", "General"];
+    ds[i].writeConfig("Color", "0,0,0");
+}}
+print("applied=" + cfg.profile + ";panel=" + panel.id);
+"""
+
+
+def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
+    profile = panel_profiles().get(profile_name)
+    if profile is None:
+        return False, f"unknown profile {profile_name}"
+    task_plugin = (
+        "org.kde.plasma.taskmanager"
+        if profile["task_manager"] == "labels"
+        else "org.kde.plasma.icontasks"
+    )
+    probe = """
+const ps=panels();
+if (!ps.length) { print("missing"); }
+else {
+ const p=ps[0]; let types=[];
+ for (let i=0;i<p.widgetIds.length;++i) {
+  const w=p.widgetById(p.widgetIds[i]); if (w) types.push(w.type);
+ }
+ let black=true; const ds=desktops();
+ for (let i=0;i<ds.length;++i) if (ds[i].wallpaperPlugin!=="org.kde.color") black=false;
+ print([
+  p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
+  p.minimumLength,p.maximumLength,types.join(","),black
+ ].join("|"));
+}
+"""
+    output = plasma_evaluate(probe)
+    if output == "missing":
+        return False, "no live panel"
+    parts = output.split("|")
+    if len(parts) != 9:
+        return False, f"could not parse Plasma state: {output}"
+    (
+        length_mode,
+        height,
+        hiding,
+        alignment,
+        floating,
+        minimum_length,
+        maximum_length,
+        types,
+        black,
+    ) = parts
+    if length_mode != profile["length_mode"]:
+        return False, "length mode does not match"
+    if int(float(height)) != profile["height"]:
+        return False, "height does not match"
+    if hiding != "autohide" or alignment != "center":
+        return False, "placement or hiding does not match"
+    if (floating == "true") != bool(profile["floating"]):
+        return False, "floating mode does not match"
+    if profile["length_mode"] == "custom":
+        expected_length = round(
+            panel_screen_width() * profile["width_percent"] / 100
+        )
+        if int(float(minimum_length)) != expected_length or int(
+            float(maximum_length)
+        ) != expected_length:
+            return False, "custom width does not match"
+    if task_plugin not in types.split(","):
+        return False, "task manager does not match"
+    if types.split(",").count("org.kde.plasma.panelspacer") != (
+        2 if profile["spacers"] else 0
+    ):
+        return False, "spacer layout does not match"
+    if black != "true":
+        return False, "desktop is not solid black"
+    return True, str(profile["description"])
+
+
+def panel_profile_items() -> list[tuple[str, str, str]]:
+    selected = active_panel_profile()
+    return [
+        (
+            name,
+            ("● " if name == selected else "  ") + str(profile["label"]),
+            str(profile["description"]),
+        )
+        for name, profile in panel_profiles().items()
+    ]
+
+
+def switch_panel_profile(profile_name: str) -> None:
+    profiles = panel_profiles()
+    if profile_name not in profiles:
+        raise DotError(
+            f"Unknown panel profile {profile_name!r}. Choose from: "
+            + ", ".join(profiles)
+        )
+    current = active_panel_profile()
+    matches_current, current_detail = panel_profile_matches(current)
+    if current == profile_name and matches_current:
+        print(f"Panel profile {profile_name} is already active.")
+        return
+    if not matches_current and current_detail != "no live panel":
+        raise DotError(
+            f"Refusing to replace changed live panel state: {current_detail}.\n"
+            "Save intentional panel changes or restore the selected profile first."
+        )
+    panel_paths = [
+        Path.home() / PANEL_LAYOUT_FILE,
+        Path.home() / PANEL_GEOMETRY_FILE,
+    ]
+    run_id = backup_paths(panel_paths)
+    try:
+        output = plasma_evaluate(panel_profile_script(profile_name))
+        if f"applied={profile_name};" not in output:
+            raise DotError(f"Plasma did not confirm the profile change: {output}")
+        matches, detail = panel_profile_matches(profile_name)
+        if not matches:
+            raise DotError(f"Applied panel did not validate: {detail}")
+        atomic_text(PANEL_PROFILE_STATE, profile_name + "\n", 0o600)
+    except Exception:
+        if matches_current:
+            plasma_evaluate(panel_profile_script(current))
+        raise
+    print(
+        f"Switched to {profiles[profile_name]['label']}. "
+        f"Rollback ID: {run_id}"
+    )
+
+
+def cmd_panel(args: argparse.Namespace) -> None:
+    action = getattr(args, "panel_action", None)
+    if action == "list":
+        selected = active_panel_profile()
+        for name, profile in panel_profiles().items():
+            marker = "*" if name == selected else " "
+            print(f"{marker} {name:<18} {profile['label']}: {profile['description']}")
+        return
+    if action == "status":
+        selected = active_panel_profile()
+        matches, detail = panel_profile_matches(selected)
+        state = "matches live Plasma" if matches else f"drift: {detail}"
+        print(f"{selected}: {state}")
+        return
+    if action == "use":
+        switch_panel_profile(args.profile_name)
+        return
+    if not sys.stdin.isatty():
+        raise DotError("Interactive panel selection requires a terminal.")
+    selected = fzf_menu(
+        panel_profile_items(),
+        prompt="panel profile › ",
+        header="Type to filter  Enter: apply  Esc: cancel",
+    )
+    if selected:
+        switch_panel_profile(selected)
+
+
 def palette_apply(profile: str, tags: str | None = None, *, check: bool = False) -> None:
     cmd_apply(
         argparse.Namespace(
@@ -2932,6 +3411,11 @@ def palette_configuration_menu(profile: str) -> None:
                     "Capture the taskbar, launcher, appearance, and shortcuts",
                 ),
                 (
+                    "panel-profiles",
+                    "Switch taskbar profile",
+                    f"Choose one of four native Plasma layouts · {active_panel_profile()} active",
+                ),
+                (
                     "save-spectacle",
                     "Save Spectacle",
                     "Capture screenshot preferences and keyboard shortcuts",
@@ -3012,6 +3496,15 @@ def palette_configuration_menu(profile: str) -> None:
                         argparse.Namespace(lockscreen_action="stock")
                     )
                 )
+            continue
+        if action == "panel-profiles":
+            selected = fzf_menu(
+                panel_profile_items(),
+                prompt="panel profile › ",
+                header="Type to filter  Enter: apply  Esc: back",
+            )
+            if selected:
+                palette_execute(lambda: switch_panel_profile(selected))
             continue
 
         def execute() -> None:
@@ -4034,51 +4527,44 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
         panel_layout_path = Path.home() / ".config/plasma-org.kde.plasma.desktop-appletsrc"
         panel_layout = panel_layout_path.read_text(encoding="utf-8") if panel_layout_path.exists() else ""
+        selected_panel_profile = active_panel_profile()
+        selected_panel = panel_profiles()[selected_panel_profile]
         required_panel_state = (
             "plugin=org.kde.plasma.kickoff",
-            "plugin=org.kde.plasma.taskmanager",
-            "plugin=org.kde.plasma.panelspacer",
-            "AppletOrder=3;28;5;29;7;22",
             "middleClickAction=Close",
             "showOnlyCurrentDesktop=true",
             "showOnlyCurrentScreen=false",
             "launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop",
             "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
             "hiddenItems=org.kde.plasma.notifications",
-            "dateDisplayFormat=BelowTime",
         )
         forbidden_panel_state = (
             "plugin=org.kde.plasma.pager",
             "plugin=org.kde.plasma.showdesktop",
-            "plugin=org.kde.plasma.icontasks",
         )
-        panel_layout_ok = (
-            all(value in panel_layout for value in required_panel_state)
-            and all(value not in panel_layout for value in forbidden_panel_state)
-            and panel_layout.count("plugin=org.kde.plasma.panelspacer") == 2
+        profile_matches, profile_detail = panel_profile_matches(
+            selected_panel_profile
         )
+        panel_layout_ok = all(
+            value in panel_layout for value in required_panel_state
+        ) and all(value not in panel_layout for value in forbidden_panel_state)
         failures += not doctor_check(
             "Plasma panel layout",
-            panel_layout_ok,
-            "native launcher, centered task manager, minimal tray, and compact clock"
-            if panel_layout_ok
+            panel_layout_ok and profile_matches,
+            f"{selected_panel['label']}: {profile_detail}"
+            if panel_layout_ok and profile_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         panel_geometry_path = Path.home() / ".config/plasmashellrc"
         panel_geometry = panel_geometry_path.read_text(encoding="utf-8") if panel_geometry_path.exists() else ""
-        required_geometry = (
-            "alignment=1",
-            "floating=0",
-            "panelLengthMode=0",
-            "panelVisibility=1",
-            "thickness=40",
-        )
-        panel_geometry_ok = all(value in panel_geometry for value in required_geometry)
         failures += not doctor_check(
             "Plasma panel geometry",
-            panel_geometry_ok,
-            "full-width 40px bottom panel with auto-hide"
-            if panel_geometry_ok
+            profile_matches,
+            (
+                f"{selected_panel['height']}px "
+                f"{selected_panel['length_mode']} panel with auto-hide"
+            )
+            if profile_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         kwin_path = Path.home() / ".config/kwinrc"
@@ -4878,6 +5364,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["status", "reload", "enable", "disable"],
     )
     gestures.set_defaults(func=cmd_gestures)
+    panel = sub.add_parser("panel")
+    panel_sub = panel.add_subparsers(dest="panel_action")
+    panel_list = panel_sub.add_parser("list")
+    panel_list.set_defaults(func=cmd_panel)
+    panel_status = panel_sub.add_parser("status")
+    panel_status.set_defaults(func=cmd_panel)
+    panel_use = panel_sub.add_parser("use")
+    panel_use.add_argument("profile_name")
+    panel_use.set_defaults(func=cmd_panel)
+    panel.set_defaults(func=cmd_panel)
     lockscreen = sub.add_parser("lockscreen")
     lockscreen.add_argument(
         "lockscreen_action",

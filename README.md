@@ -120,8 +120,25 @@ dot update                         # upgrade everything managed on this machine
 dot doctor --profile kubuntu-laptop
 dot save                           # fzf review → test → signed commit → push
 dot apply --profile kubuntu-laptop
+dot panel                          # choose a native Plasma taskbar profile
 dot repos sync --profile kubuntu-laptop
 ```
+
+### Four taskbars, one source of truth
+
+`dot panel` switches among four built-in Plasma layouts without installing a
+dock, theme bundle, or third-party widget:
+
+- **Windows Classic** — the default full-width 40px labeled taskbar
+- **Windows Refined** — a floating 94% labeled taskbar
+- **Centered Compact** — a floating 62% icon taskbar
+- **Unified Pill** — a fit-content launcher, task, tray, and clock pill
+
+The selected profile is host-local and survives a normal `dot apply`. Use
+`dot panel list`, `dot panel status`, or `dot panel use NAME` for scripting.
+Every switch records a recovery snapshot and prints its rollback ID. Normally,
+switch back visually with `dot panel use windows-classic`; the snapshot remains
+available for deeper recovery.
 
 ### Update without babysitting providers
 

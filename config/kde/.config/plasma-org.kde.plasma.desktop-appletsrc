@@ -20,10 +20,6 @@ wallpaperplugin=org.kde.color
 [Containments][1][Wallpaper][org.kde.color][General]
 Color=0,0,0
 
-[Containments][1][Wallpaper][org.kde.image][General]
-DynamicMode=1
-Image=file:///usr/share/wallpapers/Kubuntu#day-night
-
 [Containments][2]
 activityId=
 formfactor=2

@@ -225,12 +225,28 @@ selected file or a non-empty Git index is rejected.
 `dot save` jumps directly to the selector. `dot save spectacle` restricts it
 to Spectacle preferences and keyboard shortcuts.
 
-`dot save panel` restricts the selector to the Plasma panel, its geometry,
-KRunner, shortcuts, and the GitHub Dark appearance files. Panel deployment is
-transactional: dotfiles creates one backup run, stops Plasma Shell before
-replacing panel state, and restores that backup automatically if Plasma does
-not restart. The successful apply prints the run ID for an explicit
-`dot rollback RUN_ID`.
+`dot save panel` restricts the selector to panel-adjacent KDE appearance,
+KRunner, shortcuts, and the GitHub Dark appearance files. Taskbar structure and
+geometry are managed by the panel-profile manifest and `dot panel`; generated
+Plasma containment IDs remain host-local. Panel deployment is transactional:
+dotfiles creates one backup run, applies the selected profile through Plasma's
+supported live scripting API, and validates the result without restarting the
+desktop shell. The successful apply prints its recovery run ID.
+
+Panel profiles are separate from capturing panel preferences:
+
+```bash
+dot panel
+dot panel list
+dot panel status
+dot panel use centered-compact
+```
+
+The FZF picker is also available under **Save and configuration → Switch
+taskbar profile**. Switching writes only host-local selection state and applies
+the declarative manifest through Plasma's live API. Plasma's generated
+containment IDs and geometry remain host-local; taskbar structure belongs to
+the manifest rather than a captured machine-specific applet file.
 
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 
