@@ -78,6 +78,31 @@ _dot_source_first \
   "$_dot_brew_prefix/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh" \
   "$_dot_brew_prefix/share/fzf-tab/fzf-tab.zsh" || true
 
+# fzf-tab 1.3.0 drains pending input with `dd iflag=nonblock`. That read blocks
+# indefinitely on the Ghostty + tmux PTY used here, before fzf can start.
+# Redirect only fzf-tab's private drain command to `true`, then restore normal
+# command resolution as soon as the widget returns.
+if (( ${+widgets[fzf-tab-complete]} )); then
+  zle -A fzf-tab-complete _dot_fzf_tab_upstream
+  _dot_fzf_tab_complete() {
+    local saved_dd="${commands[dd]-}"
+    local saved_gdd="${commands[gdd]-}"
+    local had_dd=${+commands[dd]}
+    local had_gdd=${+commands[gdd]}
+    local completion_status
+
+    commands[dd]=/usr/bin/true
+    commands[gdd]=/usr/bin/true
+    zle _dot_fzf_tab_upstream
+    completion_status=$?
+
+    (( had_dd )) && commands[dd]="$saved_dd" || unset 'commands[dd]'
+    (( had_gdd )) && commands[gdd]="$saved_gdd" || unset 'commands[gdd]'
+    return "$completion_status"
+  }
+  zle -N fzf-tab-complete _dot_fzf_tab_complete
+fi
+
 _dot_source_first \
   "$_dot_brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
   /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh || true

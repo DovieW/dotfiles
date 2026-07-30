@@ -742,6 +742,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("opt/fzf-tab/share/fzf-tab/fzf-tab.zsh", zshrc)
         self.assertIn("zstyle ':completion:*' menu no", zshrc)
         self.assertIn("zstyle ':fzf-tab:*' fzf-flags", zshrc)
+        self.assertIn("zle -A fzf-tab-complete _dot_fzf_tab_upstream", zshrc)
+        self.assertIn("commands[dd]=/usr/bin/true", zshrc)
+        self.assertIn("commands[gdd]=/usr/bin/true", zshrc)
+        self.assertIn("zle -N fzf-tab-complete _dot_fzf_tab_complete", zshrc)
         self.assertLess(
             zshrc.index("opt/fzf-tab/share/fzf-tab/fzf-tab.zsh"),
             zshrc.index("share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
