@@ -479,7 +479,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("PointerAccelerationProfile=1", input_config)
         self.assertIn("ScrollFactor=0.1", input_config)
         self.assertIn("DisableWhileTyping=false", input_config)
-        self.assertIn("[Mouse]\ncursorSize=24\ncursorTheme=Breeze_Light", input_config)
+        self.assertIn("[Mouse]\ncursorSize=32\ncursorTheme=Breeze_Light", input_config)
         self.assertIn('"plasma-apply-cursortheme"', cli)
         self.assertIn('"Breeze_Light"', cli)
         self.assertIn("AudioFeedback=false", plasma_pa)
