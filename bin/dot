@@ -643,10 +643,29 @@ def sync_managed_kglobal_shortcuts() -> None:
         "Show Activity Switcher",
     )
     close_window = ("kwin", "Window Close", "KWin", "Close Window")
+    overview = ("kwin", "Overview", "KWin", "Toggle Overview")
+    walk_windows = (
+        "kwin",
+        "Walk Through Windows",
+        "KWin",
+        "Walk Through Windows",
+    )
+    walk_windows_reverse = (
+        "kwin",
+        "Walk Through Windows (Reverse)",
+        "KWin",
+        "Walk Through Windows (Reverse)",
+    )
     desired = {
         activity_switcher: [0],
         # Qt::META | Qt::Key_Q, followed by the retained Alt+F4 binding.
         close_window: [268435537, 150994995],
+        # Reserve ordinary and reverse window cycling for Alt+Tab.
+        walk_windows: [150994945],
+        walk_windows_reverse: [184549377],
+        # Assign this after releasing Meta+Tab from window cycling.
+        # Meta+W remains available as a secondary binding.
+        overview: [285212673, 268435543],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     try:
@@ -3835,11 +3854,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "_launch=Alt+Space\\tAlt+F2" in shortcuts
             and "activate application launcher=Meta\\tAlt+F1" in shortcuts
             and "Show Desktop=Meta+D" in shortcuts
+            and "Overview=Meta+Tab\\tMeta+W" in shortcuts
+            and "Walk Through Windows=Alt+Tab" in shortcuts
+            and "Walk Through Windows (Reverse)=Alt+Shift+Tab" in shortcuts
         )
         failures += not doctor_check(
             "desktop palette shortcuts",
             shortcuts_ok,
-            "Meta opens the application launcher; Alt+Space opens KRunner; Meta+D shows the desktop"
+            "Meta opens the launcher; Meta+Tab opens Overview; Alt+Tab cycles windows"
             if shortcuts_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
