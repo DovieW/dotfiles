@@ -4844,6 +4844,26 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if system_settings_ephemeral_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        bitwarden_ephemeral_ok = all(
+            value in dolphin_rules
+            for value in (
+                "[bitwarden-ephemeral]",
+                "wmclass=bitwarden",
+                "skippager=true",
+                "skippagerrule=2",
+                "skipswitcher=true",
+                "skipswitcherrule=2",
+                "skiptaskbar=true",
+                "skiptaskbarrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "Bitwarden window rule",
+            bitwarden_ephemeral_ok,
+            "absent from the taskbar, pager, and Alt+Tab"
+            if bitwarden_ephemeral_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
         ghostty_desktops_ok = all(
             value in dolphin_rules
             for value in (

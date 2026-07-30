@@ -1,6 +1,17 @@
 [General]
-count=4
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops,system-settings-ephemeral
+count=5
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral
+
+[bitwarden-ephemeral]
+Description=Keep Bitwarden out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=bitwarden
+wmclassmatch=1
 
 [dolphin-skip-taskbar]
 Description=Keep Dolphin out of the taskbar

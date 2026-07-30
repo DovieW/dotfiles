@@ -736,7 +736,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("skiptaskbarrule=2", rules)
         self.assertIn(
             "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
-            "ghostty-all-desktops,system-settings-ephemeral",
+            "ghostty-all-desktops,system-settings-ephemeral,"
+            "bitwarden-ephemeral",
             rules,
         )
         self.assertIn("[emoji-selector-ephemeral]", rules)
@@ -751,6 +752,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("desktopsrule=2", rules)
         self.assertIn("[system-settings-ephemeral]", rules)
         self.assertIn("wmclass=systemsettings", rules)
+        self.assertIn("[bitwarden-ephemeral]", rules)
+        self.assertIn("wmclass=bitwarden", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-dolphin-launch.service", script)
