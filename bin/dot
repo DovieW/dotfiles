@@ -56,6 +56,7 @@ KWIN_DISABLED_EFFECTS = (
     "windowaperture",
     "wobblywindows",
 )
+KWIN_ENABLED_EFFECTS = ("hidecursor",)
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -842,6 +843,16 @@ def apply_direct(
                             "org.kde.KWin",
                             "/Effects",
                             "org.kde.kwin.Effects.unloadEffect",
+                            effect_name,
+                        ]
+                    )
+                for effect_name in KWIN_ENABLED_EFFECTS:
+                    run(
+                        [
+                            "qdbus6",
+                            "org.kde.KWin",
+                            "/Effects",
+                            "org.kde.kwin.Effects.loadEffect",
                             effect_name,
                         ]
                     )
@@ -3892,6 +3903,51 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             desktop_osd_ok,
             "General/Money names shown for 200 ms after switching"
             if desktop_osd_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        decoration_buttons_ok = (
+            "[org.kde.kdecoration2]" in kwin
+            and re.search(r"^ButtonsOnLeft=$", kwin, re.MULTILINE) is not None
+            and re.search(r"^ButtonsOnRight=$", kwin, re.MULTILINE) is not None
+        )
+        failures += not doctor_check(
+            "window decoration buttons",
+            decoration_buttons_ok,
+            "hidden globally"
+            if decoration_buttons_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        hide_cursor_loaded = False
+        if command_exists("qdbus6"):
+            hide_cursor_effect = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Effects",
+                    "org.kde.kwin.Effects.isEffectLoaded",
+                    "hidecursor",
+                ],
+                check=False,
+                capture=True,
+            )
+            hide_cursor_loaded = (
+                hide_cursor_effect.returncode == 0
+                and hide_cursor_effect.stdout.strip() == "true"
+            )
+        hide_cursor_ok = all(
+            value in kwin
+            for value in (
+                "hidecursorEnabled=true",
+                "[Effect-hidecursor]",
+                "HideOnTyping=true",
+                "InactivityDuration=1",
+            )
+        ) and hide_cursor_loaded
+        failures += not doctor_check(
+            "pointer auto-hide",
+            hide_cursor_ok,
+            "hidden after one idle second or ordinary typing; restored on pointer movement"
+            if hide_cursor_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         krunner_path = Path.home() / ".config/krunnerrc"

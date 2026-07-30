@@ -216,6 +216,11 @@ or Show Desktop widget. Meta opens Kickoff. Alt+Space opens a centered KRunner
 instance whose Applications provider is the only enabled runner. The panel's
 screen-edge highlight is disabled and its pointer activation delay is zero.
 Meta+D and Plasma's native four-finger downward gesture expose the desktop.
+Window decorations retain their draggable title bars but omit minimize,
+maximize, and close buttons globally; keyboard shortcuts and title-bar
+double-click remain available. KWin's native Hide Cursor effect removes the
+pointer after one second without pointer motion, including after Meta+D, and
+while typing ordinary text. Pointer movement restores it immediately.
 GitHub Dark is a tracked KDE color scheme layered onto Breeze components, so no
 third-party Plasma code is required.
 
