@@ -99,10 +99,13 @@ dot doctor --profile kubuntu-laptop
 ```
 
 Both `.rdp` and Azure `.rdpw` files should report the MIME type
-`application/x-rdp` and open fullscreen in FreeRDP's SDL client. The launcher
-deliberately does not bypass an untrusted certificate prompt. Authentication,
-gateway, smart-card, WebAuthn, clipboard, audio, and device-redirection
-settings continue to come from the downloaded company file.
+`application/x-rdp` or Ubuntu's competing `application/x-remmina` type and
+open fullscreen in FreeRDP's SDL client. Both MIME defaults intentionally point
+to the extension-aware managed launcher; native `.remmina` profiles still
+delegate to Remmina. The launcher deliberately does not bypass an untrusted
+certificate prompt. Authentication, gateway, smart-card, WebAuthn, clipboard,
+audio, and device-redirection settings continue to come from the downloaded
+company file.
 
 Signed F5-style launch files commonly contain a short-lived gateway token, no
 username or password, and `enablecredsspsupport:i:0`. The managed launcher

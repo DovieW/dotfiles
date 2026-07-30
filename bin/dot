@@ -1346,24 +1346,28 @@ def apply_direct(
         if command_exists("kbuildsycoca6"):
             run(["kbuildsycoca6", "--noincremental"], check=False)
         if command_exists("xdg-mime"):
-            current_rdp_handler = run(
-                ["xdg-mime", "query", "default", "application/x-rdp"],
-                check=False,
-                capture=True,
-            ).stdout.strip()
-            if (
-                current_rdp_handler
-                != "io.github.doview.dotfiles.rdp.desktop"
+            for rdp_mime_type in (
+                "application/x-rdp",
+                "application/x-remmina",
             ):
-                run(
-                    [
-                        "xdg-mime",
-                        "default",
-                        "io.github.doview.dotfiles.rdp.desktop",
-                        "application/x-rdp",
-                    ]
-                )
-                changes += 1
+                current_rdp_handler = run(
+                    ["xdg-mime", "query", "default", rdp_mime_type],
+                    check=False,
+                    capture=True,
+                ).stdout.strip()
+                if (
+                    current_rdp_handler
+                    != "io.github.doview.dotfiles.rdp.desktop"
+                ):
+                    run(
+                        [
+                            "xdg-mime",
+                            "default",
+                            "io.github.doview.dotfiles.rdp.desktop",
+                            rdp_mime_type,
+                        ]
+                    )
+                    changes += 1
     if features.get("lid_power_saver") and selected("power", "kde"):
         lid_mappings = {
             ROOT / "config/power/dot-lid-power": Path.home()
@@ -4863,21 +4867,31 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         rdp_mime = (
             Path.home() / ".local/share/mime/packages/dot-rdp.xml"
         )
-        rdp_handler = (
-            run(
-                ["xdg-mime", "query", "default", "application/x-rdp"],
-                check=False,
-                capture=True,
-            ).stdout.strip()
+        rdp_handlers = (
+            {
+                mime_type: run(
+                    ["xdg-mime", "query", "default", mime_type],
+                    check=False,
+                    capture=True,
+                ).stdout.strip()
+                for mime_type in (
+                    "application/x-rdp",
+                    "application/x-remmina",
+                )
+            }
             if command_exists("xdg-mime")
-            else ""
+            else {}
         )
         rdp_ok = bool(
             rdp_client
             and rdp_launcher.exists()
             and rdp_desktop.exists()
             and rdp_mime.exists()
-            and rdp_handler == "io.github.doview.dotfiles.rdp.desktop"
+            and all(
+                handler == "io.github.doview.dotfiles.rdp.desktop"
+                for handler in rdp_handlers.values()
+            )
+            and len(rdp_handlers) == 2
         )
         failures += not doctor_check(
             "Remote Desktop files",

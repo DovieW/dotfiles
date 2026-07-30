@@ -102,6 +102,11 @@ opens downloaded company connection files directly with the managed
 gateway, authentication, device redirection, and monitor preferences; the
 launcher adds fullscreen and dynamic-resolution behavior.
 
+Remmina's Ubuntu MIME package classifies ordinary `.rdp` downloads as
+`application/x-remmina`, so the managed desktop entry also owns that MIME
+default. The launcher routes actual `.rdp`/`.rdpw` files to FreeRDP while
+preserving `.remmina`/`.rdpx` profile support through Remmina.
+
 The launcher never adds `cert:ignore`, places credentials on the command line,
 or rewrites company files. FreeRDP retains its normal certificate validation
 and interactive authentication. Signed gateway launch files that explicitly

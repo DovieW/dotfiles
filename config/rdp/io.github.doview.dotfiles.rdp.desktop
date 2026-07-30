@@ -9,5 +9,5 @@ Terminal=false
 NoDisplay=true
 StartupNotify=true
 StartupWMClass=sdl-freerdp
-MimeType=application/x-rdp;
+MimeType=application/x-rdp;application/x-remmina;
 Categories=Network;RemoteAccess;

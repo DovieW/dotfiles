@@ -14,8 +14,15 @@ fi
 
 case "${rdp_file,,}" in
   *.rdp|*.rdpw) ;;
+  *.remmina|*.rdpx)
+    if command -v remmina >/dev/null 2>&1; then
+      exec remmina -c "$rdp_file"
+    fi
+    echo "dot-rdp: Remmina is required to open $rdp_file" >&2
+    exit 127
+    ;;
   *)
-    echo "dot-rdp: expected a .rdp or .rdpw file" >&2
+    echo "dot-rdp: expected a .rdp, .rdpw, .remmina, or .rdpx file" >&2
     exit 2
     ;;
 esac

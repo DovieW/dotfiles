@@ -1084,13 +1084,17 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("cert:ignore", rdp_launcher)
         self.assertNotIn("/p:", rdp_launcher)
-        self.assertIn("MimeType=application/x-rdp;", rdp_desktop)
+        self.assertIn(
+            "MimeType=application/x-rdp;application/x-remmina;",
+            rdp_desktop,
+        )
         self.assertIn('type="application/x-rdp"', rdp_mime)
         self.assertIn('pattern="*.rdp"', rdp_mime)
         self.assertIn('pattern="*.rdpw"', rdp_mime)
         self.assertIn('"Visual Studio Code"', cli)
         self.assertIn('"Remote Desktop files"', cli)
         self.assertIn('"io.github.doview.dotfiles.rdp.desktop"', cli)
+        self.assertIn('"application/x-remmina"', cli)
 
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
