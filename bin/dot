@@ -724,6 +724,10 @@ def apply_direct(
             relative in {".config/kwinrc", ".config/kwinrulesrc"}
             for relative, _, _ in pending
         )
+        cursor_changed = any(
+            relative == ".config/kcminputrc"
+            for relative, _, _ in pending
+        )
         backup_run_id = backup_paths([destination for _, _, destination in pending]) if pending else ""
         plasma_stopped = False
         try:
@@ -785,6 +789,25 @@ def apply_direct(
                     )
             if shortcuts_changed:
                 sync_managed_kglobal_shortcuts()
+            if cursor_changed and command_exists("plasma-apply-cursortheme"):
+                cursor_applied = run(
+                    [
+                        "plasma-apply-cursortheme",
+                        "--size",
+                        "24",
+                        "Breeze_Light",
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                if cursor_applied.returncode:
+                    raise DotError(
+                        "Plasma did not activate the managed cursor theme: "
+                        + (
+                            cursor_applied.stderr.strip()
+                            or f"exit code {cursor_applied.returncode}"
+                        )
+                    )
             if backup_run_id:
                 print(f"KDE backup created: {backup_run_id}")
         except Exception:
