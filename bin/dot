@@ -555,6 +555,96 @@ def check_kde_apply_conflicts(*, force: bool = False) -> None:
         )
 
 
+def kglobal_shortcut(action_id: tuple[str, str, str, str]) -> list[int]:
+    proc = run(
+        [
+            "gdbus",
+            "call",
+            "--session",
+            "--dest",
+            "org.kde.kglobalaccel",
+            "--object-path",
+            "/kglobalaccel",
+            "--method",
+            "org.kde.KGlobalAccel.shortcut",
+            repr(list(action_id)),
+        ],
+        check=False,
+        capture=True,
+    )
+    if proc.returncode:
+        raise DotError(
+            "Could not read the live KDE shortcut registry: "
+            + (proc.stderr.strip() or f"exit code {proc.returncode}")
+        )
+    match = re.fullmatch(r"\(\[([0-9, ]*)\],\)\s*", proc.stdout)
+    if not match:
+        raise DotError(f"Could not parse KDE shortcut response: {proc.stdout.strip()}")
+    return [int(value) for value in match.group(1).split(",") if value.strip()]
+
+
+def set_kglobal_shortcut(
+    action_id: tuple[str, str, str, str],
+    keys: list[int],
+) -> None:
+    proc = run(
+        [
+            "gdbus",
+            "call",
+            "--session",
+            "--dest",
+            "org.kde.kglobalaccel",
+            "--object-path",
+            "/kglobalaccel",
+            "--method",
+            "org.kde.KGlobalAccel.setShortcut",
+            repr(list(action_id)),
+            repr(keys),
+            "4",
+        ],
+        check=False,
+        capture=True,
+    )
+    if proc.returncode:
+        raise DotError(
+            "Could not update the live KDE shortcut registry: "
+            + (proc.stderr.strip() or f"exit code {proc.returncode}")
+        )
+
+
+def sync_managed_kglobal_shortcuts() -> None:
+    """Apply shortcuts that KWin otherwise keeps cached until the next login."""
+    if not command_exists("gdbus"):
+        raise DotError("gdbus is required to activate managed KDE shortcuts.")
+
+    activity_switcher = (
+        "plasmashell",
+        "manage activities",
+        "plasmashell",
+        "Show Activity Switcher",
+    )
+    close_window = ("kwin", "Window Close", "KWin", "Close Window")
+    desired = {
+        activity_switcher: [0],
+        # Qt::META | Qt::Key_Q, followed by the retained Alt+F4 binding.
+        close_window: [268435537, 150994995],
+    }
+    original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
+    try:
+        for action_id, keys in desired.items():
+            set_kglobal_shortcut(action_id, keys)
+        for action_id, keys in desired.items():
+            if kglobal_shortcut(action_id) != keys:
+                raise DotError(f"KDE did not activate shortcut {action_id[1]!r}.")
+    except Exception:
+        for action_id, keys in original.items():
+            try:
+                set_kglobal_shortcut(action_id, keys)
+            except DotError:
+                pass
+        raise
+
+
 def apply_direct(
     profile_name: str,
     *,
@@ -626,6 +716,10 @@ def apply_direct(
             relative in {".config/krunnerrc", ".config/kglobalshortcutsrc"}
             for relative, _, _ in pending
         )
+        shortcuts_changed = any(
+            relative == ".config/kglobalshortcutsrc"
+            for relative, _, _ in pending
+        )
         kwin_changed = any(
             relative in {".config/kwinrc", ".config/kwinrulesrc"}
             for relative, _, _ in pending
@@ -689,6 +783,8 @@ def apply_direct(
                         "KWin did not reload after its shortcut update: "
                         + (reconfigured.stderr.strip() or f"exit code {reconfigured.returncode}")
                     )
+            if shortcuts_changed:
+                sync_managed_kglobal_shortcuts()
             if backup_run_id:
                 print(f"KDE backup created: {backup_run_id}")
         except Exception:
