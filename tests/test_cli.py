@@ -732,6 +732,21 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("termux-api", termux["packages"]["pkg"])
         self.assertNotIn("alias clip=", common)
 
+    def test_zsh_uses_fzf_for_normal_tab_completion(self):
+        common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        zshrc = (ROOT / "config/shell/zshrc").read_text()
+
+        self.assertIn("fzf-tab", common["packages"]["brew"])
+        self.assertEqual(catalog["tools"]["fzf-tab"]["provider"], "brew")
+        self.assertIn("opt/fzf-tab/share/fzf-tab/fzf-tab.zsh", zshrc)
+        self.assertIn("zstyle ':completion:*' menu no", zshrc)
+        self.assertIn("zstyle ':fzf-tab:*' fzf-flags", zshrc)
+        self.assertLess(
+            zshrc.index("opt/fzf-tab/share/fzf-tab/fzf-tab.zsh"),
+            zshrc.index("share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
+        )
+
     def test_neovim_is_modern_managed_and_shared_with_wsl(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

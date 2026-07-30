@@ -12,6 +12,7 @@
     "curl": {"provider": "apt"},
     "fd": {"provider": "brew"},
     "fzf": {"provider": "brew"},
+    "fzf-tab": {"provider": "brew"},
     "git": {"provider": "apt"},
     "jq": {"provider": "brew"},
     "navi": {"provider": "brew"},

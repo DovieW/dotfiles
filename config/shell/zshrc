@@ -67,6 +67,17 @@ _dot_source_first \
   /usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme || true
 [[ -r "$DOTFILES_ROOT/config/shell/p10k.zsh" ]] && source "$DOTFILES_ROOT/config/shell/p10k.zsh"
 
+# Preserve Zsh's context-aware completion results, but select them through fzf
+# on every ordinary Tab press. This must load after compinit and fzf's own
+# bindings, but before plugins that wrap ZLE widgets.
+zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':completion:*' menu no
+zstyle ':fzf-tab:*' fzf-flags --height=70% --layout=reverse --border --info=inline
+zstyle ':fzf-tab:*' switch-group '<' '>'
+_dot_source_first \
+  "$_dot_brew_prefix/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh" \
+  "$_dot_brew_prefix/share/fzf-tab/fzf-tab.zsh" || true
+
 _dot_source_first \
   "$_dot_brew_prefix/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
   /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh || true
