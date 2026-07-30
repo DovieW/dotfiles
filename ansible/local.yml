@@ -405,7 +405,7 @@
         version: master
         update: true
       when: dot_profile_data.features.shell | default(false)
-      tags: [config, shell, tmux]
+      tags: [config, shell, tmux, app-updates]
 
     - name: Install configured tmux plugins
       ansible.builtin.command:
@@ -419,7 +419,7 @@
       environment:
         PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
       when: dot_profile_data.features.shell | default(false)
-      tags: [config, shell, tmux]
+      tags: [config, shell, tmux, app-updates]
 
     - name: Update configured tmux plugins
       ansible.builtin.command:
@@ -434,7 +434,7 @@
       environment:
         PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
       when: dot_profile_data.features.shell | default(false)
-      tags: [config, shell, tmux]
+      tags: [config, shell, tmux, app-updates]
 
     - name: Create the systemd-logind configuration directory
       become: true

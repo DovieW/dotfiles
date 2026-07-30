@@ -1260,6 +1260,24 @@ def cmd_vite_plus_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-vite-plus"), "--update"], cwd=ROOT)
 
 
+def cmd_tailscale(args: argparse.Namespace) -> None:
+    require_commands(
+        ["tailscale"],
+        "Run `dot apply --profile kubuntu-laptop --tags tailscale` first.",
+    )
+    action = args.tailscale_action
+    if action == "status":
+        status = run(["tailscale", "status"], check=False)
+        if status.returncode:
+            raise DotError(
+                "Tailscale is not connected. Run `sudo tailscale up` to enroll "
+                "or reconnect this machine."
+            )
+        return
+    require_commands(["sudo"], "Install sudo before changing Tailscale state.")
+    run(["sudo", "tailscale", action])
+
+
 def inputactions_effect_loaded() -> bool:
     if not command_exists("qdbus6"):
         return False
@@ -1592,6 +1610,7 @@ def cmd_update(args: argparse.Namespace) -> None:
                 run_id=None,
             )
         )
+        update_nvim_tools()
     categories = "system and application" if system and apps else (
         "system" if system else "application"
     )
@@ -1748,6 +1767,26 @@ def restore_live_nvim_plugins() -> None:
     run_nvim_smoke()
 
 
+def update_nvim_tools() -> None:
+    require_commands(
+        ["nvim"],
+        "Run `dot apply --profile PROFILE --tags packages,nvim` first.",
+    )
+    run(
+        [
+            "nvim",
+            "--headless",
+            "+Lazy! load nvim-lspconfig",
+            "+MasonToolsUpdateSync",
+            "+qa",
+        ],
+        env=nvim_environment(),
+        timeout=1800,
+    )
+    run_nvim_smoke()
+    print("Updated and verified Neovim's curated Mason language tools.")
+
+
 def cmd_nvim(args: argparse.Namespace) -> None:
     profile_name = update_profile(getattr(args, "profile", None))
     profile = load_profile(profile_name)
@@ -1757,6 +1796,9 @@ def cmd_nvim(args: argparse.Namespace) -> None:
     if action == "status":
         run_nvim_smoke()
         print("Neovim configuration and locked plugins passed the smoke test.")
+        return
+    if action == "tools":
+        update_nvim_tools()
         return
     if action == "rollback":
         root = NVIM_UPDATE_DIR / args.run_id
@@ -1938,6 +1980,169 @@ def fzf_choose(
     return [line for line in proc.stdout.splitlines() if line]
 
 
+def fzf_menu(
+    items: list[tuple[str, str, str]],
+    *,
+    prompt: str,
+    header: str = "Enter: select  Esc: back",
+) -> str | None:
+    """Show described actions while keeping their stable identifiers hidden."""
+    if not items:
+        return None
+    width = min(38, max(len(label) for _, label, _ in items))
+    rows = [
+        f"{action}\t{label:<{width}}\t{description}"
+        for action, label, description in items
+    ]
+    choice = fzf_choose(
+        rows,
+        prompt=prompt,
+        header=f"{'ACTION':<{width}}  DESCRIPTION  ·  {header}",
+        with_nth="2,3",
+    )
+    return choice[0].split("\t", 1)[0] if choice else None
+
+
+def palette_pause() -> None:
+    if sys.stdin.isatty():
+        try:
+            input("\nPress Enter to return to the menu… ")
+        except EOFError:
+            pass
+
+
+def palette_execute(action: Any, *, pause: bool = True) -> bool:
+    """Run a menu action without losing the surrounding navigation."""
+    try:
+        action()
+    except DotError as exc:
+        print(f"\ndot: {exc}", file=sys.stderr)
+    except subprocess.CalledProcessError as exc:
+        command = exc.cmd if isinstance(exc.cmd, list) else [str(exc.cmd)]
+        rendered = " ".join(map(str, command))
+        print(
+            f"\ndot: {rendered} failed with exit code {exc.returncode}",
+            file=sys.stderr,
+        )
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+    if pause:
+        palette_pause()
+    return True
+
+
+PROFILE_DESCRIPTIONS = {
+    "kubuntu-laptop": "Native Kubuntu laptop with KDE and hardware integration",
+    "wsl-personal": "Personal Ubuntu environment inside Windows",
+    "wsl-work": "Work Ubuntu environment inside Windows",
+    "windows-host": "Inventory-only native Windows host",
+    "termux": "Android Termux environment",
+    "common-linux": "Shared Linux base manifest; not a physical machine",
+}
+
+
+def palette_profile(*, include_common: bool = False) -> str | None:
+    names = sorted(
+        path.stem
+        for path in PROFILE_DIR.glob("*.yml")
+        if include_common or path.stem != "common-linux"
+    )
+    return fzf_menu(
+        [
+            (
+                name,
+                name,
+                PROFILE_DESCRIPTIONS.get(name, "Managed dotfiles profile"),
+            )
+            for name in names
+        ],
+        prompt="profile › ",
+    )
+
+
+def palette_text(label: str, *, default: str = "") -> str | None:
+    suffix = f" [{default}]" if default else ""
+    try:
+        value = input(f"{label}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    return value or default or None
+
+
+def palette_confirm(label: str, description: str) -> bool:
+    return (
+        fzf_menu(
+            [
+                ("confirm", label, description),
+                ("cancel", "Cancel", "Return without making changes"),
+            ],
+            prompt="confirm › ",
+            header="Enter: choose  Esc: cancel",
+        )
+        == "confirm"
+    )
+
+
+def palette_backup_run_id(root: Path, *, prompt: str) -> str | None:
+    items: list[tuple[str, str, str]] = []
+    if root.is_dir():
+        for path in sorted(root.iterdir(), reverse=True):
+            if not path.is_dir():
+                continue
+            metadata_path = path / "metadata.json"
+            manifest_path = path / "manifest.json"
+            if metadata_path.is_file():
+                metadata = load_json(metadata_path)
+                detail = (
+                    f"Created {metadata.get('created_at', 'unknown')} · "
+                    f"base commit {str(metadata.get('head', 'unknown'))[:12]}"
+                )
+            elif manifest_path.is_file():
+                manifest = load_json(manifest_path)
+                targets = ", ".join(
+                    Path(record.get("path", "")).name or record.get("path", "")
+                    for record in manifest[:3]
+                )
+                if len(manifest) > 3:
+                    targets += f", and {len(manifest) - 3} more"
+                detail = f"Restore {len(manifest)} path(s) · {targets}"
+            else:
+                continue
+            items.append((path.name, path.name, detail))
+    if not items:
+        print("No rollback snapshots are available.")
+        palette_pause()
+        return None
+    return fzf_menu(items, prompt=prompt)
+
+
+def palette_kde_files(*, prompt: str) -> list[str]:
+    rows = [
+        (
+            Path(relative).name,
+            KDE_LABELS[relative],
+            str(Path.home() / relative),
+        )
+        for relative in KDE_FILES
+    ]
+    width = max(len(label) for _, label, _ in rows)
+    choices = fzf_choose(
+        [
+            f"{name}\t{label:<{width}}\t{path}"
+            for name, label, path in rows
+        ],
+        prompt=prompt,
+        header=(
+            f"{'SETTING':<{width}}  LIVE FILE  ·  "
+            "Tab: toggle  Ctrl-A: all  Ctrl-D: none  Enter: continue"
+        ),
+        multi=True,
+        with_nth="2,3",
+    )
+    return [choice.split("\t", 1)[0] for choice in choices]
+
+
 def save_commit_message(selected: list[str]) -> str:
     labels = [KDE_LABELS[relative].lower() for relative in selected]
     if len(labels) == 1:
@@ -2008,17 +2213,24 @@ def cmd_save(args: argparse.Namespace) -> None:
         if not selected:
             print("Nothing selected.")
             return
-        action_rows = [
-            "Save, validate, commit, and push\tsave",
-            "Capture in dotfiles without committing\tcapture",
-            "Cancel\tcancel",
-        ]
-        action_choice = fzf_choose(
-            action_rows,
+        action = fzf_menu(
+            [
+                (
+                    "save",
+                    "Save, validate, commit, and push",
+                    "Record the selected live settings as the new source of truth",
+                ),
+                (
+                    "capture",
+                    "Capture without committing",
+                    "Copy settings into dotfiles for manual review",
+                ),
+                ("cancel", "Cancel", "Leave live and repository settings unchanged"),
+            ],
             prompt="Action › ",
             header="Enter: choose  Esc: cancel",
         )
-        action = action_choice[0].split("\t", 1)[1] if action_choice else "cancel"
+        action = action or "cancel"
         if action == "cancel":
             print("Save cancelled.")
             return
@@ -2102,102 +2314,705 @@ def cmd_rollback(args: argparse.Namespace) -> None:
     print(f"Restored backup {args.run_id}")
 
 
+def palette_apply(profile: str, tags: str | None = None, *, check: bool = False) -> None:
+    cmd_apply(
+        argparse.Namespace(
+            profile=profile,
+            tags=tags,
+            check=check,
+            direct=False,
+            force_kde=False,
+        )
+    )
+
+
+def palette_update_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                (
+                    "all",
+                    "Update everything",
+                    "System, apps, CLIs, Tmux, Neovim plugins, and Mason tools",
+                ),
+                (
+                    "check",
+                    "Check for pending updates",
+                    "Read-only provider and Neovim plugin update report",
+                ),
+                (
+                    "system",
+                    "Update operating system",
+                    "Upgrade every installed APT package from configured repositories",
+                ),
+                (
+                    "apps",
+                    "Update applications and tools",
+                    "Apps, Brew, Tmux, Codex, Vite+, Neovim, and Mason",
+                ),
+                (
+                    "nvim-plugins",
+                    "Update Neovim plugins",
+                    "Isolate, test, promote, sign, and push the plugin lock",
+                ),
+                (
+                    "nvim-tools",
+                    "Update Neovim language tools",
+                    "Upgrade curated Mason LSP servers, formatters, and linters",
+                ),
+                (
+                    "tmux",
+                    "Update Tmux plugins",
+                    "Update TPM and every configured Tmux plugin",
+                ),
+                ("codex", "Update Codex", "Install the latest stable standalone CLI"),
+                ("vite", "Update Vite+", "Upgrade Vite+ from its stable channel"),
+                (
+                    "tailscale",
+                    "Update Tailscale",
+                    "Reconcile the official repository, package, and daemon",
+                ),
+                (
+                    "gestures",
+                    "Update InputActions",
+                    "Build the latest compatible gesture plugin and apply its config",
+                ),
+                (
+                    "font",
+                    "Update terminal font",
+                    "Install the latest stable FiraCode Nerd Font Mono",
+                ),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="update › ",
+        )
+        if action in (None, "back"):
+            return
+
+        def execute() -> None:
+            if action in {"all", "check", "system", "apps"}:
+                cmd_update(
+                    argparse.Namespace(
+                        profile=profile,
+                        system=action == "system",
+                        apps=action == "apps",
+                        check=action == "check",
+                    )
+                )
+            elif action == "nvim-plugins":
+                cmd_nvim(
+                    argparse.Namespace(
+                        nvim_action="update",
+                        profile=profile,
+                        check=False,
+                        run_id=None,
+                    )
+                )
+            elif action == "nvim-tools":
+                update_nvim_tools()
+            elif action == "tmux":
+                palette_apply(profile, "tmux")
+            elif action == "codex":
+                cmd_codex_update(argparse.Namespace())
+            elif action == "vite":
+                cmd_vite_plus_update(argparse.Namespace())
+            elif action == "tailscale":
+                palette_apply(profile, "tailscale")
+            elif action == "gestures":
+                palette_apply(profile, "gestures")
+            elif action == "font":
+                palette_apply(profile, "fonts")
+
+        palette_execute(execute)
+
+
+def palette_apply_menu(profile: str) -> None:
+    items = [
+        ("all", "Apply complete profile", "Reconcile every declared package and configuration"),
+        ("check", "Check complete profile", "Preview Ansible changes without applying them"),
+        ("packages", "Packages and applications", "Install every package declared by this profile"),
+        ("config", "Portable configuration", "Repair managed links and copied application settings"),
+        ("kde", "KDE desktop", "Apply captured Plasma, shortcuts, panel, and power settings"),
+        ("shell", "Shell environment", "Apply Bash, Zsh, prompt, helpers, and Tmux files"),
+        ("git", "Git configuration", "Apply identities, aliases, Delta, signing, and utilities"),
+        ("tmux", "Tmux", "Apply Tmux configuration, TPM, and plugins"),
+        ("nvim", "Neovim", "Apply config, locked plugins, parsers, and language tools"),
+        ("docker", "Docker Engine", "Repair native engine, Compose, Buildx, and service state"),
+        ("tailscale", "Tailscale", "Repair stable repository, package, and daemon"),
+        ("gpu", "NVIDIA GPU", "Apply Ubuntu's recommended driver and PRIME policy"),
+        ("gestures", "Touchpad gestures", "Build and apply Windows-style InputActions gestures"),
+        ("touchpad", "Touchpad workaround", "Apply the scoped libinput jump-detection override"),
+        ("fonts", "Fonts", "Provision terminal and Windows-compatible fonts"),
+        ("codex", "Codex Remote Control", "Repair the standalone CLI and persistent service"),
+        ("back", "Back", "Return to the main menu"),
+    ]
+    while True:
+        action = fzf_menu(items, prompt="apply › ")
+        if action in (None, "back"):
+            return
+        palette_execute(
+            lambda: palette_apply(
+                profile,
+                None if action in {"all", "check"} else action,
+                check=action == "check",
+            )
+        )
+
+
+def palette_configuration_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                (
+                    "save",
+                    "Save changed settings",
+                    "Select live KDE changes, validate, commit, and push",
+                ),
+                (
+                    "save-panel",
+                    "Save panel and palette",
+                    "Capture the taskbar, launcher, appearance, and shortcuts",
+                ),
+                (
+                    "save-spectacle",
+                    "Save Spectacle",
+                    "Capture screenshot preferences and keyboard shortcuts",
+                ),
+                (
+                    "diff",
+                    "Review KDE drift",
+                    "Compare portable live settings against dotfiles with Delta",
+                ),
+                (
+                    "capture",
+                    "Capture KDE without committing",
+                    "Copy all allowlisted live settings into the repository",
+                ),
+                (
+                    "capture-selected",
+                    "Capture selected KDE files",
+                    "Choose one or more allowlisted live files without committing",
+                ),
+                (
+                    "apply",
+                    "Restore KDE from dotfiles",
+                    "Safely apply the reviewed repository configuration",
+                ),
+                (
+                    "force",
+                    "Force-restore KDE from dotfiles",
+                    "Back up and replace conflicting live KDE settings",
+                ),
+                (
+                    "rollback",
+                    "Restore a configuration backup",
+                    "Choose a previous automatic file backup",
+                ),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="configuration › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "rollback":
+            run_id = palette_backup_run_id(BACKUP_DIR, prompt="rollback › ")
+            if run_id and palette_confirm(
+                "Restore selected backup",
+                f"Replace current files with snapshot {run_id}",
+            ):
+                palette_execute(lambda: cmd_rollback(argparse.Namespace(run_id=run_id)))
+            continue
+        if action == "capture-selected":
+            selected = palette_kde_files(prompt="KDE files › ")
+            if selected:
+                palette_execute(
+                    lambda: cmd_capture_kde(argparse.Namespace(only=selected))
+                )
+            continue
+
+        def execute() -> None:
+            if action == "save":
+                cmd_save(argparse.Namespace(target=None, yes=False))
+            elif action == "save-panel":
+                cmd_save(argparse.Namespace(target="panel", yes=False))
+            elif action == "save-spectacle":
+                cmd_save(argparse.Namespace(target="spectacle", yes=False))
+            elif action == "diff":
+                cmd_diff_kde(argparse.Namespace())
+            elif action == "capture":
+                cmd_capture_kde(argparse.Namespace(only=None))
+            elif action == "apply":
+                palette_apply(profile, "kde")
+            elif action == "force":
+                if not palette_confirm(
+                    "Back up and replace live KDE settings",
+                    "Use the reviewed repository version despite local drift",
+                ):
+                    return
+                cmd_apply(
+                    argparse.Namespace(
+                        profile=profile,
+                        tags="kde",
+                        check=False,
+                        direct=False,
+                        force_kde=True,
+                    )
+                )
+
+        palette_execute(execute)
+
+
+def palette_neovim_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                (
+                    "status",
+                    "Test current configuration",
+                    "Run the headless runtime, parser, mapping, and plugin smoke test",
+                ),
+                (
+                    "check",
+                    "Check plugin updates",
+                    "Test a candidate plugin graph without changing live state",
+                ),
+                (
+                    "update",
+                    "Update plugins",
+                    "Test, promote, sign, commit, and push the plugin lock",
+                ),
+                (
+                    "tools",
+                    "Update language tools",
+                    "Upgrade curated Mason servers, formatters, and linters",
+                ),
+                (
+                    "apply",
+                    "Repair Neovim installation",
+                    "Apply config, restore locked plugins, and install language tools",
+                ),
+                (
+                    "rollback",
+                    "Rollback plugins",
+                    "Choose, test, commit, and push a previous plugin lock",
+                ),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="Neovim › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "rollback":
+            run_id = palette_backup_run_id(NVIM_UPDATE_DIR, prompt="Neovim rollback › ")
+            if run_id and palette_confirm(
+                "Rollback Neovim plugins",
+                f"Restore, test, commit, and push lock {run_id}",
+            ):
+                palette_execute(
+                    lambda: cmd_nvim(
+                        argparse.Namespace(
+                            nvim_action="rollback",
+                            profile=profile,
+                            check=False,
+                            run_id=run_id,
+                        )
+                    )
+                )
+            continue
+
+        def execute() -> None:
+            if action == "apply":
+                palette_apply(profile, "nvim")
+            elif action == "tools":
+                update_nvim_tools()
+            else:
+                cmd_nvim(
+                    argparse.Namespace(
+                        nvim_action="status" if action == "status" else "update",
+                        profile=profile,
+                        check=action == "check",
+                        run_id=None,
+                    )
+                )
+
+        palette_execute(execute)
+
+
+def palette_repositories_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                (
+                    "sync",
+                    "Sync managed repositories",
+                    "Read the private Bitwarden manifest and clone or fetch repositories",
+                ),
+                (
+                    "add",
+                    "Add a package",
+                    "Choose a profile and provider, update its manifest, and optionally apply",
+                ),
+                (
+                    "inventory",
+                    "Show package inventory",
+                    "Print inherited packages and enabled features for a selected profile",
+                ),
+                (
+                    "git-status",
+                    "Show dotfiles Git status",
+                    "Display branch, upstream, staged, and working-tree state",
+                ),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="repositories › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "sync":
+            palette_execute(
+                lambda: cmd_repos_sync(argparse.Namespace(profile=profile))
+            )
+        elif action == "inventory":
+            selected_profile = palette_profile(include_common=True)
+            if selected_profile:
+                palette_execute(
+                    lambda: print(
+                        json.dumps(load_profile(selected_profile), indent=2)
+                    )
+                )
+        elif action == "git-status":
+            palette_execute(
+                lambda: run(["git", "status", "--short", "--branch"], cwd=ROOT)
+            )
+        elif action == "add":
+            package_name = palette_text("Package name")
+            if not package_name:
+                continue
+            selected_profile = palette_profile(include_common=True)
+            if not selected_profile:
+                continue
+            provider = fzf_menu(
+                [
+                    ("auto", "Automatic provider", "Use the canonical package catalog"),
+                    ("apt", "APT", "System library, desktop, driver, or integration"),
+                    ("brew", "Homebrew", "Modern shared Linux command-line tool"),
+                    ("snap", "Snap", "Curated desktop exception"),
+                    ("pkg", "Termux pkg", "Android Termux package"),
+                    ("winget", "Winget inventory", "Record a Windows package ID"),
+                    ("scoop", "Scoop inventory", "Record a Windows Scoop package"),
+                    (
+                        "psgallery",
+                        "PowerShell Gallery inventory",
+                        "Record a PowerShell module",
+                    ),
+                ],
+                prompt="provider › ",
+            )
+            if provider is None:
+                continue
+            mode = fzf_menu(
+                [
+                    ("apply", "Add and apply", "Update the manifest and install it now"),
+                    ("record", "Add only", "Update the manifest without installing"),
+                    ("cancel", "Cancel", "Do not modify the manifest"),
+                ],
+                prompt="package action › ",
+            )
+            if mode in (None, "cancel"):
+                continue
+            palette_execute(
+                lambda: cmd_package_add(
+                    argparse.Namespace(
+                        name=package_name,
+                        profile=selected_profile,
+                        provider=None if provider == "auto" else provider,
+                        no_apply=mode == "record",
+                    )
+                )
+            )
+
+
+def palette_gestures_menu() -> None:
+    while True:
+        action = fzf_menu(
+            [
+                ("status", "Show gesture status", "Check build, config, KWin effect, and issues"),
+                ("reload", "Reload gesture configuration", "Apply repository mappings immediately"),
+                ("enable", "Enable custom gestures", "Load InputActions and Windows-style mappings"),
+                ("disable", "Emergency-disable gestures", "Unload the custom KWin effect"),
+                ("back", "Back", "Return to the previous menu"),
+            ],
+            prompt="gestures › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "disable" and not palette_confirm(
+            "Disable custom gestures",
+            "Unload InputActions now; it can be enabled again from this menu",
+        ):
+            continue
+        palette_execute(
+            lambda: cmd_gestures(argparse.Namespace(gestures_action=action))
+        )
+
+
+def palette_services_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                ("tailscale-status", "Tailscale status", "Show tailnet connectivity and peers"),
+                ("tailscale-install", "Install or repair Tailscale", "Apply package, repository, and daemon"),
+                ("tailscale-up", "Join or reconnect Tailscale", "Open the explicit browser enrollment flow"),
+                ("tailscale-down", "Disconnect Tailscale", "Stop tailnet connectivity without removing state"),
+                ("docker-status", "Docker status", "Show daemon, Compose, and Buildx runtime information"),
+                ("docker-repair", "Install or repair Docker", "Apply native Engine, Compose, and Buildx"),
+                ("codex-status", "Codex Remote Control status", "Show the persistent user service"),
+                ("codex-install", "Install or repair Codex", "Install stable CLI and apply the service"),
+                ("codex-update", "Update Codex", "Upgrade the standalone stable CLI"),
+                ("vite-install", "Install or repair Vite+", "Install from the managed stable channel"),
+                ("vite-update", "Update Vite+", "Upgrade from the stable channel"),
+                ("gestures", "Touchpad gestures", "Status, reload, enable, or emergency-disable"),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="services › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "gestures":
+            palette_gestures_menu()
+            continue
+        if action == "tailscale-down" and not palette_confirm(
+            "Disconnect Tailscale",
+            "Keep the node enrolled but take this machine off the tailnet",
+        ):
+            continue
+
+        def execute() -> None:
+            if action == "tailscale-status":
+                cmd_tailscale(argparse.Namespace(tailscale_action="status"))
+            elif action == "tailscale-install":
+                palette_apply(profile, "tailscale")
+            elif action in {"tailscale-up", "tailscale-down"}:
+                cmd_tailscale(
+                    argparse.Namespace(
+                        tailscale_action=action.removeprefix("tailscale-")
+                    )
+                )
+            elif action == "docker-status":
+                run(["docker", "info"])
+                run(["docker", "compose", "version"])
+                run(["docker", "buildx", "version"])
+            elif action == "docker-repair":
+                palette_apply(profile, "docker")
+            elif action == "codex-status":
+                run(
+                    [
+                        "systemctl",
+                        "--user",
+                        "status",
+                        "--no-pager",
+                        "codex-remote-control.service",
+                    ]
+                )
+            elif action == "codex-install":
+                cmd_codex_install(argparse.Namespace())
+                palette_apply(profile, "codex")
+            elif action == "codex-update":
+                cmd_codex_update(argparse.Namespace())
+            elif action == "vite-install":
+                cmd_vite_plus_install(argparse.Namespace())
+            elif action == "vite-update":
+                cmd_vite_plus_update(argparse.Namespace())
+
+        palette_execute(execute)
+
+
+def palette_diagnostics_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                ("doctor", "Run complete doctor", "Inspect packages, services, credentials, KDE, and drift"),
+                ("tests", "Run validation suite", "Execute schemas, unit tests, shell tests, and safety scans"),
+                ("updates", "Check pending updates", "Read-only report across managed update providers"),
+                ("drift", "Review KDE drift", "Compare live allowlisted settings against dotfiles"),
+                ("nvim", "Test Neovim", "Run the managed headless smoke test"),
+                ("gestures", "Test gestures", "Validate InputActions build, effect, and configuration"),
+                ("services", "Show failed system services", "List failed system and user units"),
+                ("git", "Show dotfiles Git status", "Inspect branch, upstream, index, and worktree"),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="diagnostics › ",
+        )
+        if action in (None, "back"):
+            return
+
+        def execute() -> None:
+            if action == "doctor":
+                cmd_doctor(argparse.Namespace(profile=profile))
+            elif action == "tests":
+                run([str(ROOT / "tests/run")], cwd=ROOT)
+            elif action == "updates":
+                cmd_update(
+                    argparse.Namespace(
+                        profile=profile,
+                        system=False,
+                        apps=False,
+                        check=True,
+                    )
+                )
+            elif action == "drift":
+                cmd_diff_kde(argparse.Namespace())
+            elif action == "nvim":
+                cmd_nvim(
+                    argparse.Namespace(
+                        nvim_action="status",
+                        profile=profile,
+                        check=False,
+                        run_id=None,
+                    )
+                )
+            elif action == "gestures":
+                cmd_gestures(argparse.Namespace(gestures_action="status"))
+            elif action == "services":
+                run(["systemctl", "--failed", "--no-pager"], check=False)
+                run(["systemctl", "--user", "--failed", "--no-pager"], check=False)
+            elif action == "git":
+                run(["git", "status", "--short", "--branch"], cwd=ROOT)
+
+        palette_execute(execute)
+
+
+def palette_advanced_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                ("bootstrap", "Bootstrap a profile", "Check prerequisites, apply, and optionally provision secrets"),
+                ("secrets-sync", "Sync identity and SSH key", "Unlock Bitwarden and provision this device"),
+                (
+                    "secrets-sync-local",
+                    "Sync secrets without GitHub",
+                    "Provision local identity and key files without registering keys",
+                ),
+                ("secrets-init", "Initialize bootstrap note", "Create the private Bitwarden manifest from a local draft"),
+                ("repos", "Sync repositories", "Clone or fetch repositories from the private manifest"),
+                ("device", "Show device identity", "Display the stable logical device ID"),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="advanced › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "device":
+            palette_execute(
+                lambda: print(
+                    json.dumps(
+                        load_json(CONFIG_DIR / "device.json"),
+                        indent=2,
+                    )
+                )
+            )
+            continue
+        if action == "bootstrap":
+            selected_profile = palette_profile()
+            if not selected_profile:
+                continue
+            secret_mode = fzf_menu(
+                [
+                    ("secrets", "Bootstrap with secrets", "Provision identity, SSH, repositories, and profile"),
+                    ("skip", "Bootstrap without secrets", "Apply only public packages and configuration"),
+                    ("cancel", "Cancel", "Return without changing the machine"),
+                ],
+                prompt="bootstrap › ",
+            )
+            if secret_mode in (None, "cancel"):
+                continue
+            device = palette_text("Device ID", default=inferred_device_id())
+            palette_execute(
+                lambda: cmd_bootstrap(
+                    argparse.Namespace(
+                        profile=selected_profile,
+                        device=device,
+                        skip_secrets=secret_mode == "skip",
+                    )
+                )
+            )
+        elif action in {"secrets-sync", "secrets-sync-local"}:
+            device = palette_text("Device ID", default=inferred_device_id())
+            palette_execute(
+                lambda: cmd_secrets_sync(
+                    argparse.Namespace(
+                        profile=profile,
+                        device=device,
+                        no_register=action == "secrets-sync-local",
+                    )
+                )
+            )
+        elif action == "secrets-init":
+            draft = palette_text(
+                "Permission-locked bootstrap draft",
+                default=str(CONFIG_DIR / "bootstrap-draft.json"),
+            )
+            if draft and palette_confirm(
+                "Create the Bitwarden bootstrap note",
+                "This refuses to overwrite an existing dotfiles/bootstrap-v1 item",
+            ):
+                palette_execute(
+                    lambda: cmd_secrets_initialize(
+                        argparse.Namespace(draft=draft)
+                    )
+                )
+        elif action == "repos":
+            palette_execute(
+                lambda: cmd_repos_sync(argparse.Namespace(profile=profile))
+            )
+
+
 def cmd_palette() -> None:
     if not sys.stdin.isatty():
         raise DotError("The interactive command palette requires a terminal; use `dot --help`.")
-    rows = [
-        "Save configuration changes\tsave",
-        "Review configuration drift\tdiff",
-        "Apply Kubuntu profile\tapply",
-        "Update system and applications\tupdate",
-        "Manage Neovim\tneovim",
-        "Manage touchpad gestures\tgestures",
-        "Run Kubuntu doctor\tdoctor",
-        "Run validation suite\ttest",
-        "Exit\texit",
-    ]
-    choice = fzf_choose(
-        rows,
-        prompt="dot › ",
-        header="Type to filter  Enter: run  Esc: exit",
-    )
-    action = choice[0].split("\t", 1)[1] if choice else "exit"
-    if action == "save":
-        cmd_save(argparse.Namespace(target=None, yes=False))
-    elif action == "diff":
-        cmd_diff_kde(argparse.Namespace())
-    elif action == "apply":
-        cmd_apply(
-            argparse.Namespace(
-                profile="kubuntu-laptop",
-                tags=None,
-                check=False,
-                direct=False,
-                force_kde=False,
-            )
-        )
-    elif action == "update":
-        update_choice = fzf_choose(
+    try:
+        profile = update_profile(None)
+    except DotError:
+        profile = palette_profile() or ""
+    if not profile:
+        return
+    while True:
+        action = fzf_menu(
             [
-                "Update everything\tall",
-                "Update system packages only\tsystem",
-                "Update applications and tools only\tapps",
-                "Check for pending updates\tcheck",
+                ("update", "Update", "Update everything or choose an individual provider"),
+                ("apply", "Apply and repair", "Reconcile a full profile or one subsystem"),
+                ("configuration", "Save and configuration", "Capture, diff, apply, and rollback desktop settings"),
+                ("neovim", "Neovim", "Test, update, repair, or rollback the editor environment"),
+                ("repositories", "Repositories and packages", "Sync repos, add packages, and inspect manifests"),
+                ("services", "Network and services", "Tailscale, Docker, Codex, Vite+, and gestures"),
+                ("diagnostics", "Diagnostics", "Doctor, tests, drift, update checks, and service failures"),
+                ("advanced", "Bootstrap and secrets", "Device identity, Bitwarden, bootstrap, and repository setup"),
+                ("profile", "Switch active profile", f"Currently using {profile}"),
+                ("exit", "Exit", "Close the dot command palette"),
             ],
-            prompt="update › ",
-            header="Enter: run  Esc: return",
+            prompt=f"dot [{profile}] › ",
+            header="Type to filter  Enter: open  Esc: exit",
         )
-        if update_choice:
-            update_action = update_choice[0].split("\t", 1)[1]
-            cmd_update(
-                argparse.Namespace(
-                    profile="kubuntu-laptop",
-                    system=update_action == "system",
-                    apps=update_action == "apps",
-                    check=update_action == "check",
-                )
-            )
-    elif action == "gestures":
-        gesture_choice = fzf_choose(
-            [
-                "Show gesture status\tstatus",
-                "Reload gesture configuration\treload",
-                "Enable Windows-style gestures\tenable",
-                "Emergency-disable custom gestures\tdisable",
-            ],
-            prompt="gestures › ",
-            header="Enter: run  Esc: return",
-        )
-        if gesture_choice:
-            cmd_gestures(
-                argparse.Namespace(
-                    gestures_action=gesture_choice[0].split("\t", 1)[1]
-                )
-            )
-    elif action == "neovim":
-        nvim_choice = fzf_choose(
-            [
-                "Test the current configuration\tstatus",
-                "Check for plugin updates\tcheck",
-                "Update, test, commit, and push plugins\tupdate",
-            ],
-            prompt="Neovim › ",
-            header="Enter: run  Esc: return",
-        )
-        if nvim_choice:
-            nvim_action = nvim_choice[0].split("\t", 1)[1]
-            cmd_nvim(
-                argparse.Namespace(
-                    nvim_action="status" if nvim_action == "status" else "update",
-                    profile="kubuntu-laptop",
-                    check=nvim_action == "check",
-                    run_id=None,
-                )
-            )
-    elif action == "doctor":
-        cmd_doctor(argparse.Namespace(profile="kubuntu-laptop"))
-    elif action == "test":
-        run([str(ROOT / "tests/run")], cwd=ROOT)
+        if action in (None, "exit"):
+            return
+        if action == "profile":
+            profile = palette_profile() or profile
+        elif action == "update":
+            palette_update_menu(profile)
+        elif action == "apply":
+            palette_apply_menu(profile)
+        elif action == "configuration":
+            palette_configuration_menu(profile)
+        elif action == "neovim":
+            palette_neovim_menu(profile)
+        elif action == "repositories":
+            palette_repositories_menu(profile)
+        elif action == "services":
+            palette_services_menu(profile)
+        elif action == "diagnostics":
+            palette_diagnostics_menu(profile)
+        elif action == "advanced":
+            palette_advanced_menu(profile)
 
 
 def doctor_check(label: str, ok: bool, detail: str) -> bool:
@@ -3208,6 +4023,9 @@ def build_parser() -> argparse.ArgumentParser:
     nvim_status = nvim_sub.add_parser("status")
     nvim_status.add_argument("--profile")
     nvim_status.set_defaults(func=cmd_nvim, check=False, run_id=None)
+    nvim_tools = nvim_sub.add_parser("tools")
+    nvim_tools.add_argument("--profile")
+    nvim_tools.set_defaults(func=cmd_nvim, check=False, run_id=None)
     nvim_rollback = nvim_sub.add_parser("rollback")
     nvim_rollback.add_argument("run_id")
     nvim_rollback.add_argument("--profile")
@@ -3232,6 +4050,12 @@ def build_parser() -> argparse.ArgumentParser:
     vite_plus_install.set_defaults(func=cmd_vite_plus_install)
     vite_plus_update = vite_plus_sub.add_parser("update")
     vite_plus_update.set_defaults(func=cmd_vite_plus_update)
+    tailscale = sub.add_parser("tailscale")
+    tailscale.add_argument(
+        "tailscale_action",
+        choices=["status", "up", "down"],
+    )
+    tailscale.set_defaults(func=cmd_tailscale)
     gestures = sub.add_parser("gestures")
     gestures.add_argument(
         "gestures_action",

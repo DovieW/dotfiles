@@ -25,6 +25,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("gestures", result.stdout)
         self.assertIn("nvim", result.stdout)
         self.assertIn("save", result.stdout)
+        self.assertIn("tailscale", result.stdout)
         self.assertIn("update", result.stdout)
 
     def test_profiles_are_parseable(self):
@@ -317,8 +318,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"panel": {', text)
         self.assertIn('"Panel geometry and visibility"', text)
         self.assertIn('"Settings to save › "', text)
-        self.assertIn('"Save configuration changes\\tsave"', text)
-        self.assertIn('"Update system and applications\\tupdate"', text)
+        self.assertIn('"Save, validate, commit, and push"', text)
+        self.assertIn('"Capture selected KDE files"', text)
+        self.assertIn("palette_kde_files", text)
 
     def test_update_orchestrates_every_native_provider(self):
         cli = DOT.read_text()
@@ -336,8 +338,94 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("tags: [packages, app-updates]", playbook)
         self.assertIn("active_package_transactions", cli)
         self.assertIn('"linux": "kubuntu-laptop"', cli)
-        self.assertIn('"Update everything\\tall"', cli)
-        self.assertIn('"Check for pending updates\\tcheck"', cli)
+        self.assertIn('"Update everything"', cli)
+        self.assertIn('"Check for pending updates"', cli)
+        self.assertIn("update_nvim_tools()", cli)
+        self.assertIn("[config, shell, tmux, app-updates]", playbook)
+
+    def test_palette_uses_described_columns_and_exposes_every_workflow(self):
+        text = DOT.read_text()
+        self.assertIn('with_nth="2,3"', text)
+        self.assertIn("DESCRIPTION  ·  {header}", text)
+        for label in (
+            "Update",
+            "Apply and repair",
+            "Save and configuration",
+            "Neovim",
+            "Repositories and packages",
+            "Network and services",
+            "Diagnostics",
+            "Bootstrap and secrets",
+            "Switch active profile",
+        ):
+            self.assertIn(f'"{label}"', text)
+        for action in (
+            "Update Neovim language tools",
+            "Update Tmux plugins",
+            "Add a package",
+            "Sync managed repositories",
+            "Install or repair Tailscale",
+            "Sync secrets without GitHub",
+            "Restore a configuration backup",
+            "Rollback plugins",
+        ):
+            self.assertIn(f'"{action}"', text)
+
+    def test_palette_renders_description_column_and_can_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            menu_log = root / "menu.log"
+            args_log = root / "args.log"
+            fake_fzf = fake_bin / "fzf"
+            fake_fzf.write_text(
+                "#!/bin/sh\n"
+                'printf "%s\\n" "$@" > "$DOT_TEST_FZF_ARGS"\n'
+                'rows="$(mktemp)"\n'
+                'trap \'rm -f "$rows"\' EXIT\n'
+                'tee "$DOT_TEST_FZF_LOG" > "$rows"\n'
+                "awk -F '\\t' '$1 == \"exit\" { print; found=1; exit } "
+                "END { if (!found) exit 1 }' \"$rows\"\n"
+            )
+            fake_fzf.chmod(0o755)
+            env = os.environ.copy()
+            env["HOME"] = str(root / "home")
+            env["XDG_CONFIG_HOME"] = str(root / "config")
+            env["XDG_STATE_HOME"] = str(root / "state")
+            env["DOT_TEST_FZF_LOG"] = str(menu_log)
+            env["DOT_TEST_FZF_ARGS"] = str(args_log)
+            env["PATH"] = os.pathsep.join(
+                [
+                    str(fake_bin),
+                    "/home/linuxbrew/.linuxbrew/bin",
+                    "/usr/bin",
+                    "/bin",
+                ]
+            )
+            pid, fd = pty.fork()
+            if pid == 0:
+                os.execve(str(DOT), [str(DOT)], env)
+            output = bytearray()
+            while True:
+                try:
+                    chunk = os.read(fd, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+            _, status = os.waitpid(pid, 0)
+            os.close(fd)
+            self.assertEqual(
+                os.waitstatus_to_exitcode(status),
+                0,
+                output.decode(errors="replace"),
+            )
+            rows = menu_log.read_text()
+            self.assertIn("exit\tExit", rows)
+            self.assertIn("Close the dot command palette", rows)
+            self.assertIn("--with-nth=2,3", args_log.read_text())
 
     def test_native_plasma_panel_and_application_palette_are_managed(self):
         cli = DOT.read_text()

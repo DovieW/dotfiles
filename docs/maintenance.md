@@ -46,12 +46,33 @@ dot update --profile kubuntu-laptop --apps
 On Kubuntu, the shorter `dot update` form infers the `kubuntu-laptop` profile.
 WSL requires an explicit personal or work profile because both are valid there.
 
-The same scopes are available under **Update system and applications** in the
-fzf command palette. The default updates all installed APT packages, all Snaps,
-all Homebrew formulae, managed external Debian applications, and supported
-stable-channel tools such as Codex, Vite+, and InputActions. A package-manager
-transaction already in progress causes an actionable refusal instead of
-competing for native locks.
+The same scopes are available under **Update** in the fzf command palette.
+**Update everything** updates all installed APT packages, all Snaps, all
+Homebrew formulae, managed external Debian applications, Tmux plugins, Codex,
+Vite+, InputActions, Neovim plugins, and curated Mason language tools. A
+package-manager transaction already in progress causes an actionable refusal
+instead of competing for native locks.
+
+## Interactive command palette
+
+Run `dot` anywhere to open the main interface. Each FZF row has an action name
+on the left and a plain-language description on the right. Type to filter,
+press Enter to open or run an item, and press Escape to return one level. The
+active profile appears in the prompt and can be switched from the main menu.
+
+The palette exposes the complete routine interface:
+
+- updates, from the whole machine down to one provider or tool;
+- full and tagged apply or repair operations;
+- KDE save, selective capture, drift review, apply, and rollback;
+- Neovim tests, plugin checks and updates, Mason tools, repair, and rollback;
+- repository sync, package manifests, Tailscale, Docker, Codex, Vite+, and
+  gestures;
+- doctor, validation, failed-service, and Git diagnostics;
+- device identity, bootstrap, Bitwarden secret provisioning, and repository
+  restoration.
+
+The explicit command-line forms remain available for scripts and remote work.
 
 ### Neovim plugins
 
@@ -61,6 +82,7 @@ Normal application updates include Neovim plugins:
 dot nvim status --profile kubuntu-laptop
 dot nvim update --profile kubuntu-laptop --check
 dot nvim update --profile kubuntu-laptop
+dot nvim tools --profile kubuntu-laptop
 ```
 
 The update never experiments in the live editor. It copies the configuration
@@ -79,7 +101,9 @@ rollback ID:
 dot nvim rollback RUN_ID --profile kubuntu-laptop
 ```
 
-Rollback restores the previous lock, reconciles and retests the live plugins,
+`dot nvim tools` upgrades the curated Mason-managed language servers,
+formatters, and linters, then runs the same headless smoke test. Rollback
+restores the previous lock, reconciles and retests the live plugins,
 then commits and pushes the result. Plugin source and Mason packages remain
 machine-local under Neovim's standard data directory.
 
@@ -192,7 +216,7 @@ For routine changes, open the fzf command palette:
 dot
 ```
 
-Choose **Save configuration changes**. The next fzf view lists only drifted
+Choose **Save and configuration → Save changed settings**. The next fzf view lists only drifted
 managed files, supports multi-selection, and shows a live Delta preview.
 Choose **Save, validate, commit, and push** to finish the complete workflow.
 Unrelated unstaged repository work is preserved, while an already-dirty

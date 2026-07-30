@@ -55,7 +55,10 @@ dot diff kde
 dot rollback RUN_ID
 ```
 
-Run `dot` with no arguments for the fzf command palette. Its save workflow
+Run `dot` with no arguments for the complete fzf command palette. Every item
+has an aligned description column, every submenu returns with Escape, and all
+routine update, apply, save, editor, repository, service, diagnostic, and
+bootstrap workflows are reachable without memorizing flags. Its save workflow
 shows only changed managed files, provides a Delta preview, supports
 multi-selection, validates, creates a signed commit, and pushes:
 
@@ -66,9 +69,10 @@ dot
 `dot save` opens that workflow directly. `dot save spectacle` limits the
 selector to Spectacle preferences and keyboard shortcuts.
 
-Choose **Update system and applications** in the palette, or run `dot update`,
-to coordinate all installed APT, Snap, Homebrew, external-Debian, Codex,
-Vite+, and tested Neovim plugin updates through their native stable providers.
+Choose **Update → Update everything** in the palette, or run `dot update`,
+to coordinate all installed APT, Snap, Homebrew, external-Debian, Tmux, Codex,
+Vite+, tested Neovim plugin, and curated Mason-tool updates through their
+native stable providers.
 Use `--system` or `--apps`
 for one category and `--check` for a read-only report. `dot apply` remains the
 separate operation that reconciles the declared package manifest.
