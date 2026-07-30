@@ -446,6 +446,7 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("plugin=org.kde.plasma.showdesktop", panel)
         self.assertIn("AppletOrder=3;28;5;29;7;22", panel)
         self.assertIn("middleClickAction=Close", panel)
+        self.assertIn("onlyGroupWhenFull=false", panel)
         self.assertIn("showOnlyCurrentDesktop=true", panel)
         self.assertIn("panelLengthMode=0", geometry)
         self.assertIn("panelVisibility=1", geometry)

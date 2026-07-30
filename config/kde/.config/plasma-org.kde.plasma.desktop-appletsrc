@@ -96,6 +96,7 @@ groupPopups=true
 groupingStrategy=1
 launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop
 middleClickAction=Close
+onlyGroupWhenFull=false
 separateLaunchers=false
 showOnlyCurrentDesktop=true
 showOnlyCurrentScreen=false
