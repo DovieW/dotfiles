@@ -181,15 +181,22 @@ replaced destination is backed up before a managed copy is installed, so KDE
 and applications cannot mutate the repository during normal use.
 
 The Kubuntu power policy never suspends automatically on AC, battery, or low
-battery, and closing the lid does nothing. Pressing the physical power button
-still suspends, as do explicit Sleep actions in the UI. PowerDevil owns the
-live desktop behavior; a matching systemd-logind drop-in is the fallback if
-PowerDevil is unavailable. Display topology remains host-local.
+battery, and closing the lid does not suspend. Pressing the physical power
+button still suspends, as do explicit Sleep actions in the UI. PowerDevil owns
+the live desktop behavior; a matching systemd-logind drop-in is the fallback
+if PowerDevil is unavailable. Display topology remains host-local.
 
 Performance policy is profile-specific: AC uses performance, battery uses
 balanced, and low battery uses power-saver. Display brightness is set to 100%
 on AC and regular battery. At 20% charge or below, PowerDevil selects the low
-battery profile and sets display brightness to 40%. Kubuntu installs the NVIDIA
+battery profile and sets display brightness to 40%. The event-driven
+`dot-lid-power` graphical-session service temporarily forces power-saver
+whenever the lid is closed. On opening, it restores performance on AC,
+balanced on battery above 20%, or power-saver at 20% and below. This lowers
+heat and power draw while closed without changing the deliberate no-sleep
+policy; manually suspend before putting the running laptop in a bag.
+
+Kubuntu installs the NVIDIA
 desktop driver currently marked recommended by `ubuntu-drivers`, without
 hard-coding a driver branch, and keeps hybrid graphics in PRIME on-demand mode
 so Intel drives the desktop while NVIDIA remains available for explicit workloads. On the

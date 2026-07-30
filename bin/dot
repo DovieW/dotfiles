@@ -914,7 +914,8 @@ def apply_direct(
             ROOT / "config/flameshot/hereshot": Path.home() / ".local/bin/hereshot",
         }
         for source, destination in desktop_mappings.items():
-            changes += int(copy_managed_file(source, destination))
+            file_changed = copy_managed_file(source, destination)
+            changes += int(file_changed)
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"], check=False)
         if command_exists("qdbus6"):
@@ -980,6 +981,35 @@ def apply_direct(
                     check=False,
                     env=os.environ.copy(),
                 )
+    if features.get("lid_power_saver") and selected("power", "kde"):
+        lid_mappings = {
+            ROOT / "config/power/dot-lid-power": Path.home()
+            / ".local/bin/dot-lid-power",
+            ROOT / "config/systemd/user/dot-lid-power.service": Path.home()
+            / ".config/systemd/user/dot-lid-power.service",
+        }
+        lid_files_changed = False
+        for source, destination in lid_mappings.items():
+            file_changed = copy_managed_file(source, destination)
+            changes += int(file_changed)
+            lid_files_changed = lid_files_changed or file_changed
+        if command_exists("systemctl"):
+            unit_name = "dot-lid-power.service"
+            run(["systemctl", "--user", "daemon-reload"])
+            enabled = run(
+                ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            active = run(
+                ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            if not enabled:
+                run(["systemctl", "--user", "enable", "--now", unit_name])
+                changes += 1
+            elif not active or lid_files_changed:
+                run(["systemctl", "--user", "restart", unit_name])
+                changes += int(not active)
     if (features.get("wsl") or features.get("kde")) and selected("docker"):
         for tool in ("clogs", "cshell", "cycle"):
             source = ROOT / "config/docker/bin" / tool
@@ -4263,6 +4293,35 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if logind_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        if profile.get("features", {}).get("lid_power_saver"):
+            lid_unit = "dot-lid-power.service"
+            lid_enabled = run(
+                ["systemctl", "--user", "is-enabled", "--quiet", lid_unit],
+                check=False,
+            ).returncode == 0
+            lid_active = run(
+                ["systemctl", "--user", "is-active", "--quiet", lid_unit],
+                check=False,
+            ).returncode == 0
+            failures += not doctor_check(
+                "lid power-saver service",
+                lid_enabled and lid_active,
+                "enabled and active"
+                if lid_enabled and lid_active
+                else "run dot apply --profile kubuntu-laptop --tags kde",
+            )
+            lid_status = run(
+                [str(Path.home() / ".local/bin/dot-lid-power"), "status"],
+                check=False,
+                capture=True,
+                timeout=5,
+            )
+            lid_detail = (lid_status.stdout or lid_status.stderr).strip()
+            failures += not doctor_check(
+                "lid-aware power profile",
+                lid_status.returncode == 0,
+                lid_detail or "the lid power controller could not read system state",
+            )
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
         ghostty_config = Path.home() / ".config/ghostty/config"

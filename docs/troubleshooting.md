@@ -68,11 +68,30 @@ setup intentionally does not run `kscreen-doctor` or replace KScreen state.
 
 The managed policy ignores lid closure and disables automatic suspend for AC,
 battery, and low-battery profiles. It preserves manual Sleep and the physical
-power button. Apply both the live PowerDevil policy and the system fallback:
+power button. While closed, the managed user service selects power-saver to
+reduce heat and power draw; it restores the appropriate AC or battery profile
+when the lid opens. Apply the live PowerDevil policy, lid controller, and
+system fallback:
 
 ```bash
 dot apply --profile kubuntu-laptop --tags kde
 ```
+
+To repair only the event-driven lid controller without replacing KDE state or
+requiring administrator access:
+
+```bash
+dot apply --profile kubuntu-laptop --tags power
+```
+
+Verify both no-sleep behavior and the current lid-aware power choice with:
+
+```bash
+dot doctor --profile kubuntu-laptop
+```
+
+This is not a substitute for suspend: manually sleep the laptop before putting
+it in a bag.
 
 ## Custom touchpad gestures fail or destabilize KWin
 

@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly threshold="${DOT_LID_POWER_LOW_THRESHOLD:-20}"
+readonly busctl_command="${DOT_LID_POWER_BUSCTL:-busctl}"
+readonly powerprofiles_command="${DOT_LID_POWER_POWERPROFILESCTL:-powerprofilesctl}"
+readonly upower_command="${DOT_LID_POWER_UPOWER:-upower}"
+
+read_property() {
+  local object_path="$1"
+  local interface="$2"
+  local property="$3"
+
+  "$busctl_command" get-property \
+    org.freedesktop.UPower \
+    "$object_path" \
+    "$interface" \
+    "$property" |
+    awk 'NF >= 2 { print $2; exit }'
+}
+
+lid_is_closed() {
+  read_property \
+    /org/freedesktop/UPower \
+    org.freedesktop.UPower \
+    LidIsClosed
+}
+
+on_battery() {
+  read_property \
+    /org/freedesktop/UPower \
+    org.freedesktop.UPower \
+    OnBattery
+}
+
+battery_percentage() {
+  read_property \
+    /org/freedesktop/UPower/devices/DisplayDevice \
+    org.freedesktop.UPower.Device \
+    Percentage
+}
+
+desired_profile() {
+  local lid battery percentage
+  lid="$(lid_is_closed)"
+  battery="$(on_battery)"
+  percentage="$(battery_percentage)"
+
+  if [[ "$lid" == "true" ]]; then
+    printf '%s\n' power-saver
+  elif [[ "$battery" != "true" ]]; then
+    printf '%s\n' performance
+  elif awk -v percentage="$percentage" -v threshold="$threshold" \
+    'BEGIN { exit !(percentage <= threshold) }'; then
+    printf '%s\n' power-saver
+  else
+    printf '%s\n' balanced
+  fi
+}
+
+state_summary() {
+  local lid battery percentage current expected
+  lid="$(lid_is_closed)"
+  battery="$(on_battery)"
+  percentage="$(battery_percentage)"
+  current="$("$powerprofiles_command" get)"
+  expected="$(desired_profile)"
+
+  printf 'lid=%s power=%s battery=%s%% profile=%s expected=%s\n' \
+    "$([[ "$lid" == "true" ]] && printf closed || printf open)" \
+    "$([[ "$battery" == "true" ]] && printf battery || printf AC)" \
+    "$percentage" \
+    "$current" \
+    "$expected"
+  [[ "$current" == "$expected" ]]
+}
+
+reconcile() {
+  local current expected
+  current="$("$powerprofiles_command" get)"
+  expected="$(desired_profile)"
+  if [[ "$current" != "$expected" ]]; then
+    printf 'dot-lid-power: changing profile %s -> %s\n' "$current" "$expected"
+    "$powerprofiles_command" set "$expected"
+  fi
+}
+
+watch_events() {
+  reconcile
+  while IFS= read -r _; do
+    # Let PowerDevil finish its own AC/battery transition, then enforce the
+    # lid-specific override. Repeated UPower events are harmless.
+    sleep 0.35
+    reconcile
+  done < <("$upower_command" --monitor)
+}
+
+case "${1:-}" in
+  reconcile)
+    reconcile
+    ;;
+  status)
+    state_summary
+    ;;
+  watch)
+    watch_events
+    ;;
+  *)
+    printf 'Usage: dot-lid-power {reconcile|status|watch}\n' >&2
+    exit 2
+    ;;
+esac

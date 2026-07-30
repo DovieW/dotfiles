@@ -704,6 +704,9 @@ class DotCliTests(unittest.TestCase):
 
     def test_kubuntu_never_sleeps_automatically(self):
         cli = DOT.read_text()
+        profile_data = json.loads(
+            (ROOT / "profiles/kubuntu-laptop.yml").read_text()
+        )
         powerdevil = (ROOT / "config/kde/.config/powerdevilrc").read_text()
         for profile in ("AC", "Battery", "LowBattery"):
             section = f"[{profile}][SuspendAndShutdown]"
@@ -735,8 +738,26 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("IdleAction=ignore", logind)
         self.assertIn('"restart", "plasma-powerdevil.service"', cli)
         self.assertIn('"live lid action"', cli)
+        self.assertTrue(profile_data["features"]["lid_power_saver"])
+        self.assertIn("power-profiles-daemon", profile_data["packages"]["apt"])
+        self.assertIn("upower", profile_data["packages"]["apt"])
+        lid_script = (ROOT / "config/power/dot-lid-power").read_text()
+        self.assertIn('if [[ "$lid" == "true" ]]', lid_script)
+        self.assertIn("power-saver", lid_script)
+        self.assertIn("performance", lid_script)
+        self.assertIn("balanced", lid_script)
+        self.assertIn('"$upower_command" --monitor', lid_script)
+        lid_unit = (
+            ROOT / "config/systemd/user/dot-lid-power.service"
+        ).read_text()
+        self.assertIn("PartOf=graphical-session.target", lid_unit)
+        self.assertIn("WantedBy=graphical-session.target", lid_unit)
+        self.assertIn("dot-lid-power watch", lid_unit)
+        self.assertIn('"lid power-saver service"', cli)
+        self.assertIn('"lid-aware power profile"', cli)
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
+        self.assertIn("git, kde, power, tmux", playbook)
 
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

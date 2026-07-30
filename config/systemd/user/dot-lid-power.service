@@ -1,0 +1,13 @@
+[Unit]
+Description=Use power-saver while the laptop lid is closed
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/dot-lid-power watch
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=graphical-session.target

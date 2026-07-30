@@ -9,6 +9,7 @@
     "firacode_nerd_font": true,
     "inputactions": true,
     "kde": true,
+    "lid_power_saver": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
     "tailscale": true,
@@ -25,7 +26,9 @@
       "konsole",
       "mpv",
       "plasma-workspace",
+      "power-profiles-daemon",
       "tailscale",
+      "upower",
       "xclip"
     ],
     "brew": ["lazydocker", "lazygit", "wl-clipboard"],
