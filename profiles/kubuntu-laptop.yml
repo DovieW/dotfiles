@@ -6,6 +6,7 @@
   "features": {
     "codex_remote_control": true,
     "docker_engine": true,
+    "factory_display_profile": true,
     "firacode_nerd_font": true,
     "inputactions": true,
     "kde": true,

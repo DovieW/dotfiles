@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Provision and apply the factory-calibrated internal-display policy."""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "config/display/lenovo-ideapad-pro-5-16iah10.json"
+KWIN_OUTPUTS = Path.home() / ".config/kwinoutputconfig.json"
+
+
+def run(
+    command: list[str],
+    *,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+
+
+def load_manifest() -> dict:
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def kwin_outputs() -> list[dict]:
+    if not KWIN_OUTPUTS.is_file():
+        return []
+    payload = json.loads(KWIN_OUTPUTS.read_text(encoding="utf-8"))
+    for section in payload:
+        if section.get("name") == "outputs":
+            return section.get("data", [])
+    return []
+
+
+def matched_output(manifest: dict) -> dict | None:
+    expected = manifest["panel"]
+    for output in kwin_outputs():
+        if (
+            output.get("connectorName") == expected["connector"]
+            and output.get("edidIdentifier") == expected["edid_identifier"]
+        ):
+            return output
+    return None
+
+
+def graphical_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    if shutil.which("systemctl"):
+        result = run(
+            ["systemctl", "--user", "show-environment"],
+            check=False,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    environment.setdefault(key, value)
+    environment.setdefault("QT_QPA_PLATFORM", "wayland")
+    return environment
+
+
+def windows_candidates(filename: str) -> list[Path]:
+    patterns = [
+        f"/mnt/c/Windows/System32/spool/drivers/color/{filename}",
+        f"/run/media/{os.environ.get('USER', '')}/*/Windows/System32/spool/drivers/color/{filename}",
+        f"/media/{os.environ.get('USER', '')}/*/Windows/System32/spool/drivers/color/{filename}",
+    ]
+    return [
+        Path(candidate)
+        for pattern in patterns
+        for candidate in glob.glob(pattern)
+        if Path(candidate).is_file()
+    ]
+
+
+def windows_device() -> str | None:
+    if not shutil.which("lsblk"):
+        return None
+    result = run(
+        ["lsblk", "-J", "-p", "-o", "NAME,LABEL,FSTYPE,MOUNTPOINTS"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    def walk(devices: list[dict]):
+        for device in devices:
+            yield device
+            yield from walk(device.get("children", []))
+
+    for device in walk(json.loads(result.stdout).get("blockdevices", [])):
+        if (
+            device.get("label") == "Windows-SSD"
+            and str(device.get("fstype", "")).lower() in {"ntfs", "ntfs3"}
+        ):
+            return device.get("name")
+    return None
+
+
+def mount_windows_read_only() -> tuple[Path | None, str | None]:
+    device = windows_device()
+    if not device or not shutil.which("udisksctl"):
+        return None, None
+    result = run(
+        ["udisksctl", "mount", "-b", device, "-o", "ro"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None, None
+    if shutil.which("findmnt"):
+        mounted = run(
+            ["findmnt", "-rn", "-S", device, "-o", "TARGET"],
+            check=False,
+        )
+        if mounted.returncode == 0 and mounted.stdout.strip():
+            return Path(mounted.stdout.strip().splitlines()[0]), device
+    return None, device
+
+
+def unmount_windows(device: str | None) -> None:
+    if device and shutil.which("udisksctl"):
+        run(["udisksctl", "unmount", "-b", device], check=False)
+
+
+def provision_factory_profile(manifest: dict) -> tuple[Path, bool]:
+    profile = manifest["factory_profile"]
+    target = Path(profile["install_path"]).expanduser()
+    if target.is_file() and target.stat().st_size:
+        return target, False
+
+    filename = profile["windows_filename"]
+    candidates = windows_candidates(filename)
+    mounted_device = None
+    try:
+        if not candidates:
+            mountpoint, mounted_device = mount_windows_read_only()
+            if mountpoint:
+                candidate = (
+                    mountpoint
+                    / "Windows/System32/spool/drivers/color"
+                    / filename
+                )
+                if candidate.is_file():
+                    candidates = [candidate]
+        if not candidates:
+            raise RuntimeError(
+                f"factory profile {filename} was not found in a mounted "
+                "Windows installation"
+            )
+        source = candidates[0]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+        try:
+            shutil.copyfile(source, temporary_path)
+            temporary_path.chmod(0o644)
+            temporary_path.replace(target)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return target, True
+    finally:
+        unmount_windows(mounted_device)
+
+
+def desired_state(manifest: dict, profile_path: Path) -> dict:
+    policy = manifest["policy"]
+    return {
+        "vrrPolicy": policy["adaptive_sync"],
+        "rgbRange": policy["rgb_range"],
+        "colorProfileSource": policy["color_profile_source"],
+        "colorPowerTradeoff": policy["color_power_tradeoff"],
+        "highDynamicRange": policy["hdr"],
+        "wideColorGamut": policy["wide_color_gamut"],
+        "maxBitsPerColor": policy["max_bits_per_color"],
+        "iccProfilePath": str(profile_path),
+    }
+
+
+def drift(output: dict, desired: dict, profile_path: Path) -> list[str]:
+    differences = []
+    if not profile_path.is_file() or not profile_path.stat().st_size:
+        differences.append(f"missing factory ICC profile at {profile_path}")
+    for key, expected in desired.items():
+        if output.get(key) != expected:
+            differences.append(f"{key}={output.get(key)!r}, expected {expected!r}")
+    return differences
+
+
+def apply_policy(manifest: dict, profile_path: Path, connector: str) -> None:
+    policy = manifest["policy"]
+    boolean = lambda value: "enable" if value else "disable"
+    max_bpc = (
+        "automatic"
+        if policy["max_bits_per_color"] == 0
+        else str(policy["max_bits_per_color"])
+    )
+    commands = [
+        f"output.{connector}.vrrpolicy.{policy['adaptive_sync'].lower()}",
+        f"output.{connector}.rgbrange.{policy['rgb_range'].lower()}",
+        f"output.{connector}.hdr.{boolean(policy['hdr'])}",
+        f"output.{connector}.wcg.{boolean(policy['wide_color_gamut'])}",
+        f"output.{connector}.maxbpc.{max_bpc}",
+        f"output.{connector}.colorPowerTradeoff.{policy['color_power_tradeoff']}",
+        f"output.{connector}.iccprofile.{profile_path}",
+        f"output.{connector}.colorProfileSource.{policy['color_profile_source']}",
+    ]
+    environment = graphical_environment()
+    if not environment.get("WAYLAND_DISPLAY") or not environment.get(
+        "XDG_RUNTIME_DIR"
+    ):
+        raise RuntimeError("no live Wayland session is available")
+    for command in commands:
+        result = run(
+            ["kscreen-doctor", command],
+            check=False,
+            env=environment,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f"kscreen-doctor rejected {command}: {detail}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--ensure", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    manifest = load_manifest()
+    output = matched_output(manifest)
+    if output is None:
+        print(
+            "SKIPPED display policy: the configured Lenovo OLED panel is not "
+            "present in KWin's host-local display state."
+        )
+        return 2
+
+    profile_path = Path(
+        manifest["factory_profile"]["install_path"]
+    ).expanduser()
+    desired = desired_state(manifest, profile_path)
+    differences = drift(output, desired, profile_path)
+    if args.check:
+        if differences:
+            print("DRIFT display policy: " + "; ".join(differences))
+            return 1
+        print(
+            "OK display policy: factory ICC, automatic VRR/link depth, "
+            "accuracy priority, and SDR are active."
+        )
+        return 0
+
+    changed = False
+    try:
+        profile_path, profile_changed = provision_factory_profile(manifest)
+        changed |= profile_changed
+        desired = desired_state(manifest, profile_path)
+        output = matched_output(manifest) or {}
+        if drift(output, desired, profile_path):
+            apply_policy(
+                manifest,
+                profile_path,
+                manifest["panel"]["connector"],
+            )
+            changed = True
+    except RuntimeError as error:
+        print(f"SKIPPED display policy: {error}")
+        return 2
+
+    output = matched_output(manifest) or {}
+    differences = drift(output, desired, profile_path)
+    if differences:
+        print("ERROR display policy: " + "; ".join(differences), file=sys.stderr)
+        return 1
+    prefix = "CHANGED" if changed else "OK"
+    print(
+        f"{prefix} display policy: factory ICC, automatic VRR/link depth, "
+        "accuracy priority, and SDR are active."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

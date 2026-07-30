@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "device": "Lenovo IdeaPad Pro 5 16IAH10",
+  "panel": {
+    "connector": "eDP-1",
+    "edid_identifier": "SDC 16900 0 0 2024 0",
+    "product_name": "ATNA60HR01-0",
+    "windows_monitor_id": "LEN8BAD"
+  },
+  "factory_profile": {
+    "windows_filename": "TPLCD_8BAD_Default.icm",
+    "install_path": "~/.local/share/color/icc/lenovo/LEN8BAD_Default.icm"
+  },
+  "policy": {
+    "adaptive_sync": "Automatic",
+    "rgb_range": "Automatic",
+    "color_profile_source": "ICC",
+    "color_power_tradeoff": "PreferAccuracy",
+    "hdr": false,
+    "wide_color_gamut": false,
+    "max_bits_per_color": 0
+  }
+}

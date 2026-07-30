@@ -59,7 +59,7 @@ flowchart LR
 
 | Area | What is managed |
 | --- | --- |
-| **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, power behavior, lock screen, Spectacle |
+| **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, factory OLED calibration, power behavior, lock screen, Spectacle |
 | **Terminal** | Ghostty, one persistent tmux session, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
 | **Development** | Git, Delta, fzf, Neovim, Docker Engine, Lazygit, Lazydocker, language tooling |
 | **Connectivity** | Tailscale on native Kubuntu; Windows-host networking for WSL |
@@ -182,9 +182,9 @@ dot doctor --profile kubuntu-laptop
 ```
 
 Doctor checks the package providers, shell, Git identity and signing, SSH-agent
-routing, Docker, Tailscale, KDE state, power policy, NVIDIA driver, touchpad,
-terminal, editor, fonts, lock screen, and Codex Remote Control. Failures include
-the command needed to repair them.
+routing, Docker, Tailscale, KDE state, factory display policy, power policy,
+NVIDIA driver, touchpad, terminal, editor, fonts, lock screen, and Codex Remote
+Control. Failures include the command needed to repair them.
 
 ## Opinionated by design
 

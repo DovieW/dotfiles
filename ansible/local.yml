@@ -263,7 +263,7 @@
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim]
+      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display]
 
     - name: Configure native application window frames
       ansible.builtin.command:

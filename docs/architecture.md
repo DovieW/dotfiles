@@ -184,7 +184,25 @@ The Kubuntu power policy never suspends automatically on AC, battery, or low
 battery, and closing the lid does not suspend. Pressing the physical power
 button still suspends, as do explicit Sleep actions in the UI. PowerDevil owns
 the live desktop behavior; a matching systemd-logind drop-in is the fallback
-if PowerDevil is unavailable. Display topology remains host-local.
+if PowerDevil is unavailable.
+
+Display topology remains host-local: connector positions, external monitors,
+and KScreen UUIDs are never copied into Git. The Kubuntu laptop profile does,
+however, own a hardware-matched internal-panel policy. It recognizes the
+IdeaPad's Samsung `ATNA60HR01-0` OLED by EDID, copies Lenovo's X-Rite
+`LEN8BAD_Default` ICC profile from Windows, and applies it through KWin. The
+proprietary profile itself remains machine-local under
+`~/.local/share/color/icc/lenovo`.
+
+The panel policy uses automatic Adaptive Sync, automatic RGB range, automatic
+link color depth, and KWin's color-accuracy preference. HDR and wide-gamut HDR
+output remain disabled for the normal desktop because this Plasma version
+cannot combine the factory ICC with HDR; calibrated SDR is the consistent
+daily-use mode. KScreen's “automatic” color-resolution readout describes
+negotiated transport/compositor precision and may show a 12-bit ceiling even
+though the panel EDID describes a native 10-bit panel. Running
+`dot apply --profile kubuntu-laptop --tags display` reprovisions this policy
+without replacing host-local geometry.
 
 Performance policy is profile-specific: AC uses performance, battery uses
 balanced, and low battery uses power-saver. Display brightness is set to 100%

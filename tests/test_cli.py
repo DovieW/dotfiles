@@ -1006,6 +1006,46 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("nvidia-driver-595", role)
         self.assertIn('"gpu",', cli)
 
+    def test_kubuntu_manages_factory_internal_display_policy(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        manifest = json.loads(
+            (
+                ROOT
+                / "config/display/lenovo-ideapad-pro-5-16iah10.json"
+            ).read_text()
+        )
+        display = (ROOT / "scripts/configure-display").read_text()
+        cli = DOT.read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+
+        self.assertTrue(profile["features"]["factory_display_profile"])
+        self.assertEqual(
+            manifest["panel"]["edid_identifier"],
+            "SDC 16900 0 0 2024 0",
+        )
+        self.assertEqual(
+            manifest["factory_profile"]["windows_filename"],
+            "TPLCD_8BAD_Default.icm",
+        )
+        self.assertEqual(manifest["policy"]["adaptive_sync"], "Automatic")
+        self.assertEqual(manifest["policy"]["rgb_range"], "Automatic")
+        self.assertEqual(manifest["policy"]["color_profile_source"], "ICC")
+        self.assertEqual(
+            manifest["policy"]["color_power_tradeoff"],
+            "PreferAccuracy",
+        )
+        self.assertFalse(manifest["policy"]["hdr"])
+        self.assertFalse(manifest["policy"]["wide_color_gamut"])
+        self.assertEqual(manifest["policy"]["max_bits_per_color"], 0)
+        self.assertIn('"udisksctl", "mount"', display)
+        self.assertIn('"kscreen-doctor", command', display)
+        self.assertIn("colorProfileSource", display)
+        self.assertIn("maxbpc", display)
+        self.assertIn('"factory_display_profile"', cli)
+        self.assertIn('"Internal OLED display"', cli)
+        self.assertIn('"internal display policy"', cli)
+        self.assertIn("tmux, nvim, display", playbook)
+
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
         config = (ROOT / "config/tmux/tmux.conf").read_text()

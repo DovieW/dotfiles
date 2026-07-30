@@ -62,7 +62,19 @@ repository copy should intentionally replace the live file. The replaced file
 is backed up for rollback.
 
 Log out and back in after restoring panel or shortcut configuration. Portable
-setup intentionally does not run `kscreen-doctor` or replace KScreen state.
+setup never replaces KScreen topology. Repair the Kubuntu laptop's separately
+managed internal-display policy without touching geometry:
+
+```bash
+dot apply --profile kubuntu-laptop --tags display
+dot doctor --profile kubuntu-laptop
+```
+
+The display action identifies the built-in Samsung OLED by EDID, temporarily
+mounts the `Windows-SSD` volume read-only when necessary, copies Lenovo's
+factory ICC profile, and unmounts a volume it mounted itself. If Windows is
+unavailable, the action reports a clear skip rather than installing a generic
+or incorrect profile.
 
 ### A taskbar profile does not match its description
 

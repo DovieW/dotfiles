@@ -1297,6 +1297,21 @@ def apply_direct(
                     check=False,
                     env=os.environ.copy(),
                 )
+    if features.get("factory_display_profile") and selected("display"):
+        display = run(
+            [str(ROOT / "scripts/configure-display"), "--ensure"],
+            check=False,
+            capture=True,
+        )
+        if display.stdout:
+            print(display.stdout, end="")
+        if display.returncode not in {0, 2}:
+            raise DotError(
+                display.stderr.strip()
+                or display.stdout.strip()
+                or "Factory display policy failed."
+            )
+        changes += display.stdout.count("CHANGED ")
     if features.get("lid_power_saver") and selected("power", "kde"):
         lid_mappings = {
             ROOT / "config/power/dot-lid-power": Path.home()
@@ -3543,6 +3558,11 @@ def palette_apply_menu(profile: str) -> None:
         ("config", "Portable configuration", "Repair managed links and copied application settings"),
         ("kde", "KDE desktop", "Apply captured Plasma, shortcuts, panel, and power settings"),
         (
+            "display",
+            "Internal OLED display",
+            "Apply factory ICC, automatic VRR/link depth, accurate SDR, and RGB policy",
+        ),
+        (
             "panel",
             "Selected taskbar profile",
             f"Rebuild {active_panel_profile()} including the saved System Tray policy",
@@ -4776,7 +4796,27 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             kde_session,
             session or ("plasma-plasmashell.service active" if plasma_session_active else "unknown"),
         )
-        failures += not doctor_check("display state", True, "host-local; portable kscreen state is intentionally excluded")
+        if profile.get("features", {}).get("factory_display_profile"):
+            display_policy = run(
+                [str(ROOT / "scripts/configure-display"), "--check"],
+                check=False,
+                capture=True,
+            )
+            display_detail = (
+                display_policy.stdout.strip()
+                or display_policy.stderr.strip()
+                or "factory display policy check returned no detail"
+            )
+            failures += not doctor_check(
+                "internal display policy",
+                display_policy.returncode == 0,
+                display_detail.removeprefix("OK display policy: "),
+            )
+        failures += not doctor_check(
+            "display topology",
+            True,
+            "host-local; connector positions remain intentionally excluded",
+        )
         panel_layout_path = Path.home() / ".config/plasma-org.kde.plasma.desktop-appletsrc"
         panel_layout = panel_layout_path.read_text(encoding="utf-8") if panel_layout_path.exists() else ""
         selected_panel_profile = active_panel_profile()
