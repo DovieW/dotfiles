@@ -612,6 +612,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Overview=Meta+Tab\\tMeta+W", shortcuts)
         self.assertIn("Walk Through Windows=Alt+Tab", shortcuts)
         self.assertIn("Walk Through Windows (Reverse)=Alt+Shift+Tab", shortcuts)
+        self.assertIn(
+            "_launch=Ctrl+Shift+Esc,none,System Monitor",
+            shortcuts,
+        )
         self.assertIn("manage activities=none,Meta+Q", shortcuts)
         self.assertIn("sync_managed_kglobal_shortcuts()", cli)
         self.assertIn("org.kde.KGlobalAccel.setShortcut", cli)
@@ -621,6 +625,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Window Quick Tile Top"', cli)
         self.assertIn('"Overview"', cli)
         self.assertIn('"Walk Through Windows"', cli)
+        self.assertIn('"org.kde.plasma-systemmonitor.desktop"', cli)
+        self.assertIn("117440512", cli)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
         self.assertIn("hidecursorEnabled=true", kwin)
@@ -777,7 +783,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(
             "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
             "ghostty-all-desktops,system-settings-ephemeral,"
-            "bitwarden-ephemeral",
+            "bitwarden-ephemeral,system-monitor-ephemeral",
             rules,
         )
         self.assertIn("[emoji-selector-ephemeral]", rules)
@@ -794,6 +800,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclass=systemsettings", rules)
         self.assertIn("[bitwarden-ephemeral]", rules)
         self.assertIn("wmclass=bitwarden", rules)
+        self.assertIn("[system-monitor-ephemeral]", rules)
+        self.assertIn("wmclass=org.kde.plasma-systemmonitor", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-dolphin-launch.service", script)

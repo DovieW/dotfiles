@@ -909,6 +909,12 @@ def sync_managed_kglobal_shortcuts() -> None:
         "KWin",
         "Quick Tile Window to the Top",
     )
+    system_monitor = (
+        "org.kde.plasma-systemmonitor.desktop",
+        "_launch",
+        "System Monitor",
+        "System Monitor",
+    )
     desired = {
         activity_switcher: [0],
         # Qt::META | Qt::Key_Q, followed by the retained Alt+F4 binding.
@@ -922,6 +928,8 @@ def sync_managed_kglobal_shortcuts() -> None:
         # Assign this after releasing Meta+Tab from window cycling.
         # Meta+W remains available as a secondary binding.
         overview: [285212673, 268435543],
+        # Windows-style Task Manager / Resource Monitor shortcut.
+        system_monitor: [117440512],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     try:
@@ -5168,11 +5176,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             and "Walk Through Windows (Reverse)=Alt+Shift+Tab" in shortcuts
             and "Window Maximize=Meta+Up\\tMeta+PgUp" in shortcuts
             and "Window Quick Tile Top=,Meta+Up" in shortcuts
+            and "_launch=Ctrl+Shift+Esc,none,System Monitor" in shortcuts
         )
         failures += not doctor_check(
             "desktop palette shortcuts",
             shortcuts_ok,
-            "Meta opens the launcher; Meta+Tab opens Overview; Meta+Up maximizes"
+            "Meta opens the launcher; Meta+Tab opens Overview; "
+            "Meta+Up maximizes; Ctrl+Shift+Esc opens System Monitor"
             if shortcuts_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
@@ -5286,6 +5296,26 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             bitwarden_ephemeral_ok,
             "absent from the taskbar, pager, and Alt+Tab"
             if bitwarden_ephemeral_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        system_monitor_ephemeral_ok = all(
+            value in dolphin_rules
+            for value in (
+                "[system-monitor-ephemeral]",
+                "wmclass=org.kde.plasma-systemmonitor",
+                "skippager=true",
+                "skippagerrule=2",
+                "skipswitcher=true",
+                "skipswitcherrule=2",
+                "skiptaskbar=true",
+                "skiptaskbarrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "System Monitor window rule",
+            system_monitor_ephemeral_ok,
+            "Ctrl+Shift+Esc; absent from the taskbar, pager, and Alt+Tab"
+            if system_monitor_ephemeral_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         ghostty_desktops_ok = all(

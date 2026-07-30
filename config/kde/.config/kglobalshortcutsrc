@@ -242,6 +242,10 @@ powerProfile=Battery\tMeta+B,Battery\tMeta+B,Switch Power Profile
 _k_friendly_name=KRunner
 _launch=Alt+Space\tAlt+F2,Alt+Space\tAlt+F2,KRunner
 
+[org_kde_plasma-systemmonitor_desktop]
+_k_friendly_name=System Monitor
+_launch=Ctrl+Shift+Esc,none,System Monitor
+
 [org_kde_dolphin_desktop]
 _k_friendly_name=Dolphin
 _launch=none,Meta+E,Dolphin

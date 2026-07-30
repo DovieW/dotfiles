@@ -7,6 +7,7 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 export VP_HOME="${VP_HOME:-$HOME/.vite-plus}"
 export CLICOLOR=1
+unset NO_COLOR
 
 dot_fzf_config="${XDG_CONFIG_HOME}/fzf/fzfrc"
 if [ -r "$dot_fzf_config" ]; then
