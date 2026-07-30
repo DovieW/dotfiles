@@ -462,6 +462,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("_launch=Alt+Space\\tAlt+F2", shortcuts)
         self.assertIn("activate application launcher=Meta\\tAlt+F1", shortcuts)
         self.assertIn("Show Desktop=Meta+D", shortcuts)
+        self.assertIn("Window Close=Meta+Q\\tAlt+F4", shortcuts)
+        self.assertIn("manage activities=none,Meta+Q", shortcuts)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
