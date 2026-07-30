@@ -57,6 +57,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('panel.lengthMode = cfg.length_mode', cli)
         self.assertIn('panel.floating = cfg.floating', cli)
         self.assertIn('ds[i].wallpaperPlugin = "org.kde.color"', cli)
+        self.assertIn(
+            '.dotfiles-never-show-desktop-icons',
+            cli,
+        )
+        self.assertIn('return False, "widget order does not match"', cli)
 
     def test_panel_list_uses_classic_as_the_host_default(self):
         with tempfile.TemporaryDirectory() as directory:

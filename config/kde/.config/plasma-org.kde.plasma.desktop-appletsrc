@@ -17,6 +17,10 @@ location=0
 plugin=org.kde.desktopcontainment
 wallpaperplugin=org.kde.color
 
+[Containments][1][General]
+filterMode=1
+filterPattern=.dotfiles-never-show-desktop-icons
+
 [Containments][1][Wallpaper][org.kde.color][General]
 Color=0,0,0
 

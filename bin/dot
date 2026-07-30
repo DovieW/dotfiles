@@ -2985,8 +2985,8 @@ def panel_profile_script(profile_name: str) -> str:
     return f"""
 const cfg = {data};
 const launchers = cfg.launchers;
-let ps = panels();
-let panel = ps.length ? ps[0] : new Panel;
+const oldPanels = panels();
+const panel = new Panel;
 panel.location = "bottom";
 panel.hiding = "autohide";
 panel.alignment = "center";
@@ -2999,26 +2999,15 @@ if (cfg.length_mode === "custom") {{
     panel.maximumLength = cfg.length;
 }}
 
-function widgetsOf(type) {{
-    let found = [];
-    const ids = panel.widgetIds;
-    for (let i = 0; i < ids.length; ++i) {{
-        const widget = panel.widgetById(ids[i]);
-        if (widget && widget.type === type) found.push(widget);
-    }}
-    return found;
-}}
-function ensureWidget(type) {{
-    const found = widgetsOf(type);
-    return found.length ? found[0] : panel.addWidget(type);
-}}
 function configure(widget, group, values) {{
     widget.currentConfigGroup = group;
     for (const key in values) widget.writeConfig(key, values[key]);
     widget.reloadConfig();
 }}
 
-const kickoff = ensureWidget("org.kde.plasma.kickoff");
+// Plasma 6 can silently ignore index changes on existing locked panels. Build
+// the replacement in final visual order so widgetIds and AppletOrder agree.
+const kickoff = panel.addWidget("org.kde.plasma.kickoff");
 configure(kickoff, ["General"], {{
     icon: "start-here-kubuntu",
     showAppsByName: "true",
@@ -3026,16 +3015,13 @@ configure(kickoff, ["General"], {{
 }});
 kickoff.globalShortcut = "Alt+F1";
 
-let task = widgetsOf(cfg.task)[0];
-const otherTaskType = cfg.task === "org.kde.plasma.taskmanager"
-    ? "org.kde.plasma.icontasks" : "org.kde.plasma.taskmanager";
-const oldTasks = widgetsOf(otherTaskType);
-let oldTaskIndex = oldTasks.length ? oldTasks[0].index : 2;
-for (let i = 0; i < oldTasks.length; ++i) oldTasks[i].remove();
-if (!task) {{
-    task = panel.addWidget(cfg.task);
-    task.index = oldTaskIndex;
+let firstSpacer = null;
+if (cfg.spacers) {{
+    firstSpacer = panel.addWidget("org.kde.plasma.panelspacer");
+    configure(firstSpacer, ["General"], {{expanding: "true"}});
 }}
+
+const task = panel.addWidget(cfg.task);
 configure(task, [], {{launchers: launchers}});
 configure(task, ["General"], {{
     groupPopups: "true",
@@ -3049,24 +3035,18 @@ configure(task, ["General"], {{
     wheelEnabled: "false"
 }});
 
-let spacers = widgetsOf("org.kde.plasma.panelspacer");
+let secondSpacer = null;
 if (cfg.spacers) {{
-    while (spacers.length < 2) {{
-        const spacer = panel.addWidget("org.kde.plasma.panelspacer");
-        configure(spacer, ["General"], {{expanding: "true"}});
-        spacers.push(spacer);
-    }}
-}} else {{
-    for (let i = 0; i < spacers.length; ++i) spacers[i].remove();
-    spacers = [];
+    secondSpacer = panel.addWidget("org.kde.plasma.panelspacer");
+    configure(secondSpacer, ["General"], {{expanding: "true"}});
 }}
 
-const tray = ensureWidget("org.kde.plasma.systemtray");
+const tray = panel.addWidget("org.kde.plasma.systemtray");
 configure(tray, ["General"], {{
     hiddenItems: "org.kde.plasma.notifications",
     shownItems: "org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery"
 }});
-const clock = ensureWidget("org.kde.plasma.digitalclock");
+const clock = panel.addWidget("org.kde.plasma.digitalclock");
 configure(clock, ["Appearance"], {{
     dateDisplayFormat: "BelowTime",
     dateFormat: "shortDate",
@@ -3074,24 +3054,21 @@ configure(clock, ["Appearance"], {{
     showSeconds: "false"
 }});
 
-kickoff.index = 0;
-if (cfg.spacers) {{
-    spacers[0].index = 1;
-    task.index = 2;
-    spacers[1].index = 3;
-    tray.index = 4;
-    clock.index = 5;
-}} else {{
-    task.index = 1;
-    tray.index = 2;
-    clock.index = 3;
-}}
+// Remove old panels only after the complete replacement exists.
+for (let i = 0; i < oldPanels.length; ++i) oldPanels[i].remove();
 
 const ds = desktops();
 for (let i = 0; i < ds.length; ++i) {{
     ds[i].wallpaperPlugin = "org.kde.color";
     ds[i].currentConfigGroup = ["Wallpaper", "org.kde.color", "General"];
     ds[i].writeConfig("Color", "0,0,0");
+    // Folder View is Kubuntu's default desktop containment. An allow-only
+    // pattern that cannot match normal files keeps the desktop icon-free even
+    // if Plasma or an update switches back to that containment.
+    ds[i].currentConfigGroup = ["General"];
+    ds[i].writeConfig("filterMode", "1");
+    ds[i].writeConfig("filterPattern", ".dotfiles-never-show-desktop-icons");
+    ds[i].reloadConfig();
 }}
 print("applied=" + cfg.profile + ";panel=" + panel.id);
 """
@@ -3114,11 +3091,19 @@ else {
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) types.push(w.type);
  }
- let black=true; const ds=desktops();
- for (let i=0;i<ds.length;++i) if (ds[i].wallpaperPlugin!=="org.kde.color") black=false;
+ let black=true, iconFree=true; const ds=desktops();
+ for (let i=0;i<ds.length;++i) {
+  if (ds[i].wallpaperPlugin!=="org.kde.color") black=false;
+  ds[i].currentConfigGroup=["General"];
+  if (ds[i].type==="org.kde.plasma.folder" &&
+      (ds[i].readConfig("filterMode","0")!=="1" ||
+       ds[i].readConfig("filterPattern","")!==".dotfiles-never-show-desktop-icons")) {
+   iconFree=false;
+  }
+ }
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
-  p.minimumLength,p.maximumLength,types.join(","),black
+  p.minimumLength,p.maximumLength,types.join(","),black,iconFree
  ].join("|"));
 }
 """
@@ -3126,7 +3111,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 9:
+    if len(parts) != 10:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -3138,6 +3123,7 @@ else {
         maximum_length,
         types,
         black,
+        icon_free,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -3155,14 +3141,21 @@ else {
             float(maximum_length)
         ) != expected_length:
             return False, "custom width does not match"
-    if task_plugin not in types.split(","):
-        return False, "task manager does not match"
-    if types.split(",").count("org.kde.plasma.panelspacer") != (
-        2 if profile["spacers"] else 0
-    ):
-        return False, "spacer layout does not match"
+    expected_types = ["org.kde.plasma.kickoff"]
+    if profile["spacers"]:
+        expected_types.append("org.kde.plasma.panelspacer")
+    expected_types.append(task_plugin)
+    if profile["spacers"]:
+        expected_types.append("org.kde.plasma.panelspacer")
+    expected_types.extend(
+        ["org.kde.plasma.systemtray", "org.kde.plasma.digitalclock"]
+    )
+    if types.split(",") != expected_types:
+        return False, "widget order does not match"
     if black != "true":
         return False, "desktop is not solid black"
+    if icon_free != "true":
+        return False, "desktop icons are not hidden"
     return True, str(profile["description"])
 
 
@@ -3186,15 +3179,10 @@ def switch_panel_profile(profile_name: str) -> None:
             + ", ".join(profiles)
         )
     current = active_panel_profile()
-    matches_current, current_detail = panel_profile_matches(current)
+    matches_current, _current_detail = panel_profile_matches(current)
     if current == profile_name and matches_current:
         print(f"Panel profile {profile_name} is already active.")
         return
-    if not matches_current and current_detail != "no live panel":
-        raise DotError(
-            f"Refusing to replace changed live panel state: {current_detail}.\n"
-            "Save intentional panel changes or restore the selected profile first."
-        )
     panel_paths = [
         Path.home() / PANEL_LAYOUT_FILE,
         Path.home() / PANEL_GEOMETRY_FILE,

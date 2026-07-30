@@ -73,9 +73,9 @@ dot panel status
 dot diff kde
 ```
 
-Use `dot panel use windows-classic` to return to the baseline. Profile switches
-refuse to overwrite unsaved panel changes and print a rollback ID after every
-successful change.
+Use `dot panel use windows-classic` to rebuild the baseline. The named profile
+is authoritative: switching reconstructs its exact widget order, prints a
+rollback ID, and leaves Plasma-generated containment IDs host-local.
 
 ## The lock screen is blank, stock, or still shows media
 

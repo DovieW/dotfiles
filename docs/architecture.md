@@ -219,7 +219,9 @@ Git and is reapplied after normal configuration reconciliation. No profile uses
 Latte Dock, downloaded widgets,
 or a global theme bundle. Every profile also enforces the desktop's solid-black
 color containment; taskbar switching never selects or installs an image
-wallpaper. The panel contains no pager or Show Desktop widget.
+wallpaper. Folder View is filtered defensively so Plasma updates cannot make
+files on `~/Desktop` visible again. The panel contains no pager or Show Desktop
+widget.
 Meta opens Kickoff. Alt+Space opens a centered KRunner
 instance whose Applications provider is the only enabled runner. The panel's
 screen-edge highlight is disabled and its pointer activation delay is zero.
