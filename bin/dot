@@ -582,6 +582,8 @@ def apply_direct(
             ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
             ROOT / "config/shell/clip": Path.home() / ".local/bin/clip",
             ROOT / "config/shell/cclip": Path.home() / ".local/bin/cclip",
+            ROOT / "config/fzf/fzfrc": Path.home() / ".config/fzf/fzfrc",
+            ROOT / "config/fzf/preview": Path.home() / ".local/bin/dot-fzf-preview",
             ROOT / "config/tmux/tmux.conf": Path.home() / ".config/tmux/tmux.conf",
             ROOT / "config/tmux/open-link": Path.home() / ".local/bin/dot-open-link",
         }
@@ -1997,6 +1999,8 @@ def fzf_choose(
         "--height=85%",
         "--layout=reverse",
         "--border=rounded",
+        "--input-label= Search ",
+        "--list-label= Actions ",
         f"--prompt={prompt}",
         "--delimiter=\t",
         f"--with-nth={with_nth}",
@@ -2016,6 +2020,8 @@ def fzf_choose(
                 "--preview",
                 preview,
                 "--preview-window=right,65%,border-left",
+                "--preview-label= Details ",
+                "--bind=ctrl-/:toggle-preview",
             ]
         )
     proc = subprocess.run(

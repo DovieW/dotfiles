@@ -89,11 +89,25 @@ return {
       { "<leader>s/", "<cmd>FzfLua lgrep_curbuf<CR>", desc = "Search current buffer" },
     },
     opts = {
-      fzf_opts = { ["--layout"] = "reverse-list" },
+      fzf_opts = {
+        ["--layout"] = "reverse-list",
+        ["--highlight-line"] = true,
+        ["--info"] = "inline-right",
+        ["--pointer"] = "›",
+        ["--marker"] = "●",
+      },
       winopts = {
         height = 0.88,
         width = 0.9,
-        preview = { layout = "flex" },
+        border = "rounded",
+        title = " FZF ",
+        title_pos = "center",
+        preview = {
+          layout = "flex",
+          border = "border",
+          title = " Preview ",
+          title_pos = "center",
+        },
       },
       files = {
         git_icons = true,

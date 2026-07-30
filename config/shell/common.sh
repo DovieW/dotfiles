@@ -8,6 +8,19 @@ export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 export VP_HOME="${VP_HOME:-$HOME/.vite-plus}"
 export CLICOLOR=1
 
+dot_fzf_config="${XDG_CONFIG_HOME}/fzf/fzfrc"
+if [ -r "$dot_fzf_config" ]; then
+  export FZF_DEFAULT_OPTS_FILE="$dot_fzf_config"
+elif [ -n "${DOTFILES_ROOT:-}" ] && [ -r "$DOTFILES_ROOT/config/fzf/fzfrc" ]; then
+  export FZF_DEFAULT_OPTS_FILE="$DOTFILES_ROOT/config/fzf/fzfrc"
+fi
+unset dot_fzf_config
+
+# The common file owns appearance; each picker owns its geometry and preview.
+export FZF_CTRL_T_OPTS="--height=75% --layout=reverse --input-label=' Files ' --list-label=' Results ' --preview-label=' Preview ' --prompt='Find › ' --preview='dot-fzf-preview {}' --preview-window='right,50%,border-left,<50(down,45%,border-top)' --bind='ctrl-/:toggle-preview'"
+export FZF_ALT_C_OPTS="--height=65% --layout=reverse --input-label=' Directories ' --list-label=' Results ' --preview-label=' Preview ' --prompt='Go › ' --preview='dot-fzf-preview {}' --preview-window='right,50%,border-left,<50(down,45%,border-top)' --bind='ctrl-/:toggle-preview'"
+export FZF_CTRL_R_OPTS="--height=60% --layout=reverse --input-label=' History ' --list-label=' Entries ' --prompt='Recall › '"
+
 dot_path_prepend() {
   [ -n "${1:-}" ] || return 0
   case ":$PATH:" in
@@ -91,6 +104,10 @@ dot_ssh_select() {
     return 1
   fi
   local host
-  host="$(awk '/^Host / {for (i=2;i<=NF;i++) if ($i !~ /[*?!]/) print $i}' "$HOME/.ssh/config" 2>/dev/null | fzf --prompt='SSH host: ')"
+  host="$(
+    awk '/^Host / {for (i=2;i<=NF;i++) if ($i !~ /[*?!]/) print $i}' "$HOME/.ssh/config" 2>/dev/null \
+      | fzf --height=55% --layout=reverse \
+          --input-label=' SSH hosts ' --list-label=' Hosts ' --prompt='Connect › '
+  )"
   [ -n "$host" ] && command ssh "$host"
 }

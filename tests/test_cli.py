@@ -751,6 +751,25 @@ class DotCliTests(unittest.TestCase):
             zshrc.index("share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
         )
 
+    def test_fzf_theme_is_shared_while_previews_remain_contextual(self):
+        cli = DOT.read_text()
+        shell = (ROOT / "config/shell/common.sh").read_text()
+        zshrc = (ROOT / "config/shell/zshrc").read_text()
+        git_switcher = (ROOT / "config/git/bin/git-switcher").read_text()
+        powershell = (ROOT / "config/powershell/profile.ps1").read_text()
+        neovim = (ROOT / "config/nvim/lua/dovie/plugins/init.lua").read_text()
+
+        self.assertIn('ROOT / "config/fzf/fzfrc"', cli)
+        self.assertIn('ROOT / "config/fzf/preview"', cli)
+        self.assertIn("FZF_DEFAULT_OPTS_FILE", shell)
+        self.assertIn("FZF_CTRL_T_OPTS", shell)
+        self.assertIn("dot-fzf-preview {}", shell)
+        self.assertNotIn("--preview", shell.split("FZF_CTRL_R_OPTS=", 1)[1].splitlines()[0])
+        self.assertIn("fzf-preview", zshrc)
+        self.assertIn("Recent commits", git_switcher)
+        self.assertIn("FZF_DEFAULT_OPTS_FILE", powershell)
+        self.assertIn('title = " FZF "', neovim)
+
     def test_neovim_is_modern_managed_and_shared_with_wsl(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

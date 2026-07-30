@@ -34,6 +34,35 @@
   [ "$status" -eq 1 ]
 }
 
+@test "shared fzf configuration contains presentation options only" {
+  config="$BATS_TEST_DIRNAME/../config/fzf/fzfrc"
+  run grep -E -- '--(height|preview|prompt|delimiter|multi)(=|$)' "$config"
+  [ "$status" -eq 1 ]
+  run grep -F -- '--style=full:rounded' "$config"
+  [ "$status" -eq 0 ]
+  run grep -F -- '--color=fg:#c9d1d9,bg:#07090d' "$config"
+  [ "$status" -eq 0 ]
+}
+
+@test "fzf preview renders files and directories without executing them" {
+  preview="$BATS_TEST_DIRNAME/../config/fzf/preview"
+  sample="$BATS_TEST_TMPDIR/fzf-preview"
+  marker="$BATS_TEST_TMPDIR/should-not-exist"
+  mkdir -p "$sample/directory"
+  printf '#!/bin/sh\ntouch "%s"\n' "$marker" >"$sample/example.sh"
+  chmod +x "$sample/example.sh"
+  printf 'inside\n' >"$sample/directory/child.txt"
+
+  run env PATH="/usr/bin:/bin" "$preview" "$sample/example.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'touch '* ]]
+  [ ! -e "$marker" ]
+
+  run env PATH="/usr/bin:/bin" "$preview" "$sample/directory"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'child.txt'* ]]
+}
+
 @test "clip selects the native Wayland clipboard backend" {
   fake_bin="$BATS_TEST_TMPDIR/clip-bin"
   clipboard="$BATS_TEST_TMPDIR/clipboard"

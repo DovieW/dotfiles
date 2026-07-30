@@ -138,6 +138,20 @@ unnamed, read-only, and non-file buffers.
 The old `DovieW/nvim-config` repository remains unchanged as historical
 reference. It is not deployed and is not a second source of truth.
 
+## Fuzzy-picker interface
+
+`config/fzf/fzfrc` is the shared presentation layer for every external FZF
+surface. It deliberately contains only colors, borders, padding, indicators,
+and selection styling. Shell widgets, `fzf-tab`, `dot`, Git helpers, and
+PowerShell each choose geometry appropriate to their workflow.
+
+Preview ownership follows the same boundary. The portable
+`dot-fzf-preview` helper renders files with `bat` and directories with `eza`,
+with standard-command fallbacks. Git and `dot` provide semantic previews of
+their own, while history and SSH selection remain compact. Neovim's fzf-lua
+uses the same visual language but retains native editor previews and
+highlighting.
+
 ## Device identity and secrets
 
 The first bootstrap writes a stable logical device ID to

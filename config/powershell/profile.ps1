@@ -117,6 +117,13 @@ if (Test-Command zoxide) {
 # -----------------------------
 # fzf integration (Ctrl+t files, Ctrl+r history)
 # -----------------------------
+$DovieFzfConfig = Join-Path (Split-Path -Parent $PSScriptRoot) 'fzf/fzfrc'
+if (Test-Path -LiteralPath $DovieFzfConfig) {
+	$env:FZF_DEFAULT_OPTS_FILE = $DovieFzfConfig
+}
+$env:FZF_CTRL_T_OPTS = "--height=75% --layout=reverse --input-label=' Files ' --list-label=' Results ' --prompt='Find > '"
+$env:FZF_CTRL_R_OPTS = "--height=60% --layout=reverse --input-label=' History ' --list-label=' Entries ' --prompt='Recall > '"
+
 if (-not $script:DovieFastStart) {
 	if ((Get-Module -ListAvailable -Name PSFzf) -and (Test-Command fzf)) {
 		Import-Module PSFzf -ErrorAction SilentlyContinue

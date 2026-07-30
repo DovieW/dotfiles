@@ -1,0 +1,14 @@
+# Shared presentation only. Picker-specific size, prompt, preview, and selection
+# behavior belong to the integration invoking fzf.
+--style=full:rounded
+--color=fg:#c9d1d9,bg:#07090d,hl:#bc8cff
+--color=fg+:#f0f6fc,bg+:#161b22,hl+:#d2a8ff
+--color=info:#8b949e,prompt:#58a6ff,pointer:#58a6ff
+--color=marker:#56d364,spinner:#79c0ff,header:#8b949e
+--color=border:#30363d,label:#8b949e,query:#f0f6fc
+--padding=1,2
+--highlight-line
+--info=inline-right
+--pointer=›
+--marker=●
+--scrollbar=│

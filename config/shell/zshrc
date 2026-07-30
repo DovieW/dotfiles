@@ -72,7 +72,15 @@ _dot_source_first \
 # bindings, but before plugins that wrap ZLE widgets.
 zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':completion:*' menu no
-zstyle ':fzf-tab:*' fzf-flags --height=70% --layout=reverse --border --info=inline
+zstyle ':fzf-tab:*' fzf-flags \
+  --height=70% --layout=reverse --border=rounded --info=inline-right \
+  '--input-label= Completion ' \
+  '--list-label= Matches ' \
+  '--preview-label= Preview ' \
+  '--prompt=Complete › ' \
+  '--preview-window=right,50%,border-left,<50(down,45%,border-top)' \
+  '--bind=ctrl-/:toggle-preview'
+zstyle ':fzf-tab:complete:*:*' fzf-preview 'dot-fzf-preview "$realpath"'
 zstyle ':fzf-tab:*' switch-group '<' '>'
 _dot_source_first \
   "$_dot_brew_prefix/opt/fzf-tab/share/fzf-tab/fzf-tab.zsh" \

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+target="${1:-}"
+[[ -n "$target" ]] || exit 0
+if [[ "$target" == "~" || "$target" == "~/"* ]]; then
+  target="$HOME${target:1}"
+fi
+
+if [[ -d "$target" ]]; then
+  if command -v eza >/dev/null 2>&1; then
+    eza --tree --level=2 --color=always --icons=auto \
+      --group-directories-first -- "$target" 2>/dev/null | head -n 400
+  else
+    command ls -la --color=always -- "$target" 2>/dev/null | head -n 400
+  fi
+elif [[ -f "$target" ]]; then
+  if command -v bat >/dev/null 2>&1; then
+    bat --color=always --style=numbers,changes --line-range=:500 -- "$target"
+  else
+    sed -n '1,500p' -- "$target"
+  fi
+elif [[ -n "$target" ]]; then
+  printf 'No preview available for:\n%s\n' "$target"
+fi

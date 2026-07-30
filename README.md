@@ -79,6 +79,12 @@ cclip first.txt second.txt
 `clip` reads standard input. `cclip` concatenates the named files and copies
 their combined contents; with no filenames it also reads standard input.
 
+FZF uses one coordinated dark visual theme across the shell, `dot`, Git,
+PowerShell, and Neovim. Geometry and previews remain context-aware: file and
+directory pickers show `bat`/`eza` previews, Git shows commit history, and
+compact history and SSH pickers avoid redundant preview panes. Press `Ctrl+/`
+to toggle a preview when the active picker provides one.
+
 Choose **Update → Update everything** in the palette, or run `dot update`,
 to coordinate all installed APT, Snap, Homebrew, external-Debian, Tmux, Codex,
 Vite+, tested Neovim plugin, and curated Mason-tool updates through their
