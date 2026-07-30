@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Keep supported desktop applications on KWin-managed window frames."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import stat
+import tempfile
+from pathlib import Path
+from typing import Any, Callable
+
+
+JsonObject = dict[str, Any]
+
+
+def write_json(path: Path, data: JsonObject) -> None:
+    current_mode = stat.S_IMODE(path.stat().st_mode)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        delete=False,
+    ) as temporary:
+        json.dump(data, temporary, ensure_ascii=False, separators=(",", ":"))
+        temporary.write("\n")
+        temporary_path = Path(temporary.name)
+    os.chmod(temporary_path, current_mode)
+    os.replace(temporary_path, path)
+
+
+def configure(
+    path: Path,
+    label: str,
+    mutate: Callable[[JsonObject], bool],
+    *,
+    check: bool,
+) -> tuple[bool, bool]:
+    if not path.is_file():
+        print(f"SKIP {label}: preferences do not exist yet")
+        return False, False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"{label}: cannot read {path}: {error}") from error
+    if not isinstance(data, dict):
+        raise SystemExit(f"{label}: expected a JSON object in {path}")
+    if not mutate(data):
+        print(f"OK {label}: native frame")
+        return True, False
+    if check:
+        print(f"DRIFT {label}: native frame is not selected")
+        return True, True
+    write_json(path, data)
+    print(f"CHANGED {label}: selected native frame")
+    return True, True
+
+
+def chrome_profiles(chrome_root: Path) -> list[Path]:
+    candidates = [chrome_root / "Default"]
+    candidates.extend(sorted(chrome_root.glob("Profile *")))
+    return [candidate for candidate in candidates if (candidate / "Preferences").is_file()]
+
+
+def use_chrome_system_frame(data: JsonObject) -> bool:
+    browser = data.setdefault("browser", {})
+    if not isinstance(browser, dict):
+        raise SystemExit("Chrome: browser preference is not a JSON object")
+    if browser.get("custom_chrome_frame") is False:
+        return False
+    browser["custom_chrome_frame"] = False
+    return True
+
+
+def use_obsidian_native_frame(data: JsonObject) -> bool:
+    if data.get("frame") == "native":
+        return False
+    data["frame"] = "native"
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--ensure", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+
+    home = Path.home()
+    found = False
+    drift = False
+    for profile in chrome_profiles(home / ".config/google-chrome"):
+        exists, changed = configure(
+            profile / "Preferences",
+            f"Chrome {profile.name}",
+            use_chrome_system_frame,
+            check=args.check,
+        )
+        found = found or exists
+        drift = drift or changed
+
+    exists, changed = configure(
+        home / ".config/obsidian/obsidian.json",
+        "Obsidian",
+        use_obsidian_native_frame,
+        check=args.check,
+    )
+    found = found or exists
+    drift = drift or changed
+
+    if not found:
+        print("No supported application preferences exist yet.")
+    if args.check and drift:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

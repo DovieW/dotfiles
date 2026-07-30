@@ -39,6 +39,7 @@ InactivityDuration=1
 PopupHideDelay=200
 
 [Windows]
+BorderlessMaximizedWindows=true
 ElectricBorderCooldown=50
 ElectricBorderDelay=0
 
@@ -59,6 +60,6 @@ Scale=1.75
 
 [org.kde.kdecoration2]
 ButtonsOnLeft=
-ButtonsOnRight=
+ButtonsOnRight=IAX
 library=org.kde.breeze
 theme=Breeze

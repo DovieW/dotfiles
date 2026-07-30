@@ -908,6 +908,13 @@ def apply_direct(
                 ["systemctl", "--user", "restart", "plasma-powerdevil.service"],
                 check=False,
             )
+        native_frames = run(
+            [str(ROOT / "scripts/configure-native-frames"), "--ensure"],
+            capture=True,
+        )
+        changes += native_frames.stdout.count("CHANGED ")
+        if native_frames.stdout:
+            print(native_frames.stdout, end="")
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf": Path.home() / ".config/environment.d/10-bitwarden-ssh-agent.conf",
@@ -3905,17 +3912,31 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if desktop_osd_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
-        decoration_buttons_ok = (
-            "[org.kde.kdecoration2]" in kwin
+        maximized_frame_ok = (
+            "BorderlessMaximizedWindows=true" in kwin
             and re.search(r"^ButtonsOnLeft=$", kwin, re.MULTILINE) is not None
-            and re.search(r"^ButtonsOnRight=$", kwin, re.MULTILINE) is not None
+            and re.search(r"^ButtonsOnRight=IAX$", kwin, re.MULTILINE) is not None
         )
         failures += not doctor_check(
-            "window decoration buttons",
-            decoration_buttons_ok,
-            "hidden globally"
-            if decoration_buttons_ok
+            "window frames",
+            maximized_frame_ok,
+            "borderless when maximized; Windows-style controls while floating"
+            if maximized_frame_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        native_frames = run(
+            [str(ROOT / "scripts/configure-native-frames"), "--check"],
+            check=False,
+            capture=True,
+        )
+        native_frames_detail = (
+            native_frames.stdout or native_frames.stderr
+        ).strip().replace("\n", "; ")
+        failures += not doctor_check(
+            "native application frames",
+            native_frames.returncode == 0,
+            native_frames_detail
+            or "Chrome and Obsidian use KWin-managed frames",
         )
         hide_cursor_loaded = False
         if command_exists("qdbus6"):

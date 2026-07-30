@@ -243,6 +243,57 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("SHA-256.txt", installer)
         self.assertNotIn("v3.", installer)
 
+    def test_native_frame_updater_preserves_private_application_state(self):
+        updater = ROOT / "scripts/configure-native-frames"
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            chrome = home / ".config/google-chrome/Default/Preferences"
+            obsidian = home / ".config/obsidian/obsidian.json"
+            chrome.parent.mkdir(parents=True)
+            obsidian.parent.mkdir(parents=True)
+            chrome.write_text(
+                json.dumps(
+                    {
+                        "browser": {"custom_chrome_frame": True},
+                        "private": {"account": "preserve-me"},
+                    }
+                )
+            )
+            obsidian.write_text(
+                json.dumps(
+                    {
+                        "frame": "hidden",
+                        "vaults": {"private-id": {"path": "/private/vault"}},
+                    }
+                )
+            )
+            environment = os.environ | {"HOME": str(home)}
+
+            check = subprocess.run(
+                [str(updater), "--check"],
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+            self.assertEqual(check.returncode, 1)
+            subprocess.run(
+                [str(updater), "--ensure"],
+                check=True,
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+
+            chrome_data = json.loads(chrome.read_text())
+            obsidian_data = json.loads(obsidian.read_text())
+            self.assertIs(chrome_data["browser"]["custom_chrome_frame"], False)
+            self.assertEqual(chrome_data["private"]["account"], "preserve-me")
+            self.assertEqual(obsidian_data["frame"], "native")
+            self.assertEqual(
+                obsidian_data["vaults"]["private-id"]["path"],
+                "/private/vault",
+            )
+
     def test_docker_role_uses_official_native_engine_and_guards_wsl(self):
         role = (ROOT / "ansible/tasks/docker.yml").read_text()
         self.assertIn("https://download.docker.com/linux/ubuntu", role)
@@ -487,10 +538,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("InactivityDuration=1", kwin)
         self.assertIn("[org.kde.kdecoration2]", kwin)
         self.assertIn("ButtonsOnLeft=\n", kwin)
-        self.assertIn("ButtonsOnRight=\n", kwin)
+        self.assertIn("ButtonsOnRight=IAX", kwin)
+        self.assertIn("BorderlessMaximizedWindows=true", kwin)
         self.assertIn("KWIN_ENABLED_EFFECTS", cli)
         self.assertIn('"hidecursor"', cli)
-        self.assertIn('"window decoration buttons"', cli)
+        self.assertIn('"window frames"', cli)
+        self.assertIn('"native application frames"', cli)
+        self.assertIn("configure-native-frames", cli)
         self.assertIn('"pointer auto-hide"', cli)
         self.assertIn("Name_1=General", kwin)
         self.assertIn("Name_2=Money", kwin)
@@ -520,6 +574,11 @@ class DotCliTests(unittest.TestCase):
             self.assertIn(f"{effect}Enabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
         self.assertIn("ElectricBorderCooldown=50", kwin)
+
+        native_frames = (ROOT / "scripts/configure-native-frames").read_text()
+        self.assertIn('"custom_chrome_frame"', native_frames)
+        self.assertIn('data["frame"] = "native"', native_frames)
+        self.assertIn("Configure native application window frames", (ROOT / "ansible/local.yml").read_text())
 
         self.assertIn("ColorScheme=GitHubDark", kdeglobals)
         self.assertIn("LookAndFeelPackage=org.kde.breezedark.desktop", kdeglobals)

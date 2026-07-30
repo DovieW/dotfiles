@@ -265,6 +265,21 @@
         '0 configuration change(s)' not in dot_direct_apply.stdout
       tags: [config, shell, git, kde, power, tmux, nvim]
 
+    - name: Configure native application window frames
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/scripts/configure-native-frames"
+          - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+      register: dot_native_frames
+      changed_when: >-
+        'CHANGED ' in dot_native_frames.stdout or
+        'DRIFT ' in dot_native_frames.stdout
+      failed_when: >-
+        dot_native_frames.rc != 0 and
+        not (ansible_check_mode and dot_native_frames.rc == 1)
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde]
+
     - name: Reload user services after portable configuration
       ansible.builtin.systemd_service:
         daemon_reload: true
