@@ -741,15 +741,26 @@ class DotCliTests(unittest.TestCase):
         self.assertTrue(profile_data["features"]["lid_power_saver"])
         self.assertIn("power-profiles-daemon", profile_data["packages"]["apt"])
         self.assertIn("upower", profile_data["packages"]["apt"])
+        self.assertIn("libglib2.0-bin", profile_data["packages"]["apt"])
         lid_script = (ROOT / "config/power/dot-lid-power").read_text()
         self.assertIn('if [[ "$lid" == "true" ]]', lid_script)
         self.assertIn("power-saver", lid_script)
         self.assertIn("performance", lid_script)
         self.assertIn("balanced", lid_script)
-        self.assertIn('"$upower_command" --monitor', lid_script)
+        self.assertIn(
+            '"$gdbus_command" monitor --system --dest org.freedesktop.UPower',
+            lid_script,
+        )
+        self.assertIn("*LidIsClosed*", lid_script)
+        self.assertIn("*OnBattery*", lid_script)
+        self.assertIn("*Percentage*", lid_script)
+        self.assertIn('"$previous_lid" == "true"', lid_script)
+        self.assertIn("org.kde.Solid.PowerManagement", lid_script)
+        self.assertIn("wakeup", lid_script)
         lid_unit = (
             ROOT / "config/systemd/user/dot-lid-power.service"
         ).read_text()
+        self.assertIn("plasma-powerdevil.service", lid_unit)
         self.assertIn("PartOf=graphical-session.target", lid_unit)
         self.assertIn("WantedBy=graphical-session.target", lid_unit)
         self.assertIn("dot-lid-power watch", lid_unit)

@@ -190,11 +190,14 @@ Performance policy is profile-specific: AC uses performance, battery uses
 balanced, and low battery uses power-saver. Display brightness is set to 100%
 on AC and regular battery. At 20% charge or below, PowerDevil selects the low
 battery profile and sets display brightness to 40%. The event-driven
-`dot-lid-power` graphical-session service temporarily forces power-saver
-whenever the lid is closed. On opening, it restores performance on AC,
-balanced on battery above 20%, or power-saver at 20% and below. This lowers
-heat and power draw while closed without changing the deliberate no-sleep
-policy; manually suspend before putting the running laptop in a bag.
+`dot-lid-power` graphical-session service listens only for relevant UPower
+property changes and temporarily forces power-saver whenever the lid is
+closed. On opening, it restores performance on AC, balanced on battery above
+20%, or power-saver at 20% and below. This lowers heat and power draw while
+closed without changing the deliberate no-sleep policy. The same
+closed-to-open event asks PowerDevil to wake the internal display so it does
+not remain in DPMS power-off until the next input event. Manually suspend
+before putting the running laptop in a bag.
 
 Kubuntu installs the NVIDIA
 desktop driver currently marked recommended by `ubuntu-drivers`, without

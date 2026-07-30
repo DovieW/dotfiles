@@ -3,8 +3,8 @@ set -euo pipefail
 
 readonly threshold="${DOT_LID_POWER_LOW_THRESHOLD:-20}"
 readonly busctl_command="${DOT_LID_POWER_BUSCTL:-busctl}"
+readonly gdbus_command="${DOT_LID_POWER_GDBUS:-gdbus}"
 readonly powerprofiles_command="${DOT_LID_POWER_POWERPROFILESCTL:-powerprofilesctl}"
-readonly upower_command="${DOT_LID_POWER_UPOWER:-upower}"
 
 read_property() {
   local object_path="$1"
@@ -85,14 +85,39 @@ reconcile() {
   fi
 }
 
+wake_display() {
+  if ! "$busctl_command" --user call \
+    org.kde.Solid.PowerManagement \
+    /org/kde/Solid/PowerManagement \
+    org.kde.Solid.PowerManagement \
+    wakeup >/dev/null; then
+    printf 'dot-lid-power: PowerDevil could not wake the display\n' >&2
+  fi
+}
+
 watch_events() {
+  local previous_lid current_lid event_line
+  previous_lid="$(lid_is_closed)"
   reconcile
-  while IFS= read -r _; do
+  while IFS= read -r event_line; do
+    # UPower reports energy rate several times per second. Only lid, power
+    # source, and charge percentage can affect this policy.
+    if [[ "$event_line" != *LidIsClosed* &&
+      "$event_line" != *OnBattery* &&
+      "$event_line" != *Percentage* ]]; then
+      continue
+    fi
     # Let PowerDevil finish its own AC/battery transition, then enforce the
     # lid-specific override. Repeated UPower events are harmless.
     sleep 0.35
+    current_lid="$(lid_is_closed)"
     reconcile
-  done < <("$upower_command" --monitor)
+    if [[ "$previous_lid" == "true" && "$current_lid" == "false" ]]; then
+      wake_display
+      printf 'dot-lid-power: lid opened; requested display wake\n'
+    fi
+    previous_lid="$current_lid"
+  done < <("$gdbus_command" monitor --system --dest org.freedesktop.UPower)
 }
 
 case "${1:-}" in

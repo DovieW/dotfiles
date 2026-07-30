@@ -24,6 +24,7 @@
       "kde-config-gtk-style",
       "kio-extras",
       "konsole",
+      "libglib2.0-bin",
       "mpv",
       "plasma-workspace",
       "power-profiles-daemon",

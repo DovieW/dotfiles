@@ -1,6 +1,6 @@
 [Unit]
 Description=Use power-saver while the laptop lid is closed
-After=graphical-session.target
+After=graphical-session.target plasma-powerdevil.service
 PartOf=graphical-session.target
 
 [Service]

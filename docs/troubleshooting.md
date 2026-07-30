@@ -70,8 +70,8 @@ The managed policy ignores lid closure and disables automatic suspend for AC,
 battery, and low-battery profiles. It preserves manual Sleep and the physical
 power button. While closed, the managed user service selects power-saver to
 reduce heat and power draw; it restores the appropriate AC or battery profile
-when the lid opens. Apply the live PowerDevil policy, lid controller, and
-system fallback:
+and explicitly asks PowerDevil to wake the display when the lid opens. Apply
+the live PowerDevil policy, lid controller, and system fallback:
 
 ```bash
 dot apply --profile kubuntu-laptop --tags kde
