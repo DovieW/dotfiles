@@ -1025,6 +1025,9 @@ def apply_direct(
         ]
         panel_files = {
             ".config/plasma-org.kde.plasma.desktop-appletsrc",
+            # Notification position is held by a process-wide Plasma singleton;
+            # replacing the file alone does not update the running shell.
+            ".config/plasmanotifyrc",
             ".config/plasmashellrc",
         }
         panel_changed = any(relative in panel_files for relative, _, _ in pending)

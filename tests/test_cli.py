@@ -577,6 +577,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wallpaperplugin=org.kde.color", panel)
         self.assertIn("Color=0,0,0", panel)
         self.assertIn("PopupPosition=BottomRight", plasma_notify)
+        self.assertIn('".config/plasmanotifyrc",', cli)
+        self.assertIn(
+            "Notification position is held by a process-wide Plasma singleton",
+            cli,
+        )
         self.assertNotIn("[Containments][1][Wallpaper][org.kde.image]", panel)
         self.assertNotIn("plugin=org.kde.plasma.folder", panel)
         self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
