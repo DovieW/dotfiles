@@ -656,10 +656,20 @@ def sync_managed_kglobal_shortcuts() -> None:
         "KWin",
         "Walk Through Windows (Reverse)",
     )
+    maximize_window = ("kwin", "Window Maximize", "KWin", "Maximize Window")
+    quick_tile_top = (
+        "kwin",
+        "Window Quick Tile Top",
+        "KWin",
+        "Quick Tile Window to the Top",
+    )
     desired = {
         activity_switcher: [0],
         # Qt::META | Qt::Key_Q, followed by the retained Alt+F4 binding.
         close_window: [268435537, 150994995],
+        # Release Meta+Up from top-edge tiling before assigning maximize.
+        quick_tile_top: [0],
+        maximize_window: [285212691, 285212694],
         # Reserve ordinary and reverse window cycling for Alt+Tab.
         walk_windows: [150994945],
         walk_windows_reverse: [184549377],
@@ -3874,11 +3884,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             and "Overview=Meta+Tab\\tMeta+W" in shortcuts
             and "Walk Through Windows=Alt+Tab" in shortcuts
             and "Walk Through Windows (Reverse)=Alt+Shift+Tab" in shortcuts
+            and "Window Maximize=Meta+Up\\tMeta+PgUp" in shortcuts
+            and "Window Quick Tile Top=,Meta+Up" in shortcuts
         )
         failures += not doctor_check(
             "desktop palette shortcuts",
             shortcuts_ok,
-            "Meta opens the launcher; Meta+Tab opens Overview; Alt+Tab cycles windows"
+            "Meta opens the launcher; Meta+Tab opens Overview; Meta+Up maximizes"
             if shortcuts_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
