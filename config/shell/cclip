@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+clip_command="${CLIP_COMMAND:-$(dirname -- "$0")/clip}"
+if [[ ! -x "$clip_command" ]]; then
+  clip_command="$(command -v clip)"
+fi
+
+if [ "$#" -eq 0 ]; then
+  exec "$clip_command"
+fi
+
+cat -- "$@" | "$clip_command"

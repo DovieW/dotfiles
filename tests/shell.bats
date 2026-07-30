@@ -34,6 +34,41 @@
   [ "$status" -eq 1 ]
 }
 
+@test "clip selects the native Wayland clipboard backend" {
+  fake_bin="$BATS_TEST_TMPDIR/clip-bin"
+  clipboard="$BATS_TEST_TMPDIR/clipboard"
+  mkdir -p "$fake_bin"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'cat >"$DOT_TEST_CLIPBOARD"' >"$fake_bin/wl-copy"
+  chmod +x "$fake_bin/wl-copy"
+
+  run env PATH="$fake_bin:$PATH" WAYLAND_DISPLAY=wayland-0 \
+    DOT_TEST_CLIPBOARD="$clipboard" \
+    bash -c 'printf %s clipboard-text | "$1"' bash \
+    "$BATS_TEST_DIRNAME/../config/shell/clip"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$clipboard")" = "clipboard-text" ]
+}
+
+@test "cclip concatenates files through clip" {
+  fake_bin="$BATS_TEST_TMPDIR/cclip-bin"
+  clipboard="$BATS_TEST_TMPDIR/cclip-output"
+  first="$BATS_TEST_TMPDIR/first"
+  second="$BATS_TEST_TMPDIR/second"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/sh\ncat >\"$DOT_TEST_CLIPBOARD\"\n' >"$fake_bin/clip"
+  chmod +x "$fake_bin/clip"
+  printf first >"$first"
+  printf second >"$second"
+
+  run env PATH="$fake_bin:$PATH" CLIP_COMMAND="$fake_bin/clip" \
+    DOT_TEST_CLIPBOARD="$clipboard" \
+    "$BATS_TEST_DIRNAME/../config/shell/cclip" "$first" "$second"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$clipboard")" = "firstsecond" ]
+}
+
 @test "Codex installer accepts a managed stable-channel release" {
   release="9.8.7"
   fake_home="$BATS_TEST_TMPDIR/codex-home"

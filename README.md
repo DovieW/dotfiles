@@ -69,6 +69,16 @@ dot
 `dot save` opens that workflow directly. `dot save spectacle` limits the
 selector to Spectacle preferences and keyboard shortcuts.
 
+The managed shell also provides the same clipboard commands everywhere:
+
+```bash
+printf '%s' 'text to copy' | clip
+cclip first.txt second.txt
+```
+
+`clip` reads standard input. `cclip` concatenates the named files and copies
+their combined contents; with no filenames it also reads standard input.
+
 Choose **Update → Update everything** in the palette, or run `dot update`,
 to coordinate all installed APT, Snap, Homebrew, external-Debian, Tmux, Codex,
 Vite+, tested Neovim plugin, and curated Mason-tool updates through their

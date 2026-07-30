@@ -580,6 +580,8 @@ def apply_direct(
             ROOT / "config/shell/zshrc": Path.home() / ".zshrc",
             ROOT / "config/shell/p10k.zsh": Path.home() / ".p10k.zsh",
             ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
+            ROOT / "config/shell/clip": Path.home() / ".local/bin/clip",
+            ROOT / "config/shell/cclip": Path.home() / ".local/bin/cclip",
             ROOT / "config/tmux/tmux.conf": Path.home() / ".config/tmux/tmux.conf",
             ROOT / "config/tmux/open-link": Path.home() / ".local/bin/dot-open-link",
         }
@@ -3361,6 +3363,20 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             str(dot_command),
         )
         failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
+        clipboard_commands = [
+            Path.home() / ".local/bin/clip",
+            Path.home() / ".local/bin/cclip",
+        ]
+        failures += not doctor_check(
+            "clipboard commands",
+            all(
+                command.is_symlink()
+                and command.resolve()
+                == (ROOT / "config/shell" / command.name).resolve()
+                for command in clipboard_commands
+            ),
+            "clip reads stdin; cclip concatenates files into the clipboard",
+        )
         tmux_config = Path.home() / ".config/tmux/tmux.conf"
         failures += not doctor_check(
             "tmux configuration",

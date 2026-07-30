@@ -209,6 +209,15 @@ function cproj {
 	Write-Host 'VS Code (code) not found on PATH.'
 }
 
+function cclip {
+	param([Parameter(Position = 0)][string[]]$Path)
+	if ($Path.Count -gt 0) {
+		Get-Content -LiteralPath $Path -Raw | clip.exe
+		return
+	}
+	$input | clip.exe
+}
+
 function reload-profile {
 	. $PROFILE
 }

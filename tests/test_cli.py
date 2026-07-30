@@ -716,6 +716,22 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Install configured tmux plugins", playbook)
         self.assertIn("'FATAL:' in dot_tmux_plugins_install.stderr", playbook)
 
+    def test_portable_clipboard_commands_are_managed(self):
+        cli = DOT.read_text()
+        common = (ROOT / "config/shell/common.sh").read_text()
+        powershell = (ROOT / "config/powershell/profile.ps1").read_text()
+        termux = json.loads((ROOT / "profiles/termux.yml").read_text())
+
+        self.assertIn('ROOT / "config/shell/clip"', cli)
+        self.assertIn('ROOT / "config/shell/cclip"', cli)
+        self.assertIn('Path.home() / ".local/bin/clip"', cli)
+        self.assertIn('Path.home() / ".local/bin/cclip"', cli)
+        self.assertIn('"clipboard commands"', cli)
+        self.assertIn("function cclip", powershell)
+        self.assertIn("clip.exe", powershell)
+        self.assertIn("termux-api", termux["packages"]["pkg"])
+        self.assertNotIn("alias clip=", common)
+
     def test_neovim_is_modern_managed_and_shared_with_wsl(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

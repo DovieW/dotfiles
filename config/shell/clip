@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 0 ]; then
+  printf '%s\n' 'usage: clip < input' >&2
+  exit 2
+fi
+
+if [ -n "${WSL_INTEROP:-}${WSL_DISTRO_NAME:-}" ] && command -v clip.exe >/dev/null 2>&1; then
+  exec clip.exe
+fi
+
+if command -v termux-clipboard-set >/dev/null 2>&1; then
+  exec termux-clipboard-set
+fi
+
+clip_wl_copy=$(command -v wl-copy 2>/dev/null || true)
+if [ -z "$clip_wl_copy" ] && [ -x /home/linuxbrew/.linuxbrew/bin/wl-copy ]; then
+  clip_wl_copy=/home/linuxbrew/.linuxbrew/bin/wl-copy
+fi
+
+if [ -n "$clip_wl_copy" ]; then
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    exec "$clip_wl_copy"
+  fi
+  for clip_wayland_socket in "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/wayland-*; do
+    if [ -S "$clip_wayland_socket" ]; then
+      WAYLAND_DISPLAY=${clip_wayland_socket##*/}
+      export WAYLAND_DISPLAY
+      exec "$clip_wl_copy"
+    fi
+  done
+fi
+
+if [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+  exec xclip -selection clipboard
+fi
+
+if [ -n "${DISPLAY:-}" ] && command -v xsel >/dev/null 2>&1; then
+  exec xsel --clipboard --input
+fi
+
+if command -v pbcopy >/dev/null 2>&1; then
+  exec pbcopy
+fi
+
+printf '%s\n' \
+  'clip: no clipboard backend is available (expected wl-copy, xclip, clip.exe, termux-clipboard-set, or pbcopy).' >&2
+exit 1
