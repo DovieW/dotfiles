@@ -248,6 +248,12 @@ the declarative manifest through Plasma's live API. Plasma's generated
 containment IDs and geometry remain host-local; taskbar structure belongs to
 the manifest rather than a captured machine-specific applet file.
 
+After experimenting in Plasma's panel editor, run `dot panel status`. A matching
+result means the selected profile already describes the live taskbar. A drift
+result means the intended structure must be incorporated into
+`config/kde/panel-profiles.json` or the shared panel builder before it is
+portable; do not capture Plasma's generated containment IDs as configuration.
+
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 
 ```bash

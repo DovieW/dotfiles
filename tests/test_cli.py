@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -78,6 +79,15 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("windows-refined", result.stdout)
         self.assertIn("centered-compact", result.stdout)
         self.assertIn("unified-pill", result.stdout)
+
+    def test_kde_normalization_ignores_runtime_shortcut_residue(self):
+        normalize = runpy.run_path(str(DOT))["portable_kde_content"]
+        tracked = b"""[kwin]\ndot-dolphin=Meta+E,none,Open Dolphin\nOther=Value\n\n[plasmashell]\nmanage activities=none,Meta+Q,Show Activity Switcher\nactivate widget 3=,none,Activate Launcher\n"""
+        live = b"""[plasmashell]\nactivate widget 230=,none,Activate Launcher\nmanage activities=,Meta+Q,Show Activity Switcher\n\n[kwin]\nOther=Value\ndot-dolphin=Meta+E,none,Open Dolphin\n\n[services][com.mitchellh.ghostty.desktop]\n_launch=\n"""
+        self.assertEqual(
+            normalize(".config/kglobalshortcutsrc", tracked),
+            normalize(".config/kglobalshortcutsrc", live),
+        )
 
     def test_unknown_profile_is_actionable(self):
         result = self.run_dot("doctor", "--profile", "does-not-exist")
@@ -831,10 +841,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Backspace+Space+Enter", gestures)
         self.assertIn("def cmd_gestures", cli)
         self.assertIn('"InputActions KWin effect"', cli)
-        self.assertIn(
-            '".config/kglobalshortcutsrc": {"services][org.kde.krunner.desktop"}',
-            cli,
-        )
+        self.assertIn('"services][org.kde.krunner.desktop"', cli)
+        self.assertIn('"services][com.mitchellh.ghostty.desktop"', cli)
         self.assertIn('"gestures"', cli)
 
     def test_kubuntu_scopes_touchpad_jump_workaround(self):

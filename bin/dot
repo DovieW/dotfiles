@@ -110,7 +110,11 @@ KDE_IGNORED_KEYS = {
     },
 }
 KDE_IGNORED_SECTIONS = {
-    ".config/kglobalshortcutsrc": {"services][org.kde.krunner.desktop"},
+    ".config/kglobalshortcutsrc": {
+        "services][com.mitchellh.ghostty.desktop",
+        "services][org.kde.dolphin.desktop",
+        "services][org.kde.krunner.desktop",
+    },
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
     ".config/plasmashellrc": {"Updates", "PlasmaViews][Panel 2][Defaults"},
 }
@@ -550,6 +554,8 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
     kept: list[str] = []
     for line in content.decode("utf-8").splitlines(keepends=True):
         stripped = line.strip()
+        if not stripped:
+            continue
         if stripped.startswith("[") and stripped.endswith("]"):
             section = stripped[1:-1]
             if section in ignored_sections or (
@@ -565,6 +571,16 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
         key = stripped.split("=", 1)[0] if "=" in stripped else ""
         if (section, key) in ignored_keys:
             continue
+        if (
+            relative == ".config/kglobalshortcutsrc"
+            and section == "plasmashell"
+            and key.startswith("activate widget ")
+        ):
+            continue
+        if relative == ".config/kglobalshortcutsrc" and "=" in line:
+            candidate, value = line.split("=", 1)
+            if value.startswith(","):
+                line = candidate + "=none" + value
         kept.append(line)
     # KConfig section order has no semantic meaning, and Plasma applications
     # routinely rewrite it. Canonicalizing blocks prevents reorder-only drift.
@@ -585,6 +601,11 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
             current_lines.append(line)
     if current_name is not None:
         blocks.append((current_name, current_lines))
+    if relative == ".config/kglobalshortcutsrc":
+        blocks = [
+            (name, [block[0], *sorted(block[1:], key=str.casefold)])
+            for name, block in blocks
+        ]
     kept = preamble + [
         line
         for _, block in sorted(blocks, key=lambda item: item[0])
