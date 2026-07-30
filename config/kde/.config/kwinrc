@@ -1,11 +1,14 @@
 [Desktops]
 Id_1=64a75ce1-48d0-4102-b780-268519bd8d8e
 Id_2=7d416e18-68fa-41fa-bc45-52cce1d1e0e3
+Name_1=General
+Name_2=Money
 Number=2
 Rows=1
 
 [Plugins]
 blendchangesEnabled=false
+desktopchangeosdEnabled=true
 dot-dolphinEnabled=true
 fadeEnabled=false
 fadedesktopEnabled=false
@@ -26,6 +29,9 @@ squashEnabled=false
 translucencyEnabled=false
 windowapertureEnabled=false
 wobblywindowsEnabled=false
+
+[Script-desktopchangeosd]
+PopupHideDelay=200
 
 [Windows]
 ElectricBorderCooldown=50

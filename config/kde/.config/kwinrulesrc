@@ -1,6 +1,6 @@
 [General]
-count=3
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops
+count=4
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops,system-settings-ephemeral
 
 [dolphin-skip-taskbar]
 Description=Keep Dolphin out of the taskbar
@@ -25,4 +25,15 @@ Description=Keep Ghostty on all virtual desktops
 desktops=
 desktopsrule=2
 wmclass=com.mitchellh.ghostty
+wmclassmatch=1
+
+[system-settings-ephemeral]
+Description=Keep System Settings out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=systemsettings
 wmclassmatch=1

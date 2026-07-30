@@ -3837,6 +3837,23 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if panel_reveal_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        desktop_osd_ok = all(
+            value in kwin
+            for value in (
+                "Name_1=General",
+                "Name_2=Money",
+                "desktopchangeosdEnabled=true",
+                "[Script-desktopchangeosd]",
+                "PopupHideDelay=200",
+            )
+        )
+        failures += not doctor_check(
+            "virtual desktop name OSD",
+            desktop_osd_ok,
+            "General/Money names shown for 200 ms after switching"
+            if desktop_osd_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
         krunner_path = Path.home() / ".config/krunnerrc"
         krunner = krunner_path.read_text(encoding="utf-8") if krunner_path.exists() else ""
         enabled_runners = re.findall(r"^(.+)Enabled=true$", krunner, re.MULTILINE)
@@ -3935,6 +3952,26 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             emoji_ephemeral_ok,
             "ephemeral: absent from the taskbar, pager, and Alt+Tab"
             if emoji_ephemeral_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        system_settings_ephemeral_ok = all(
+            value in dolphin_rules
+            for value in (
+                "[system-settings-ephemeral]",
+                "wmclass=systemsettings",
+                "skippager=true",
+                "skippagerrule=2",
+                "skipswitcher=true",
+                "skipswitcherrule=2",
+                "skiptaskbar=true",
+                "skiptaskbarrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "System Settings window rule",
+            system_settings_ephemeral_ok,
+            "absent from the taskbar, pager, and Alt+Tab"
+            if system_settings_ephemeral_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         ghostty_desktops_ok = all(

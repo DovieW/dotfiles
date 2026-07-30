@@ -477,6 +477,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Walk Through Windows"', cli)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
+        self.assertIn("Name_1=General", kwin)
+        self.assertIn("Name_2=Money", kwin)
+        self.assertIn("desktopchangeosdEnabled=true", kwin)
+        self.assertIn("[Script-desktopchangeosd]", kwin)
+        self.assertIn("PopupHideDelay=200", kwin)
         self.assertIn("AnimationDurationFactor=0", kdeglobals)
         for effect in (
             "blendchanges",
@@ -546,7 +551,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclassmatch=1", rules)
         self.assertIn("skiptaskbar=true", rules)
         self.assertIn("skiptaskbarrule=2", rules)
-        self.assertIn("rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops", rules)
+        self.assertIn(
+            "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
+            "ghostty-all-desktops,system-settings-ephemeral",
+            rules,
+        )
         self.assertIn("[emoji-selector-ephemeral]", rules)
         self.assertIn("wmclass=org.kde.plasma.emojier", rules)
         self.assertIn("skippager=true", rules)
@@ -557,6 +566,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclass=com.mitchellh.ghostty", rules)
         self.assertIn("desktops=\n", rules)
         self.assertIn("desktopsrule=2", rules)
+        self.assertIn("[system-settings-ephemeral]", rules)
+        self.assertIn("wmclass=systemsettings", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-dolphin-launch.service", script)
