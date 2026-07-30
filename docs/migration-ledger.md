@@ -35,6 +35,7 @@ means its reusable configuration now has an authoritative replacement here.
 | `programs/powertoys`, `windhawk` | 2025 | Retain | Binary application backups |
 | `programs/scrcpy`, `Newpipe` | 2025/2023 | Retain | Device tooling/data |
 | `programs/remmina`, `lazygit`, `lazydocker` setup scripts | 2024 | Retire setup | Replaced by profile-driven application |
+| `DovieW/nvim-config` | 2024-08-14 | Replace, retain history | `config/nvim`; original repository remains unchanged and is no longer deployed |
 
 The existing secret history in `files` is intentionally not rewritten by this
 migration. Superseded private-key material may disappear from its current

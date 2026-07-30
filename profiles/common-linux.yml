@@ -6,6 +6,7 @@
   "features": {
     "shell": true,
     "git": true,
+    "neovim": true,
     "repositories": true,
     "vite_plus": true,
     "kde": false,
@@ -19,6 +20,7 @@
       "openssh-client",
       "python3",
       "python3-venv",
+      "unzip",
       "zsh"
     ],
     "brew": [
@@ -35,11 +37,14 @@
       "git-lfs",
       "jq",
       "navi",
+      "neovim",
       "powerlevel10k",
       "ripgrep",
       "shellcheck",
+      "stylua",
       "tmux",
       "tree",
+      "tree-sitter-cli",
       "yamllint",
       "yq",
       "zoxide",

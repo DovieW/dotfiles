@@ -53,6 +53,44 @@ stable-channel tools such as Codex, Vite+, and InputActions. A package-manager
 transaction already in progress causes an actionable refusal instead of
 competing for native locks.
 
+### Neovim plugins
+
+Normal application updates include Neovim plugins:
+
+```bash
+dot nvim status --profile kubuntu-laptop
+dot nvim update --profile kubuntu-laptop --check
+dot nvim update --profile kubuntu-laptop
+```
+
+The update never experiments in the live editor. It copies the configuration
+and lockfile into isolated XDG directories, updates that candidate, checks Lua
+formatting, and runs the headless smoke test. Only a passing candidate replaces
+the repository lockfile. The live plugins are then restored to that exact lock,
+the complete dotfiles validation suite runs, and a personal profile creates a
+signed lockfile-only commit and pushes it.
+
+The command refuses to publish if the dotfiles worktree is dirty or its branch
+is not synchronized with upstream. A work WSL profile consumes the committed
+lock but never publishes plugin changes. Every promoted update prints a
+rollback ID:
+
+```bash
+dot nvim rollback RUN_ID --profile kubuntu-laptop
+```
+
+Rollback restores the previous lock, reconciles and retests the live plugins,
+then commits and pushes the result. Plugin source and Mason packages remain
+machine-local under Neovim's standard data directory.
+
+To change the editor configuration itself, edit `config/nvim`, run
+`dot nvim status`, and commit the reviewed configuration normally. Apply only
+the managed link with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags nvim
+```
+
 Docker Engine, Compose, and Buildx advance through Docker's official stable APT
 repository during the same update. To apply or repair only Docker:
 
@@ -190,6 +228,7 @@ same command to refresh their local permission-locked key.
 dot apply --profile kubuntu-laptop
 dot apply --profile kubuntu-laptop
 dot doctor --profile kubuntu-laptop
+dot nvim status --profile kubuntu-laptop
 ./scripts/check-public-safety
 ```
 

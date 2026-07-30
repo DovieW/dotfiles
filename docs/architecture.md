@@ -87,6 +87,37 @@ systems are available, enabling the `vp env use` current-shell wrapper and
 dynamic completions. Generated runtimes, package managers, shims, caches, and
 the environment file remain machine-local under `~/.vite-plus`.
 
+## Neovim
+
+Kubuntu and both WSL profiles use the same Neovim configuration from
+`config/nvim`, linked at `~/.config/nvim`. Homebrew owns the latest stable
+Neovim, Stylua, and Tree-sitter CLI releases so the editor version does not
+depend on an older distribution package.
+
+The configuration is deliberately modular and smaller than the retired
+Kickstart fork. lazy.nvim loads a reviewed plugin set and `lazy-lock.json`
+records a tested plugin graph. The lockfile is a compatibility artifact, not a
+policy of permanently freezing versions: personal profiles test candidate
+updates in isolated XDG directories and advance it automatically after the
+candidate passes.
+
+fzf-lua is the single fuzzy-picker interface. Oil owns directory editing,
+Harpoon owns the short working-file list, and native undo plus the state
+directory preserve editing history. Gitsigns, Diffview, and the existing
+Lazygit CLI provide progressively deeper Git views. The UI remains conventional
+and stable: GitHub Dark, Lualine, and Which-key, without message, dashboard, or
+animation replacement layers.
+
+Language support is curated for Lua, shell, Python, JavaScript/TypeScript,
+HTML/CSS, JSON/YAML/TOML, Markdown, Docker/Compose, and SQL. Mason installs
+their editor-local servers and tools; Neovim's current native LSP API owns
+clients, Blink owns completion, Conform owns explicit formatting, and nvim-lint
+owns diagnostics. Formatting is manual. Autosave is guarded against special,
+unnamed, read-only, and non-file buffers.
+
+The old `DovieW/nvim-config` repository remains unchanged as historical
+reference. It is not deployed and is not a second source of truth.
+
 ## Device identity and secrets
 
 The first bootstrap writes a stable logical device ID to

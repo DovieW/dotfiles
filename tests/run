@@ -33,4 +33,20 @@ else
   echo "SKIP ansible syntax: not installed"
 fi
 
+if [[ -d /home/linuxbrew/.linuxbrew/bin ]]; then
+  export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+fi
+
+if command -v nvim >/dev/null 2>&1; then
+  nvim --headless \
+    '+lua vim.g.dovie_headless=true' \
+    "+lua dofile(vim.fn.stdpath('config') .. '/tests/smoke.lua')" \
+    '+qa'
+  if command -v stylua >/dev/null 2>&1; then
+    stylua --check config/nvim/init.lua config/nvim/lua config/nvim/tests
+  fi
+else
+  echo "SKIP Neovim smoke test: not installed"
+fi
+
 scripts/check-public-safety

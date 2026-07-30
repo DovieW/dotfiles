@@ -45,6 +45,8 @@ The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 ```text
 dot apply --profile kubuntu-laptop
 dot update --profile kubuntu-laptop
+dot nvim status --profile kubuntu-laptop
+dot nvim update --profile kubuntu-laptop
 dot doctor --profile kubuntu-laptop
 dot package add ripgrep --profile common-linux
 dot repos sync --profile kubuntu-laptop
@@ -65,8 +67,9 @@ dot
 selector to Spectacle preferences and keyboard shortcuts.
 
 Choose **Update system and applications** in the palette, or run `dot update`,
-to coordinate all installed APT, Snap, Homebrew, external-Debian, Codex, and
-Vite+ updates through their native stable providers. Use `--system` or `--apps`
+to coordinate all installed APT, Snap, Homebrew, external-Debian, Codex,
+Vite+, and tested Neovim plugin updates through their native stable providers.
+Use `--system` or `--apps`
 for one category and `--check` for a read-only report. `dot apply` remains the
 separate operation that reconciles the declared package manifest.
 On this Kubuntu laptop, `dot update` infers `kubuntu-laptop`; `--profile` remains

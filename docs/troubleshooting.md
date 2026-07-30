@@ -231,6 +231,31 @@ If preflight says systemd is unavailable, update WSL, enable systemd in
 Docker Desktop proxy, disable that distribution under Docker Desktop's WSL
 Integration settings, shut WSL down, and retry. Do not keep both engines active.
 
+## Neovim does not start cleanly
+
+Test the managed configuration without opening the UI:
+
+```bash
+dot nvim status --profile kubuntu-laptop
+dot doctor --profile kubuntu-laptop
+```
+
+The first command loads the locked plugin graph, required modules, mappings,
+clipboard option, and Lua Tree-sitter parser in headless mode. Repair the
+managed link with `dot apply --profile kubuntu-laptop --tags nvim`. On WSL,
+substitute the personal or work profile.
+
+If a plugin update is available, use `dot nvim update --check` before applying
+it. Do not run `:Lazy update` as the normal maintenance path: the dot command
+tests the candidate away from live editor data and records a rollback ID. If a
+promoted release regresses at runtime, use the printed
+`dot nvim rollback RUN_ID --profile PROFILE` command.
+
+Language servers and formatters live under Neovim's Mason data directory. Open
+`:Mason` to inspect an individual installation and `:LspInfo` to inspect the
+current buffer. Kubuntu's native clipboard needs `wl-copy`, while WSL uses
+`clip.exe` and PowerShell through its explicit clipboard provider.
+
 ## Codex Remote Control is unavailable
 
 Check the managed user service:

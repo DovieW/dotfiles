@@ -249,11 +249,63 @@
           - --profile
           - "{{ dot_profile }}"
           - --direct
+          - --tags
+          - "{{ ansible_run_tags | join(',') }}"
       register: dot_direct_apply
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde, tmux]
+      tags: [config, shell, git, kde, tmux, nvim]
+
+    - name: Restore Neovim's tested plugin graph
+      ansible.builtin.command:
+        argv:
+          - nvim
+          - --headless
+          - "+Lazy! restore"
+          - "+qa"
+      environment:
+        PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
+      changed_when: false
+      when:
+        - dot_profile_data.features.neovim | default(false)
+        - not ansible_check_mode
+      tags: [config, nvim]
+
+    - name: Install Neovim's curated language tools
+      ansible.builtin.command:
+        argv:
+          - nvim
+          - --headless
+          - "+Lazy! load nvim-lspconfig"
+          - "+MasonToolsInstallSync"
+          - "+qa"
+      environment:
+        PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
+      register: dot_nvim_mason
+      changed_when: >-
+        'installing' in dot_nvim_mason.stdout or
+        'installing' in dot_nvim_mason.stderr
+      when:
+        - dot_profile_data.features.neovim | default(false)
+        - not ansible_check_mode
+      tags: [config, nvim]
+
+    - name: Verify the managed Neovim runtime
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/bin/dot"
+          - nvim
+          - status
+          - --profile
+          - "{{ dot_profile }}"
+      environment:
+        PATH: "/home/linuxbrew/.linuxbrew/bin:{{ ansible_facts.env.PATH }}"
+      changed_when: false
+      when:
+        - dot_profile_data.features.neovim | default(false)
+        - not ansible_check_mode
+      tags: [config, nvim]
 
     - name: Create the InputActions configuration directory
       ansible.builtin.file:

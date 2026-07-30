@@ -32,6 +32,9 @@ PROFILE_DIR = ROOT / "profiles"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dotfiles"
 BACKUP_DIR = STATE_DIR / "backups"
+NVIM_CONFIG_DIR = ROOT / "config/nvim"
+NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
+NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 KDE_FILES = (
@@ -265,12 +268,23 @@ def backup_paths(paths: list[Path]) -> str:
     for path in paths:
         expanded = path.expanduser()
         record: dict[str, Any] = {"path": str(expanded), "existed": expanded.exists()}
-        if expanded.exists() and expanded.is_file():
+        if expanded.is_symlink():
+            record["kind"] = "symlink"
+            record["target"] = os.readlink(expanded)
+        elif expanded.exists() and expanded.is_file():
             relative = str(expanded).lstrip("/")
             target = destination / "files" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(expanded, target)
             record["backup"] = str(target)
+            record["kind"] = "file"
+        elif expanded.exists() and expanded.is_dir() and not expanded.is_symlink():
+            relative = str(expanded).lstrip("/")
+            target = destination / "files" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(expanded, target)
+            record["backup"] = str(target)
+            record["kind"] = "directory"
         manifest.append(record)
     destination.mkdir(parents=True, exist_ok=True)
     atomic_text(destination / "manifest.json", json.dumps(manifest, indent=2) + "\n", 0o600)
@@ -282,11 +296,30 @@ def restore_backup(run_id: str) -> None:
     manifest = load_json(root / "manifest.json")
     for record in manifest:
         path = Path(record["path"])
-        if record.get("existed") and record.get("backup"):
+        if record.get("kind") == "symlink":
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(record["target"])
+        elif record.get("existed") and record.get("backup"):
             backup = Path(record["backup"])
-            atomic_bytes(path, backup.read_bytes())
+            if record.get("kind") == "directory":
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                elif path.is_dir():
+                    shutil.rmtree(path)
+                shutil.copytree(backup, path)
+            else:
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+                atomic_bytes(path, backup.read_bytes())
         elif not record.get("existed") and (path.exists() or path.is_symlink()):
-            path.unlink()
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
 
 def link_file(source: Path, destination: Path) -> bool:
@@ -295,7 +328,10 @@ def link_file(source: Path, destination: Path) -> bool:
         return False
     if destination.exists() or destination.is_symlink():
         backup_paths([destination])
-        destination.unlink()
+        if destination.is_dir() and not destination.is_symlink():
+            shutil.rmtree(destination)
+        else:
+            destination.unlink()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.symlink_to(source)
     return True
@@ -517,14 +553,25 @@ def check_kde_apply_conflicts(*, force: bool = False) -> None:
         )
 
 
-def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
+def apply_direct(
+    profile_name: str,
+    *,
+    force_kde: bool = False,
+    selected_tags: set[str] | None = None,
+) -> int:
     profile = load_profile(profile_name)
     features = profile.get("features", {})
     changes = 0
+    selected_tags = selected_tags or set()
+    apply_all = not selected_tags or "all" in selected_tags or "config" in selected_tags
+
+    def selected(*tags: str) -> bool:
+        return apply_all or bool(selected_tags.intersection(tags))
+
     force_kde = force_kde or os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") == "1"
-    if features.get("kde"):
+    if features.get("kde") and selected("kde"):
         check_kde_apply_conflicts(force=force_kde)
-    if features.get("shell"):
+    if features.get("shell") and selected("shell", "tmux"):
         mappings = {
             ROOT / "bin/dot": Path.home() / ".local/bin/dot",
             ROOT / "config/shell/bashrc": Path.home() / ".bashrc",
@@ -536,7 +583,9 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
         }
         for source, destination in mappings.items():
             changes += int(link_file(source, destination))
-    if features.get("git"):
+    if features.get("neovim") and selected("nvim"):
+        changes += int(link_file(ROOT / "config/nvim", Path.home() / ".config/nvim"))
+    if features.get("git") and selected("git"):
         include = ROOT / "config/git/root.gitconfig"
         proc = run(["git", "config", "--global", "--get-all", "include.path"], check=False, capture=True)
         includes = proc.stdout.splitlines() if proc.returncode == 0 else []
@@ -547,7 +596,7 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
             source = ROOT / "config/git/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
-    if features.get("kde"):
+    if features.get("kde") and selected("kde"):
         powerdevil_changed = False
         candidates = [
             (relative, kde_source(relative), Path.home() / relative)
@@ -696,12 +745,12 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
                     check=False,
                     env=os.environ.copy(),
                 )
-    if features.get("wsl") or features.get("kde"):
+    if (features.get("wsl") or features.get("kde")) and selected("docker"):
         for tool in ("clogs", "cshell", "cycle"):
             source = ROOT / "config/docker/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
-    if features.get("codex_remote_control"):
+    if features.get("codex_remote_control") and selected("codex"):
         unit_name = "codex-remote-control.service"
         source = ROOT / "config/systemd/user" / unit_name
         destination = Path.home() / ".config/systemd/user" / unit_name
@@ -746,22 +795,45 @@ def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     force_kde = getattr(args, "force_kde", False)
     if args.direct or not command_exists("ansible-playbook"):
-        if profile.get("features", {}).get("kde") and not args.check:
+        direct_tags = set((args.tags or "").replace(",", " ").split())
+        direct_kde_selected = (
+            not direct_tags
+            or "all" in direct_tags
+            or "config" in direct_tags
+            or "kde" in direct_tags
+        )
+        if profile.get("features", {}).get("kde") and direct_kde_selected and not args.check:
             check_kde_apply_conflicts(force=force_kde)
         if profile["name"] == "termux" and not args.check:
             packages = profile.get("packages", {}).get("pkg", [])
             if packages:
                 run(["pkg", "upgrade", "-y"])
                 run(["pkg", "install", "-y", *packages])
-        if profile.get("features", {}).get("vite_plus"):
+        if profile.get("features", {}).get("vite_plus") and (
+            not direct_tags
+            or "all" in direct_tags
+            or "config" in direct_tags
+            or "packages" in direct_tags
+            or "shell" in direct_tags
+        ):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-vite-plus"), mode], cwd=ROOT)
-        if profile.get("features", {}).get("codex_remote_control"):
+        if profile.get("features", {}).get("codex_remote_control") and (
+            not direct_tags
+            or "all" in direct_tags
+            or "config" in direct_tags
+            or "packages" in direct_tags
+            or "codex" in direct_tags
+        ):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-codex"), mode], cwd=ROOT)
         if not args.direct:
             print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
-        apply_direct(args.profile, force_kde=force_kde)
+        apply_direct(
+            args.profile,
+            force_kde=force_kde,
+            selected_tags=direct_tags,
+        )
         return
     selected_tags = set((args.tags or "").replace(",", " ").split())
     package_apply_selected = not selected_tags or bool(
@@ -795,12 +867,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
         if (package_apply_selected and privileged_packages) or kde_system_apply_selected
         else []
     )
-    direct_apply_selected = not selected_tags or bool(
-        selected_tags & {"config", "shell", "git", "kde", "tmux"}
-    )
     kde_apply_selected = (
         profile.get("features", {}).get("kde")
-        and direct_apply_selected
+        and (
+            not selected_tags
+            or "all" in selected_tags
+            or "config" in selected_tags
+            or "kde" in selected_tags
+        )
         and not args.check
     )
     if kde_apply_selected:
@@ -1471,6 +1545,15 @@ def cmd_update(args: argparse.Namespace) -> None:
         system = apps = True
     if getattr(args, "check", False):
         report_pending_updates(profile, system=system, apps=apps)
+        if apps and profile.get("features", {}).get("neovim"):
+            cmd_nvim(
+                argparse.Namespace(
+                    nvim_action="update",
+                    profile=profile_name,
+                    check=True,
+                    run_id=None,
+                )
+            )
         return
     blockers = active_package_transactions()
     if blockers:
@@ -1497,10 +1580,256 @@ def cmd_update(args: argparse.Namespace) -> None:
         cmd_codex_update(args)
     if apps and profile.get("features", {}).get("vite_plus"):
         cmd_vite_plus_update(args)
+    if apps and profile.get("features", {}).get("neovim"):
+        cmd_nvim(
+            argparse.Namespace(
+                nvim_action="update",
+                profile=profile_name,
+                check=False,
+                run_id=None,
+            )
+        )
     categories = "system and application" if system and apps else (
         "system" if system else "application"
     )
     print(f"Updated all installed {categories} packages for {profile['name']}.")
+
+
+def nvim_environment(root: Path | None = None) -> dict[str, str]:
+    env = os.environ.copy()
+    path_parts = env.get("PATH", "").split(os.pathsep)
+    if str(LINUXBREW_BIN) not in path_parts:
+        env["PATH"] = os.pathsep.join([str(LINUXBREW_BIN), *path_parts])
+    if root is not None:
+        env.update(
+            {
+                "XDG_CONFIG_HOME": str(root / "config"),
+                "XDG_DATA_HOME": str(root / "data"),
+                "XDG_STATE_HOME": str(root / "state"),
+                "XDG_CACHE_HOME": str(root / "cache"),
+            }
+        )
+    return env
+
+
+def run_nvim_smoke(*, env: dict[str, str] | None = None) -> None:
+    require_commands(["nvim"], "Run `dot apply --profile PROFILE --tags packages,nvim` first.")
+    config_home = Path((env or os.environ).get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    smoke = config_home / "nvim/tests/smoke.lua"
+    run(
+        [
+            "nvim",
+            "--headless",
+            "+lua vim.g.dovie_headless=true",
+            f"+lua dofile({json.dumps(str(smoke))})",
+            "+qa",
+        ],
+        env=env or nvim_environment(),
+        capture=True,
+        timeout=180,
+    )
+
+
+def prepare_nvim_candidate(root: Path) -> tuple[dict[str, str], Path]:
+    candidate = root / "config/nvim"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(NVIM_CONFIG_DIR, candidate)
+    env = nvim_environment(root)
+    run(
+        ["nvim", "--headless", "+Lazy! update", "+qa"],
+        env=env,
+        capture=True,
+        timeout=600,
+    )
+    if command_exists("stylua"):
+        run(
+            ["stylua", "--check", "init.lua", "lua", "tests"],
+            cwd=candidate,
+            env=env,
+        )
+    run_nvim_smoke(env=env)
+    return env, candidate / "lazy-lock.json"
+
+
+def nvim_git_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    if env.get("SSH_AUTH_SOCK") and Path(env["SSH_AUTH_SOCK"]).is_socket():
+        return env
+    candidates = (
+        Path.home() / ".bitwarden-ssh-agent.sock",
+        Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
+    )
+    active = next((path for path in candidates if path.is_socket()), None)
+    if active:
+        env["SSH_AUTH_SOCK"] = str(active)
+    return env
+
+
+def require_clean_publishable_repo() -> None:
+    status = run(["git", "status", "--porcelain"], cwd=ROOT, capture=True).stdout.strip()
+    if status:
+        raise DotError(
+            "Neovim plugin publishing requires a clean dotfiles repository. "
+            "Commit or discard the current changes first."
+        )
+    upstream = run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        cwd=ROOT,
+        check=False,
+        capture=True,
+    )
+    if upstream.returncode:
+        raise DotError("The current dotfiles branch has no upstream tracking branch.")
+    run(["git", "fetch", "--quiet"], cwd=ROOT, env=nvim_git_environment())
+    local = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+    remote = run(["git", "rev-parse", "@{upstream}"], cwd=ROOT, capture=True).stdout.strip()
+    if local != remote:
+        raise DotError(
+            "The dotfiles branch is not synchronized with its upstream. "
+            "Pull or push the existing commits before updating Neovim plugins."
+        )
+
+
+def save_nvim_lock_backup() -> str:
+    run_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    destination = NVIM_UPDATE_DIR / run_id
+    destination.mkdir(parents=True, exist_ok=True)
+    if NVIM_LOCK_FILE.exists():
+        shutil.copy2(NVIM_LOCK_FILE, destination / "lazy-lock.json")
+    atomic_text(
+        destination / "metadata.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": run_id,
+                "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "head": run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip(),
+            },
+            indent=2,
+        )
+        + "\n",
+        0o600,
+    )
+    return run_id
+
+
+def publish_nvim_lock(message: str) -> None:
+    changed = run(
+        ["git", "status", "--porcelain", "--", str(NVIM_LOCK_FILE)],
+        cwd=ROOT,
+        capture=True,
+    ).stdout.strip()
+    other = run(
+        ["git", "status", "--porcelain", "--", ".", f":(exclude){NVIM_LOCK_FILE.relative_to(ROOT)}"],
+        cwd=ROOT,
+        capture=True,
+    ).stdout.strip()
+    if not changed or other:
+        raise DotError(
+            "Refusing the automatic Neovim commit because the lockfile is not "
+            "the repository's only change."
+        )
+    env = nvim_git_environment()
+    run(["git", "add", str(NVIM_LOCK_FILE)], cwd=ROOT)
+    run(["git", "commit", "-m", message], cwd=ROOT, env=env)
+    run(["git", "push"], cwd=ROOT, env=env)
+
+
+def restore_live_nvim_plugins() -> None:
+    run(
+        ["nvim", "--headless", "+Lazy! restore", "+qa"],
+        env=nvim_environment(),
+        capture=True,
+        timeout=600,
+    )
+    run_nvim_smoke()
+
+
+def cmd_nvim(args: argparse.Namespace) -> None:
+    profile_name = update_profile(getattr(args, "profile", None))
+    profile = load_profile(profile_name)
+    if not profile.get("features", {}).get("neovim"):
+        raise DotError(f"Neovim is not enabled for {profile_name}.")
+    action = args.nvim_action
+    if action == "status":
+        run_nvim_smoke()
+        print("Neovim configuration and locked plugins passed the smoke test.")
+        return
+    if action == "rollback":
+        root = NVIM_UPDATE_DIR / args.run_id
+        backup = root / "lazy-lock.json"
+        if not backup.is_file():
+            raise DotError(f"No Neovim plugin backup exists for {args.run_id}.")
+        require_clean_publishable_repo()
+        current = NVIM_LOCK_FILE.read_bytes()
+        head_before = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+        try:
+            atomic_bytes(NVIM_LOCK_FILE, backup.read_bytes())
+            restore_live_nvim_plugins()
+            publish_nvim_lock(f"rollback Neovim plugins to {args.run_id}")
+        except Exception:
+            head_after = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+            if head_after == head_before:
+                run(
+                    ["git", "restore", "--staged", "--", str(NVIM_LOCK_FILE)],
+                    cwd=ROOT,
+                    check=False,
+                )
+                atomic_bytes(NVIM_LOCK_FILE, current)
+                restore_live_nvim_plugins()
+            raise
+        print(f"Restored, tested, committed, and pushed Neovim plugin lock {args.run_id}.")
+        return
+
+    publish = profile.get("account") != "work"
+    if publish and not getattr(args, "check", False):
+        require_clean_publishable_repo()
+    with tempfile.TemporaryDirectory(prefix="dot-nvim-") as directory:
+        _, candidate_lock = prepare_nvim_candidate(Path(directory))
+        current = NVIM_LOCK_FILE.read_bytes() if NVIM_LOCK_FILE.exists() else b""
+        candidate = candidate_lock.read_bytes()
+    if candidate == current:
+        print("Neovim plugins already match the latest compatible releases.")
+        if not getattr(args, "check", False):
+            restore_live_nvim_plugins()
+        return
+    if getattr(args, "check", False):
+        before = json.loads(current or b"{}")
+        after = json.loads(candidate)
+        changed = sorted(
+            name for name in set(before) | set(after) if before.get(name) != after.get(name)
+        )
+        print(f"Neovim plugins: {len(changed)} update(s) — {', '.join(changed)}")
+        return
+    if not publish:
+        restore_live_nvim_plugins()
+        print(
+            "The work profile consumes the repository lockfile; plugin publishing "
+            "is disabled on this profile."
+        )
+        return
+
+    run_id = save_nvim_lock_backup()
+    head_before = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+    try:
+        atomic_bytes(NVIM_LOCK_FILE, candidate)
+        restore_live_nvim_plugins()
+        run([str(ROOT / "tests/run")], cwd=ROOT)
+        publish_nvim_lock("update Neovim plugins")
+    except Exception:
+        head_after = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+        if head_after == head_before:
+            run(
+                ["git", "restore", "--staged", "--", str(NVIM_LOCK_FILE)],
+                cwd=ROOT,
+                check=False,
+            )
+            backup = NVIM_UPDATE_DIR / run_id / "lazy-lock.json"
+            if backup.exists():
+                atomic_bytes(NVIM_LOCK_FILE, backup.read_bytes())
+                restore_live_nvim_plugins()
+        raise
+    print(f"Updated, tested, committed, and pushed Neovim plugins. Rollback ID: {run_id}")
 
 
 def cmd_capture_kde(args: argparse.Namespace) -> None:
@@ -1778,6 +2107,7 @@ def cmd_palette() -> None:
         "Review configuration drift\tdiff",
         "Apply Kubuntu profile\tapply",
         "Update system and applications\tupdate",
+        "Manage Neovim\tneovim",
         "Manage touchpad gestures\tgestures",
         "Run Kubuntu doctor\tdoctor",
         "Run validation suite\ttest",
@@ -1839,6 +2169,26 @@ def cmd_palette() -> None:
             cmd_gestures(
                 argparse.Namespace(
                     gestures_action=gesture_choice[0].split("\t", 1)[1]
+                )
+            )
+    elif action == "neovim":
+        nvim_choice = fzf_choose(
+            [
+                "Test the current configuration\tstatus",
+                "Check for plugin updates\tcheck",
+                "Update, test, commit, and push plugins\tupdate",
+            ],
+            prompt="Neovim › ",
+            header="Enter: run  Esc: return",
+        )
+        if nvim_choice:
+            nvim_action = nvim_choice[0].split("\t", 1)[1]
+            cmd_nvim(
+                argparse.Namespace(
+                    nvim_action="status" if nvim_action == "status" else "update",
+                    profile="kubuntu-laptop",
+                    check=nvim_action == "check",
+                    run_id=None,
                 )
             )
     elif action == "doctor":
@@ -2128,6 +2478,79 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "login shell",
             login_shell.endswith("/zsh"),
             login_shell,
+        )
+    if profile.get("features", {}).get("neovim"):
+        nvim_config = Path.home() / ".config/nvim"
+        managed_config = (
+            nvim_config.is_symlink()
+            and nvim_config.resolve() == NVIM_CONFIG_DIR.resolve()
+        )
+        failures += not doctor_check(
+            "Neovim configuration",
+            managed_config,
+            str(nvim_config),
+        )
+        version = run(["nvim", "--version"], check=False, capture=True) if command_exists("nvim") else None
+        version_line = version.stdout.splitlines()[0] if version and version.stdout else "not installed"
+        supported = bool(
+            version
+            and version.returncode == 0
+            and re.search(r"NVIM v(?:0\.(?:1[2-9])|[1-9]\d+)\.", version_line)
+        )
+        failures += not doctor_check(
+            "Neovim stable",
+            supported,
+            version_line,
+        )
+        lock_data = load_json(NVIM_LOCK_FILE) if NVIM_LOCK_FILE.exists() else {}
+        failures += not doctor_check(
+            "Neovim plugin lock",
+            bool(lock_data),
+            f"{len(lock_data)} plugins locked" if lock_data else "lazy-lock.json is missing",
+        )
+        smoke_ok = False
+        smoke_detail = "Neovim is unavailable"
+        if supported and managed_config:
+            try:
+                run_nvim_smoke()
+                smoke_ok = True
+                smoke_detail = "headless smoke test passed"
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, DotError) as exc:
+                smoke_detail = str(exc)
+        failures += not doctor_check("Neovim runtime", smoke_ok, smoke_detail)
+        mason_packages = {
+            "bash-language-server",
+            "basedpyright",
+            "css-lsp",
+            "docker-compose-language-service",
+            "dockerfile-language-server",
+            "hadolint",
+            "html-lsp",
+            "json-lsp",
+            "lua-language-server",
+            "markdownlint-cli2",
+            "marksman",
+            "prettier",
+            "ruff",
+            "shellcheck",
+            "shfmt",
+            "sqlls",
+            "stylua",
+            "taplo",
+            "vtsls",
+            "yaml-language-server",
+            "yamllint",
+        }
+        mason_root = Path.home() / ".local/share/nvim/mason/packages"
+        missing_mason = sorted(
+            package for package in mason_packages if not (mason_root / package).is_dir()
+        )
+        failures += not doctor_check(
+            "Neovim language tools",
+            not missing_mason,
+            "curated Web and DevOps toolchain installed"
+            if not missing_mason
+            else f"missing {', '.join(missing_mason)}; run dot apply --profile {profile['name']} --tags nvim",
         )
     if profile.get("features", {}).get("git"):
         include = str(ROOT / "config/git/root.gitconfig")
@@ -2713,6 +3136,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="report pending updates without installing them",
     )
     update.set_defaults(func=cmd_update)
+    nvim = sub.add_parser("nvim")
+    nvim_sub = nvim.add_subparsers(dest="nvim_action", required=True)
+    nvim_update = nvim_sub.add_parser("update")
+    nvim_update.add_argument("--profile")
+    nvim_update.add_argument(
+        "--check",
+        action="store_true",
+        help="test a candidate update without changing the repository or live plugins",
+    )
+    nvim_update.set_defaults(func=cmd_nvim)
+    nvim_status = nvim_sub.add_parser("status")
+    nvim_status.add_argument("--profile")
+    nvim_status.set_defaults(func=cmd_nvim, check=False, run_id=None)
+    nvim_rollback = nvim_sub.add_parser("rollback")
+    nvim_rollback.add_argument("run_id")
+    nvim_rollback.add_argument("--profile")
+    nvim_rollback.set_defaults(func=cmd_nvim, check=False)
     package = sub.add_parser("package")
     package_sub = package.add_subparsers(dest="package_command", required=True)
     add = package_sub.add_parser("add")

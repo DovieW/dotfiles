@@ -23,6 +23,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
         self.assertIn("gestures", result.stdout)
+        self.assertIn("nvim", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("update", result.stdout)
 
@@ -561,10 +562,85 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Install or update tmux plugin manager", playbook)
         self.assertIn("Install configured tmux plugins", playbook)
         self.assertIn("'FATAL:' in dot_tmux_plugins_install.stderr", playbook)
-        self.assertIn(
-            '{"config", "shell", "git", "kde", "tmux"}',
-            cli,
-        )
+
+    def test_neovim_is_modern_managed_and_shared_with_wsl(self):
+        common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        cli = DOT.read_text()
+        plugins = (ROOT / "config/nvim/lua/dovie/plugins/init.lua").read_text()
+        lsp = (ROOT / "config/nvim/lua/dovie/plugins/lsp.lua").read_text()
+
+        self.assertTrue(common["features"]["neovim"])
+        for package in ("neovim", "stylua", "tree-sitter-cli"):
+            self.assertIn(package, common["packages"]["brew"])
+            self.assertEqual(catalog["tools"][package]["provider"], "brew")
+        self.assertIn('ROOT / "config/nvim"', cli)
+        self.assertIn('Path.home() / ".config/nvim"', cli)
+        self.assertIn("def cmd_nvim", cli)
+        self.assertIn("dot-nvim-", cli)
+        self.assertIn("publish_nvim_lock", cli)
+        self.assertIn('"ibhagwan/fzf-lua"', plugins)
+        self.assertIn('"stevearc/oil.nvim"', plugins)
+        self.assertIn('"ThePrimeagen/harpoon"', plugins)
+        self.assertIn('"sindrets/diffview.nvim"', plugins)
+        self.assertIn('"okuuva/auto-save.nvim"', plugins)
+        self.assertIn('"saghen/blink.cmp"', lsp)
+        self.assertIn("vim.lsp.config", lsp)
+        self.assertIn('lsp_format = "fallback"', lsp)
+        self.assertNotIn("telescope.nvim", plugins.lower())
+        self.assertNotIn("noice.nvim", plugins.lower())
+        self.assertNotIn("copilot", plugins.lower())
+
+    def test_neovim_lockfile_is_populated(self):
+        lock = json.loads((ROOT / "config/nvim/lazy-lock.json").read_text())
+        self.assertGreaterEqual(len(lock), 20)
+        for plugin in ("lazy.nvim", "fzf-lua", "oil.nvim", "nvim-lspconfig"):
+            self.assertIn(plugin, lock)
+
+    def test_neovim_deployment_backs_up_and_restores_an_existing_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            legacy = home / ".config/nvim"
+            legacy.mkdir(parents=True)
+            (legacy / "legacy.lua").write_text("-- keep me\n")
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["XDG_CONFIG_HOME"] = str(home / ".config")
+            env["XDG_STATE_HOME"] = str(root / "state")
+            env["PATH"] = os.pathsep.join(
+                ["/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin"]
+            )
+
+            applied = subprocess.run(
+                [
+                    str(DOT),
+                    "apply",
+                    "--profile",
+                    "wsl-personal",
+                    "--direct",
+                    "--tags",
+                    "nvim",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertTrue(legacy.is_symlink())
+            backups = list((root / "state/dotfiles/backups").iterdir())
+            self.assertEqual(len(backups), 1)
+
+            restored = subprocess.run(
+                [str(DOT), "rollback", backups[0].name],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(restored.returncode, 0, restored.stderr)
+            self.assertTrue(legacy.is_dir())
+            self.assertFalse(legacy.is_symlink())
+            self.assertEqual((legacy / "legacy.lua").read_text(), "-- keep me\n")
 
 
 if __name__ == "__main__":
