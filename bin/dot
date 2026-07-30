@@ -1312,6 +1312,58 @@ def apply_direct(
                 or "Factory display policy failed."
             )
         changes += display.stdout.count("CHANGED ")
+    if features.get("rdp_files") and selected("rdp", "config"):
+        legacy_rdp_desktop = (
+            Path.home() / ".local/share/applications/dot-rdp.desktop"
+        )
+        if legacy_rdp_desktop.exists() or legacy_rdp_desktop.is_symlink():
+            legacy_rdp_desktop.unlink()
+            changes += 1
+        rdp_mappings = {
+            ROOT / "config/rdp/dot-rdp": Path.home() / ".local/bin/dot-rdp",
+            ROOT / "config/rdp/io.github.doview.dotfiles.rdp.desktop": Path.home()
+            / ".local/share/applications/io.github.doview.dotfiles.rdp.desktop",
+            ROOT / "config/rdp/rdp-mime.xml": Path.home()
+            / ".local/share/mime/packages/dot-rdp.xml",
+        }
+        for source, destination in rdp_mappings.items():
+            file_changed = link_file(source, destination)
+            changes += int(file_changed)
+        if command_exists("update-mime-database"):
+            run(
+                [
+                    "update-mime-database",
+                    str(Path.home() / ".local/share/mime"),
+                ]
+            )
+        if command_exists("update-desktop-database"):
+            run(
+                [
+                    "update-desktop-database",
+                    str(Path.home() / ".local/share/applications"),
+                ]
+            )
+        if command_exists("kbuildsycoca6"):
+            run(["kbuildsycoca6", "--noincremental"], check=False)
+        if command_exists("xdg-mime"):
+            current_rdp_handler = run(
+                ["xdg-mime", "query", "default", "application/x-rdp"],
+                check=False,
+                capture=True,
+            ).stdout.strip()
+            if (
+                current_rdp_handler
+                != "io.github.doview.dotfiles.rdp.desktop"
+            ):
+                run(
+                    [
+                        "xdg-mime",
+                        "default",
+                        "io.github.doview.dotfiles.rdp.desktop",
+                        "application/x-rdp",
+                    ]
+                )
+                changes += 1
     if features.get("lid_power_saver") and selected("power", "kde"):
         lid_mappings = {
             ROOT / "config/power/dot-lid-power": Path.home()
@@ -1445,8 +1497,10 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "docker",
             "gpu",
             "gestures",
+            "rdp",
             "tailscale",
             "touchpad",
+            "vscode",
             "system-updates",
             "app-updates",
         }
@@ -3563,6 +3617,16 @@ def palette_apply_menu(profile: str) -> None:
             "Apply factory ICC, automatic VRR/link depth, accurate SDR, and RGB policy",
         ),
         (
+            "vscode",
+            "Visual Studio Code",
+            "Install or repair Microsoft's latest stable native editor",
+        ),
+        (
+            "rdp",
+            "Remote Desktop files",
+            "Install FreeRDP and register fullscreen .rdp/.rdpw launching",
+        ),
+        (
             "panel",
             "Selected taskbar profile",
             f"Rebuild {active_panel_profile()} including the saved System Tray policy",
@@ -4780,6 +4844,48 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if gui_agent_ok
                 else "reapply the Kubuntu profile, then restart graphical Git clients",
             )
+    if profile.get("features", {}).get("vscode"):
+        failures += not doctor_check(
+            "Visual Studio Code",
+            command_exists("code"),
+            shutil.which("code")
+            or f"run dot apply --profile {profile['name']} --tags vscode",
+        )
+    if profile.get("features", {}).get("rdp_files"):
+        rdp_client = shutil.which("sdl-freerdp") or shutil.which(
+            "sdl-freerdp3"
+        )
+        rdp_launcher = Path.home() / ".local/bin/dot-rdp"
+        rdp_desktop = (
+            Path.home()
+            / ".local/share/applications/io.github.doview.dotfiles.rdp.desktop"
+        )
+        rdp_mime = (
+            Path.home() / ".local/share/mime/packages/dot-rdp.xml"
+        )
+        rdp_handler = (
+            run(
+                ["xdg-mime", "query", "default", "application/x-rdp"],
+                check=False,
+                capture=True,
+            ).stdout.strip()
+            if command_exists("xdg-mime")
+            else ""
+        )
+        rdp_ok = bool(
+            rdp_client
+            and rdp_launcher.exists()
+            and rdp_desktop.exists()
+            and rdp_mime.exists()
+            and rdp_handler == "io.github.doview.dotfiles.rdp.desktop"
+        )
+        failures += not doctor_check(
+            "Remote Desktop files",
+            rdp_ok,
+            "FreeRDP SDL; .rdp/.rdpw open fullscreen"
+            if rdp_ok
+            else f"run dot apply --profile {profile['name']} --tags rdp",
+        )
     if profile.get("features", {}).get("kde"):
         session = os.environ.get("XDG_SESSION_DESKTOP", "")
         plasma_session_active = (

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# != 1 )); then
+  echo "Usage: dot-rdp FILE.rdp" >&2
+  exit 2
+fi
+
+rdp_file="$1"
+if [[ ! -r "$rdp_file" ]]; then
+  echo "dot-rdp: cannot read $rdp_file" >&2
+  exit 2
+fi
+
+case "${rdp_file,,}" in
+  *.rdp|*.rdpw) ;;
+  *)
+    echo "dot-rdp: expected a .rdp or .rdpw file" >&2
+    exit 2
+    ;;
+esac
+
+client=""
+for candidate in sdl-freerdp sdl-freerdp3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    client="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$client" ]]; then
+  message="FreeRDP's SDL client is missing. Run: dot apply --profile kubuntu-laptop --tags rdp"
+  echo "dot-rdp: $message" >&2
+  command -v notify-send >/dev/null 2>&1 &&
+    notify-send --app-name=Dotfiles "Remote Desktop is not installed" "$message"
+  exit 127
+fi
+
+# The RDP file remains authoritative for the host, gateway, authentication,
+# redirection, and multi-monitor policy. These client-side options guarantee a
+# fullscreen, resize-aware Wayland experience without bypassing certificate
+# checks or adding credentials to the process list.
+client_options=(/f /dynamic-resolution)
+
+# F5 and similar signed gateway launch files can deliberately disable CredSSP,
+# omit a username, and carry a short-lived gateway access token instead. In
+# that mode FreeRDP otherwise displays its own credential form even though the
+# file is asking the remote service to direct authentication. A bare /p tells
+# FreeRDP that an absent password is intentional; it does not supply or save a
+# credential. Strip NUL bytes so the setting is detected in UTF-8 and UTF-16
+# RDP files alike.
+if LC_ALL=C tr -d '\000\r' <"$rdp_file" |
+  grep -Eaiq '^enablecredsspsupport:i:0$'; then
+  client_options+=(/p)
+fi
+
+exec "$client" "$rdp_file" "${client_options[@]}"

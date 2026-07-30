@@ -67,6 +67,22 @@
       when: dot_profile_data.features.nvidia_driver | default(false)
       tags: [packages, gpu]
 
+    - name: Configure Visual Studio Code
+      ansible.builtin.include_tasks:
+        file: tasks/vscode.yml
+        apply:
+          tags: [packages, vscode, app-updates]
+      when: dot_profile_data.features.vscode | default(false)
+      tags: [packages, vscode, app-updates]
+
+    - name: Configure Remote Desktop file support
+      ansible.builtin.include_tasks:
+        file: tasks/rdp.yml
+        apply:
+          tags: [packages, rdp, app-updates]
+      when: dot_profile_data.features.rdp_files | default(false)
+      tags: [packages, rdp, app-updates]
+
     # Workstation policy intentionally follows current stable repository candidates.
     - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
       become: true
@@ -263,7 +279,7 @@
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display]
+      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display, rdp]
 
     - name: Configure native application window frames
       ansible.builtin.command:

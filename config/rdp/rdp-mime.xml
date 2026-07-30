@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-rdp">
+    <comment>Windows Remote Desktop connection</comment>
+    <glob pattern="*.rdp" weight="90"/>
+    <glob pattern="*.RDP" weight="90"/>
+    <glob pattern="*.rdpw" weight="90"/>
+    <glob pattern="*.RDPW" weight="90"/>
+  </mime-type>
+</mime-info>

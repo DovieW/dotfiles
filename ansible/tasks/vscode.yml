@@ -1,0 +1,95 @@
+---
+- name: Validate Visual Studio Code operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture in ["x86_64", "aarch64", "armv7l"]
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: >-
+      The managed native VS Code installation supports Ubuntu/Kubuntu.
+      WSL uses the editor installed on its Windows host.
+
+- name: Install Microsoft repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the system APT keyring directory
+  become: true
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download Microsoft's package signing key
+  become: true
+  ansible.builtin.get_url:
+    url: https://packages.microsoft.com/keys/microsoft.asc
+    dest: /usr/share/keyrings/microsoft.asc
+    mode: "0644"
+    force: true
+  when: not ansible_check_mode
+
+- name: Read Microsoft's signing-key fingerprint
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /usr/share/keyrings/microsoft.asc
+  register: dot_microsoft_key
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate Microsoft's package signing key
+  ansible.builtin.assert:
+    that: >-
+      'BC528686B50D79E339D3721CEB3E94ADBE1229CF'
+      in dot_microsoft_key.stdout
+    fail_msg: >-
+      Microsoft's downloaded package key did not contain the expected
+      fingerprint. The VS Code repository will not be configured.
+  when: not ansible_check_mode
+
+- name: Configure Microsoft's stable VS Code repository
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/vscode.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://packages.microsoft.com/repos/code
+      Suites: stable
+      Components: main
+      Architectures: amd64 arm64 armhf
+      Signed-By: /usr/share/keyrings/microsoft.asc
+
+- name: Prefer Microsoft's official VS Code package
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/code
+    mode: "0644"
+    content: |
+      Package: code
+      Pin: origin "packages.microsoft.com"
+      Pin-Priority: 9999
+
+- name: Install or upgrade VS Code to latest stable
+  become: true
+  ansible.builtin.apt:
+    name: code
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+- name: Explain Visual Studio Code check mode
+  ansible.builtin.debug:
+    msg: >-
+      A real apply will validate Microsoft's signing key, configure the
+      official stable repository, and install its latest VS Code package.
+  when: ansible_check_mode

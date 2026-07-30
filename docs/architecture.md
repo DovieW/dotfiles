@@ -85,6 +85,31 @@ Neither WSL profile installs Tailscale. This follows Tailscale's guidance to use
 the Windows host client instead of nesting Tailscale traffic inside Tailscale
 traffic, which can break connectivity.
 
+## Visual Studio Code
+
+Native Kubuntu installs the current VS Code stable package from Microsoft's
+official APT repository. The role validates Microsoft's signing-key
+fingerprint, pins `code` to `packages.microsoft.com`, and follows the repository
+rather than freezing an editor version. WSL continues to use the Windows-host
+editor and its supported Remote WSL integration.
+
+## Remote Desktop files
+
+The Kubuntu profile installs FreeRDP 3's current SDL client and registers
+`application/x-rdp` for both `.rdp` and Azure `.rdpw` files. Dolphin therefore
+opens downloaded company connection files directly with the managed
+`dot-rdp` launcher. The original file remains authoritative for server,
+gateway, authentication, device redirection, and monitor preferences; the
+launcher adds fullscreen and dynamic-resolution behavior.
+
+The launcher never adds `cert:ignore`, places credentials on the command line,
+or rewrites company files. FreeRDP retains its normal certificate validation
+and interactive authentication. Signed gateway launch files that explicitly
+disable CredSSP are allowed to continue without FreeRDP inventing a local
+username/password prompt; their embedded short-lived gateway token and
+server-directed authentication remain authoritative. The SDL client is
+preferred over the older Wayland client that FreeRDP now marks deprecated.
+
 ## Adapters
 
 `bin/dot` is the canonical command on Linux, WSL, and Termux. It resolves

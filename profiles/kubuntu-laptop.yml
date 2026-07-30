@@ -13,14 +13,18 @@
     "lid_power_saver": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
+    "rdp_files": true,
     "tailscale": true,
     "touchpad_jump_workaround": true,
+    "vscode": true,
     "windows_fonts": true
   },
   "packages": {
     "apt": [
+      "code",
       "flameshot",
       "fonts-cascadia-code",
+      "freerdp-sdl",
       "ghostty",
       "kde-config-gtk-style",
       "kio-extras",

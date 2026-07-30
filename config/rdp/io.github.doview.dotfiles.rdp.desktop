@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Remote Desktop Connection
+Comment=Open a Windows Remote Desktop file fullscreen
+Exec=/bin/sh -c "exec \\"\\$HOME/.local/bin/dot-rdp\\" \\"\\$1\\"" dot-rdp %f
+Icon=FreeRDP
+Terminal=false
+NoDisplay=true
+StartupNotify=true
+StartupWMClass=sdl-freerdp
+MimeType=application/x-rdp;
+Categories=Network;RemoteAccess;

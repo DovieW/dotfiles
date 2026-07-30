@@ -61,8 +61,8 @@ flowchart LR
 | --- | --- |
 | **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, factory OLED calibration, power behavior, lock screen, Spectacle |
 | **Terminal** | Ghostty, one persistent tmux session, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
-| **Development** | Git, Delta, fzf, Neovim, Docker Engine, Lazygit, Lazydocker, language tooling |
-| **Connectivity** | Tailscale on native Kubuntu; Windows-host networking for WSL |
+| **Development** | Git, Delta, fzf, Neovim, VS Code, Docker Engine, Lazygit, Lazydocker, language tooling |
+| **Connectivity** | Tailscale and fullscreen company RDP files on native Kubuntu; Windows-host networking for WSL |
 | **Applications** | Stable-provider installs for Bitwarden, Obsidian, Codex, Vite+, and the declared package catalog |
 | **Identity** | Per-device Ed25519 authentication and commit signing through Bitwarden and GitHub |
 | **Safety** | Drift detection, selective KDE capture, automatic backups, rollback, secret scanning, and idempotence tests |
@@ -182,9 +182,10 @@ dot doctor --profile kubuntu-laptop
 ```
 
 Doctor checks the package providers, shell, Git identity and signing, SSH-agent
-routing, Docker, Tailscale, KDE state, factory display policy, power policy,
-NVIDIA driver, touchpad, terminal, editor, fonts, lock screen, and Codex Remote
-Control. Failures include the command needed to repair them.
+routing, Docker, Tailscale, Remote Desktop files, KDE state, factory display
+policy, power policy, NVIDIA driver, touchpad, terminals, editors, fonts, lock
+screen, and Codex Remote Control. Failures include the command needed to repair
+them.
 
 ## Opinionated by design
 

@@ -1,0 +1,23 @@
+---
+- name: Validate Remote Desktop client operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: >-
+      Native .rdp file handling is managed only for the Kubuntu desktop.
+
+- name: Install or upgrade FreeRDP's current SDL client
+  become: true
+  ansible.builtin.apt:
+    name: freerdp-sdl
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Explain Remote Desktop check mode
+  ansible.builtin.debug:
+    msg: >-
+      FreeRDP's SDL client provides native Wayland RDP-file support. Portable
+      apply registers the file type and its fullscreen launcher.
+  when: ansible_check_mode

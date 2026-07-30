@@ -9,8 +9,10 @@
   "tools": {
     "ansible": {"provider": "brew"},
     "bat": {"provider": "brew"},
+    "code": {"provider": "apt"},
     "curl": {"provider": "apt"},
     "fd": {"provider": "brew"},
+    "freerdp-sdl": {"provider": "apt"},
     "fzf": {"provider": "brew"},
     "fzf-tab": {"provider": "brew"},
     "git": {"provider": "apt"},

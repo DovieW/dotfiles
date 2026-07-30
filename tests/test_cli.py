@@ -1046,6 +1046,52 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"internal display policy"', cli)
         self.assertIn("tmux, nvim, display", playbook)
 
+    def test_kubuntu_manages_vscode_and_fullscreen_rdp_files(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        vscode = (ROOT / "ansible/tasks/vscode.yml").read_text()
+        rdp_role = (ROOT / "ansible/tasks/rdp.yml").read_text()
+        rdp_launcher = (ROOT / "config/rdp/dot-rdp").read_text()
+        rdp_desktop = (
+            ROOT / "config/rdp/io.github.doview.dotfiles.rdp.desktop"
+        ).read_text()
+        rdp_mime = (ROOT / "config/rdp/rdp-mime.xml").read_text()
+        cli = DOT.read_text()
+
+        self.assertTrue(profile["features"]["vscode"])
+        self.assertTrue(profile["features"]["rdp_files"])
+        self.assertIn("code", profile["packages"]["apt"])
+        self.assertIn("freerdp-sdl", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["code"]["provider"], "apt")
+        self.assertEqual(catalog["tools"]["freerdp-sdl"]["provider"], "apt")
+        self.assertIn("tasks/vscode.yml", playbook)
+        self.assertIn("tasks/rdp.yml", playbook)
+        self.assertIn("https://packages.microsoft.com/repos/code", vscode)
+        self.assertIn(
+            "BC528686B50D79E339D3721CEB3E94ADBE1229CF",
+            vscode,
+        )
+        self.assertIn("Pin-Priority: 9999", vscode)
+        self.assertIn("state: latest", vscode)
+        self.assertIn("name: freerdp-sdl", rdp_role)
+        self.assertIn("client_options=(/f /dynamic-resolution)", rdp_launcher)
+        self.assertIn("enablecredsspsupport:i:0", rdp_launcher)
+        self.assertIn("client_options+=(/p)", rdp_launcher)
+        self.assertIn(
+            'exec "$client" "$rdp_file" "${client_options[@]}"',
+            rdp_launcher,
+        )
+        self.assertNotIn("cert:ignore", rdp_launcher)
+        self.assertNotIn("/p:", rdp_launcher)
+        self.assertIn("MimeType=application/x-rdp;", rdp_desktop)
+        self.assertIn('type="application/x-rdp"', rdp_mime)
+        self.assertIn('pattern="*.rdp"', rdp_mime)
+        self.assertIn('pattern="*.rdpw"', rdp_mime)
+        self.assertIn('"Visual Studio Code"', cli)
+        self.assertIn('"Remote Desktop files"', cli)
+        self.assertIn('"io.github.doview.dotfiles.rdp.desktop"', cli)
+
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
         config = (ROOT / "config/tmux/tmux.conf").read_text()

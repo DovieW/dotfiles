@@ -89,6 +89,26 @@ Use `dot panel use windows-classic` to rebuild the baseline. The named profile
 is authoritative: switching reconstructs its exact widget order, prints a
 rollback ID, and leaves Plasma-generated containment IDs host-local.
 
+### A downloaded `.rdp` file does not open
+
+Repair the client, MIME database, desktop entry, and default association:
+
+```bash
+dot apply --profile kubuntu-laptop --tags rdp
+dot doctor --profile kubuntu-laptop
+```
+
+Both `.rdp` and Azure `.rdpw` files should report the MIME type
+`application/x-rdp` and open fullscreen in FreeRDP's SDL client. The launcher
+deliberately does not bypass an untrusted certificate prompt. Authentication,
+gateway, smart-card, WebAuthn, clipboard, audio, and device-redirection
+settings continue to come from the downloaded company file.
+
+Signed F5-style launch files commonly contain a short-lived gateway token, no
+username or password, and `enablecredsspsupport:i:0`. The managed launcher
+recognizes that combination and suppresses FreeRDP's otherwise-spurious local
+credential form so the remote service can direct authentication.
+
 ## The lock screen is blank, stock, or still shows media
 
 Preview the managed package without actually locking:
