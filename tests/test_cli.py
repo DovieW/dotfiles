@@ -167,6 +167,33 @@ class DotCliTests(unittest.TestCase):
             self.assertNotIn("docker", profile["packages"]["brew"])
             self.assertNotIn("docker-compose", profile["packages"]["brew"])
 
+    def test_tailscale_runs_on_native_hosts_not_inside_wsl(self):
+        kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        role = (ROOT / "ansible/tasks/tailscale.yml").read_text()
+        cli = DOT.read_text()
+        git_config = (ROOT / "config/git/default.gitconfig").read_text()
+
+        self.assertTrue(kubuntu["features"]["tailscale"])
+        self.assertIn("tailscale", kubuntu["packages"]["apt"])
+        self.assertIn("Tailscale.Tailscale", windows["packages"]["winget"])
+        self.assertEqual(catalog["tools"]["tailscale"]["provider"], "apt")
+        for name in ("wsl-personal", "wsl-work"):
+            profile = json.loads((ROOT / f"profiles/{name}.yml").read_text())
+            self.assertFalse(profile["features"].get("tailscale", False))
+            self.assertNotIn("tailscale", profile["packages"]["apt"])
+
+        self.assertIn("https://pkgs.tailscale.com/stable/ubuntu", role)
+        self.assertIn("2596A99EAAB33821893C0A79458CA832957F5868", role)
+        self.assertIn("state: latest", role)
+        self.assertIn("name: tailscaled", role)
+        self.assertIn("sudo tailscale up", role)
+        self.assertNotIn("auth-key", role)
+        self.assertNotIn("tailscale up --authkey", role)
+        self.assertIn('"Tailscale enrollment"', cli)
+        self.assertIn("editor = nvim", git_config)
+
     def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         config = (ROOT / "config/ghostty/config").read_text()

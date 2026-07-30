@@ -11,6 +11,7 @@
     "kde": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
+    "tailscale": true,
     "touchpad_jump_workaround": true,
     "windows_fonts": true
   },
@@ -24,6 +25,7 @@
       "konsole",
       "mpv",
       "plasma-workspace",
+      "tailscale",
       "xclip"
     ],
     "brew": ["lazydocker", "lazygit", "wl-clipboard"],

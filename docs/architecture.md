@@ -27,6 +27,9 @@ Linux package ownership is intentional:
 - The official stable channel owns Vite+ on Kubuntu and WSL.
 - Docker's official stable Ubuntu APT repository owns native Docker Engine,
   Compose, and Buildx on Kubuntu and WSL.
+- Tailscale's official stable Ubuntu APT repository owns the native Kubuntu
+  client. The Windows client is inventory-only, and WSL uses the Windows host
+  rather than running a nested Tailscale node.
 - Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
@@ -64,6 +67,23 @@ enabled through systemd.
 The interactive user is appended to the `docker` group, so the first apply
 requires a WSL restart or a normal Linux logout/login before that membership is
 active in every shell.
+
+## Tailscale
+
+The `tailscale` feature is enabled only for the native Kubuntu profile. Its
+Ansible role validates Tailscale's signing-key fingerprint, follows the stable
+repository for the active Ubuntu release, installs the latest package, and
+enables `tailscaled`.
+
+Authentication is machine state, not portable configuration. Apply never
+stores an auth key and never joins a tailnet silently; the user performs the
+one-time browser enrollment with `sudo tailscale up`. Subsequent applies
+preserve the daemon state and existing node identity.
+
+The Windows profile records `Tailscale.Tailscale` for native installation.
+Neither WSL profile installs Tailscale. This follows Tailscale's guidance to use
+the Windows host client instead of nesting Tailscale traffic inside Tailscale
+traffic, which can break connectivity.
 
 ## Adapters
 

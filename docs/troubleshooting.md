@@ -231,6 +231,26 @@ If preflight says systemd is unavailable, update WSL, enable systemd in
 Docker Desktop proxy, disable that distribution under Docker Desktop's WSL
 Integration settings, shut WSL down, and retry. Do not keep both engines active.
 
+## Tailscale is installed but offline
+
+Check the managed package, daemon, and enrollment independently:
+
+```bash
+dot doctor --profile kubuntu-laptop
+systemctl status tailscaled
+tailscale status
+```
+
+Repair the package and service with
+`dot apply --profile kubuntu-laptop --tags tailscale`. A new installation
+reports `NeedsLogin` until you run `sudo tailscale up` and authenticate with the
+browser URL it prints. Dotfiles intentionally stores neither an auth key nor
+Tailscale's machine identity.
+
+On Windows, install the recorded `Tailscale.Tailscale` package through Winget
+and sign in using the native application. Do not also run Tailscale inside WSL;
+the WSL profiles intentionally omit it and rely on the Windows host network.
+
 ## Neovim does not start cleanly
 
 Test the managed configuration without opening the UI:

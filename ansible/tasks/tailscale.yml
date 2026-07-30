@@ -1,0 +1,149 @@
+---
+- name: Validate Tailscale operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.distribution_release | length > 0
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: >-
+      This role manages Tailscale only on native Ubuntu or Kubuntu. Tailscale
+      recommends running its Windows client on the host instead of nesting a
+      second client inside WSL.
+
+- name: Require systemd for Tailscale
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.service_mgr == "systemd"
+    fail_msg: >-
+      Tailscale requires a native systemd host for this managed installation.
+
+- name: Check support for the active Ubuntu release
+  ansible.builtin.uri:
+    url: >-
+      https://pkgs.tailscale.com/stable/ubuntu/{{
+      ansible_facts.distribution_release }}.tailscale-keyring.list
+    method: HEAD
+    status_code: 200
+  register: dot_tailscale_repository
+  changed_when: false
+
+- name: Require an official Tailscale repository
+  ansible.builtin.assert:
+    that: dot_tailscale_repository.status == 200
+    fail_msg: >-
+      Tailscale does not publish a stable APT repository for Ubuntu
+      {{ ansible_facts.distribution_release }}. No system files were changed.
+
+- name: Install Tailscale repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Tailscale APT keyring directory
+  become: true
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download Tailscale's stable signing key
+  become: true
+  ansible.builtin.get_url:
+    url: >-
+      https://pkgs.tailscale.com/stable/ubuntu/{{
+      ansible_facts.distribution_release }}.noarmor.gpg
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: "0644"
+    force: true
+  when: not ansible_check_mode
+
+- name: Read Tailscale signing-key fingerprints
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /usr/share/keyrings/tailscale-archive-keyring.gpg
+  register: dot_tailscale_key
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate Tailscale signing key
+  ansible.builtin.assert:
+    that: >-
+      '2596A99EAAB33821893C0A79458CA832957F5868'
+      in dot_tailscale_key.stdout
+    fail_msg: >-
+      Tailscale's downloaded signing key did not contain the expected official
+      primary fingerprint. No Tailscale repository packages will be installed.
+  when: not ansible_check_mode
+
+- name: Configure Tailscale's stable Ubuntu repository
+  become: true
+  ansible.builtin.get_url:
+    url: >-
+      https://pkgs.tailscale.com/stable/ubuntu/{{
+      ansible_facts.distribution_release }}.tailscale-keyring.list
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: "0644"
+    force: true
+  when: not ansible_check_mode
+
+- name: Install or upgrade Tailscale to latest stable
+  become: true
+  ansible.builtin.apt:
+    name: tailscale
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+- name: Enable and start tailscaled
+  become: true
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Read Tailscale connection state
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: dot_tailscale_status
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Explain Tailscale enrollment
+  ansible.builtin.debug:
+    msg: >-
+      Tailscale is installed and tailscaled is running, but this device has not
+      joined a tailnet. Run `sudo tailscale up` once and authenticate with the
+      browser URL it prints. No reusable auth key is stored in dotfiles.
+  when:
+    - not ansible_check_mode
+    - >-
+      (dot_tailscale_status.stdout | default('{}', true) |
+      from_json).BackendState | default('') != "Running"
+
+- name: Report active Tailscale state
+  ansible.builtin.debug:
+    msg: Tailscale is installed, running, and joined to a tailnet.
+  when:
+    - not ansible_check_mode
+    - >-
+      (dot_tailscale_status.stdout | default('{}', true) |
+      from_json).BackendState | default('') == "Running"
+
+- name: Explain Tailscale check mode
+  ansible.builtin.debug:
+    msg: >-
+      Tailscale host preflight passed. A real apply will verify the official
+      stable signing key, install the latest package, and enable tailscaled.
+      Tailnet enrollment remains an explicit one-time browser action.
+  when: ansible_check_mode

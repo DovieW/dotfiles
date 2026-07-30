@@ -51,6 +51,14 @@
       when: dot_profile_data.features.docker_engine | default(false)
       tags: [packages, docker]
 
+    - name: Configure Tailscale
+      ansible.builtin.include_tasks:
+        file: tasks/tailscale.yml
+        apply:
+          tags: [packages, tailscale, app-updates]
+      when: dot_profile_data.features.tailscale | default(false)
+      tags: [packages, tailscale, app-updates]
+
     - name: Configure Ubuntu's recommended NVIDIA driver
       ansible.builtin.include_tasks:
         file: tasks/nvidia.yml

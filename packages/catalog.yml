@@ -19,6 +19,7 @@
     "ripgrep": {"provider": "brew"},
     "shellcheck": {"provider": "brew"},
     "stylua": {"provider": "brew"},
+    "tailscale": {"provider": "apt"},
     "tmux": {"provider": "brew"},
     "tree": {"provider": "brew"},
     "tree-sitter-cli": {"provider": "brew"},

@@ -101,6 +101,18 @@ dot apply --profile kubuntu-laptop --tags docker
 Use the matching WSL profile name inside WSL. The Docker role is idempotent and
 does not remove `/var/lib/docker`, images, containers, volumes, or `/etc/docker`.
 
+Tailscale advances through its official stable APT repository during normal
+Kubuntu applies and updates. Install or repair only that subsystem with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags tailscale
+```
+
+The first apply enables `tailscaled` but deliberately stops short of joining a
+tailnet. Enroll this physical machine once with `sudo tailscale up`; later
+applies preserve its local node identity. Do not run the Linux client inside
+either WSL profile when the Windows host client is active.
+
 Tmux uses `~/.config/tmux/tmux.conf`, linked to the authoritative repository
 copy. TPM and configured plugins are installed and updated from their upstream
 default branches by `dot apply` and `dot update`. Apply only this subsystem with:

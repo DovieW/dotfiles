@@ -6,7 +6,7 @@
 	conflictStyle = zdiff3
 [core]
 	quotePath = false
-	editor = vim
+	editor = nvim
 	fileMode = true
 	autocrlf = input
 	excludesFile = ~/repos/dotfiles/config/git/global-ignore

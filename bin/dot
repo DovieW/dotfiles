@@ -843,6 +843,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "docker",
             "gpu",
             "gestures",
+            "tailscale",
             "touchpad",
             "system-updates",
             "app-updates",
@@ -858,7 +859,9 @@ def cmd_apply(args: argparse.Namespace) -> None:
         for provider in ("apt", "deb", "snap")
     ) or profile.get("features", {}).get("docker_engine", False) or profile.get(
         "features", {}
-    ).get("nvidia_driver", False) or (
+    ).get("nvidia_driver", False) or profile.get("features", {}).get(
+        "tailscale", False
+    ) or (
         package_apply_selected
         and profile.get("features", {}).get("inputactions", False)
     )
@@ -2428,6 +2431,62 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if systemd_ready and not desktop_integration
                 else "enable WSL systemd and disable Docker Desktop WSL integration",
             )
+    if profile.get("features", {}).get("tailscale"):
+        tailscale_package = run(
+            ["dpkg-query", "-W", "-f=${db:Status-Status}", "tailscale"],
+            check=False,
+            capture=True,
+        )
+        failures += not doctor_check(
+            "Tailscale package",
+            tailscale_package.returncode == 0
+            and tailscale_package.stdout.strip() == "installed",
+            "official stable package installed"
+            if tailscale_package.returncode == 0
+            and tailscale_package.stdout.strip() == "installed"
+            else f"run dot apply --profile {profile['name']} --tags tailscale",
+        )
+        tailscaled_enabled = run(
+            ["systemctl", "is-enabled", "--quiet", "tailscaled"],
+            check=False,
+        ).returncode == 0
+        tailscaled_active = run(
+            ["systemctl", "is-active", "--quiet", "tailscaled"],
+            check=False,
+        ).returncode == 0
+        failures += not doctor_check(
+            "Tailscale service",
+            tailscaled_enabled and tailscaled_active,
+            "tailscaled enabled and active"
+            if tailscaled_enabled and tailscaled_active
+            else f"run dot apply --profile {profile['name']} --tags tailscale",
+        )
+        tailscale_status = (
+            run(
+                ["tailscale", "status", "--json"],
+                check=False,
+                capture=True,
+            )
+            if command_exists("tailscale")
+            else None
+        )
+        try:
+            tailscale_state = json.loads(
+                tailscale_status.stdout if tailscale_status is not None else "{}"
+            ).get("BackendState", "")
+        except json.JSONDecodeError:
+            tailscale_state = ""
+        failures += not doctor_check(
+            "Tailscale enrollment",
+            tailscale_status is not None
+            and tailscale_status.returncode == 0
+            and tailscale_state == "Running",
+            "joined to a tailnet"
+            if tailscale_status is not None
+            and tailscale_status.returncode == 0
+            and tailscale_state == "Running"
+            else "run sudo tailscale up and authenticate with the browser URL",
+        )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")
         dot_command = Path.home() / ".local/bin/dot"

@@ -86,5 +86,11 @@ Buildx installation from Docker's official stable Ubuntu repository. WSL does
 not use Docker Desktop integration. See [Docker](docs/docker.md) before first
 applying a WSL profile.
 
+Kubuntu installs Tailscale from its official stable APT repository and enables
+the daemon. Tailnet enrollment remains an explicit browser-authenticated step.
+Windows records the native Tailscale client; WSL deliberately relies on that
+host client instead of nesting another VPN. See [Tailscale](docs/tailscale.md).
+
 See [Architecture](docs/architecture.md), [Maintenance](docs/maintenance.md),
-[Docker](docs/docker.md), and [Troubleshooting](docs/troubleshooting.md).
+[Docker](docs/docker.md), [Tailscale](docs/tailscale.md), and
+[Troubleshooting](docs/troubleshooting.md).

@@ -9,7 +9,14 @@
     "repositories": true
   },
   "packages": {
-    "winget": ["Bitwarden.Bitwarden", "Git.Git", "Microsoft.PowerShell", "Microsoft.VisualStudioCode", "Microsoft.WindowsTerminal"],
+    "winget": [
+      "Bitwarden.Bitwarden",
+      "Git.Git",
+      "Microsoft.PowerShell",
+      "Microsoft.VisualStudioCode",
+      "Microsoft.WindowsTerminal",
+      "Tailscale.Tailscale"
+    ],
     "scoop": ["autohotkey", "bat", "fd", "fzf", "jq", "ripgrep", "zoxide"],
     "psgallery": ["posh-git", "PSFzf", "Terminal-Icons"]
   }
