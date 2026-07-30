@@ -440,6 +440,8 @@ class DotCliTests(unittest.TestCase):
         colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
 
         self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
+        self.assertIn("plugin=org.kde.desktopcontainment", panel)
+        self.assertNotIn("plugin=org.kde.plasma.folder", panel)
         self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
         self.assertEqual(panel.count("plugin=org.kde.plasma.kickoff"), 1)
         self.assertNotIn("plugin=org.kde.plasma.pager", panel)
