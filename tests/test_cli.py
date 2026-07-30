@@ -66,9 +66,11 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(profiles["centered-compact"]["task_manager"], "icons")
         self.assertEqual(profiles["unified-pill"]["length_mode"], "fit")
         self.assertFalse(profiles["unified-pill"]["spacers"])
+        self.assertEqual(profiles["unified-pill"]["launcher_icon"], "hidden")
         cli = DOT.read_text()
         self.assertIn('panel.lengthMode = cfg.length_mode', cli)
         self.assertIn('panel.floating = cfg.floating', cli)
+        self.assertIn('icon: cfg.launcher_icon', cli)
         self.assertIn('ds[i].wallpaperPlugin = "org.kde.color"', cli)
         self.assertIn(
             '.dotfiles-never-show-desktop-icons',
@@ -565,12 +567,16 @@ class DotCliTests(unittest.TestCase):
         input_config = (ROOT / "config/kde/.config/kcminputrc").read_text()
         lock_screen = (ROOT / "config/kde/.config/kscreenlockerrc").read_text()
         plasma_pa = (ROOT / "config/kde/.config/plasmaparc").read_text()
+        plasma_notify = (
+            ROOT / "config/kde/.config/plasmanotifyrc"
+        ).read_text()
         colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
 
         self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
         self.assertIn("plugin=org.kde.desktopcontainment", panel)
         self.assertIn("wallpaperplugin=org.kde.color", panel)
         self.assertIn("Color=0,0,0", panel)
+        self.assertIn("PopupPosition=BottomRight", plasma_notify)
         self.assertNotIn("[Containments][1][Wallpaper][org.kde.image]", panel)
         self.assertNotIn("plugin=org.kde.plasma.folder", panel)
         self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)

@@ -74,6 +74,7 @@ KDE_FILES = (
     ".config/kcminputrc",
     ".config/kscreenlockerrc",
     ".config/plasmaparc",
+    ".config/plasmanotifyrc",
     ".config/powerdevilrc",
     ".config/plasmarc",
     ".config/plasmashellrc",
@@ -128,6 +129,7 @@ KDE_LABELS = {
     ".config/kcminputrc": "Mouse and input",
     ".config/kscreenlockerrc": "Lock screen",
     ".config/plasmaparc": "Audio behavior",
+    ".config/plasmanotifyrc": "Notification popup placement",
     ".config/powerdevilrc": "Power and lid behavior",
     ".config/plasmarc": "Plasma appearance",
     ".config/plasmashellrc": "Panel geometry and visibility",
@@ -3016,6 +3018,11 @@ def panel_profile_script(profile_name: str) -> str:
         "floating": profile["floating"],
         "spacers": profile["spacers"],
         "show_date": profile["show_date"],
+        "launcher_icon": (
+            str(ROOT / "config/kde/assets/transparent-launcher.svg")
+            if profile["launcher_icon"] == "hidden"
+            else profile["launcher_icon"]
+        ),
         "tray_shown": ",".join(tray_policy["shown_items"]),
         "tray_hidden": ",".join(tray_policy["hidden_items"]),
         "launchers": (
@@ -3052,7 +3059,7 @@ function configure(widget, group, values) {{
 // the replacement in final visual order so widgetIds and AppletOrder agree.
 const kickoff = panel.addWidget("org.kde.plasma.kickoff");
 configure(kickoff, ["General"], {{
-    icon: "start-here-kubuntu",
+    icon: cfg.launcher_icon,
     showAppsByName: "true",
     systemFavorites: "suspend\\\\,hibernate\\\\,reboot\\\\,shutdown"
 }});
@@ -3131,10 +3138,14 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[], trayShown="", trayHidden="";
+ const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="";
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) {
    types.push(w.type);
+   if (w.type==="org.kde.plasma.kickoff") {
+    w.currentConfigGroup=["General"];
+    launcherIcon=w.readConfig("icon","");
+   }
    if (w.type==="org.kde.plasma.systemtray") {
     w.currentConfigGroup=["General"];
     trayShown=w.readConfig("shownItems","");
@@ -3155,7 +3166,7 @@ else {
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
   p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
-  trayShown,trayHidden
+  trayShown,trayHidden,launcherIcon
  ].join("|"));
 }
 """
@@ -3163,7 +3174,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 12:
+    if len(parts) != 13:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -3178,6 +3189,7 @@ else {
         icon_free,
         tray_shown,
         tray_hidden,
+        launcher_icon,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -3206,6 +3218,13 @@ else {
     )
     if types.split(",") != expected_types:
         return False, "widget order does not match"
+    expected_launcher_icon = (
+        str(ROOT / "config/kde/assets/transparent-launcher.svg")
+        if profile["launcher_icon"] == "hidden"
+        else profile["launcher_icon"]
+    )
+    if launcher_icon != expected_launcher_icon:
+        return False, "launcher icon does not match"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":
@@ -3218,6 +3237,14 @@ else {
         tray_policy["hidden_items"]
     ):
         return False, "always-hidden tray icons do not match"
+    notify_path = Path.home() / ".config/plasmanotifyrc"
+    popup_position = kconfig_get(
+        notify_path.read_bytes() if notify_path.is_file() else b"",
+        "Notifications",
+        "PopupPosition",
+    )
+    if popup_position != "BottomRight":
+        return False, "notification popups are not anchored bottom-right"
     return True, str(profile["description"])
 
 

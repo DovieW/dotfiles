@@ -212,7 +212,7 @@ the workaround after a future NVIDIA driver or Lenovo firmware update.
 The Kubuntu desktop has four declarative, always-auto-hidden native Plasma
 panel profiles. Windows Classic is the full-width 40px default. Windows
 Refined floats a labeled 94% bar, Centered Compact uses a 62% icon bar, and
-Unified Pill fits the launcher, icon tasks, tray, and clock into one floating
+Unified Pill fits a visually hidden launcher target, icon tasks, tray, and clock into one floating
 panel. The declarative manifest is the source of truth while Plasma-generated
 containment IDs and geometry remain host-local. The selection is stored outside
 Git and is reapplied after normal configuration reconciliation. No profile uses
