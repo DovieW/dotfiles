@@ -245,6 +245,29 @@ for an intentional repository-to-machine replacement; backups are still made.
 In an interactive terminal, `dot diff kde` uses Delta as its pager; redirected
 output remains a standard unified diff suitable for logs and automation.
 
+## Maintain the lock screen
+
+The managed lock screen is separate from SDDM and can be previewed without
+locking the session:
+
+```bash
+dot lockscreen preview
+```
+
+Apply only its shell package, private wallpaper, and two KDE configuration
+files with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags lockscreen
+```
+
+If a Plasma update makes the custom QML unusable, KScreenLocker falls back to
+its compiled emergency UI. To deliberately return future locks to the complete
+stock Plasma shell, run `dot lockscreen stock`; the command backs up
+`plasmashellrc`, and the managed theme remains available for a later apply.
+All three actions are also reachable under **Save and configuration** in the
+fzf palette.
+
 ## Rotate a device key
 
 Remove the named device item from Bitwarden and revoke its authentication and

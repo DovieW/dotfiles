@@ -1,116 +1,261 @@
-# Dovie's dotfiles
+<div align="center">
 
-Reproducible configuration for Kubuntu, personal and work WSL, Windows, and
-Termux. The repository is public by design: secrets, private repository lists,
-SSH private keys, proprietary fonts, and machine state belong in Bitwarden or
-local state, never here.
+# dotfiles
+
+### One command. Five environments. A workstation that rebuilds itself.
+
+**Kubuntu · WSL · Windows · Termux**
+
+[![Validate](https://github.com/DovieW/dotfiles/actions/workflows/validate.yml/badge.svg)](https://github.com/DovieW/dotfiles/actions/workflows/validate.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-7c3aed.svg)](LICENSE)
+[![Shell: Zsh](https://img.shields.io/badge/shell-Zsh-2563eb.svg)](config/shell/zshrc)
+[![Driven by Ansible](https://img.shields.io/badge/driven%20by-Ansible-ee0000.svg)](ansible/local.yml)
+
+My reproducible development environment, desktop, tools, and operating-system
+preferences—kept portable, inspectable, and pleasant to maintain.
+
+</div>
+
+---
+
+## What this is
+
+This repository turns a fresh machine into *my* machine without requiring a
+full declarative operating system. It manages the everyday details that are
+otherwise easy to forget: packages, shells, Git, editors, terminals, desktop
+behavior, credentials, services, updates, and recovery.
+
+The interface is `dot`, a single cross-platform command with an fzf command
+palette:
+
+```console
+$ dot
+
+  Apply configuration       Reconcile this machine with its profile
+  Update everything         Upgrade every managed stable provider
+  Save local changes        Review, validate, commit, and push
+  Run diagnostics           Explain package, service, and config drift
+  Manage repositories       Clone and synchronize private working copies
+  More…                     Every supported operation is reachable here
+```
+
+You can live in the menu and never memorize a command. Every action remains
+available as a scriptable CLI for automation.
+
+## The shape of the system
+
+```mermaid
+flowchart LR
+    D["dot CLI<br/>+ fzf palette"] --> P{"profile"}
+    P --> K["Kubuntu laptop<br/>full runtime support"]
+    P --> WP["WSL personal<br/>Ansible"]
+    P --> WW["WSL work<br/>Ansible"]
+    P --> W["Windows host<br/>PowerShell"]
+    P --> T["Termux<br/>Bash adapter"]
+
+    B["Bitwarden<br/>secrets + repo manifest"] -. "unlocked only when needed" .-> D
+    D --> S["backups<br/>~/.local/state/dotfiles"]
+```
+
+| Area | What is managed |
+| --- | --- |
+| **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, power behavior, lock screen, Spectacle |
+| **Terminal** | Ghostty, one persistent tmux session, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
+| **Development** | Git, Delta, fzf, Neovim, Docker Engine, Lazygit, Lazydocker, language tooling |
+| **Connectivity** | Tailscale on native Kubuntu; Windows-host networking for WSL |
+| **Applications** | Stable-provider installs for Bitwarden, Obsidian, Codex, Vite+, and the declared package catalog |
+| **Identity** | Per-device Ed25519 authentication and commit signing through Bitwarden and GitHub |
+| **Safety** | Drift detection, selective KDE capture, automatic backups, rollback, secret scanning, and idempotence tests |
 
 ## Quick start
+
+### Kubuntu or WSL
 
 ```bash
 git clone https://github.com/DovieW/dotfiles ~/repos/dotfiles
 ~/repos/dotfiles/bin/dot bootstrap --profile kubuntu-laptop
 ```
 
-Bootstrap links the canonical CLI to `~/.local/bin/dot`; afterward, use the
-short `dot` command shown throughout this documentation.
-
-Available profiles are `kubuntu-laptop`, `wsl-personal`, `wsl-work`,
-`windows-host`, and `termux`.
-
-The bootstrap command checks prerequisites before changing anything. Windows
-bootstrap is inventory-only and never installs prerequisites or applications.
-When secrets are enabled, bootstrap runs GitHub's browser authorization before
-unlocking Bitwarden and requests both authentication-key and signing-key
-management scopes.
-
-On the Kubuntu profile, the standalone Codex CLI is expected at
-`~/.local/bin/codex`. Applying the profile installs the latest stable standalone
-release when it is missing, then enables a supervised user service that keeps
-Codex Remote Control running across logins and restarts it after a failure.
-User lingering keeps the service available after logout and starts it during
-boot without waiting for an interactive login.
-
-For a new vault, create the private bootstrap note once from a permission-locked
-local draft:
-
-```bash
-dot secrets initialize --draft ~/.config/dotfiles/bootstrap-draft.json
-```
-
-The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
-
-## Daily commands
-
-```text
-dot apply --profile kubuntu-laptop
-dot update --profile kubuntu-laptop
-dot nvim status --profile kubuntu-laptop
-dot nvim update --profile kubuntu-laptop
-dot doctor --profile kubuntu-laptop
-dot package add ripgrep --profile common-linux
-dot repos sync --profile kubuntu-laptop
-dot capture kde
-dot diff kde
-dot rollback RUN_ID
-```
-
-Run `dot` with no arguments for the complete fzf command palette. Every item
-has an aligned description column, every submenu returns with Escape, and all
-routine update, apply, save, editor, repository, service, diagnostic, and
-bootstrap workflows are reachable without memorizing flags. Its save workflow
-shows only changed managed files, provides a Delta preview, supports
-multi-selection, validates, creates a signed commit, and pushes:
+Replace `kubuntu-laptop` with `wsl-personal` or `wsl-work` where appropriate.
+Bootstrap checks prerequisites, establishes the device identity, prepares
+credentials, and applies the selected profile. It links the canonical CLI to
+`~/.local/bin/dot`, so every later command is simply:
 
 ```bash
 dot
 ```
 
-`dot save` opens that workflow directly. `dot save spectacle` limits the
-selector to Spectacle preferences and keyboard shortcuts.
+### Windows
 
-The managed shell also provides the same clipboard commands everywhere:
+Use the matching PowerShell entry point:
 
-```bash
-printf '%s' 'text to copy' | clip
-cclip first.txt second.txt
+```powershell
+git clone https://github.com/DovieW/dotfiles "$HOME\repos\dotfiles"
+& "$HOME\repos\dotfiles\bin\dot.ps1" bootstrap --profile windows-host
 ```
 
-`clip` reads standard input. `cclip` concatenates the named files and copies
-their combined contents; with no filenames it also reads standard input.
+Windows is deliberately inventory-first. Bootstrap checks Git, Bitwarden CLI,
+GitHub CLI, and PowerShell, then prints exact remediation commands instead of
+silently installing applications.
 
-FZF uses one coordinated dark visual theme across the shell, `dot`, Git,
-PowerShell, and Neovim. Geometry and previews remain context-aware: file and
-directory pickers show `bat`/`eza` previews, Git shows commit history, and
-compact history and SSH pickers avoid redundant preview panes. Press `Ctrl+/`
-to toggle a preview when the active picker provides one.
+### Termux
 
-Choose **Update → Update everything** in the palette, or run `dot update`,
-to coordinate all installed APT, Snap, Homebrew, external-Debian, Tmux, Codex,
-Vite+, tested Neovim plugin, and curated Mason-tool updates through their
-native stable providers.
-Use `--system` or `--apps`
-for one category and `--check` for a read-only report. `dot apply` remains the
-separate operation that reconciles the declared package manifest.
-On this Kubuntu laptop, `dot update` infers `kubuntu-laptop`; `--profile` remains
-available as an override and is required only where multiple profiles apply,
-such as personal versus work WSL.
+```bash
+git clone https://github.com/DovieW/dotfiles ~/repos/dotfiles
+~/repos/dotfiles/bootstrap-termux.sh
+```
 
-Vite+ is a first-class tool on Kubuntu and WSL and follows its stable channel.
-New Bash and Zsh
-sessions load its generated environment so `vp env use` can update the current
-shell without allowing the upstream installer to rewrite managed rc files.
+## Everyday use
 
-Kubuntu and both WSL profiles own a native Docker Engine, Docker Compose, and
-Buildx installation from Docker's official stable Ubuntu repository. WSL does
-not use Docker Desktop integration. See [Docker](docs/docker.md) before first
-applying a WSL profile.
+The no-argument palette is the primary interface:
 
-Kubuntu installs Tailscale from its official stable APT repository and enables
-the daemon. Tailnet enrollment remains an explicit browser-authenticated step.
-Windows records the native Tailscale client; WSL deliberately relies on that
-host client instead of nesting another VPN. See [Tailscale](docs/tailscale.md).
+```bash
+dot
+```
 
-See [Architecture](docs/architecture.md), [Maintenance](docs/maintenance.md),
-[Docker](docs/docker.md), [Tailscale](docs/tailscale.md), and
-[Troubleshooting](docs/troubleshooting.md).
+The most useful direct commands are:
+
+```bash
+dot update                         # upgrade everything managed on this machine
+dot doctor --profile kubuntu-laptop
+dot save                           # fzf review → test → signed commit → push
+dot apply --profile kubuntu-laptop
+dot repos sync --profile kubuntu-laptop
+```
+
+### Update without babysitting providers
+
+`dot update` coordinates the native stable channels for:
+
+- APT and curated external Debian packages
+- Homebrew and exception-only Snap packages
+- Tmux plugins
+- Codex and Vite+
+- Neovim plugins and curated Mason tools
+
+Use `dot update --check` for a read-only report, or `--system` / `--apps` to
+limit the scope. The Kubuntu profile is inferred on this laptop; explicit
+profiles remain available for multi-profile machines such as WSL.
+
+### Capture a setting you just changed
+
+`dot save` turns desktop customization into a short, reviewable workflow. It
+finds changed managed files, previews them with Delta, supports multi-select,
+runs validation, creates a signed commit, and pushes it.
+
+```bash
+dot save
+dot save spectacle   # limit the picker to Spectacle and its shortcuts
+```
+
+KDE changes are protected by three-way drift detection. Dotfiles will stop
+instead of overwriting a setting changed both locally and in the repository.
+
+### Diagnose before guessing
+
+```bash
+dot doctor --profile kubuntu-laptop
+```
+
+Doctor checks the package providers, shell, Git identity and signing, SSH-agent
+routing, Docker, Tailscale, KDE state, power policy, NVIDIA driver, touchpad,
+terminal, editor, fonts, lock screen, and Codex Remote Control. Failures include
+the command needed to repair them.
+
+## Opinionated by design
+
+- **Latest stable wins.** Workstation programs follow their supported stable
+  channels instead of accumulating arbitrary version pins.
+- **Packages have owners.** APT handles system integration; Homebrew handles
+  shared modern CLI tools; official repositories and release channels handle
+  the applications they publish.
+- **Snap is exception-only.** No application is currently managed through it,
+  and Flatpak is not introduced.
+- **Configuration is public; identity is not.** Private keys, tokens, work
+  values, proprietary fonts, and private repository lists never enter Git.
+- **Apps may own runtime state, not canonical preferences.** Portable settings
+  live here; caches, histories, wallets, screen topology, and session residue
+  remain local.
+- **Changes are recoverable.** Replaced files are backed up under
+  `~/.local/state/dotfiles/backups` before mutation.
+
+## Credentials without secret sprawl
+
+Bitwarden stores the private repository manifest and one deterministically
+named Ed25519 key per physical device and account. Kubuntu and Windows use
+Bitwarden’s SSH agent; WSL and Termux receive permission-locked key files during
+explicit setup.
+
+Vault sessions stay in-process and are locked afterward. `BW_SESSION`, private
+keys, tokens, environment files, Bitwarden data, and proprietary Microsoft font
+files are never committed.
+
+To create the private bootstrap note on a new vault:
+
+```bash
+dot secrets initialize \
+  --draft ~/.config/dotfiles/bootstrap-draft.json
+```
+
+The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
+
+## A few favorite details
+
+- Ghostty opens directly into the single persistent `main` tmux session.
+- `mbash` provides an unmistakably minimal Bash with no network or plugin work;
+  `fullbash` switches back to the complete environment.
+- `clip` and `cclip` provide Windows-style clipboard commands everywhere.
+- FZF shares one visual language across the shell, Git, PowerShell, Neovim,
+  and `dot`, while each picker keeps a context-specific preview.
+- The Plasma desktop behaves like a carefully edited version of Windows:
+  familiar Meta shortcuts, immediate auto-hide panel, task view, window rules,
+  custom gestures, Windows fonts, and a minimal leaves lock screen.
+- Codex Remote Control is supervised by a persistent user service and survives
+  logout and reboot.
+
+## Repository map
+
+```text
+bin/          dot CLI and PowerShell adapter
+profiles/     profile inheritance, features, and package selections
+packages/     canonical package and release-channel manifests
+ansible/      Kubuntu and WSL convergence
+config/       portable application and desktop configuration
+scripts/      focused installers, provisioning, and safety helpers
+schemas/      versioned configuration contracts
+tests/        Linux, shell, profile, PowerShell, and safety validation
+docs/         architecture, maintenance, migration, and troubleshooting
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — boundaries, providers, profiles, and
+  design decisions
+- [Maintenance](docs/maintenance.md) — adding packages, saving configuration,
+  updating, and rollback
+- [Docker](docs/docker.md) — native Docker Engine on Kubuntu and WSL
+- [Tailscale](docs/tailscale.md) — installation and enrollment boundaries
+- [Migration ledger](docs/migration-ledger.md) — where the old configuration
+  went
+- [Troubleshooting](docs/troubleshooting.md) — actionable recovery paths
+
+## Validation
+
+The complete local suite validates schemas, Python, Bash, Ansible, Neovim,
+public-repository safety, and platform adapters:
+
+```bash
+./tests/run
+```
+
+Kubuntu receives real runtime and repeat-apply validation. WSL, Windows, and
+Termux remain implementation-complete with static and check-mode validation
+until exercised on their respective machines.
+
+---
+
+<div align="center">
+
+Built to make the next clean install boring—in the best possible way.
+
+</div>

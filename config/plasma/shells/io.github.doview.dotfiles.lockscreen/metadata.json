@@ -1,0 +1,16 @@
+{
+  "KPackageStructure": "Plasma/Shell",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Dovie Weinstock"
+      }
+    ],
+    "Description": "A calm, Windows-inspired Plasma lock screen",
+    "Id": "io.github.doview.dotfiles.lockscreen",
+    "License": "MIT",
+    "Name": "Dovie Lock Screen"
+  },
+  "X-Plasma-APIVersion": "2",
+  "X-Plasma-FallbackPackage": "org.kde.plasma.desktop"
+}

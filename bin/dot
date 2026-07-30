@@ -37,6 +37,13 @@ NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
+LOCKSCREEN_PACKAGE_ID = "io.github.doview.dotfiles.lockscreen"
+LOCKSCREEN_PACKAGE_SOURCE = (
+    ROOT / "config/plasma/shells" / LOCKSCREEN_PACKAGE_ID
+)
+LOCKSCREEN_PACKAGE_DESTINATION = (
+    Path.home() / ".local/share/plasma/shells" / LOCKSCREEN_PACKAGE_ID
+)
 KWIN_DISABLED_EFFECTS = (
     "blendchanges",
     "fade",
@@ -374,6 +381,79 @@ def copy_managed_file(source: Path, destination: Path) -> bool:
     return atomic_bytes(destination, content, mode)
 
 
+def lockscreen_greeter_path() -> Path | None:
+    candidates = [
+        shutil.which("kscreenlocker_greet"),
+        "/usr/lib/x86_64-linux-gnu/libexec/kscreenlocker_greet",
+        "/usr/libexec/kscreenlocker_greet",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
+def provision_lockscreen_assets() -> int:
+    """Install the public shell package and the private wallpaper separately."""
+    changes = int(
+        link_file(LOCKSCREEN_PACKAGE_SOURCE, LOCKSCREEN_PACKAGE_DESTINATION)
+    )
+    lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
+    lock_wallpaper = (
+        Path.home() / ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg"
+    )
+    if not lock_wallpaper_source.is_file():
+        print(
+            "Skipped the leaves lock-screen wallpaper: expected private "
+            f"source {lock_wallpaper_source}. Run `dot repos sync`, then "
+            "reapply the lock screen."
+        )
+        return changes
+
+    changes += int(copy_managed_file(lock_wallpaper_source, lock_wallpaper))
+    image_value = f"file://{lock_wallpaper}"
+    current_image = run(
+        [
+            "kreadconfig6",
+            "--file",
+            "kscreenlockerrc",
+            "--group",
+            "Greeter",
+            "--group",
+            "Wallpaper",
+            "--group",
+            "org.kde.image",
+            "--group",
+            "General",
+            "--key",
+            "Image",
+        ],
+        check=False,
+        capture=True,
+    )
+    if current_image.stdout.strip() != image_value:
+        run(
+            [
+                "kwriteconfig6",
+                "--file",
+                "kscreenlockerrc",
+                "--group",
+                "Greeter",
+                "--group",
+                "Wallpaper",
+                "--group",
+                "org.kde.image",
+                "--group",
+                "General",
+                "--key",
+                "Image",
+                image_value,
+            ]
+        )
+        changes += 1
+    return changes
+
+
 def portable_kde_content(relative: str, content: bytes) -> bytes:
     """Remove runtime residue from an otherwise portable KConfig file."""
     ignored_keys = KDE_IGNORED_KEYS.get(relative, set())
@@ -502,7 +582,7 @@ def copy_managed_kde_file(
     if (
         not destination.is_symlink()
         and destination.exists()
-        and portable_kde_content(relative, destination.read_bytes()) == content
+        and destination.read_bytes() == content
     ):
         destination.chmod(mode)
         return False
@@ -541,12 +621,18 @@ def record_kde_baseline() -> None:
     atomic_text(KDE_BASELINE, json.dumps(payload, indent=2) + "\n", 0o600)
 
 
-def check_kde_apply_conflicts(*, force: bool = False) -> None:
+def check_kde_apply_conflicts(
+    *,
+    force: bool = False,
+    only: set[str] | None = None,
+) -> None:
     if force:
         return
     baseline = kde_baseline()
     conflicts: list[str] = []
     for relative in KDE_FILES:
+        if only is not None and relative not in only:
+            continue
         expected = kde_source(relative)
         actual = Path.home() / relative
         if not expected.is_file() or not actual.is_file() or actual.is_symlink():
@@ -711,8 +797,19 @@ def apply_direct(
         return apply_all or bool(selected_tags.intersection(tags))
 
     force_kde = force_kde or os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") == "1"
+    lockscreen_files = {
+        ".config/kscreenlockerrc",
+        ".config/plasmashellrc",
+    }
+    lockscreen_only = (
+        features.get("kde")
+        and selected("lockscreen")
+        and not selected("kde")
+    )
     if features.get("kde") and selected("kde"):
         check_kde_apply_conflicts(force=force_kde)
+    elif lockscreen_only:
+        check_kde_apply_conflicts(force=force_kde, only=lockscreen_files)
     if features.get("shell") and selected("shell", "tmux"):
         mappings = {
             ROOT / "bin/dot": Path.home() / ".local/bin/dot",
@@ -742,6 +839,17 @@ def apply_direct(
             source = ROOT / "config/git/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
+    if lockscreen_only:
+        for relative in sorted(lockscreen_files):
+            changes += int(
+                copy_managed_kde_file(
+                    relative,
+                    kde_source(relative),
+                    Path.home() / relative,
+                )
+            )
+        changes += provision_lockscreen_assets()
+        record_kde_baseline()
     if features.get("kde") and selected("kde"):
         powerdevil_changed = False
         candidates = [
@@ -909,63 +1017,7 @@ def apply_direct(
                 ["systemctl", "--user", "restart", "plasma-powerdevil.service"],
                 check=False,
             )
-        lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
-        lock_wallpaper = (
-            Path.home()
-            / ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg"
-        )
-        if lock_wallpaper_source.is_file():
-            wallpaper_changed = copy_managed_file(
-                lock_wallpaper_source,
-                lock_wallpaper,
-            )
-            changes += int(wallpaper_changed)
-            image_value = f"file://{lock_wallpaper}"
-            current_image = run(
-                [
-                    "kreadconfig6",
-                    "--file",
-                    "kscreenlockerrc",
-                    "--group",
-                    "Greeter",
-                    "--group",
-                    "Wallpaper",
-                    "--group",
-                    "org.kde.image",
-                    "--group",
-                    "General",
-                    "--key",
-                    "Image",
-                ],
-                check=False,
-                capture=True,
-            )
-            if current_image.stdout.strip() != image_value:
-                run(
-                    [
-                        "kwriteconfig6",
-                        "--file",
-                        "kscreenlockerrc",
-                        "--group",
-                        "Greeter",
-                        "--group",
-                        "Wallpaper",
-                        "--group",
-                        "org.kde.image",
-                        "--group",
-                        "General",
-                        "--key",
-                        "Image",
-                        image_value,
-                    ]
-                )
-                changes += 1
-        else:
-            print(
-                "Skipped the leaves lock-screen wallpaper: expected private "
-                f"source {lock_wallpaper_source}. Run `dot repos sync`, then "
-                "reapply the KDE profile."
-            )
+        changes += provision_lockscreen_assets()
         native_frames = run(
             [str(ROOT / "scripts/configure-native-frames"), "--ensure"],
             capture=True,
@@ -1142,9 +1194,15 @@ def cmd_apply(args: argparse.Namespace) -> None:
             or "all" in direct_tags
             or "config" in direct_tags
             or "kde" in direct_tags
+            or "lockscreen" in direct_tags
         )
         if profile.get("features", {}).get("kde") and direct_kde_selected and not args.check:
-            check_kde_apply_conflicts(force=force_kde)
+            only = (
+                {".config/kscreenlockerrc", ".config/plasmashellrc"}
+                if direct_tags == {"lockscreen"}
+                else None
+            )
+            check_kde_apply_conflicts(force=force_kde, only=only)
         if profile["name"] == "termux" and not args.check:
             packages = profile.get("packages", {}).get("pkg", [])
             if packages:
@@ -1218,11 +1276,17 @@ def cmd_apply(args: argparse.Namespace) -> None:
             or "all" in selected_tags
             or "config" in selected_tags
             or "kde" in selected_tags
+            or "lockscreen" in selected_tags
         )
         and not args.check
     )
     if kde_apply_selected:
-        check_kde_apply_conflicts(force=force_kde)
+        only = (
+            {".config/kscreenlockerrc", ".config/plasmashellrc"}
+            if selected_tags == {"lockscreen"}
+            else None
+        )
+        check_kde_apply_conflicts(force=force_kde, only=only)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     runtime_profile = STATE_DIR / "runtime-profile.json"
     atomic_text(runtime_profile, json.dumps({"dot_profile_data": profile}, indent=2) + "\n", 0o600)
@@ -2654,6 +2718,50 @@ def cmd_diff_kde(_args: argparse.Namespace) -> None:
     print("KDE allowlist matches.")
 
 
+def cmd_lockscreen(args: argparse.Namespace) -> None:
+    if args.lockscreen_action == "preview":
+        link_file(LOCKSCREEN_PACKAGE_SOURCE, LOCKSCREEN_PACKAGE_DESTINATION)
+        greeter = lockscreen_greeter_path()
+        if greeter is None:
+            raise DotError(
+                "KScreenLocker greeter is unavailable; install plasma-workspace."
+            )
+        print("Opening the managed lock screen in KDE's non-locking test mode.")
+        run(
+            [
+                str(greeter),
+                "--testing",
+                "--shell",
+                LOCKSCREEN_PACKAGE_ID,
+            ]
+        )
+        return
+
+    if args.lockscreen_action == "stock":
+        config = Path.home() / ".config/plasmashellrc"
+        run_id = backup_paths([config])
+        run(
+            [
+                "kwriteconfig6",
+                "--file",
+                "plasmashellrc",
+                "--group",
+                "Shell",
+                "--key",
+                "ShellPackage",
+                "org.kde.plasma.desktop",
+            ]
+        )
+        print(
+            "Restored KDE's stock lock screen for future locks. "
+            f"Backup created: {run_id}. Reapply the lockscreen tag to return "
+            "to the managed theme."
+        )
+        return
+
+    raise DotError(f"Unknown lock-screen action: {args.lockscreen_action}")
+
+
 def cmd_rollback(args: argparse.Namespace) -> None:
     restore_backup(args.run_id)
     print(f"Restored backup {args.run_id}")
@@ -2778,6 +2886,11 @@ def palette_apply_menu(profile: str) -> None:
         ("packages", "Packages and applications", "Install every package declared by this profile"),
         ("config", "Portable configuration", "Repair managed links and copied application settings"),
         ("kde", "KDE desktop", "Apply captured Plasma, shortcuts, panel, and power settings"),
+        (
+            "lockscreen",
+            "Lock screen",
+            "Install the managed theme, private wallpaper, and fallback policy",
+        ),
         ("shell", "Shell environment", "Apply Bash, Zsh, prompt, helpers, and Tmux files"),
         ("git", "Git configuration", "Apply identities, aliases, Delta, signing, and utilities"),
         ("tmux", "Tmux", "Apply Tmux configuration, TPM, and plugins"),
@@ -2844,6 +2957,21 @@ def palette_configuration_menu(profile: str) -> None:
                     "Safely apply the reviewed repository configuration",
                 ),
                 (
+                    "lockscreen-preview",
+                    "Preview managed lock screen",
+                    "Open the theme in KDE's safe non-locking test mode",
+                ),
+                (
+                    "lockscreen-apply",
+                    "Apply managed lock screen",
+                    "Install the theme, wallpaper, and correct media-control policy",
+                ),
+                (
+                    "lockscreen-stock",
+                    "Restore stock lock screen",
+                    "Back up the live selection and use KDE's built-in theme",
+                ),
+                (
                     "force",
                     "Force-restore KDE from dotfiles",
                     "Back up and replace conflicting live KDE settings",
@@ -2874,6 +3002,17 @@ def palette_configuration_menu(profile: str) -> None:
                     lambda: cmd_capture_kde(argparse.Namespace(only=selected))
                 )
             continue
+        if action == "lockscreen-stock":
+            if palette_confirm(
+                "Restore KDE's stock lock screen",
+                "The managed theme remains available and can be reapplied later",
+            ):
+                palette_execute(
+                    lambda: cmd_lockscreen(
+                        argparse.Namespace(lockscreen_action="stock")
+                    )
+                )
+            continue
 
         def execute() -> None:
             if action == "save":
@@ -2888,6 +3027,12 @@ def palette_configuration_menu(profile: str) -> None:
                 cmd_capture_kde(argparse.Namespace(only=None))
             elif action == "apply":
                 palette_apply(profile, "kde")
+            elif action == "lockscreen-preview":
+                cmd_lockscreen(
+                    argparse.Namespace(lockscreen_action="preview")
+                )
+            elif action == "lockscreen-apply":
+                palette_apply(profile, "lockscreen")
             elif action == "force":
                 if not palette_confirm(
                     "Back up and replace live KDE settings",
@@ -3976,13 +4121,50 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if lock_screen_path.is_file()
             else ""
         )
-        lock_media_ok = "[Greeter]\nshowMediaControls=false" in lock_screen
+        lock_media_ok = (
+            "[Greeter][LnF]\nshowMediaControls=false" in lock_screen
+        )
         failures += not doctor_check(
             "lock-screen media controls",
             lock_media_ok,
-            "hidden"
+            "disabled in KDE's LnF namespace"
             if lock_media_ok
-            else "run dot apply --profile kubuntu-laptop --tags kde",
+            else "run dot apply --profile kubuntu-laptop --tags lockscreen",
+        )
+        lock_qml = (
+            LOCKSCREEN_PACKAGE_SOURCE
+            / "contents/lockscreen/LockScreen.qml"
+        )
+        lock_metadata = load_json(
+            LOCKSCREEN_PACKAGE_SOURCE / "metadata.json"
+        )
+        lock_package_installed = (
+            LOCKSCREEN_PACKAGE_DESTINATION.is_dir()
+            and LOCKSCREEN_PACKAGE_DESTINATION.resolve()
+            == LOCKSCREEN_PACKAGE_SOURCE.resolve()
+        )
+        lock_package_active = (
+            f"ShellPackage={LOCKSCREEN_PACKAGE_ID}" in panel_geometry
+        )
+        lock_package_safe = (
+            lock_metadata.get("X-Plasma-APIVersion") == "2"
+            and lock_metadata.get("X-Plasma-FallbackPackage")
+            == "org.kde.plasma.desktop"
+            and lock_qml.is_file()
+            and "MediaControls" not in lock_qml.read_text(encoding="utf-8")
+        )
+        failures += not doctor_check(
+            "lock-screen theme",
+            lock_package_installed
+            and lock_package_active
+            and lock_package_safe,
+            "managed API-v2 shell active with KDE stock fallback"
+            if (
+                lock_package_installed
+                and lock_package_active
+                and lock_package_safe
+            )
+            else "run dot apply --profile kubuntu-laptop --tags lockscreen",
         )
         lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
         lock_wallpaper = (
@@ -4004,7 +4186,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if lock_wallpaper_ok
             else (
                 "restore ~/repos/files/leaves_wallpaper.jpg, then run "
-                "dot apply --profile kubuntu-laptop --tags kde"
+                "dot apply --profile kubuntu-laptop --tags lockscreen"
             ),
         )
         maximized_frame_ok = (
@@ -4696,6 +4878,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["status", "reload", "enable", "disable"],
     )
     gestures.set_defaults(func=cmd_gestures)
+    lockscreen = sub.add_parser("lockscreen")
+    lockscreen.add_argument(
+        "lockscreen_action",
+        choices=["preview", "stock"],
+    )
+    lockscreen.set_defaults(func=cmd_lockscreen)
     repos = sub.add_parser("repos")
     repos_sub = repos.add_subparsers(dest="repos_command", required=True)
     sync = repos_sub.add_parser("sync")

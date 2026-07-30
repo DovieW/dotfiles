@@ -1,6 +1,9 @@
 [General]
 Number of Actions=0
 
+[Shell]
+ShellPackage=io.github.doview.dotfiles.lockscreen
+
 [PlasmaViews][Panel 2]
 alignment=1
 floating=0

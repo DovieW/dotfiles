@@ -575,11 +575,16 @@ class DotCliTests(unittest.TestCase):
             self.assertIn(f"{effect}Enabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
         self.assertIn("ElectricBorderCooldown=50", kwin)
-        self.assertIn("[Greeter]\nshowMediaControls=false", lock_screen)
+        self.assertIn("[Greeter][LnF]\nshowMediaControls=false", lock_screen)
         self.assertIn("FillMode=2", lock_screen)
         self.assertNotIn("leaves_wallpaper", lock_screen)
         self.assertIn('"lock-screen media controls"', cli)
+        self.assertIn('"lock-screen theme"', cli)
         self.assertIn('"lock-screen wallpaper"', cli)
+        self.assertIn("LOCKSCREEN_PACKAGE_ID", cli)
+        self.assertIn('"lockscreen-preview"', cli)
+        self.assertIn('"lockscreen-apply"', cli)
+        self.assertIn('"lockscreen-stock"', cli)
         self.assertIn("repos/files/leaves_wallpaper.jpg", cli)
         self.assertIn(
             ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg",
@@ -589,6 +594,45 @@ class DotCliTests(unittest.TestCase):
             '("Greeter][Wallpaper][org.kde.image][General", "Image")',
             cli,
         )
+        shell_state = (
+            ROOT / "config/kde/.config/plasmashellrc"
+        ).read_text()
+        self.assertIn(
+            "ShellPackage=io.github.doview.dotfiles.lockscreen",
+            shell_state,
+        )
+        lock_package = (
+            ROOT
+            / "config/plasma/shells/io.github.doview.dotfiles.lockscreen"
+        )
+        metadata = json.loads((lock_package / "metadata.json").read_text())
+        lock_qml = (
+            lock_package / "contents/lockscreen/LockScreen.qml"
+        ).read_text()
+        self.assertEqual(metadata["KPackageStructure"], "Plasma/Shell")
+        self.assertEqual(metadata["X-Plasma-APIVersion"], "2")
+        self.assertEqual(
+            metadata["X-Plasma-FallbackPackage"],
+            "org.kde.plasma.desktop",
+        )
+        self.assertNotIn("MediaControls", lock_qml)
+        self.assertIn("Segoe UI Variable", lock_qml)
+        self.assertIn('displayName: "Dovie Weinstock"', lock_qml)
+        self.assertIn("PasswordState.password", lock_qml)
+        self.assertIn("Keyboards.KWinVirtualKeyboard", lock_qml)
+        self.assertIn("PlasmaNM.ConnectionIcon", lock_qml)
+        self.assertIn(
+            "(Window.window && Window.window.active) || interaction.containsMouse",
+            lock_qml,
+        )
+        self.assertNotIn("Fingerprint", lock_qml)
+        self.assertNotIn("unlockButton", lock_qml)
+        self.assertNotIn("go-next-symbolic", lock_qml)
+        self.assertIn("entranceFade.start();", lock_qml)
+        self.assertIn('displayName: "Dovie Weinstock"', lock_qml)
+        self.assertIn('selectionColor: "#55ffffff"', lock_qml)
+        self.assertIn('Qt.formatTime(clockSource.dateTime, "h:mm AP")', lock_qml)
+        self.assertIn("Layout.preferredHeight: 48", lock_qml)
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)
@@ -853,7 +897,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"lid-aware power profile"', cli)
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
-        self.assertIn("git, kde, power, tmux", playbook)
+        self.assertIn("git, kde, lockscreen, power, tmux", playbook)
 
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

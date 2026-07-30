@@ -64,6 +64,26 @@ is backed up for rollback.
 Log out and back in after restoring panel or shortcut configuration. Portable
 setup intentionally does not run `kscreen-doctor` or replace KScreen state.
 
+## The lock screen is blank, stock, or still shows media
+
+Preview the managed package without actually locking:
+
+```bash
+dot lockscreen preview
+```
+
+Then restore its package, wallpaper, and correct `[Greeter][LnF]` setting:
+
+```bash
+dot apply --profile kubuntu-laptop --tags lockscreen
+dot doctor --profile kubuntu-laptop
+```
+
+The custom QML omits media controls entirely. KDE's stock fallback also reads
+`showMediaControls=false` from the `LnF` subgroup; placing the key directly
+under `[Greeter]` has no effect. Use `dot lockscreen stock` to select KDE's
+complete stock shell while diagnosing a Plasma compatibility problem.
+
 ## Closing the lid suspends the laptop
 
 The managed policy ignores lid closure and disables automatic suspend for AC,
