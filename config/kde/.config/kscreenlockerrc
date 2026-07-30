@@ -1,2 +1,6 @@
+[Greeter]
+showMediaControls=false
+
 [Greeter][Wallpaper][org.kde.image][General]
+FillMode=2
 PreviewImage=null

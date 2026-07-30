@@ -487,6 +487,7 @@ class DotCliTests(unittest.TestCase):
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
         input_config = (ROOT / "config/kde/.config/kcminputrc").read_text()
+        lock_screen = (ROOT / "config/kde/.config/kscreenlockerrc").read_text()
         plasma_pa = (ROOT / "config/kde/.config/plasmaparc").read_text()
         colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
 
@@ -574,6 +575,20 @@ class DotCliTests(unittest.TestCase):
             self.assertIn(f"{effect}Enabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
         self.assertIn("ElectricBorderCooldown=50", kwin)
+        self.assertIn("[Greeter]\nshowMediaControls=false", lock_screen)
+        self.assertIn("FillMode=2", lock_screen)
+        self.assertNotIn("leaves_wallpaper", lock_screen)
+        self.assertIn('"lock-screen media controls"', cli)
+        self.assertIn('"lock-screen wallpaper"', cli)
+        self.assertIn("repos/files/leaves_wallpaper.jpg", cli)
+        self.assertIn(
+            ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg",
+            cli,
+        )
+        self.assertIn(
+            '("Greeter][Wallpaper][org.kde.image][General", "Image")',
+            cli,
+        )
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)

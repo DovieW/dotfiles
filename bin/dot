@@ -84,6 +84,7 @@ KDE_IGNORED_KEYS = {
     },
     ".config/kscreenlockerrc": {
         ("Greeter][Wallpaper][org.kde.image][General", "DarkLightScheduleState"),
+        ("Greeter][Wallpaper][org.kde.image][General", "Image"),
     },
     ".config/spectaclerc": {
         ("ImageSave", "lastImageSaveLocation"),
@@ -907,6 +908,63 @@ def apply_direct(
             run(
                 ["systemctl", "--user", "restart", "plasma-powerdevil.service"],
                 check=False,
+            )
+        lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
+        lock_wallpaper = (
+            Path.home()
+            / ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg"
+        )
+        if lock_wallpaper_source.is_file():
+            wallpaper_changed = copy_managed_file(
+                lock_wallpaper_source,
+                lock_wallpaper,
+            )
+            changes += int(wallpaper_changed)
+            image_value = f"file://{lock_wallpaper}"
+            current_image = run(
+                [
+                    "kreadconfig6",
+                    "--file",
+                    "kscreenlockerrc",
+                    "--group",
+                    "Greeter",
+                    "--group",
+                    "Wallpaper",
+                    "--group",
+                    "org.kde.image",
+                    "--group",
+                    "General",
+                    "--key",
+                    "Image",
+                ],
+                check=False,
+                capture=True,
+            )
+            if current_image.stdout.strip() != image_value:
+                run(
+                    [
+                        "kwriteconfig6",
+                        "--file",
+                        "kscreenlockerrc",
+                        "--group",
+                        "Greeter",
+                        "--group",
+                        "Wallpaper",
+                        "--group",
+                        "org.kde.image",
+                        "--group",
+                        "General",
+                        "--key",
+                        "Image",
+                        image_value,
+                    ]
+                )
+                changes += 1
+        else:
+            print(
+                "Skipped the leaves lock-screen wallpaper: expected private "
+                f"source {lock_wallpaper_source}. Run `dot repos sync`, then "
+                "reapply the KDE profile."
             )
         native_frames = run(
             [str(ROOT / "scripts/configure-native-frames"), "--ensure"],
@@ -3911,6 +3969,43 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "General/Money names shown for 200 ms after switching"
             if desktop_osd_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        lock_screen_path = Path.home() / ".config/kscreenlockerrc"
+        lock_screen = (
+            lock_screen_path.read_text(encoding="utf-8")
+            if lock_screen_path.is_file()
+            else ""
+        )
+        lock_media_ok = "[Greeter]\nshowMediaControls=false" in lock_screen
+        failures += not doctor_check(
+            "lock-screen media controls",
+            lock_media_ok,
+            "hidden"
+            if lock_media_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
+        lock_wallpaper = (
+            Path.home()
+            / ".local/share/wallpapers/dotfiles/leaves_wallpaper.jpg"
+        )
+        expected_lock_image = f"Image=file://{lock_wallpaper}"
+        lock_wallpaper_ok = (
+            lock_wallpaper_source.is_file()
+            and lock_wallpaper.is_file()
+            and hashlib.sha256(lock_wallpaper_source.read_bytes()).digest()
+            == hashlib.sha256(lock_wallpaper.read_bytes()).digest()
+            and expected_lock_image in lock_screen
+        )
+        failures += not doctor_check(
+            "lock-screen wallpaper",
+            lock_wallpaper_ok,
+            "private leaves image provisioned from ~/repos/files"
+            if lock_wallpaper_ok
+            else (
+                "restore ~/repos/files/leaves_wallpaper.jpg, then run "
+                "dot apply --profile kubuntu-laptop --tags kde"
+            ),
         )
         maximized_frame_ok = (
             "BorderlessMaximizedWindows=true" in kwin

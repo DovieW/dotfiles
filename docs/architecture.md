@@ -224,6 +224,12 @@ second permanent title bar. Their profiles, vault lists, histories, and account
 data remain untracked. KWin's native Hide Cursor effect removes the
 pointer after one second without pointer motion, including after Meta+D, and
 while typing ordinary text. Pointer movement restores it immediately.
+The lock screen hides media metadata and playback controls. Its dark-leaves
+wallpaper is provisioned from the private `~/repos/files/leaves_wallpaper.jpg`
+asset into `~/.local/share/wallpapers/dotfiles`; the public repository tracks
+the policy and source path but never the image itself. A missing private source
+produces an actionable skipped result rather than installing a broken image
+reference.
 GitHub Dark is a tracked KDE color scheme layered onto Breeze components, so no
 third-party Plasma code is required.
 
