@@ -40,6 +40,7 @@ GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
+    ".config/kwinrulesrc",
     ".config/kglobalshortcutsrc",
     ".config/krunnerrc",
     ".config/spectaclerc",
@@ -76,6 +77,7 @@ KDE_IGNORED_SECTIONS = {
 KDE_LABELS = {
     ".config/kdeglobals": "KDE appearance",
     ".config/kwinrc": "Windows, desktops, and tiling",
+    ".config/kwinrulesrc": "Per-application window behavior",
     ".config/kglobalshortcutsrc": "Keyboard shortcuts",
     ".config/krunnerrc": "Application palette",
     ".config/spectaclerc": "Spectacle preferences",
@@ -620,7 +622,10 @@ def apply_direct(
             relative in {".config/krunnerrc", ".config/kglobalshortcutsrc"}
             for relative, _, _ in pending
         )
-        kwin_changed = any(relative == ".config/kwinrc" for relative, _, _ in pending)
+        kwin_changed = any(
+            relative in {".config/kwinrc", ".config/kwinrulesrc"}
+            for relative, _, _ in pending
+        )
         backup_run_id = backup_paths([destination for _, _, destination in pending]) if pending else ""
         plasma_stopped = False
         try:
@@ -711,6 +716,9 @@ def apply_direct(
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf": Path.home() / ".config/environment.d/10-bitwarden-ssh-agent.conf",
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
+            ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
+            ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+            ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
             ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -722,6 +730,48 @@ def apply_direct(
         }
         for source, destination in desktop_mappings.items():
             changes += int(copy_managed_file(source, destination))
+        if command_exists("systemctl"):
+            run(["systemctl", "--user", "daemon-reload"], check=False)
+        if command_exists("qdbus6"):
+            script_name = "dot-dolphin"
+            script_path = (
+                Path.home()
+                / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js"
+            )
+            loaded = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Scripting",
+                    "org.kde.kwin.Scripting.isScriptLoaded",
+                    script_name,
+                ],
+                check=False,
+                capture=True,
+            )
+            if (
+                script_path.is_file()
+                and (loaded.returncode != 0 or loaded.stdout.strip() != "true")
+            ):
+                script_id = run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.loadScript",
+                        str(script_path),
+                        script_name,
+                    ],
+                    capture=True,
+                ).stdout.strip()
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        f"/Scripting/Script{script_id}",
+                        "org.kde.kwin.Script.run",
+                    ]
+                )
         bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
         if bitwarden_agent.is_socket():
             os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
@@ -3617,6 +3667,58 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             shortcuts_ok,
             "Meta opens the application launcher; Alt+Space opens KRunner; Meta+D shows the desktop"
             if shortcuts_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        dolphin_rules_path = Path.home() / ".config/kwinrulesrc"
+        dolphin_rules = (
+            dolphin_rules_path.read_text(encoding="utf-8")
+            if dolphin_rules_path.exists()
+            else ""
+        )
+        dolphin_script_loaded = False
+        if command_exists("qdbus6"):
+            dolphin_script = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Scripting",
+                    "org.kde.kwin.Scripting.isScriptLoaded",
+                    "dot-dolphin",
+                ],
+                check=False,
+                capture=True,
+            )
+            dolphin_script_loaded = (
+                dolphin_script.returncode == 0
+                and dolphin_script.stdout.strip() == "true"
+            )
+        dolphin_singleton_ok = (
+            "dot-dolphin=Meta+E" in shortcuts
+            and "_launch=none,Meta+E,Dolphin" in shortcuts
+            and "dot-dolphinEnabled=true" in kwin
+            and dolphin_script_loaded
+        )
+        failures += not doctor_check(
+            "Dolphin singleton shortcut",
+            dolphin_singleton_ok,
+            "Meta+E focuses one Dolphin window"
+            if dolphin_singleton_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        dolphin_taskbar_ok = all(
+            value in dolphin_rules
+            for value in (
+                "wmclass=org.kde.dolphin",
+                "wmclassmatch=1",
+                "skiptaskbar=true",
+                "skiptaskbarrule=2",
+            )
+        )
+        failures += not doctor_check(
+            "Dolphin taskbar rule",
+            dolphin_taskbar_ok,
+            "hidden from the taskbar but retained in Alt+Tab"
+            if dolphin_taskbar_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         if profile.get("features", {}).get("inputactions"):

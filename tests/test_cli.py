@@ -484,6 +484,43 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Plasma panel reveal"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
+    def test_meta_e_uses_one_taskbar_hidden_dolphin_window(self):
+        cli = DOT.read_text()
+        shortcuts = (
+            ROOT / "config/kde/.config/kglobalshortcutsrc"
+        ).read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        rules = (ROOT / "config/kde/.config/kwinrulesrc").read_text()
+        script = (
+            ROOT / "config/kwin/dot-dolphin/contents/code/main.js"
+        ).read_text()
+        service = (
+            ROOT / "config/systemd/user/dot-dolphin-launch.service"
+        ).read_text()
+        metadata = (
+            ROOT / "config/kwin/dot-dolphin/metadata.json"
+        ).read_text()
+
+        self.assertIn("dot-dolphinEnabled=true", kwin)
+        self.assertIn("dot-dolphin=Meta+E", shortcuts)
+        self.assertIn("_launch=none,Meta+E,Dolphin", shortcuts)
+        self.assertIn("wmclass=org.kde.dolphin", rules)
+        self.assertIn("wmclassmatch=1", rules)
+        self.assertIn("skiptaskbar=true", rules)
+        self.assertIn("skiptaskbarrule=2", rules)
+        self.assertIn("workspace.stackingOrder", script)
+        self.assertIn("workspace.activeWindow = window", script)
+        self.assertIn("dot-dolphin-launch.service", script)
+        self.assertIn("registerShortcut(", script)
+        self.assertIn('"KPackageStructure": "KWin/Script"', metadata)
+        self.assertIn("ExecStart=/usr/bin/dolphin", service)
+        self.assertIn('".config/kwinrulesrc"', cli)
+        self.assertIn('"config/kwin/dot-dolphin/metadata.json"', cli)
+        self.assertIn('"config/kwin/dot-dolphin/contents/code/main.js"', cli)
+        self.assertIn('"systemctl", "--user", "daemon-reload"', cli)
+        self.assertIn('"Dolphin singleton shortcut"', cli)
+        self.assertIn('"Dolphin taskbar rule"', cli)
+
     def test_kubuntu_manages_windows_style_touchpad_gestures(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         manifest = json.loads((ROOT / "packages/inputactions.yml").read_text())

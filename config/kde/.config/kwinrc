@@ -5,6 +5,7 @@ Number=2
 Rows=1
 
 [Plugins]
+dot-dolphinEnabled=true
 kwin_gesturesEnabled=true
 scaleEnabled=false
 screenedgeEnabled=false

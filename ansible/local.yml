@@ -265,6 +265,16 @@
         '0 configuration change(s)' not in dot_direct_apply.stdout
       tags: [config, shell, git, kde, tmux, nvim]
 
+    - name: Reload user services after portable configuration
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        scope: user
+      changed_when: false
+      when:
+        - dot_profile_data.features.kde | default(false)
+        - not ansible_check_mode
+      tags: [config, kde]
+
     - name: Restore Neovim's tested plugin graph
       ansible.builtin.command:
         argv:

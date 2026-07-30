@@ -41,6 +41,7 @@ _k_friendly_name=Session Management
 Activate Window Demanding Attention=Meta+Ctrl+A,Meta+Ctrl+A,Activate Window Demanding Attention
 Cycle Overview=none,none,Cycle through Overview and Grid View
 Cycle Overview Opposite=none,none,Cycle through Grid View and Overview
+dot-dolphin=Meta+E,none,Open or Focus Dolphin
 Decrease Opacity=,,Decrease Opacity of Active Window by 5%
 Edit Tiles=Meta+T,Meta+T,Toggle Tiles Editor
 Expose=Meta+F9\tCtrl+F9,Meta+F9\tCtrl+F9,Toggle Present Windows (Current desktop)
@@ -240,6 +241,10 @@ powerProfile=Battery\tMeta+B,Battery\tMeta+B,Switch Power Profile
 [org.kde.krunner.desktop]
 _k_friendly_name=KRunner
 _launch=Alt+Space\tAlt+F2,Alt+Space\tAlt+F2,KRunner
+
+[org_kde_dolphin_desktop]
+_k_friendly_name=Dolphin
+_launch=none,Meta+E,Dolphin
 
 [plasmashell]
 Slideshow Wallpaper Next Image=,,Next Wallpaper Image

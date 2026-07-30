@@ -1,0 +1,10 @@
+[General]
+count=1
+rules=dolphin-skip-taskbar
+
+[dolphin-skip-taskbar]
+Description=Keep Dolphin out of the taskbar
+wmclass=org.kde.dolphin
+wmclassmatch=1
+skiptaskbar=true
+skiptaskbarrule=2
