@@ -132,8 +132,8 @@ dock, theme bundle, or third-party widget:
 - **Windows Classic** — the default full-width 40px labeled taskbar
 - **Windows Refined** — a floating 94% labeled taskbar
 - **Centered Compact** — a floating 62% icon taskbar
-- **Unified Pill** — a fit-content task, tray, and clock pill with a visually
-  hidden Start target; Meta and Alt+F1 still open Kickoff
+- **Unified Pill** — a fit-content task, tray, and clock pill with a compact
+  Windows-style Start icon; Meta and Alt+F1 open Kickoff
 
 Notification toasts use an explicit bottom-right anchor in every profile, so
 their position does not follow a centered System Tray.

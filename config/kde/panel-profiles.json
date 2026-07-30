@@ -62,8 +62,8 @@
     },
     "unified-pill": {
       "label": "Unified Pill",
-      "description": "Fit-content floating pill with a visually hidden Meta launcher, tasks, tray, and time",
-      "launcher_icon": "hidden",
+      "description": "Fit-content floating pill with a Windows-style launcher, tasks, tray, and time",
+      "launcher_icon": "windows11",
       "floating": true,
       "length_mode": "fit",
       "width_percent": null,

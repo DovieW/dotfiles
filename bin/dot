@@ -3019,8 +3019,8 @@ def panel_profile_script(profile_name: str) -> str:
         "spacers": profile["spacers"],
         "show_date": profile["show_date"],
         "launcher_icon": (
-            str(ROOT / "config/kde/assets/transparent-launcher.svg")
-            if profile["launcher_icon"] == "hidden"
+            str(ROOT / "config/kde/assets/windows11-launcher.svg")
+            if profile["launcher_icon"] == "windows11"
             else profile["launcher_icon"]
         ),
         "tray_shown": ",".join(tray_policy["shown_items"]),
@@ -3219,8 +3219,8 @@ else {
     if types.split(",") != expected_types:
         return False, "widget order does not match"
     expected_launcher_icon = (
-        str(ROOT / "config/kde/assets/transparent-launcher.svg")
-        if profile["launcher_icon"] == "hidden"
+        str(ROOT / "config/kde/assets/windows11-launcher.svg")
+        if profile["launcher_icon"] == "windows11"
         else profile["launcher_icon"]
     )
     if launcher_icon != expected_launcher_icon:
