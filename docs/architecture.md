@@ -38,6 +38,18 @@ offer. Native supported updaters such as `vp upgrade` are valid and do not
 create dotfiles drift. Project dependency lockfiles and project runtime pins
 remain authoritative inside each project.
 
+## Terminal
+
+Ghostty is the preferred native Kubuntu terminal and is installed from
+Ubuntu's current stable repository candidate. Its managed configuration removes
+window decorations, the tab bar, and the scrollbar, starts maximized, and
+attaches every new window to the persistent `main` tmux session. It uses the
+latest stable FiraCode Nerd Font Mono release with contextual programming
+ligatures explicitly disabled and a solid non-blinking bar cursor. Tmux remains
+the authoritative interface for sessions, windows, panes, and Ctrl-click URL
+handling while mouse reporting is active. Konsole and Alacritty remain
+available as recovery and comparison frontends.
+
 ## Docker
 
 The `docker_engine` feature configures Docker CE from Docker's official Ubuntu
@@ -110,10 +122,12 @@ live desktop behavior; a matching systemd-logind drop-in is the fallback if
 PowerDevil is unavailable. Display topology remains host-local.
 
 Performance policy is profile-specific: AC uses performance, battery uses
-balanced, and low battery uses power-saver. Kubuntu installs the NVIDIA desktop
-driver currently marked recommended by `ubuntu-drivers`, without hard-coding a
-driver branch, and keeps hybrid graphics in PRIME on-demand mode so Intel drives
-the desktop while NVIDIA remains available for explicit workloads. On the
+balanced, and low battery uses power-saver. Display brightness is set to 100%
+on AC and regular battery. At 20% charge or below, PowerDevil selects the low
+battery profile and sets display brightness to 40%. Kubuntu installs the NVIDIA
+desktop driver currently marked recommended by `ubuntu-drivers`, without
+hard-coding a driver branch, and keeps hybrid graphics in PRIME on-demand mode
+so Intel drives the desktop while NVIDIA remains available for explicit workloads. On the
 IdeaPad Pro 5 16IAH10, the optional `nvidia-powerd` Dynamic Boost daemon is
 disabled because driver 595.84 crashes while querying the current PZCN55WW
 firmware. This does not disable GPU acceleration or runtime D3 suspension; it
@@ -121,10 +135,49 @@ only removes Dynamic Boost's extra CPU/GPU power shifting under load. Reassess
 the workaround after a future NVIDIA driver or Lenovo firmware update.
 
 The Kubuntu desktop uses a full-width, always-auto-hidden native Plasma panel.
-Two flexible spacers approximately center the traditional Task Manager; the
-panel contains no launcher, pager, or Show Desktop widget. KWin's
-modifier-only shortcut maps Meta directly to a centered KRunner instance whose
-Applications provider is the only enabled runner; Alt+Space remains a fallback.
+The native Kickoff launcher stays at the far left while two flexible spacers
+approximately center the traditional Task Manager; the panel contains no pager
+or Show Desktop widget. Meta opens Kickoff. Alt+Space opens a centered KRunner
+instance whose Applications provider is the only enabled runner. The panel's
+screen-edge highlight is disabled and its pointer activation delay is zero.
 Meta+D and Plasma's native four-finger downward gesture expose the desktop.
 GitHub Dark is a tracked KDE color scheme layered onto Breeze components, so no
 third-party Plasma code is required.
+
+Plasma 6.6 does not expose configurable touchpad gestures. The Kubuntu profile
+therefore enables the InputActions KWin plugin and tracks its YAML configuration
+in `config/inputactions/config.yaml`. The mapping follows Windows: three-finger
+horizontal swipes cycle applications; continuous direction-specific
+three-finger vertical controls track the fingers through the full volume range;
+and four-finger horizontal swipes move between virtual desktops. Four-finger
+down explicitly exposes the desktop and four-finger up explicitly restores the
+windows. A state-aware adapter works around KWin 6.6 ignoring direct
+`showDesktop(bool)` DBus calls while avoiding the nondeterminism of blindly
+toggling KDE's Show Desktop action.
+
+The volume gesture emits continuous media-key updates. Plasma's global
+volume-change feedback is disabled in the tracked `plasmaparc`, preventing a
+sound on every step while retaining the visual volume display.
+
+InputActions follows the latest stable tags of its control-tool and KWin-plugin
+repositories. Because the plugin links against KWin, the build state records
+the installed KWin package version. A normal `dot update` rebuilds it whenever
+either a stable InputActions release or KWin changes. Only libinput-backed
+three- and four-finger gestures are used, so the optional udev rule granting
+raw touchpad-device access is deliberately not installed.
+
+The laptop's CIRQ1080 I2C Precision Touchpad is subject to libinput issue
+[#1297](https://gitlab.freedesktop.org/libinput/libinput/-/work_items/1297):
+bursts of otherwise regular reports can be misclassified as impossible jumps,
+causing libinput to discard real motion. A tightly matched local quirk disables
+only libinput's jump detector on the Lenovo 83JM. This is a temporary workaround
+and must be removed once the upstream arrival-time fix reaches Ubuntu. It does
+not change pointer acceleration, scrolling, gesture recognition, or the
+firmware's palm classification.
+
+Native Linux graphical applications receive
+`SSH_AUTH_SOCK=${HOME}/.bitwarden-ssh-agent.sock` through systemd's
+`environment.d` mechanism. This makes Obsidian and other desktop Git clients
+use the same Bitwarden-held device key as interactive shells. Bitwarden starts
+at login and must remain running and unlocked for SSH authentication or commit
+signing; the private key is never materialized on Kubuntu.

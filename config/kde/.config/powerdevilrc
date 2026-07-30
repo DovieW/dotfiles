@@ -1,3 +1,7 @@
+[AC][Display]
+DisplayBrightness=100
+UseProfileSpecificDisplayBrightness=true
+
 [AC][Performance]
 PowerProfile=performance
 
@@ -7,7 +11,7 @@ LidAction=0
 PowerButtonAction=1
 
 [Battery][Display]
-DisplayBrightness=41
+DisplayBrightness=100
 UseProfileSpecificDisplayBrightness=true
 
 [Battery][Keyboard]
@@ -22,10 +26,17 @@ AutoSuspendAction=0
 LidAction=0
 PowerButtonAction=1
 
+[BatteryManagement]
+BatteryLowLevel=20
+
+[LowBattery][Display]
+DisplayBrightness=40
+UseProfileSpecificDisplayBrightness=true
+
+[LowBattery][Performance]
+PowerProfile=power-saver
+
 [LowBattery][SuspendAndShutdown]
 AutoSuspendAction=0
 LidAction=0
 PowerButtonAction=1
-
-[LowBattery][Performance]
-PowerProfile=power-saver

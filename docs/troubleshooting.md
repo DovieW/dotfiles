@@ -74,6 +74,80 @@ power button. Apply both the live PowerDevil policy and the system fallback:
 dot apply --profile kubuntu-laptop --tags kde
 ```
 
+## Custom touchpad gestures fail or destabilize KWin
+
+Check the managed build, configuration, and live effect:
+
+```bash
+dot gestures status
+```
+
+For an ordinary configuration problem, restore the tracked YAML and reload it:
+
+```bash
+dot apply --profile kubuntu-laptop --tags gestures
+dot gestures reload
+```
+
+The gesture-only apply path manages only InputActions and its KWin enable flag.
+Unrelated KDE settings drift does not block it.
+
+For immediate recovery, hold Backspace, Space, and Enter together for two
+seconds, or disable the KWin effect:
+
+```bash
+dot gestures disable
+```
+
+That command deliberately changes the live `kwinrc`, so KDE drift is expected
+until `dot gestures enable` or the gesture profile is reapplied. If KWin itself
+was just upgraded, log out and back in before re-enabling the plugin; it is
+compiled against the installed KWin version and cannot safely replace a shared
+library already loaded by the running compositor.
+
+## The touchpad intermittently ignores motion
+
+Check for libinput's jump detector:
+
+```bash
+journalctl --user -b | grep "Touch jump detected and discarded"
+dot doctor --profile kubuntu-laptop
+```
+
+The CIRQ1080 touchpad can deliver regular I2C reports in a burst. libinput
+1.31.1 may normalize the short arrival interval into an impossible movement
+and discard it, which feels like a missed touch or a brief stop. The Kubuntu
+profile installs a quirk scoped to the Lenovo 83JM and exact touchpad identity:
+
+```bash
+dot apply --profile kubuntu-laptop --tags touchpad
+```
+
+Log out and back in after applying because KWin creates its libinput context at
+session startup. The workaround disables jump detection; it does not alter the
+tracked flat pointer profile or the intentionally low scroll factor. If the
+cursor begins making visible jumps, restore the previous behavior by removing
+`/etc/libinput/local-overrides.quirks`, then log out and back in. Remove the
+tracked workaround once the fix for upstream libinput issue #1297 ships in
+Ubuntu.
+
+## A graphical Git client cannot find the private signing key
+
+Kubuntu deliberately stores only the public device key under `~/.ssh`; the
+private key remains in Bitwarden. Confirm Bitwarden Desktop is running,
+unlocked, and has its SSH agent enabled. Then verify the managed desktop
+environment and restart the affected graphical application completely:
+
+```bash
+systemctl --user show-environment | grep SSH_AUTH_SOCK
+SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock" ssh-add -L
+```
+
+The first command should report
+`SSH_AUTH_SOCK=$HOME/.bitwarden-ssh-agent.sock`. Existing graphical processes
+retain the environment with which they started, so reloading a vault or plugin
+is not sufficient after correcting the session agent.
+
 Enter the administrator password when prompted. PowerDevil is restarted only
 when its managed configuration changes. The systemd-logind fallback is
 guaranteed after the next reboot. Verify both layers with `dot doctor`.

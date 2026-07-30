@@ -244,7 +244,7 @@ _launch=Alt+Space\tAlt+F2,Alt+Space\tAlt+F2,KRunner
 [plasmashell]
 Slideshow Wallpaper Next Image=,,Next Wallpaper Image
 _k_friendly_name=plasmashell
-activate application launcher=none,Meta\tAlt+F1,Activate Application Launcher
+activate application launcher=Meta\tAlt+F1,Meta\tAlt+F1,Activate Application Launcher
 activate task manager entry 1=Meta+1,Meta+1,Activate Task Manager Entry 1
 activate task manager entry 10=,,Activate Task Manager Entry 10
 activate task manager entry 2=Meta+2,Meta+2,Activate Task Manager Entry 2

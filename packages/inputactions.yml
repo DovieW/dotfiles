@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "channel": "stable",
+  "components": {
+    "ctl": {
+      "repository": "https://github.com/InputActions/ctl.git"
+    },
+    "kwin": {
+      "repository": "https://github.com/InputActions/kwin.git"
+    }
+  }
+}

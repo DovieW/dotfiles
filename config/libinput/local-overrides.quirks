@@ -1,0 +1,16 @@
+# Temporary workaround for libinput issue #1297.
+#
+# This Lenovo I2C Precision Touchpad delivers some regular reports in bursts.
+# libinput 1.31.1 can mistake the short arrival interval for an impossible
+# coordinate jump and discard real motion. ModelLenovoX1Gen6Touchpad disables
+# that detector; it does not otherwise make this device emulate an X1 touchpad.
+#
+# Remove this override after the upstream arrival-time fix reaches Ubuntu.
+[Lenovo IdeaPad Pro 5 16IAH10 CIRQ touchpad jump workaround]
+MatchUdevType=touchpad
+MatchBus=i2c
+MatchName=CIRQ1080:00 0488:1054 Touchpad
+MatchVendor=0x0488
+MatchProduct=0x1054
+MatchDMIModalias=dmi:*:svnLENOVO:pn83JM:pvrIdeaPadPro516IAH10:*
+ModelLenovoX1Gen6Touchpad=1

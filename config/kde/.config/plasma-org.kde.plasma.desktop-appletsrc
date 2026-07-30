@@ -33,6 +33,28 @@ location=4
 plugin=org.kde.panel
 wallpaperplugin=org.kde.image
 
+[Containments][2][Applets][3]
+immutability=1
+plugin=org.kde.plasma.kickoff
+
+[Containments][2][Applets][3][Configuration]
+popupHeight=509
+popupWidth=647
+
+[Containments][2][Applets][3][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
+[Containments][2][Applets][3][Configuration][General]
+appNameFormat=0
+favoritesPortedToKAstats=true
+icon=start-here-kubuntu
+showAppsByName=true
+systemFavorites=suspend\,hibernate\,reboot\,shutdown
+
+[Containments][2][Applets][3][Configuration][Shortcuts]
+global=Alt+F1
+
 [Containments][2][Applets][22]
 immutability=1
 plugin=org.kde.plasma.digitalclock
@@ -67,12 +89,12 @@ immutability=1
 plugin=org.kde.plasma.taskmanager
 
 [Containments][2][Applets][5][Configuration]
-launchers=applications:google-chrome.desktop,applications:org.kde.konsole.desktop,applications:obsidian.desktop
+launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop
 
 [Containments][2][Applets][5][Configuration][General]
 groupPopups=true
 groupingStrategy=1
-launchers=applications:google-chrome.desktop,applications:org.kde.konsole.desktop,applications:obsidian.desktop
+launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop
 middleClickAction=Close
 separateLaunchers=false
 showOnlyCurrentDesktop=true
@@ -180,4 +202,4 @@ knownItems=org.kde.kdeconnect,org.kde.plasma.vault,org.kde.kupapplet,org.kde.pla
 shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery
 
 [Containments][2][General]
-AppletOrder=28;5;29;7;22
+AppletOrder=3;28;5;29;7;22

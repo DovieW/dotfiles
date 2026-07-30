@@ -42,6 +42,7 @@ KDE_FILES = (
     ".config/spectaclerc",
     ".config/kcminputrc",
     ".config/kscreenlockerrc",
+    ".config/plasmaparc",
     ".config/powerdevilrc",
     ".config/plasmarc",
     ".config/plasmashellrc",
@@ -65,6 +66,7 @@ KDE_IGNORED_KEYS = {
     },
 }
 KDE_IGNORED_SECTIONS = {
+    ".config/kglobalshortcutsrc": {"services][org.kde.krunner.desktop"},
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
     ".config/plasmashellrc": {"Updates"},
 }
@@ -76,6 +78,7 @@ KDE_LABELS = {
     ".config/spectaclerc": "Spectacle preferences",
     ".config/kcminputrc": "Mouse and input",
     ".config/kscreenlockerrc": "Lock screen",
+    ".config/plasmaparc": "Audio behavior",
     ".config/powerdevilrc": "Power and lid behavior",
     ".config/plasmarc": "Plasma appearance",
     ".config/plasmashellrc": "Panel geometry and visibility",
@@ -103,6 +106,7 @@ def run(
     capture: bool = False,
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -112,6 +116,7 @@ def run(
         stderr=subprocess.PIPE if capture else None,
         env=env,
         cwd=cwd,
+        timeout=timeout,
     )
 
 
@@ -328,6 +333,30 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
         if (section, key) in ignored_keys:
             continue
         kept.append(line)
+    # KConfig section order has no semantic meaning, and Plasma applications
+    # routinely rewrite it. Canonicalizing blocks prevents reorder-only drift.
+    preamble: list[str] = []
+    blocks: list[tuple[str, list[str]]] = []
+    current_name: str | None = None
+    current_lines: list[str] = []
+    for line in kept:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if current_name is not None:
+                blocks.append((current_name, current_lines))
+            current_name = stripped[1:-1]
+            current_lines = [line]
+        elif current_name is None:
+            preamble.append(line)
+        else:
+            current_lines.append(line)
+    if current_name is not None:
+        blocks.append((current_name, current_lines))
+    kept = preamble + [
+        line
+        for _, block in sorted(blocks, key=lambda item: item[0])
+        for line in block
+    ]
     normalized = "".join(kept).rstrip()
     return (normalized + "\n").encode("utf-8") if normalized else b""
 
@@ -503,6 +532,7 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
             ROOT / "config/shell/p10k.zsh": Path.home() / ".p10k.zsh",
             ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
             ROOT / "config/tmux/tmux.conf": Path.home() / ".config/tmux/tmux.conf",
+            ROOT / "config/tmux/open-link": Path.home() / ".local/bin/dot-open-link",
         }
         for source, destination in mappings.items():
             changes += int(link_file(source, destination))
@@ -630,6 +660,10 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
             )
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
+            ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf": Path.home() / ".config/environment.d/10-bitwarden-ssh-agent.conf",
+            ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
+            ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
+            ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
             ROOT / "config/lazydocker/config.yml": Path.home() / ".config/lazydocker/config.yml",
             ROOT / "config/mpv/input.conf": Path.home() / ".config/mpv/input.conf",
@@ -639,6 +673,29 @@ def apply_direct(profile_name: str, *, force_kde: bool = False) -> int:
         }
         for source, destination in desktop_mappings.items():
             changes += int(copy_managed_file(source, destination))
+        bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
+        if bitwarden_agent.is_socket():
+            os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
+            if command_exists("systemctl"):
+                run(
+                    [
+                        "systemctl",
+                        "--user",
+                        "set-environment",
+                        f"SSH_AUTH_SOCK={bitwarden_agent}",
+                    ],
+                    check=False,
+                )
+            if command_exists("dbus-update-activation-environment"):
+                run(
+                    [
+                        "dbus-update-activation-environment",
+                        "--systemd",
+                        "SSH_AUTH_SOCK",
+                    ],
+                    check=False,
+                    env=os.environ.copy(),
+                )
     if features.get("wsl") or features.get("kde"):
         for tool in ("clogs", "cshell", "cycle"):
             source = ROOT / "config/docker/bin" / tool
@@ -708,7 +765,16 @@ def cmd_apply(args: argparse.Namespace) -> None:
         return
     selected_tags = set((args.tags or "").replace(",", " ").split())
     package_apply_selected = not selected_tags or bool(
-        selected_tags & {"packages", "docker", "gpu"}
+        selected_tags
+        & {
+            "packages",
+            "docker",
+            "gpu",
+            "gestures",
+            "touchpad",
+            "system-updates",
+            "app-updates",
+        }
     )
     kde_system_apply_selected = (
         profile.get("features", {}).get("kde", False)
@@ -720,7 +786,10 @@ def cmd_apply(args: argparse.Namespace) -> None:
         for provider in ("apt", "deb", "snap")
     ) or profile.get("features", {}).get("docker_engine", False) or profile.get(
         "features", {}
-    ).get("nvidia_driver", False)
+    ).get("nvidia_driver", False) or (
+        package_apply_selected
+        and profile.get("features", {}).get("inputactions", False)
+    )
     become_arguments = (
         ansible_become_arguments()
         if (package_apply_selected and privileged_packages) or kde_system_apply_selected
@@ -1114,27 +1183,324 @@ def cmd_vite_plus_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-vite-plus"), "--update"], cwd=ROOT)
 
 
+def inputactions_effect_loaded() -> bool:
+    if not command_exists("qdbus6"):
+        return False
+    result = run(
+        [
+            "qdbus6",
+            "org.kde.KWin",
+            "/Effects",
+            "org.kde.kwin.Effects.isEffectLoaded",
+            "kwin_gestures",
+        ],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def cmd_gestures(args: argparse.Namespace) -> None:
+    action = args.gestures_action
+    if action == "disable":
+        require_commands(
+            ["kwriteconfig6"],
+            "Install KDE command-line configuration tools.",
+        )
+        run(
+            [
+                "kwriteconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "Plugins",
+                "--key",
+                "kwin_gesturesEnabled",
+                "false",
+            ]
+        )
+        if command_exists("qdbus6") and inputactions_effect_loaded():
+            run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Effects",
+                    "org.kde.kwin.Effects.unloadEffect",
+                    "kwin_gestures",
+                ]
+            )
+        print(
+            "InputActions is disabled for this session and in the live KWin "
+            "configuration. Re-enable it with `dot gestures enable`."
+        )
+        return
+
+    if action == "enable":
+        require_commands(
+            ["inputactions", "kwriteconfig6", "qdbus6"],
+            "Run `dot apply --profile kubuntu-laptop --tags gestures` first.",
+        )
+        run(
+            [
+                "kwriteconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "Plugins",
+                "--key",
+                "kwin_gesturesEnabled",
+                "true",
+            ]
+        )
+        if not inputactions_effect_loaded():
+            loaded = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Effects",
+                    "org.kde.kwin.Effects.loadEffect",
+                    "kwin_gestures",
+                ],
+                check=False,
+                capture=True,
+            )
+            if loaded.returncode != 0 or loaded.stdout.strip() != "true":
+                raise DotError(
+                    "KWin could not load InputActions. Log out and back in, "
+                    "then run `dot gestures status`."
+                )
+        run(["inputactions", "config", "reload"])
+        run(["inputactions", "config", "issues"])
+        print("Windows-style touchpad gestures are enabled.")
+        return
+
+    if action == "reload":
+        require_commands(
+            ["inputactions"],
+            "Run `dot apply --profile kubuntu-laptop --tags gestures` first.",
+        )
+        if not inputactions_effect_loaded():
+            raise DotError("InputActions is disabled; run `dot gestures enable`.")
+        copy_managed_file(
+            ROOT / "config/inputactions/config.yaml",
+            Path.home() / ".config/inputactions/config.yaml",
+        )
+        copy_managed_file(
+            ROOT / "config/inputactions/dot-show-desktop",
+            Path.home() / ".local/bin/dot-show-desktop",
+        )
+        run(["inputactions", "config", "reload"])
+        run(["inputactions", "config", "issues"])
+        print("Installed, reloaded, and validated the touchpad gesture configuration.")
+        return
+
+    build_check = run(
+        [str(ROOT / "scripts/build-inputactions"), "--check"],
+        check=False,
+        capture=True,
+    )
+    config_source = ROOT / "config/inputactions/config.yaml"
+    config_live = Path.home() / ".config/inputactions/config.yaml"
+    helper_source = ROOT / "config/inputactions/dot-show-desktop"
+    helper_live = Path.home() / ".local/bin/dot-show-desktop"
+    config_matches = (
+        config_live.is_file()
+        and config_live.read_bytes() == config_source.read_bytes()
+        and helper_live.is_file()
+        and helper_live.read_bytes() == helper_source.read_bytes()
+        and os.access(helper_live, os.X_OK)
+    )
+    issues = run(
+        ["inputactions", "config", "issues"],
+        check=False,
+        capture=True,
+    ) if command_exists("inputactions") and inputactions_effect_loaded() else None
+    print(
+        f"[{'OK' if build_check.returncode == 0 else 'FAIL'}] build: "
+        f"{(build_check.stdout or build_check.stderr).strip()}"
+    )
+    print(
+        f"[{'OK' if config_matches else 'FAIL'}] config: "
+        f"{'matches dotfiles' if config_matches else 'run dot apply --profile kubuntu-laptop --tags gestures'}"
+    )
+    print(
+        f"[{'OK' if inputactions_effect_loaded() else 'FAIL'}] KWin effect: "
+        f"{'loaded' if inputactions_effect_loaded() else 'disabled or unavailable'}"
+    )
+    if issues is not None:
+        detail = (issues.stdout or issues.stderr).strip() or "no configuration issues"
+        print(f"[{'OK' if issues.returncode == 0 else 'FAIL'}] validation: {detail}")
+    if (
+        build_check.returncode != 0
+        or not config_matches
+        or not inputactions_effect_loaded()
+        or (issues is not None and issues.returncode != 0)
+    ):
+        raise DotError("Touchpad gesture status has failing checks.")
+
+
+def active_package_transactions() -> list[str]:
+    """Find native package-manager mutations already running for this host."""
+    active: set[str] = set()
+    for command_line in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            arguments = [
+                value.decode(errors="replace")
+                for value in command_line.read_bytes().split(b"\0")
+                if value
+            ]
+        except (OSError, PermissionError):
+            continue
+        if not arguments:
+            continue
+        program = Path(arguments[0]).name
+        if program in {"apt", "apt-get", "dpkg", "unattended-upgrade"}:
+            active.add(" ".join(arguments[:3]))
+        elif program == "snap" and any(
+            action in arguments[1:]
+            for action in {"refresh", "install", "remove", "revert"}
+        ):
+            active.add(" ".join(arguments[:3]))
+    return sorted(active)
+
+
+def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool) -> None:
+    pending = 0
+    if system and command_exists("apt-get"):
+        apt = run(["apt-get", "--simulate", "dist-upgrade"], check=False, capture=True)
+        if apt.returncode:
+            raise DotError((apt.stderr or apt.stdout).strip() or "APT update check failed.")
+        apt_packages = re.findall(r"^Inst\s+(\S+)", apt.stdout, re.MULTILINE)
+        pending += len(apt_packages)
+        detail = ", ".join(apt_packages[:12])
+        if len(apt_packages) > 12:
+            detail += f", and {len(apt_packages) - 12} more"
+        print(f"APT: {len(apt_packages)} update(s){f' — {detail}' if detail else ''}")
+
+    if apps and command_exists("snap"):
+        snap = run(["snap", "refresh", "--list"], check=False, capture=True)
+        snap_output = (snap.stdout or snap.stderr).strip()
+        if snap.returncode and "All snaps up to date" not in snap_output:
+            raise DotError(snap_output or "Snap update check failed.")
+        snap_lines = [
+            line
+            for line in snap_output.splitlines()
+            if line.strip() and not line.startswith("Name") and "up to date" not in line
+        ]
+        pending += len(snap_lines)
+        print(f"Snap: {len(snap_lines)} update(s)")
+
+    if apps and command_exists("brew"):
+        brew = run(["brew", "outdated", "--formula"], check=False, capture=True)
+        if brew.returncode:
+            raise DotError((brew.stderr or brew.stdout).strip() or "Homebrew update check failed.")
+        brew_packages = [line for line in brew.stdout.splitlines() if line.strip()]
+        pending += len(brew_packages)
+        print(f"Homebrew: {len(brew_packages)} update(s)")
+
+    if apps and profile.get("packages", {}).get("deb"):
+        external_updates: list[str] = []
+        for name in profile["packages"]["deb"]:
+            resolved = run(
+                [str(ROOT / "scripts/fetch-external-deb"), name],
+                check=False,
+                capture=True,
+            )
+            if resolved.returncode:
+                raise DotError(
+                    (resolved.stderr or resolved.stdout).strip()
+                    or f"Could not check {name}."
+                )
+            package_path = Path(resolved.stdout.strip())
+            package_name = run(
+                ["dpkg-deb", "--field", str(package_path), "Package"],
+                capture=True,
+            ).stdout.strip()
+            available = run(
+                ["dpkg-deb", "--field", str(package_path), "Version"],
+                capture=True,
+            ).stdout.strip()
+            installed = run(
+                ["dpkg-query", "-W", "-f=${Version}", package_name],
+                check=False,
+                capture=True,
+            )
+            newer = installed.returncode != 0 or run(
+                ["dpkg", "--compare-versions", available, "gt", installed.stdout.strip()],
+                check=False,
+            ).returncode == 0
+            if newer:
+                external_updates.append(name)
+        pending += len(external_updates)
+        print(
+            f"External applications: {len(external_updates)} update(s)"
+            f"{f' — {', '.join(external_updates)}' if external_updates else ''}"
+        )
+
+    print(f"Total provider updates currently visible: {pending}")
+
+
+def update_profile(explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    detected = infer_platform()
+    defaults = {
+        "linux": "kubuntu-laptop",
+        "termux": "termux",
+        "windows": "windows-host",
+    }
+    if detected in defaults:
+        return defaults[detected]
+    raise DotError(
+        "This host has more than one applicable profile. "
+        "Choose --profile wsl-personal or --profile wsl-work."
+    )
+
+
 def cmd_update(args: argparse.Namespace) -> None:
-    profile = load_profile(args.profile)
+    profile_name = update_profile(getattr(args, "profile", None))
+    profile = load_profile(profile_name)
     if profile.get("features", {}).get("windows_inventory_only"):
         raise DotError(
             "Windows is inventory-only; update applications with their native "
             "stable channels, then recapture the inventory."
         )
+    system = bool(getattr(args, "system", False))
+    apps = bool(getattr(args, "apps", False))
+    if not system and not apps:
+        system = apps = True
+    if getattr(args, "check", False):
+        report_pending_updates(profile, system=system, apps=apps)
+        return
+    blockers = active_package_transactions()
+    if blockers:
+        raise DotError(
+            "Another package-manager transaction is already running:\n  "
+            + "\n  ".join(blockers)
+            + "\nWait for it to finish before running dot update."
+        )
+    selected_tags = []
+    if system:
+        selected_tags.append("system-updates")
+    if apps:
+        selected_tags.append("app-updates")
     cmd_apply(
         argparse.Namespace(
-            profile=args.profile,
-            tags="packages",
+            profile=profile_name,
+            tags=",".join(selected_tags),
             check=False,
             direct=False,
             force_kde=False,
         )
     )
-    if profile.get("features", {}).get("codex_remote_control"):
+    if apps and profile.get("features", {}).get("codex_remote_control"):
         cmd_codex_update(args)
-    if profile.get("features", {}).get("vite_plus"):
+    if apps and profile.get("features", {}).get("vite_plus"):
         cmd_vite_plus_update(args)
-    print(f"Updated managed programs for {profile['name']} to their latest stable releases.")
+    categories = "system and application" if system and apps else (
+        "system" if system else "application"
+    )
+    print(f"Updated all installed {categories} packages for {profile['name']}.")
 
 
 def cmd_capture_kde(args: argparse.Namespace) -> None:
@@ -1411,7 +1777,8 @@ def cmd_palette() -> None:
         "Save configuration changes\tsave",
         "Review configuration drift\tdiff",
         "Apply Kubuntu profile\tapply",
-        "Update managed programs\tupdate",
+        "Update system and applications\tupdate",
+        "Manage touchpad gestures\tgestures",
         "Run Kubuntu doctor\tdoctor",
         "Run validation suite\ttest",
         "Exit\texit",
@@ -1437,7 +1804,43 @@ def cmd_palette() -> None:
             )
         )
     elif action == "update":
-        cmd_update(argparse.Namespace(profile="kubuntu-laptop"))
+        update_choice = fzf_choose(
+            [
+                "Update everything\tall",
+                "Update system packages only\tsystem",
+                "Update applications and tools only\tapps",
+                "Check for pending updates\tcheck",
+            ],
+            prompt="update › ",
+            header="Enter: run  Esc: return",
+        )
+        if update_choice:
+            update_action = update_choice[0].split("\t", 1)[1]
+            cmd_update(
+                argparse.Namespace(
+                    profile="kubuntu-laptop",
+                    system=update_action == "system",
+                    apps=update_action == "apps",
+                    check=update_action == "check",
+                )
+            )
+    elif action == "gestures":
+        gesture_choice = fzf_choose(
+            [
+                "Show gesture status\tstatus",
+                "Reload gesture configuration\treload",
+                "Enable Windows-style gestures\tenable",
+                "Emergency-disable custom gestures\tdisable",
+            ],
+            prompt="gestures › ",
+            header="Enter: run  Esc: return",
+        )
+        if gesture_choice:
+            cmd_gestures(
+                argparse.Namespace(
+                    gestures_action=gesture_choice[0].split("\t", 1)[1]
+                )
+            )
     elif action == "doctor":
         cmd_doctor(argparse.Namespace(profile="kubuntu-laptop"))
     elif action == "test":
@@ -1749,10 +2152,67 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
             ]
             active_socket = next((path for path in agent_sockets if path.is_socket()), None)
+            signing_key_result = run(
+                ["git", "config", "--get", "user.signingkey"],
+                check=False,
+                capture=True,
+            )
+            signing_key_path = Path(signing_key_result.stdout.strip()).expanduser()
+            expected_key = (
+                signing_key_path.read_text(encoding="utf-8").strip()
+                if signing_key_result.returncode == 0 and signing_key_path.is_file()
+                else ""
+            )
+            agent_result = None
+            if active_socket is not None:
+                agent_env = os.environ.copy()
+                agent_env["SSH_AUTH_SOCK"] = str(active_socket)
+                try:
+                    agent_result = run(
+                        ["ssh-add", "-L"],
+                        check=False,
+                        capture=True,
+                        env=agent_env,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    agent_result = None
+            expected_key_parts = expected_key.split()
+            agent_key_lines = (
+                agent_result.stdout.splitlines()
+                if agent_result is not None and agent_result.returncode == 0
+                else []
+            )
+            matching_key = any(
+                line.split()[:2] == expected_key_parts[:2]
+                for line in agent_key_lines
+                if len(line.split()) >= 2
+            )
             failures += not doctor_check(
                 "Bitwarden SSH agent",
-                active_socket is not None,
-                str(active_socket or agent_sockets[0]),
+                active_socket is not None and matching_key,
+                f"{active_socket}; configured signing key available"
+                if active_socket is not None and matching_key
+                else "start and unlock Bitwarden Desktop; its agent must contain "
+                f"{signing_key_path}",
+            )
+            manager_environment = run(
+                ["systemctl", "--user", "show-environment"],
+                check=False,
+                capture=True,
+            )
+            expected_socket = str(agent_sockets[0])
+            gui_agent_ok = (
+                manager_environment.returncode == 0
+                and f"SSH_AUTH_SOCK={expected_socket}"
+                in manager_environment.stdout.splitlines()
+            )
+            failures += not doctor_check(
+                "graphical SSH agent routing",
+                gui_agent_ok,
+                expected_socket
+                if gui_agent_ok
+                else "reapply the Kubuntu profile, then restart graphical Git clients",
             )
     if profile.get("features", {}).get("kde"):
         session = os.environ.get("XDG_SESSION_DESKTOP", "")
@@ -1774,18 +2234,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         panel_layout_path = Path.home() / ".config/plasma-org.kde.plasma.desktop-appletsrc"
         panel_layout = panel_layout_path.read_text(encoding="utf-8") if panel_layout_path.exists() else ""
         required_panel_state = (
+            "plugin=org.kde.plasma.kickoff",
             "plugin=org.kde.plasma.taskmanager",
             "plugin=org.kde.plasma.panelspacer",
+            "AppletOrder=3;28;5;29;7;22",
             "middleClickAction=Close",
             "showOnlyCurrentDesktop=true",
             "showOnlyCurrentScreen=false",
-            "launchers=applications:google-chrome.desktop,applications:org.kde.konsole.desktop,applications:obsidian.desktop",
+            "launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop",
             "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
             "hiddenItems=org.kde.plasma.notifications",
             "dateDisplayFormat=BelowTime",
         )
         forbidden_panel_state = (
-            "plugin=org.kde.plasma.kickoff",
             "plugin=org.kde.plasma.pager",
             "plugin=org.kde.plasma.showdesktop",
             "plugin=org.kde.plasma.icontasks",
@@ -1793,11 +2254,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         panel_layout_ok = (
             all(value in panel_layout for value in required_panel_state)
             and all(value not in panel_layout for value in forbidden_panel_state)
+            and panel_layout.count("plugin=org.kde.plasma.panelspacer") == 2
         )
         failures += not doctor_check(
             "Plasma panel layout",
             panel_layout_ok,
-            "native centered task manager, minimal tray, and compact clock"
+            "native launcher, centered task manager, minimal tray, and compact clock"
             if panel_layout_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
@@ -1818,6 +2280,23 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if panel_geometry_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        kwin_path = Path.home() / ".config/kwinrc"
+        kwin = kwin_path.read_text(encoding="utf-8") if kwin_path.exists() else ""
+        panel_reveal_ok = all(
+            value in kwin
+            for value in (
+                "screenedgeEnabled=false",
+                "ElectricBorderDelay=0",
+                "ElectricBorderCooldown=50",
+            )
+        )
+        failures += not doctor_check(
+            "Plasma panel reveal",
+            panel_reveal_ok,
+            "immediate edge activation with the blue edge glow disabled"
+            if panel_reveal_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
         krunner_path = Path.home() / ".config/krunnerrc"
         krunner = krunner_path.read_text(encoding="utf-8") if krunner_path.exists() else ""
         enabled_runners = re.findall(r"^(.+)Enabled=true$", krunner, re.MULTILINE)
@@ -1831,21 +2310,118 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         shortcuts_path = Path.home() / ".config/kglobalshortcutsrc"
         shortcuts = shortcuts_path.read_text(encoding="utf-8") if shortcuts_path.exists() else ""
-        kwin_path = Path.home() / ".config/kwinrc"
-        kwin = kwin_path.read_text(encoding="utf-8") if kwin_path.exists() else ""
         shortcuts_ok = (
-            "Meta=org.kde.krunner,/App,,toggleDisplay" in kwin
-            and "_launch=Alt+Space\\tAlt+F2" in shortcuts
-            and "activate application launcher=none" in shortcuts
+            "_launch=Alt+Space\\tAlt+F2" in shortcuts
+            and "activate application launcher=Meta\\tAlt+F1" in shortcuts
             and "Show Desktop=Meta+D" in shortcuts
         )
         failures += not doctor_check(
             "desktop palette shortcuts",
             shortcuts_ok,
-            "Meta opens KRunner; Alt+Space is retained; Meta+D shows the desktop"
+            "Meta opens the application launcher; Alt+Space opens KRunner; Meta+D shows the desktop"
             if shortcuts_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        if profile.get("features", {}).get("inputactions"):
+            inputactions_build = run(
+                [str(ROOT / "scripts/build-inputactions"), "--check"],
+                check=False,
+                capture=True,
+            )
+            inputactions_detail = (
+                inputactions_build.stdout or inputactions_build.stderr
+            ).strip()
+            failures += not doctor_check(
+                "InputActions build",
+                inputactions_build.returncode == 0,
+                inputactions_detail
+                or "run dot apply --profile kubuntu-laptop --tags gestures",
+            )
+            gestures_source = ROOT / "config/inputactions/config.yaml"
+            gestures_live = Path.home() / ".config/inputactions/config.yaml"
+            gestures_match = (
+                gestures_live.is_file()
+                and gestures_live.read_bytes() == gestures_source.read_bytes()
+            )
+            failures += not doctor_check(
+                "touchpad gesture configuration",
+                gestures_match,
+                "Windows-style three- and four-finger mappings"
+                if gestures_match
+                else "run dot apply --profile kubuntu-laptop --tags gestures",
+            )
+            effect_loaded = inputactions_effect_loaded()
+            failures += not doctor_check(
+                "InputActions KWin effect",
+                effect_loaded,
+                "loaded"
+                if effect_loaded
+                else "run dot gestures enable; log out and back in if KWin was updated",
+            )
+            if effect_loaded and command_exists("inputactions"):
+                gesture_issues = run(
+                    ["inputactions", "config", "issues"],
+                    check=False,
+                    capture=True,
+                )
+                gesture_detail = (
+                    gesture_issues.stdout or gesture_issues.stderr
+                ).strip()
+                failures += not doctor_check(
+                    "touchpad gesture validation",
+                    gesture_issues.returncode == 0,
+                    gesture_detail or "no configuration issues",
+                )
+        if profile.get("features", {}).get("touchpad_jump_workaround"):
+            touchpad_quirk_source = (
+                ROOT / "config/libinput/local-overrides.quirks"
+            )
+            touchpad_quirk_live = Path("/etc/libinput/local-overrides.quirks")
+            touchpad_quirk_matches = (
+                touchpad_quirk_live.is_file()
+                and touchpad_quirk_live.read_bytes()
+                == touchpad_quirk_source.read_bytes()
+            )
+            failures += not doctor_check(
+                "touchpad jump workaround",
+                touchpad_quirk_matches,
+                "scoped libinput jump detection override installed"
+                if touchpad_quirk_matches
+                else "run dot apply --profile kubuntu-laptop --tags touchpad",
+            )
+            touchpad_event = next(
+                (
+                    Path("/dev/input") / event.name
+                    for event in Path("/sys/class/input").glob("event*")
+                    if (event / "device/name").is_file()
+                    and (event / "device/name")
+                    .read_text(encoding="utf-8")
+                    .strip()
+                    == "CIRQ1080:00 0488:1054 Touchpad"
+                ),
+                None,
+            )
+            active_quirks = (
+                run(
+                    ["libinput", "quirks", "list", str(touchpad_event)],
+                    check=False,
+                    capture=True,
+                )
+                if touchpad_event is not None and command_exists("libinput")
+                else None
+            )
+            touchpad_quirk_active = (
+                active_quirks is not None
+                and active_quirks.returncode == 0
+                and "ModelLenovoX1Gen6Touchpad=1" in active_quirks.stdout
+            )
+            failures += not doctor_check(
+                "touchpad libinput match",
+                touchpad_quirk_active,
+                f"{touchpad_event}; jump detector override matched"
+                if touchpad_quirk_active
+                else "the managed override does not match the live touchpad",
+            )
         github_scheme = Path.home() / ".local/share/color-schemes/GitHubDark.colors"
         kdeglobals_path = Path.home() / ".config/kdeglobals"
         kdeglobals = kdeglobals_path.read_text(encoding="utf-8") if kdeglobals_path.exists() else ""
@@ -1884,7 +2460,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "automatic sleep policy",
             powerdevil_matches,
-            "AC performance, battery balanced, low battery power-saver; "
+            "100% brightness on AC and battery; at 20% battery or below, "
+            "40% brightness and power-saver; AC performance and battery balanced; "
             "lid ignored and automatic sleep disabled; power button sleeps"
             if powerdevil_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
@@ -1988,6 +2565,54 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
+        ghostty_config = Path.home() / ".config/ghostty/config"
+        ghostty_source = ROOT / "config/ghostty/config"
+        ghostty_matches = (
+            ghostty_config.exists()
+            and ghostty_config.read_bytes() == ghostty_source.read_bytes()
+        )
+        terminal_application = run(
+            [
+                "kreadconfig6",
+                "--file",
+                "kdeglobals",
+                "--group",
+                "General",
+                "--key",
+                "TerminalService",
+            ],
+            check=False,
+            capture=True,
+        )
+        ghostty_default = (
+            terminal_application.returncode == 0
+            and terminal_application.stdout.strip()
+            == "com.mitchellh.ghostty.desktop"
+        )
+        failures += not doctor_check(
+            "Ghostty configuration",
+            command_exists("ghostty") and ghostty_matches and ghostty_default,
+            "default frameless tmux frontend installed and configured"
+            if command_exists("ghostty") and ghostty_matches and ghostty_default
+            else "run dot apply --profile kubuntu-laptop --tags packages",
+        )
+        if profile.get("features", {}).get("firacode_nerd_font"):
+            nerd_font_check = run(
+                [
+                    str(ROOT / "scripts/install-firacode-nerd-font"),
+                    "--check",
+                ],
+                check=False,
+                capture=True,
+            )
+            nerd_font_detail = (
+                nerd_font_check.stdout or nerd_font_check.stderr
+            ).strip()
+            failures += not doctor_check(
+                "terminal font",
+                nerd_font_check.returncode == 0,
+                nerd_font_detail or "FiraCode Nerd Font Mono check failed",
+            )
     if profile.get("features", {}).get("vite_plus"):
         vite_plus_check = run(
             [str(ROOT / "scripts/install-vite-plus"), "--check"],
@@ -2067,7 +2692,26 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--profile", required=True)
     doctor.set_defaults(func=cmd_doctor)
     update = sub.add_parser("update")
-    update.add_argument("--profile", required=True)
+    update.add_argument(
+        "--profile",
+        help="profile override; Kubuntu, Termux, and Windows infer their host profile",
+    )
+    update_scope = update.add_mutually_exclusive_group()
+    update_scope.add_argument(
+        "--system",
+        action="store_true",
+        help="update all installed operating-system packages",
+    )
+    update_scope.add_argument(
+        "--apps",
+        action="store_true",
+        help="update all installed applications and developer tools",
+    )
+    update.add_argument(
+        "--check",
+        action="store_true",
+        help="report pending updates without installing them",
+    )
     update.set_defaults(func=cmd_update)
     package = sub.add_parser("package")
     package_sub = package.add_subparsers(dest="package_command", required=True)
@@ -2089,6 +2733,12 @@ def build_parser() -> argparse.ArgumentParser:
     vite_plus_install.set_defaults(func=cmd_vite_plus_install)
     vite_plus_update = vite_plus_sub.add_parser("update")
     vite_plus_update.set_defaults(func=cmd_vite_plus_update)
+    gestures = sub.add_parser("gestures")
+    gestures.add_argument(
+        "gestures_action",
+        choices=["status", "reload", "enable", "disable"],
+    )
+    gestures.set_defaults(func=cmd_gestures)
     repos = sub.add_parser("repos")
     repos_sub = repos.add_subparsers(dest="repos_command", required=True)
     sync = repos_sub.add_parser("sync")

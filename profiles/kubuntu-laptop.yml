@@ -6,13 +6,16 @@
   "features": {
     "codex_remote_control": true,
     "docker_engine": true,
+    "firacode_nerd_font": true,
+    "inputactions": true,
     "kde": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
+    "touchpad_jump_workaround": true,
     "windows_fonts": true
   },
   "packages": {
-    "apt": ["flameshot", "fonts-cascadia-code", "kde-config-gtk-style", "kio-extras", "konsole", "mpv", "plasma-workspace", "xclip"],
+    "apt": ["flameshot", "fonts-cascadia-code", "ghostty", "kde-config-gtk-style", "kio-extras", "konsole", "mpv", "plasma-workspace", "xclip"],
     "brew": ["lazydocker", "lazygit"],
     "deb": ["bitwarden", "obsidian"],
     "snap": []

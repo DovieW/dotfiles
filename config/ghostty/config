@@ -1,0 +1,24 @@
+# Ghostty is a minimal graphical frontend for the persistent tmux workspace.
+command = zsh -lic "exec tmux new-session -A -s main"
+
+font-family = FiraCode Nerd Font Mono
+font-size = 12
+font-feature = -calt
+background = 07090d
+
+cursor-style = bar
+cursor-style-blink = false
+cursor-opacity = 1
+
+window-decoration = none
+window-show-tab-bar = never
+gtk-titlebar = false
+scrollbar = never
+maximize = true
+
+mouse-hide-while-typing = true
+# tmux owns Ctrl+click while terminal mouse reporting is active.
+link-url = false
+copy-on-select = clipboard
+confirm-close-surface = false
+shell-integration = none

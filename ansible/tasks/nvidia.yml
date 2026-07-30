@@ -86,7 +86,11 @@
       {{ dot_nvidia_recommended_package }} is installed with PRIME on-demand.
       Reboot before validating nvidia-smi, the loaded kernel module, and runtime
       power management. NVIDIA Dynamic Boost is
-      {{ 'enabled' if dot_profile_data.features.nvidia_dynamic_boost | default(true) else 'disabled because it crashes with this laptop firmware' }}.
+      {{
+        'enabled'
+        if dot_profile_data.features.nvidia_dynamic_boost | default(true)
+        else 'disabled because it crashes with this laptop firmware'
+      }}.
   when: not ansible_check_mode
 
 - name: Explain NVIDIA check mode

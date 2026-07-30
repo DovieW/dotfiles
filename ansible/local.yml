@@ -17,6 +17,32 @@
       tags: [always]
 
   tasks:
+    - name: Upgrade all installed APT packages
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: dist
+      when: ansible_facts.os_family == "Debian"
+      tags: [system-updates]
+
+    - name: Check whether Snap is installed
+      ansible.builtin.stat:
+        path: /usr/bin/snap
+      register: dot_snap_binary
+      tags: [app-updates]
+
+    - name: Refresh every installed Snap
+      become: true
+      ansible.builtin.command:
+        argv: [snap, refresh]
+      environment:
+        LC_ALL: C
+      register: dot_snap_refresh_all
+      changed_when: "'All snaps up to date.' not in dot_snap_refresh_all.stdout"
+      when: dot_snap_binary.stat.executable | default(false)
+      tags: [app-updates]
+
     - name: Configure native Docker Engine
       ansible.builtin.include_tasks:
         file: tasks/docker.yml
@@ -46,6 +72,30 @@
         - (dot_profile_data.packages.apt | default([]) | length) > 0
       tags: [packages]
 
+    - name: Install or upgrade FiraCode Nerd Font Mono from the stable channel
+      ansible.builtin.command:
+        argv: ["{{ dot_repo }}/scripts/install-firacode-nerd-font", "--ensure"]
+      register: dot_firacode_nerd_font
+      changed_when: "' installed from ' in dot_firacode_nerd_font.stdout"
+      when: dot_profile_data.features.firacode_nerd_font | default(false)
+      tags: [packages, fonts, app-updates]
+
+    - name: Configure customizable Plasma touchpad gestures
+      ansible.builtin.include_tasks:
+        file: tasks/inputactions.yml
+        apply:
+          tags: [packages, gestures, app-updates]
+      when: dot_profile_data.features.inputactions | default(false)
+      tags: [packages, gestures, app-updates]
+
+    - name: Configure the CIRQ touchpad jump workaround
+      ansible.builtin.include_tasks:
+        file: tasks/touchpad.yml
+        apply:
+          tags: [packages, touchpad]
+      when: dot_profile_data.features.touchpad_jump_workaround | default(false)
+      tags: [packages, touchpad]
+
     - name: Resolve latest stable external Debian packages
       ansible.builtin.command:
         argv: ["{{ dot_repo }}/scripts/fetch-external-deb", "{{ item }}"]
@@ -56,7 +106,7 @@
       when:
         - ansible_facts.os_family == "Debian"
         - (dot_profile_data.packages.deb | default([]) | length) > 0
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Install latest stable external Debian packages
       become: true
@@ -65,7 +115,7 @@
         state: present
       loop: "{{ dot_external_deb_downloads.results | default([]) }}"
       when: not item.skipped | default(false)
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Check Homebrew availability
       ansible.builtin.command: brew --version
@@ -73,7 +123,7 @@
       changed_when: false
       failed_when: false
       when: (dot_profile_data.packages.brew | default([]) | length) > 0
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Require Homebrew for shared CLI packages
       ansible.builtin.assert:
@@ -82,7 +132,7 @@
           Homebrew is required for shared CLI tools. Install it from
           https://brew.sh, then rerun dot apply.
       when: (dot_profile_data.packages.brew | default([]) | length) > 0
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Read installed Homebrew formulae
       ansible.builtin.command: brew list --formula
@@ -95,7 +145,7 @@
       ansible.builtin.command: brew update
       changed_when: false
       when: dot_brew.rc | default(1) == 0
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Install missing Homebrew formulae
       ansible.builtin.command:
@@ -112,7 +162,7 @@
       register: dot_brew_outdated
       changed_when: false
       when: dot_brew.rc | default(1) == 0
-      tags: [packages]
+      tags: [packages, app-updates]
 
     - name: Upgrade managed Homebrew formulae
       ansible.builtin.command:
@@ -123,6 +173,15 @@
         - dot_brew.rc | default(1) == 0
         - item in dot_brew_outdated.stdout_lines
       tags: [packages]
+
+    - name: Upgrade all installed Homebrew formulae
+      ansible.builtin.command:
+        argv: [brew, upgrade]
+      changed_when: true
+      when:
+        - dot_brew.rc | default(1) == 0
+        - (dot_brew_outdated.stdout_lines | default([]) | length) > 0
+      tags: [app-updates]
 
     - name: Check curated Snap applications
       ansible.builtin.command:
@@ -195,6 +254,89 @@
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
       tags: [config, shell, git, kde, tmux]
+
+    - name: Create the InputActions configuration directory
+      ansible.builtin.file:
+        path: "{{ ansible_facts.env.HOME }}/.config/inputactions"
+        state: directory
+        mode: "0700"
+      when: dot_profile_data.features.inputactions | default(false)
+      tags: [config, kde, gestures]
+
+    - name: Apply the managed InputActions gesture configuration
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/inputactions/config.yaml"
+        dest: "{{ ansible_facts.env.HOME }}/.config/inputactions/config.yaml"
+        mode: "0600"
+      when: dot_profile_data.features.inputactions | default(false)
+      tags: [config, kde, gestures]
+
+    - name: Install the state-aware Show Desktop adapter
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/inputactions/dot-show-desktop"
+        dest: "{{ ansible_facts.env.HOME }}/.local/bin/dot-show-desktop"
+        mode: "0755"
+      when: dot_profile_data.features.inputactions | default(false)
+      tags: [config, kde, gestures]
+
+    - name: Read the InputActions KWin effect setting
+      ansible.builtin.command:
+        argv:
+          - kreadconfig6
+          - --file
+          - kwinrc
+          - --group
+          - Plugins
+          - --key
+          - kwin_gesturesEnabled
+      register: dot_inputactions_enabled
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: dot_profile_data.features.inputactions | default(false)
+      tags: [config, kde, gestures]
+
+    - name: Enable the InputActions KWin effect
+      ansible.builtin.command:
+        argv:
+          - kwriteconfig6
+          - --file
+          - kwinrc
+          - --group
+          - Plugins
+          - --key
+          - kwin_gesturesEnabled
+          - "true"
+      when:
+        - dot_profile_data.features.inputactions | default(false)
+        - not ansible_check_mode
+        - dot_inputactions_enabled.stdout | trim != "true"
+      changed_when: true
+      tags: [config, kde, gestures]
+
+    - name: Load the InputActions KWin effect
+      ansible.builtin.command:
+        argv:
+          - qdbus6
+          - org.kde.KWin
+          - /Effects
+          - org.kde.kwin.Effects.loadEffect
+          - kwin_gestures
+      register: dot_inputactions_effect
+      changed_when: dot_inputactions_effect.stdout | trim == "true"
+      when:
+        - dot_profile_data.features.inputactions | default(false)
+        - not ansible_check_mode
+      tags: [config, kde, gestures]
+
+    - name: Validate the active InputActions configuration
+      ansible.builtin.command:
+        argv: [inputactions, config, issues]
+      changed_when: false
+      when:
+        - dot_profile_data.features.inputactions | default(false)
+        - not ansible_check_mode
+      tags: [config, kde, gestures]
 
     - name: Install or update tmux plugin manager
       ansible.builtin.git:

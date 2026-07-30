@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  show) desired=true ;;
+  hide) desired=false ;;
+  *)
+    printf 'usage: dot-show-desktop show|hide\n' >&2
+    exit 2
+    ;;
+esac
+
+read_state() {
+  qdbus6 \
+    org.kde.KWin \
+    /KWin \
+    org.freedesktop.DBus.Properties.Get \
+    org.kde.KWin \
+    showingDesktop
+}
+
+[[ "$(read_state)" == "$desired" ]] && exit 0
+
+qdbus6 \
+  org.kde.kglobalaccel \
+  /component/kwin \
+  org.kde.kglobalaccel.Component.invokeShortcut \
+  "Show Desktop"
+
+# The shortcut is asynchronous. Give KWin a brief chance to publish its state.
+for _attempt in 1 2 3 4 5; do
+  [[ "$(read_state)" == "$desired" ]] && exit 0
+  sleep 0.05
+done
+
+printf 'dot-show-desktop: KWin did not enter the requested state\n' >&2
+exit 1

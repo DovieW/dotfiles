@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+manifest="$root/packages/inputactions.yml"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/inputactions"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
+state_file="$state_root/inputactions-build.json"
+pending_file="$cache_root/pending-build.json"
+
+usage() {
+  echo "Usage: build-inputactions --prepare|--record|--check|--build-dir" >&2
+  exit 2
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "$1 is required to manage InputActions." >&2
+    exit 1
+  fi
+}
+
+manifest_value() {
+  jq -er "$1" "$manifest"
+}
+
+latest_stable_tag() {
+  local repository="$1"
+  local tag
+  tag="$(
+    git ls-remote --tags --refs "$repository" |
+      awk -F/ '{print $3}' |
+      sed -nE '/^v[0-9]+([.][0-9]+)+$/p' |
+      sort -V |
+      tail -n 1
+  )"
+  if [[ -z "$tag" ]]; then
+    echo "No stable semantic-version tag was found at $repository." >&2
+    exit 1
+  fi
+  printf '%s\n' "$tag"
+}
+
+kwin_package_version() {
+  dpkg-query -W -f='${Version}' kwin-wayland 2>/dev/null ||
+    dpkg-query -W -f='${Version}' kwin-x11 2>/dev/null
+}
+
+plugin_path() {
+  local plugin_root
+  plugin_root="$(qtpaths6 --plugin-dir)"
+  find "$plugin_root/kwin/effects/plugins" -maxdepth 1 -type f \
+    -name 'kwin_gestures.so' -print -quit 2>/dev/null
+}
+
+resolve_build() {
+  require_command git
+  require_command jq
+  require_command dpkg-query
+  require_command qtpaths6
+
+  local ctl_repository kwin_repository ctl_tag kwin_tag kwin_version build_key
+  ctl_repository="$(manifest_value '.components.ctl.repository')"
+  kwin_repository="$(manifest_value '.components.kwin.repository')"
+  ctl_tag="$(latest_stable_tag "$ctl_repository")"
+  kwin_tag="$(latest_stable_tag "$kwin_repository")"
+  kwin_version="$(kwin_package_version)"
+  build_key="${ctl_tag}_${kwin_tag}_kwin-${kwin_version}"
+  build_key="${build_key//[^A-Za-z0-9._-]/_}"
+
+  jq -n \
+    --arg ctl_repository "$ctl_repository" \
+    --arg kwin_repository "$kwin_repository" \
+    --arg ctl_tag "$ctl_tag" \
+    --arg kwin_tag "$kwin_tag" \
+    --arg kwin_version "$kwin_version" \
+    --arg build_dir "$cache_root/builds/$build_key" \
+    '{
+      schema_version: 1,
+      channel: "stable",
+      ctl_repository: $ctl_repository,
+      kwin_repository: $kwin_repository,
+      ctl_tag: $ctl_tag,
+      kwin_tag: $kwin_tag,
+      kwin_package_version: $kwin_version,
+      build_dir: $build_dir
+    }'
+}
+
+is_current() {
+  local resolved="$1"
+  [[ -x /usr/bin/inputactions ]] || return 1
+  [[ -n "$(plugin_path)" ]] || return 1
+  [[ -f "$state_file" ]] || return 1
+  jq -e --argjson expected "$resolved" \
+    'del(.installed_at) == ($expected | del(.installed_at))' \
+    "$state_file" >/dev/null
+}
+
+prepare() {
+  local resolved ctl_repository kwin_repository ctl_tag kwin_tag
+  local build_dir source_root ctl_source kwin_source
+  resolved="$(resolve_build)"
+  if is_current "$resolved"; then
+    echo "InputActions is current for $(jq -r .kwin_package_version <<<"$resolved")."
+    return
+  fi
+
+  mkdir -p "$cache_root/sources" "$cache_root/builds"
+  ctl_repository="$(jq -r .ctl_repository <<<"$resolved")"
+  kwin_repository="$(jq -r .kwin_repository <<<"$resolved")"
+  ctl_tag="$(jq -r .ctl_tag <<<"$resolved")"
+  kwin_tag="$(jq -r .kwin_tag <<<"$resolved")"
+  build_dir="$(jq -r .build_dir <<<"$resolved")"
+  source_root="$cache_root/sources"
+  ctl_source="$source_root/ctl-$ctl_tag"
+  kwin_source="$source_root/kwin-$kwin_tag"
+
+  if [[ ! -d "$ctl_source/.git" ]]; then
+    git clone --branch "$ctl_tag" "$ctl_repository" "$ctl_source"
+  fi
+  if [[ ! -d "$kwin_source/.git" ]]; then
+    git clone --branch "$kwin_tag" --recurse-submodules \
+      "$kwin_repository" "$kwin_source"
+  fi
+
+  mkdir -p "$build_dir"
+  {
+    printf '%s\n' \
+      'cmake_minimum_required(VERSION 3.16.0)' \
+      'project(dotfiles_inputactions)' \
+      "add_subdirectory(\"$ctl_source\" ctl)" \
+      "add_subdirectory(\"$kwin_source\" kwin)"
+  } >"$build_dir/CMakeLists.txt"
+
+  cmake --fresh -S "$build_dir" -B "$build_dir/output" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build "$build_dir/output" --parallel "$(nproc)"
+  mkdir -p "$cache_root"
+  printf '%s\n' "$resolved" >"$pending_file"
+  echo "InputActions rebuilt from latest stable releases."
+}
+
+record() {
+  [[ -f "$pending_file" ]] || {
+    echo "No pending InputActions build exists." >&2
+    exit 1
+  }
+  [[ -x /usr/bin/inputactions ]] || {
+    echo "/usr/bin/inputactions was not installed." >&2
+    exit 1
+  }
+  [[ -n "$(plugin_path)" ]] || {
+    echo "The KWin InputActions plugin was not installed." >&2
+    exit 1
+  }
+  mkdir -p "$state_root"
+  jq --arg installed_at "$(date --iso-8601=seconds)" \
+    '. + {installed_at: $installed_at}' "$pending_file" >"$state_file"
+  chmod 600 "$state_file"
+  echo "Recorded the InputActions build state."
+}
+
+check() {
+  local resolved
+  resolved="$(resolve_build)"
+  if ! is_current "$resolved"; then
+    echo "InputActions is missing, outdated, or built for another KWin version."
+    exit 1
+  fi
+  printf 'InputActions %s / KWin plugin %s; built for KWin package %s.\n' \
+    "$(jq -r .ctl_tag <<<"$resolved")" \
+    "$(jq -r .kwin_tag <<<"$resolved")" \
+    "$(jq -r .kwin_package_version <<<"$resolved")"
+}
+
+build_dir() {
+  [[ -f "$pending_file" ]] || {
+    echo "No pending InputActions build exists." >&2
+    exit 1
+  }
+  jq -er '.build_dir + "/output"' "$pending_file"
+}
+
+[[ $# -eq 1 ]] || usage
+case "$1" in
+  --prepare) prepare ;;
+  --record) record ;;
+  --check) check ;;
+  --build-dir) build_dir ;;
+  *) usage ;;
+esac

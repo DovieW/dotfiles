@@ -22,8 +22,8 @@ Machine-level programs follow the latest stable release offered by their
 declared provider. Version numbers and mutable installer checksums are not
 committed merely to freeze a workstation:
 
-- APT, Homebrew, Snap, and Termux packages advance to current stable repository
-  candidates during a package apply.
+- A package apply installs and reconciles the packages declared by the selected
+  profile.
 - Bitwarden Desktop and Obsidian resolve their latest matching stable GitHub
   release dynamically.
 - Codex and Vite+ use their official stable channels and supported updaters.
@@ -34,15 +34,24 @@ Project lockfiles, `.node-version`, language runtime constraints, and explicit
 compatibility bounds are still valid pins. Those make a project repeatable;
 they do not freeze the general-purpose workstation.
 
-Update every program managed by a profile with:
+Update every installed system package and application supported by the profile:
 
 ```bash
 dot update --profile kubuntu-laptop
+dot update --profile kubuntu-laptop --check
+dot update --profile kubuntu-laptop --system
+dot update --profile kubuntu-laptop --apps
 ```
 
-The same action is available as **Update managed programs** in the fzf command
-palette. It updates repository-backed packages first, then invokes supported
-stable-channel updaters for Codex and Vite+.
+On Kubuntu, the shorter `dot update` form infers the `kubuntu-laptop` profile.
+WSL requires an explicit personal or work profile because both are valid there.
+
+The same scopes are available under **Update system and applications** in the
+fzf command palette. The default updates all installed APT packages, all Snaps,
+all Homebrew formulae, managed external Debian applications, and supported
+stable-channel tools such as Codex, Vite+, and InputActions. A package-manager
+transaction already in progress causes an actionable refusal instead of
+competing for native locks.
 
 Docker Engine, Compose, and Buildx advance through Docker's official stable APT
 repository during the same update. To apply or repair only Docker:
@@ -61,6 +70,58 @@ default branches by `dot apply` and `dot update`. Apply only this subsystem with
 ```bash
 dot apply --profile kubuntu-laptop --tags packages,tmux
 ```
+
+Tmux owns mouse reporting inside Ghostty. Its managed root-table binding opens
+the OSC 8 hyperlink or validated URL under Ctrl+left-click, replacing tmux's
+default marked-pane swap action.
+
+Ghostty uses `~/.config/ghostty/config`, copied from the authoritative
+repository configuration. It deliberately provides no window chrome, tabs, or
+scrollbar because tmux owns those functions. FiraCode Nerd Font Mono is resolved
+from Nerd Fonts' latest stable GitHub release and checked against the release's
+published SHA-256 manifest. Apply Ghostty, the font, and its configuration with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags packages
+```
+
+## Customize touchpad gestures
+
+The portable gesture map is
+`config/inputactions/config.yaml`. It reloads automatically when changed; use
+the explicit command when testing or diagnosing it:
+
+```bash
+dot gestures reload
+dot gestures status
+```
+
+`dot gestures reload` installs the tracked gesture file and its helper before
+reloading InputActions, so it is the quick no-sudo path after editing the
+repository. Three-finger vertical volume control is continuous: distance and
+speed determine the size of the adjustment, and reversing during a swipe
+reverses the volume change.
+
+`dot update --profile kubuntu-laptop` follows the newest stable InputActions
+releases and rebuilds its KWin plugin after a KWin package change. A newly
+rebuilt plugin may require logging out and back in before the running
+compositor can use the new binary.
+
+The separate CIRQ touchpad jump workaround is a temporary system-level libinput
+override. Apply or verify it with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags touchpad
+dot doctor --profile kubuntu-laptop
+```
+
+Review upstream libinput issue #1297 after libinput upgrades and retire the
+override once Ubuntu contains the arrival-time fix.
+
+The interactive `dot` palette also contains a gesture-management submenu.
+InputActions intentionally retains its upstream emergency chord: hold
+Backspace, Space, and Enter together for two seconds to suspend gesture
+handling until the next configuration reload.
 
 ## Update captured configuration
 

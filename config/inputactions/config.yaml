@@ -1,0 +1,70 @@
+# Windows-style touchpad gestures for Plasma Wayland.
+#
+# Recovery: hold Backspace+Space+Enter for two seconds to suspend
+# InputActions until this file is reloaded, or run `dot gestures disable`.
+autoreload: true
+emergency_combination: [backspace, enter, space]
+
+touchpad:
+  gestures:
+    # Direction-specific triggers follow the reliable native swipe recognition
+    # path while repeated update actions make volume follow the fingers.
+    - type: swipe
+      fingers: 3
+      direction: up
+      accelerated: true
+      actions:
+        - on: update
+          interval: 10
+          input:
+            - keyboard: [volumeup]
+
+    - type: swipe
+      fingers: 3
+      direction: down
+      accelerated: true
+      actions:
+        - on: update
+          interval: 10
+          input:
+            - keyboard: [volumedown]
+
+    # Windows switches applications with a three-finger horizontal swipe.
+    - type: swipe
+      fingers: 3
+      direction: left
+      actions:
+        - plasma_shortcut: kwin,Walk Through Windows
+
+    - type: swipe
+      fingers: 3
+      direction: right
+      actions:
+        - plasma_shortcut: kwin,Walk Through Windows (Reverse)
+
+    # Four-finger horizontal swipes switch virtual desktops.
+    - type: swipe
+      fingers: 4
+      direction: left
+      actions:
+        - plasma_shortcut: kwin,Switch One Desktop to the Left
+
+    - type: swipe
+      fingers: 4
+      direction: right
+      actions:
+        - plasma_shortcut: kwin,Switch One Desktop to the Right
+
+    # KWin 6.6 advertises showDesktop(bool) over DBus but ignores direct calls.
+    # This state-aware adapter invokes KWin's working shortcut only when needed.
+    - type: swipe
+      fingers: 4
+      direction: up
+      actions:
+        - command: $HOME/.local/bin/dot-show-desktop hide
+
+    - type: swipe
+      fingers: 4
+      direction: down
+      actions:
+        - command: $HOME/.local/bin/dot-show-desktop show

@@ -22,6 +22,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bootstrap", result.stdout)
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
+        self.assertIn("gestures", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("update", result.stdout)
 
@@ -165,6 +166,54 @@ class DotCliTests(unittest.TestCase):
             self.assertNotIn("docker", profile["packages"]["brew"])
             self.assertNotIn("docker-compose", profile["packages"]["brew"])
 
+    def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        config = (ROOT / "config/ghostty/config").read_text()
+        kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
+        cli = DOT.read_text()
+
+        self.assertIn("ghostty", profile["packages"]["apt"])
+        self.assertTrue(profile["features"]["firacode_nerd_font"])
+        self.assertIn(
+            'command = zsh -lic "exec tmux new-session -A -s main"',
+            config,
+        )
+        self.assertIn("window-decoration = none", config)
+        self.assertIn("window-show-tab-bar = never", config)
+        self.assertIn("gtk-titlebar = false", config)
+        self.assertIn("scrollbar = never", config)
+        self.assertIn("maximize = true", config)
+        self.assertIn("font-family = FiraCode Nerd Font Mono", config)
+        self.assertIn("font-feature = -calt", config)
+        self.assertIn("cursor-style = bar", config)
+        self.assertIn("cursor-style-blink = false", config)
+        self.assertIn("cursor-opacity = 1", config)
+        self.assertIn("link-url = false", config)
+        self.assertIn(
+            "TerminalService=com.mitchellh.ghostty.desktop",
+            kdeglobals,
+        )
+        self.assertIn("TerminalApplication=/usr/bin/ghostty", kdeglobals)
+        panel = (
+            ROOT
+            / "config/kde/.config/plasma-org.kde.plasma.desktop-appletsrc"
+        ).read_text()
+        self.assertIn(
+            "launchers=applications:google-chrome.desktop,"
+            "applications:com.mitchellh.ghostty.desktop,"
+            "applications:obsidian.desktop",
+            panel,
+        )
+        self.assertNotIn("applications:org.kde.konsole.desktop", panel)
+        self.assertIn('ROOT / "config/ghostty/config"', cli)
+        self.assertIn('"Ghostty configuration"', cli)
+        self.assertIn('"terminal font"', cli)
+        installer = (ROOT / "scripts/install-firacode-nerd-font").read_text()
+        self.assertIn("releases/latest", installer)
+        self.assertIn("FiraCode.tar.xz", installer)
+        self.assertIn("SHA-256.txt", installer)
+        self.assertNotIn("v3.", installer)
+
     def test_docker_role_uses_official_native_engine_and_guards_wsl(self):
         role = (ROOT / "ansible/tasks/docker.yml").read_text()
         self.assertIn("https://download.docker.com/linux/ubuntu", role)
@@ -179,7 +228,10 @@ class DotCliTests(unittest.TestCase):
 
     def test_docker_tag_requests_privilege_and_doctor_checks_runtime(self):
         text = DOT.read_text()
-        self.assertIn('selected_tags & {"packages", "docker", "gpu"}', text)
+        self.assertIn(
+            '"system-updates"',
+            text,
+        )
         self.assertIn('get("docker_engine", False)', text)
         self.assertIn('"Docker socket access"', text)
         self.assertIn('"WSL native Docker mode"', text)
@@ -238,7 +290,26 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Panel geometry and visibility"', text)
         self.assertIn('"Settings to save › "', text)
         self.assertIn('"Save configuration changes\\tsave"', text)
-        self.assertIn('"Update managed programs\\tupdate"', text)
+        self.assertIn('"Update system and applications\\tupdate"', text)
+
+    def test_update_orchestrates_every_native_provider(self):
+        cli = DOT.read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        help_result = self.run_dot("update", "--help")
+
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("--system", help_result.stdout)
+        self.assertIn("--apps", help_result.stdout)
+        self.assertIn("--check", help_result.stdout)
+        self.assertNotIn("--profile PROFILE is required", help_result.stdout)
+        self.assertIn("upgrade: dist", playbook)
+        self.assertIn("Refresh every installed Snap", playbook)
+        self.assertIn("Upgrade all installed Homebrew formulae", playbook)
+        self.assertIn("tags: [packages, app-updates]", playbook)
+        self.assertIn("active_package_transactions", cli)
+        self.assertIn('"linux": "kubuntu-laptop"', cli)
+        self.assertIn('"Update everything\\tall"', cli)
+        self.assertIn('"Check for pending updates\\tcheck"', cli)
 
     def test_native_plasma_panel_and_application_palette_are_managed(self):
         cli = DOT.read_text()
@@ -248,13 +319,16 @@ class DotCliTests(unittest.TestCase):
         shortcuts = (ROOT / "config/kde/.config/kglobalshortcutsrc").read_text()
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
+        input_config = (ROOT / "config/kde/.config/kcminputrc").read_text()
+        plasma_pa = (ROOT / "config/kde/.config/plasmaparc").read_text()
         colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
 
         self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
         self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
-        self.assertNotIn("plugin=org.kde.plasma.kickoff", panel)
+        self.assertEqual(panel.count("plugin=org.kde.plasma.kickoff"), 1)
         self.assertNotIn("plugin=org.kde.plasma.pager", panel)
         self.assertNotIn("plugin=org.kde.plasma.showdesktop", panel)
+        self.assertIn("AppletOrder=3;28;5;29;7;22", panel)
         self.assertIn("middleClickAction=Close", panel)
         self.assertIn("showOnlyCurrentDesktop=true", panel)
         self.assertIn("panelLengthMode=0", geometry)
@@ -269,19 +343,146 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(enabled, ["krunner_servicesEnabled=true"])
         self.assertIn("FreeFloating=true", runners)
         self.assertIn("_launch=Alt+Space\\tAlt+F2", shortcuts)
-        self.assertIn("Meta=org.kde.krunner,/App,,toggleDisplay", kwin)
+        self.assertIn("activate application launcher=Meta\\tAlt+F1", shortcuts)
         self.assertIn("Show Desktop=Meta+D", shortcuts)
+        self.assertIn("screenedgeEnabled=false", kwin)
+        self.assertIn("shakecursorEnabled=false", kwin)
+        self.assertIn("ElectricBorderDelay=0", kwin)
+        self.assertIn("ElectricBorderCooldown=50", kwin)
 
         self.assertIn("ColorScheme=GitHubDark", kdeglobals)
         self.assertIn("LookAndFeelPackage=org.kde.breezedark.desktop", kdeglobals)
         self.assertIn("BackgroundNormal=13,17,23", colors)
+        self.assertIn("PointerAccelerationProfile=1", input_config)
+        self.assertIn("ScrollFactor=0.1", input_config)
+        self.assertIn("DisableWhileTyping=false", input_config)
+        self.assertIn("AudioFeedback=false", plasma_pa)
+        self.assertIn('".config/plasmaparc"', cli)
         self.assertIn('".config/plasmashellrc": {"Updates"}', cli)
         self.assertIn('"systemctl", "--user", "stop", "plasma-plasmashell.service"', cli)
         self.assertIn('"systemctl", "--user", "restart", "plasma-krunner.service"', cli)
         self.assertIn('"qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"', cli)
         self.assertIn("restore_backup(backup_run_id)", cli)
         self.assertIn('"Plasma panel layout"', cli)
+        self.assertIn('"Plasma panel reveal"', cli)
         self.assertIn('"KRunner application palette"', cli)
+
+    def test_kubuntu_manages_windows_style_touchpad_gestures(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        manifest = json.loads((ROOT / "packages/inputactions.yml").read_text())
+        gestures = (ROOT / "config/inputactions/config.yaml").read_text()
+        desktop_adapter = (
+            ROOT / "config/inputactions/dot-show-desktop"
+        ).read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        cli = DOT.read_text()
+        builder = (ROOT / "scripts/build-inputactions").read_text()
+
+        self.assertTrue(profile["features"]["inputactions"])
+        self.assertEqual(manifest["channel"], "stable")
+        self.assertNotIn("version", manifest)
+        self.assertIn("latest_stable_tag", builder)
+        self.assertIn("kwin_package_version", builder)
+        self.assertIn("InputActions rebuilt from latest stable releases", builder)
+        self.assertIn("tasks/inputactions.yml", playbook)
+        self.assertIn("org.kde.kwin.Effects.loadEffect", playbook)
+        self.assertIn("Apply the managed InputActions gesture configuration", playbook)
+        self.assertIn("kwriteconfig6", playbook)
+        self.assertNotIn(
+            "tags: [config, shell, git, kde, tmux, gestures]",
+            playbook,
+        )
+        self.assertIn("kwin_gesturesEnabled=true", kwin)
+        self.assertIn("fingers: 3", gestures)
+        self.assertIn("fingers: 4", gestures)
+        self.assertRegex(
+            gestures,
+            r"(?s)fingers: 3\n\s+direction: up\n"
+            r"\s+accelerated: true.*?interval: 10.*?keyboard: "
+            r"\[volumeup\].*?fingers: 3\n\s+direction: down\n"
+            r"\s+accelerated: true.*?interval: 10.*?keyboard: \[volumedown\]",
+        )
+        self.assertIn("plasma_shortcut: kwin,Walk Through Windows", gestures)
+        self.assertRegex(
+            gestures,
+            r"(?s)fingers: 4\n\s+direction: left.*?"
+            r"Switch One Desktop to the Left",
+        )
+        self.assertRegex(
+            gestures,
+            r"(?s)fingers: 4\n\s+direction: right.*?"
+            r"Switch One Desktop to the Right",
+        )
+        self.assertIn(
+            "command: $HOME/.local/bin/dot-show-desktop show",
+            gestures,
+        )
+        self.assertIn(
+            "command: $HOME/.local/bin/dot-show-desktop hide",
+            gestures,
+        )
+        self.assertNotIn("plasma_shortcut: kwin,Show Desktop", gestures)
+        self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut", desktop_adapter)
+        self.assertIn('"Show Desktop"', desktop_adapter)
+        self.assertIn("org.freedesktop.DBus.Properties.Get", desktop_adapter)
+        self.assertIn("dot-show-desktop", playbook)
+        self.assertIn("dot-show-desktop", cli)
+        self.assertIn("Backspace+Space+Enter", gestures)
+        self.assertIn("def cmd_gestures", cli)
+        self.assertIn('"InputActions KWin effect"', cli)
+        self.assertIn(
+            '".config/kglobalshortcutsrc": {"services][org.kde.krunner.desktop"}',
+            cli,
+        )
+        self.assertIn('"gestures"', cli)
+
+    def test_kubuntu_scopes_touchpad_jump_workaround(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        tasks = (ROOT / "ansible/tasks/touchpad.yml").read_text()
+        quirk = (
+            ROOT / "config/libinput/local-overrides.quirks"
+        ).read_text()
+        cli = DOT.read_text()
+
+        self.assertTrue(profile["features"]["touchpad_jump_workaround"])
+        self.assertIn("tasks/touchpad.yml", playbook)
+        self.assertIn("libinput-tools", tasks)
+        self.assertIn("quirks", tasks)
+        self.assertIn("validate", tasks)
+        self.assertIn("/etc/libinput/local-overrides.quirks", tasks)
+        self.assertIn("MatchName=CIRQ1080:00 0488:1054 Touchpad", quirk)
+        self.assertIn("MatchVendor=0x0488", quirk)
+        self.assertIn("MatchProduct=0x1054", quirk)
+        self.assertIn(
+            "MatchDMIModalias=dmi:*:svnLENOVO:pn83JM:"
+            "pvrIdeaPadPro516IAH10:*",
+            quirk,
+        )
+        self.assertIn("ModelLenovoX1Gen6Touchpad=1", quirk)
+        self.assertIn('"touchpad jump workaround"', cli)
+        self.assertIn('"touchpad libinput match"', cli)
+        self.assertIn('"touchpad"', cli)
+
+    def test_kubuntu_routes_gui_ssh_through_bitwarden(self):
+        cli = DOT.read_text()
+        environment = (
+            ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf"
+        ).read_text()
+        self.assertIn(
+            "SSH_AUTH_SOCK=${HOME}/.bitwarden-ssh-agent.sock",
+            environment,
+        )
+        self.assertIn(
+            'ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf"',
+            cli,
+        )
+        self.assertIn('"dbus-update-activation-environment"', cli)
+        self.assertIn('"set-environment"', cli)
+        self.assertIn('"graphical SSH agent routing"', cli)
+        self.assertIn('["ssh-add", "-L"]', cli)
+        self.assertIn("timeout=5", cli)
 
     def test_kubuntu_never_sleeps_automatically(self):
         cli = DOT.read_text()
@@ -295,6 +496,19 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("[AC][Performance]\nPowerProfile=performance", powerdevil)
         self.assertIn("[Battery][Performance]\nPowerProfile=balanced", powerdevil)
         self.assertIn("[LowBattery][Performance]\nPowerProfile=power-saver", powerdevil)
+        self.assertIn("[BatteryManagement]\nBatteryLowLevel=20", powerdevil)
+        self.assertIn(
+            "[AC][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=true",
+            powerdevil,
+        )
+        self.assertIn(
+            "[Battery][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=true",
+            powerdevil,
+        )
+        self.assertIn(
+            "[LowBattery][Display]\nDisplayBrightness=40\nUseProfileSpecificDisplayBrightness=true",
+            powerdevil,
+        )
         logind = (ROOT / "config/systemd/logind/60-dotfiles-lid.conf").read_text()
         self.assertIn("HandleLidSwitch=ignore", logind)
         self.assertIn("HandleLidSwitchExternalPower=ignore", logind)
@@ -320,7 +534,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"NVIDIA userspace"', cli)
         self.assertIn('"NVIDIA Dynamic Boost workaround"', cli)
         self.assertNotIn("nvidia-driver-595", role)
-        self.assertIn('{"packages", "docker", "gpu"}', cli)
+        self.assertIn('"gpu",', cli)
 
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
@@ -329,12 +543,28 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('ROOT / "config/tmux/tmux.conf"', cli)
         self.assertIn('Path.home() / ".config/tmux/tmux.conf"', cli)
         self.assertIn("set -g prefix C-Space", config)
+        self.assertIn("C-MouseDown1Pane", config)
+        self.assertIn("dot-open-link", config)
+        self.assertIn("#{q:mouse_hyperlink}", config)
+        self.assertIn("#{q:mouse_word}", config)
+        self.assertIn("#{mouse_x}", config)
+        self.assertIn("#{pane_left}", config)
+        self.assertIn("#{q:mouse_line}", config)
+        self.assertIn("--hyperlink=", config)
+        self.assertIn("--line=", config)
         self.assertIn("tmux-plugins/tpm", config)
         self.assertIn("~/.config/tmux/plugins/tpm/tpm", config)
+        opener = (ROOT / "config/tmux/open-link").read_text()
+        self.assertIn("http://*|https://*|mailto:*|file://*", opener)
+        self.assertIn("DOT_TMUX_LINK_DRY_RUN", opener)
+        self.assertIn('ROOT / "config/tmux/open-link"', cli)
         self.assertIn("Install or update tmux plugin manager", playbook)
         self.assertIn("Install configured tmux plugins", playbook)
         self.assertIn("'FATAL:' in dot_tmux_plugins_install.stderr", playbook)
-        self.assertIn('{"config", "shell", "git", "kde", "tmux"}', cli)
+        self.assertIn(
+            '{"config", "shell", "git", "kde", "tmux"}',
+            cli,
+        )
 
 
 if __name__ == "__main__":

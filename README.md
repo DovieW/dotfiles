@@ -64,9 +64,14 @@ dot
 `dot save` opens that workflow directly. `dot save spectacle` limits the
 selector to Spectacle preferences and keyboard shortcuts.
 
-Choose **Update managed programs** in the palette, or run `dot update`, to
-advance every program owned by the selected profile to its latest stable
-provider release. Provider-native stable updaters remain valid too.
+Choose **Update system and applications** in the palette, or run `dot update`,
+to coordinate all installed APT, Snap, Homebrew, external-Debian, Codex, and
+Vite+ updates through their native stable providers. Use `--system` or `--apps`
+for one category and `--check` for a read-only report. `dot apply` remains the
+separate operation that reconciles the declared package manifest.
+On this Kubuntu laptop, `dot update` infers `kubuntu-laptop`; `--profile` remains
+available as an override and is required only where multiple profiles apply,
+such as personal versus work WSL.
 
 Vite+ is a first-class tool on Kubuntu and WSL and follows its stable channel.
 New Bash and Zsh

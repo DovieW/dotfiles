@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure|--check) ;;
+  *)
+    echo "usage: install-firacode-nerd-font [--ensure|--check]" >&2
+    exit 2
+    ;;
+esac
+
+repo="ryanoasis/nerd-fonts"
+release_api="https://api.github.com/repos/$repo/releases/latest"
+target_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fonts/nerd-fonts/FiraCode"
+marker="$target_dir/.release"
+
+release_json="$(curl -fsSL "$release_api")"
+release="$(jq -r '.tag_name' <<<"$release_json")"
+archive_url="$(
+  jq -r '.assets[] | select(.name == "FiraCode.tar.xz") | .browser_download_url' \
+    <<<"$release_json"
+)"
+checksums_url="$(
+  jq -r '.assets[] | select(.name == "SHA-256.txt") | .browser_download_url' \
+    <<<"$release_json"
+)"
+
+if [[ -z "$release" || "$release" == null || -z "$archive_url" || -z "$checksums_url" ]]; then
+  echo "FiraCode Nerd Font: latest stable release assets could not be resolved." >&2
+  exit 1
+fi
+
+installed_release=""
+[[ -f "$marker" ]] && installed_release="$(<"$marker")"
+font_file="$target_dir/FiraCodeNerdFontMono-Regular.ttf"
+if [[ "$installed_release" == "$release" && -s "$font_file" ]]; then
+  echo "FiraCode Nerd Font Mono $release is installed from the stable channel."
+  exit 0
+fi
+
+if [[ "$mode" == --check ]]; then
+  echo "FiraCode Nerd Font Mono requires update: ${installed_release:-missing} -> $release" >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf "$work_dir"' EXIT
+archive="$work_dir/FiraCode.tar.xz"
+checksums="$work_dir/SHA-256.txt"
+unpack_dir="$work_dir/unpack"
+
+curl -fsSL "$archive_url" -o "$archive"
+curl -fsSL "$checksums_url" -o "$checksums"
+expected="$(
+  awk '$2 == "FiraCode.tar.xz" || $2 == "*FiraCode.tar.xz" {print $1; exit}' \
+    "$checksums"
+)"
+if [[ ! "$expected" =~ ^[[:xdigit:]]{64}$ ]]; then
+  echo "FiraCode Nerd Font: release checksum is missing or malformed." >&2
+  exit 1
+fi
+printf '%s  %s\n' "$expected" "$archive" | sha256sum --check --status
+
+mkdir -p "$unpack_dir" "$target_dir"
+tar -xJf "$archive" -C "$unpack_dir"
+find "$target_dir" -maxdepth 1 -type f -name 'FiraCodeNerdFontMono-*.ttf' -delete
+for font in "$unpack_dir"/FiraCodeNerdFontMono-*.ttf; do
+  install -m 0644 "$font" "$target_dir/"
+done
+printf '%s\n' "$release" >"$marker"
+fc-cache -f "$target_dir" >/dev/null
+echo "FiraCode Nerd Font Mono $release installed from the stable channel."

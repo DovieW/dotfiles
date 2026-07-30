@@ -1,0 +1,66 @@
+---
+- name: Validate InputActions operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.os_family == "Debian"
+      - dot_profile_data.features.kde | default(false)
+    fail_msg: >-
+      InputActions is supported here only for the Kubuntu Plasma profile.
+
+- name: Install or upgrade InputActions build dependencies
+  become: true
+  ansible.builtin.apt:
+    name:
+      - cmake
+      - extra-cmake-modules
+      - g++
+      - gettext
+      - git
+      - kwin-dev
+      - kwin-wayland
+      - libcli11-dev
+      - libdrm-dev
+      - libevdev-dev
+      - libkf6configwidgets-dev
+      - libkf6kcmutils-dev
+      - libxkbcommon-dev
+      - libyaml-cpp-dev
+      - pkg-config
+      - qt6-declarative-dev
+      - qt6-tools-dev
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Build latest stable InputActions for the installed KWin
+  ansible.builtin.command:
+    argv:
+      - "{{ dot_repo }}/scripts/build-inputactions"
+      - "{{ '--check' if ansible_check_mode else '--prepare' }}"
+  register: dot_inputactions_build
+  changed_when: "'rebuilt from latest stable releases' in dot_inputactions_build.stdout"
+  check_mode: false
+
+- name: Read pending InputActions build directory  # noqa no-handler
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/build-inputactions", "--build-dir"]
+  register: dot_inputactions_build_dir
+  changed_when: false
+  when: dot_inputactions_build.changed
+
+- name: Install rebuilt InputActions control tool and KWin plugin  # noqa no-handler
+  become: true
+  ansible.builtin.command:
+    argv:
+      - cmake
+      - --install
+      - "{{ dot_inputactions_build_dir.stdout }}"
+  changed_when: true
+  when: dot_inputactions_build.changed
+
+- name: Record installed InputActions build state  # noqa no-handler
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/build-inputactions", "--record"]
+  changed_when: true
+  when: dot_inputactions_build.changed

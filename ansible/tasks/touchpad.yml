@@ -1,0 +1,51 @@
+---
+- name: Validate touchpad workaround operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+      - ansible_facts.system == "Linux"
+    fail_msg: >-
+      The CIRQ touchpad workaround is supported only on the Kubuntu laptop
+      profile.
+
+- name: Install libinput diagnostic tools
+  become: true
+  ansible.builtin.apt:
+    name: libinput-tools
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Validate the managed libinput quirk database
+  ansible.builtin.command:
+    argv:
+      - libinput
+      - quirks
+      - validate
+      - --data-dir
+      - "{{ dot_repo }}/config/libinput"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Create the local libinput configuration directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/libinput
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the scoped touchpad jump workaround
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/libinput/local-overrides.quirks"
+    dest: /etc/libinput/local-overrides.quirks
+    mode: "0644"
+
+- name: Report the required compositor restart
+  ansible.builtin.debug:
+    msg: >-
+      The touchpad jump workaround is installed. Log out and back in before
+      evaluating it because KWin reads libinput quirks only when the session
+      starts.

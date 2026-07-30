@@ -135,6 +135,8 @@ ForegroundVisited=188,140,255
 [General]
 BrowserApplication=google-chrome.desktop
 ColorScheme=GitHubDark
+TerminalApplication=/usr/bin/ghostty --gtk-single-instance=true --shell-integration-features=ssh-env
+TerminalService=com.mitchellh.ghostty.desktop
 fixed=Cascadia Code,10,-1,5,50,0,0,0,0,0
 font=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
 menuFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
