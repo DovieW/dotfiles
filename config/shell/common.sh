@@ -39,6 +39,15 @@ dot_path_prepend "$VP_HOME/bin"
 dot_path_prepend "/home/linuxbrew/.linuxbrew/bin"
 export PATH
 
+# Codex and other automation deliberately set GIT_PAGER=cat so commands cannot
+# block on an interactive pager. A long-lived tmux server can accidentally pass
+# that override into later user shells, where it would take precedence over the
+# managed Delta configuration. Keep the automation behavior non-interactively,
+# but restore normal Git paging for people at a prompt.
+case $- in
+  *i*) unset GIT_PAGER ;;
+esac
+
 if command -v nvim >/dev/null 2>&1; then
   export EDITOR=nvim VISUAL=nvim FCEDIT=nvim
 elif command -v vim >/dev/null 2>&1; then

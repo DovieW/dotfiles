@@ -34,6 +34,27 @@
   [ "$status" -eq 1 ]
 }
 
+@test "interactive shells discard automation Git pager overrides" {
+  run env GIT_PAGER=cat bash --noprofile --norc -ic \
+    'source "$1"; printf "RESULT=%s" "${GIT_PAGER-unset}"' bash \
+    "$BATS_TEST_DIRNAME/../config/shell/common.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RESULT=unset" ]]
+
+  run env GIT_PAGER=cat bash --noprofile --norc -c \
+    'source "$1"; printf "%s" "$GIT_PAGER"' bash \
+    "$BATS_TEST_DIRNAME/../config/shell/common.sh"
+  [ "$status" -eq 0 ]
+  [ "$output" = "cat" ]
+}
+
+@test "Git and tmux keep Delta available to interactive users" {
+  run grep -F $'\tdiff = delta' "$BATS_TEST_DIRNAME/../config/git/delta.gitconfig"
+  [ "$status" -eq 0 ]
+  run grep -F 'set-environment -gu GIT_PAGER' "$BATS_TEST_DIRNAME/../config/tmux/tmux.conf"
+  [ "$status" -eq 0 ]
+}
+
 @test "shared fzf configuration contains presentation options only" {
   config="$BATS_TEST_DIRNAME/../config/fzf/fzfrc"
   run grep -E -- '--(height|preview|prompt|delimiter|multi)(=|$)' "$config"

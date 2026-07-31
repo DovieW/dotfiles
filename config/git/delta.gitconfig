@@ -1,5 +1,10 @@
 [core]
 	pager = delta
+[pager]
+	diff = delta
+	show = delta
+	log = delta
+	reflog = delta
 [delta]
 	navigate = true
 	light = false
