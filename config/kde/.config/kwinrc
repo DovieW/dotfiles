@@ -63,3 +63,8 @@ ButtonsOnLeft=
 ButtonsOnRight=IAX
 library=org.kde.breeze
 theme=Breeze
+[TabBox]
+HighlightWindows=false
+LayoutName=compact
+ShowOutline=false
+ShowTabBox=true

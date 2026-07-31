@@ -5004,6 +5004,23 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if panel_reveal_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
+        task_switcher_ok = all(
+            value in kwin
+            for value in (
+                "[TabBox]",
+                "HighlightWindows=false",
+                "LayoutName=compact",
+                "ShowOutline=false",
+                "ShowTabBox=true",
+            )
+        )
+        failures += not doctor_check(
+            "Alt+Tab task switcher",
+            task_switcher_ok,
+            "compact icon-and-title list without thumbnails"
+            if task_switcher_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
         desktop_osd_ok = all(
             value in kwin
             for value in (
