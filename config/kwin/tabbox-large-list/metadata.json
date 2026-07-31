@@ -1,0 +1,16 @@
+{
+  "KPackageStructure": "KWin/WindowSwitcher",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "dovie@users.noreply.github.com",
+        "Name": "DovieW"
+      }
+    ],
+    "Description": "A comfortable icon-and-title window switcher without thumbnails",
+    "Icon": "preferences-system-windows-switcher-compact",
+    "Id": "io.github.doview.dotfiles.large-list",
+    "License": "GPL-2.0-or-later",
+    "Name": "Dotfiles Large List"
+  }
+}

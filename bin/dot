@@ -1227,6 +1227,8 @@ def apply_direct(
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+            ROOT / "config/kwin/tabbox-large-list/metadata.json": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/metadata.json",
+            ROOT / "config/kwin/tabbox-large-list/contents/ui/main.qml": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/contents/ui/main.qml",
             ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
             ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
@@ -1240,6 +1242,16 @@ def apply_direct(
         for source, destination in desktop_mappings.items():
             file_changed = copy_managed_file(source, destination)
             changes += int(file_changed)
+        if command_exists("qdbus6"):
+            run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/KWin",
+                    "org.kde.KWin.reconfigure",
+                ],
+                check=False,
+            )
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"], check=False)
         if command_exists("qdbus6"):
@@ -5004,20 +5016,34 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if panel_reveal_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
-        task_switcher_ok = all(
-            value in kwin
-            for value in (
-                "[TabBox]",
-                "HighlightWindows=false",
-                "LayoutName=compact",
-                "ShowOutline=false",
-                "ShowTabBox=true",
+        task_switcher_source = ROOT / "config/kwin/tabbox-large-list"
+        task_switcher_destination = (
+            Path.home()
+            / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list"
+        )
+        task_switcher_files = ("metadata.json", "contents/ui/main.qml")
+        task_switcher_ok = (
+            all(
+                value in kwin
+                for value in (
+                    "[TabBox]",
+                    "HighlightWindows=false",
+                    "LayoutName=io.github.doview.dotfiles.large-list",
+                    "ShowOutline=false",
+                    "ShowTabBox=true",
+                )
+            )
+            and all(
+                (task_switcher_destination / relative).is_file()
+                and (task_switcher_destination / relative).read_bytes()
+                == (task_switcher_source / relative).read_bytes()
+                for relative in task_switcher_files
             )
         )
         failures += not doctor_check(
             "Alt+Tab task switcher",
             task_switcher_ok,
-            "compact icon-and-title list without thumbnails"
+            "large icon-and-title list without thumbnails"
             if task_switcher_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )

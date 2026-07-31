@@ -65,6 +65,6 @@ library=org.kde.breeze
 theme=Breeze
 [TabBox]
 HighlightWindows=false
-LayoutName=compact
+LayoutName=io.github.doview.dotfiles.large-list
 ShowOutline=false
 ShowTabBox=true

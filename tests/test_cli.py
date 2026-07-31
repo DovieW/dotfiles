@@ -635,10 +635,22 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("InactivityDuration=1", kwin)
         self.assertIn("[TabBox]", kwin)
         self.assertIn("HighlightWindows=false", kwin)
-        self.assertIn("LayoutName=compact", kwin)
+        self.assertIn("LayoutName=io.github.doview.dotfiles.large-list", kwin)
         self.assertIn("ShowOutline=false", kwin)
         self.assertIn("ShowTabBox=true", kwin)
         self.assertIn('"Alt+Tab task switcher"', cli)
+        switcher = ROOT / "config/kwin/tabbox-large-list"
+        metadata = json.loads((switcher / "metadata.json").read_text())
+        switcher_qml = (switcher / "contents/ui/main.qml").read_text()
+        self.assertEqual(
+            metadata["KPlugin"]["Id"],
+            "io.github.doview.dotfiles.large-list",
+        )
+        self.assertIn("screenGeometry.width * 0.32", switcher_qml)
+        self.assertIn("iconSizes.medium", switcher_qml)
+        self.assertIn("font.pointSize", switcher_qml)
+        self.assertIn("config/kwin/tabbox-large-list/metadata.json", cli)
+        self.assertIn("task_switcher_destination", cli)
         self.assertIn("[org.kde.kdecoration2]", kwin)
         self.assertIn("ButtonsOnLeft=\n", kwin)
         self.assertIn("ButtonsOnRight=IAX", kwin)
