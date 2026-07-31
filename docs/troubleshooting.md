@@ -110,12 +110,14 @@ profile exists only in the per-user runtime directory, is readable only by the
 user, and is erased after Remmina has consumed it. Certificate validation
 remains enabled.
 
-The managed Remmina profile uses the fullscreen GTK client size, which is
-approximately 1644×1028 on this 2880×1800 display at KDE's 175% Wayland scale.
-Windows desktop and device scaling remain at 100% because the client canvas is
-already logical; applying 175% again makes the remote desktop appear roughly
-306% of its intended size. Dynamic resolution remains disabled so a connection
-does not change size while the toolbar or panel appears.
+The managed Remmina profile requests the panel's native 2880×1800 canvas and
+has Windows render it at 175% desktop scale (using FreeRDP's closest supported
+180% device bucket). This produces the same apparent size as KDE while keeping
+text pixel-sharp. The launcher deliberately relies on profile `viewmode=4`
+rather than passing Remmina's `--enable-fullscreen` flag: that flag makes GTK
+replace the custom canvas with its approximately 1644×1028 logical surface,
+which looks correctly sized but fuzzy when stretched over the physical panel.
+Dynamic resolution remains disabled.
 
 F5 launch tokens are short-lived and may be single-use. If a launch was
 interrupted or used for diagnostics, download a fresh `.rdp` file before

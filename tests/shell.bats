@@ -121,7 +121,7 @@
   [ "$(cat "$captured_argv")" = "$rdp_file" ]
 }
 
-@test "dot-remmina-f5 builds a private logical-resolution fullscreen profile" {
+@test "dot-remmina-f5 builds a private native-resolution fullscreen profile" {
   fake_bin="$BATS_TEST_TMPDIR/remmina-bin"
   fake_configure="$BATS_TEST_TMPDIR/configure-remmina"
   captured_profile="$BATS_TEST_TMPDIR/remmina-profile"
@@ -130,7 +130,7 @@
   mkdir -p "$fake_bin" "$runtime_dir"
   printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'cp "$3" "$DOT_TEST_REMMINA_PROFILE"' >"$fake_bin/remmina"
+    'cp "$2" "$DOT_TEST_REMMINA_PROFILE"' >"$fake_bin/remmina"
   chmod +x "$fake_bin/remmina"
   printf '#!/bin/sh\nexit 0\n' >"$fake_configure"
   chmod +x "$fake_configure"
@@ -150,9 +150,9 @@
   grep -Fxq "server=remote.example.test" "$captured_profile"
   grep -Fxq "gateway_server=gateway.example.test" "$captured_profile"
   grep -Fxq "gatewayaccesstoken=one-time-token" "$captured_profile"
-  grep -Fxq "resolution_mode=1" "$captured_profile"
-  ! grep -Fq "resolution_width=" "$captured_profile"
-  ! grep -Fq "resolution_height=" "$captured_profile"
+  grep -Fxq "resolution_mode=0" "$captured_profile"
+  grep -Fxq "resolution_width=2880" "$captured_profile"
+  grep -Fxq "resolution_height=1800" "$captured_profile"
   grep -Fxq "scale=1" "$captured_profile"
   grep -Fxq "viewmode=4" "$captured_profile"
   grep -Fxq "cert_ignore=0" "$captured_profile"

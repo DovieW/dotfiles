@@ -10,11 +10,11 @@ import tempfile
 
 
 DESIRED = {
-    # GTK receives KDE's 175%-scaled logical surface under Wayland. Asking
-    # Windows to scale that logical RDP canvas again makes the remote desktop
-    # approximately 306% of its intended size.
-    "rdp_desktopScaleFactor": "100",
-    "rdp_deviceScaleFactor": "100",
+    # The F5 profile requests the panel's physical 2880x1800 canvas. Windows
+    # then renders at the same 175% scale as the local KDE desktop, avoiding
+    # client-side enlargement of a low-resolution logical framebuffer.
+    "rdp_desktopScaleFactor": "175",
+    "rdp_deviceScaleFactor": "180",
     "rdp_desktopOrientation": "0",
     "start_fullscreen": "true",
     "start_dynres": "false",

@@ -103,10 +103,12 @@ dispatcher.
 Ordinary files use the stock SDL client in fullscreen dynamic-resolution mode.
 Token-bearing F5 webtop files use the restored Remmina flow: a managed helper
 reads the target, gateway, and short-lived token; generates a mode-0600 profile
-under the per-user runtime directory; opens it at the fullscreen Wayland client
-size; and deletes the generated profile. KDE already presents GTK with a
-175%-scaled logical canvas, so the managed Remmina preferences keep Windows
-desktop and device scaling at 100% rather than scaling that canvas twice.
+under the per-user runtime directory; requests the panel's native 2880×1800
+canvas; enters fullscreen through the profile view mode; and deletes the
+generated profile. Windows renders that physical canvas at 175% desktop scale
+and the closest supported 180% device bucket. The launcher does not pass
+Remmina's command-line fullscreen override because it substitutes GTK's
+low-resolution logical surface and produces blurry client-side enlargement.
 Company hostnames and tokens are never committed or logged.
 
 Remmina's Ubuntu MIME package classifies ordinary `.rdp` downloads as
