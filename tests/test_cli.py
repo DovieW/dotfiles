@@ -1131,6 +1131,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"resolution_width": "2880"', remmina_launcher)
         self.assertIn('"resolution_height": "1800"', remmina_launcher)
         self.assertIn('"viewmode": "4"', remmina_launcher)
+        self.assertIn('"--enable-fullscreen"', remmina_launcher)
+        self.assertIn("DOT_REMMINA_CONFIGURE", remmina_launcher)
         self.assertIn('"cert_ignore": "0"', remmina_launcher)
         self.assertIn('"ignore-tls-errors": "0"', remmina_launcher)
         self.assertIn('"rdp_desktopScaleFactor": "175"', remmina_preferences)

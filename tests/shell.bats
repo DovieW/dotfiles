@@ -123,14 +123,17 @@
 
 @test "dot-remmina-f5 builds a private physical-resolution fullscreen profile" {
   fake_bin="$BATS_TEST_TMPDIR/remmina-bin"
+  fake_configure="$BATS_TEST_TMPDIR/configure-remmina"
   captured_profile="$BATS_TEST_TMPDIR/remmina-profile"
   runtime_dir="$BATS_TEST_TMPDIR/runtime"
   rdp_file="$BATS_TEST_TMPDIR/f5-launch.rdp"
   mkdir -p "$fake_bin" "$runtime_dir"
   printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'cp "$2" "$DOT_TEST_REMMINA_PROFILE"' >"$fake_bin/remmina"
+    'cp "$3" "$DOT_TEST_REMMINA_PROFILE"' >"$fake_bin/remmina"
   chmod +x "$fake_bin/remmina"
+  printf '#!/bin/sh\nexit 0\n' >"$fake_configure"
+  chmod +x "$fake_configure"
   printf '%s\r\n' \
     'full address:s:remote.example.test' \
     'gatewayhostname:s:gateway.example.test' \
@@ -140,6 +143,7 @@
   run env PATH="$fake_bin:$PATH" \
     XDG_RUNTIME_DIR="$runtime_dir" \
     DOT_TEST_REMMINA_PROFILE="$captured_profile" \
+    DOT_REMMINA_CONFIGURE="$fake_configure" \
     "$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5" "$rdp_file"
 
   [ "$status" -eq 0 ]
