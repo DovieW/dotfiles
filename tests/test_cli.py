@@ -301,6 +301,26 @@ class DotCliTests(unittest.TestCase):
             kdeglobals,
         )
         self.assertIn("TerminalApplication=/usr/bin/ghostty", kdeglobals)
+        self.assertIn(
+            "font=Segoe UI Variable,9,-1,5,50,0,0,0,0,0",
+            kdeglobals,
+        )
+        self.assertIn(
+            "menuFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0",
+            kdeglobals,
+        )
+        self.assertIn(
+            "smallestReadableFont=Segoe UI Variable,8,-1,5,50,0,0,0,0,0",
+            kdeglobals,
+        )
+        self.assertIn(
+            "toolBarFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0",
+            kdeglobals,
+        )
+        self.assertIn(
+            "activeFont=Segoe UI Variable,9,-1,5,63,0,0,0,0,0",
+            kdeglobals,
+        )
         panel = (
             ROOT
             / "config/kde/.config/plasma-org.kde.plasma.desktop-appletsrc"

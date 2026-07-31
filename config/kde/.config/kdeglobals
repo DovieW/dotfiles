@@ -138,10 +138,10 @@ ColorScheme=GitHubDark
 TerminalApplication=/usr/bin/ghostty --gtk-single-instance=true --shell-integration-features=ssh-env
 TerminalService=com.mitchellh.ghostty.desktop
 fixed=Cascadia Code,10,-1,5,50,0,0,0,0,0
-font=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
-menuFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
-smallestReadableFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
-toolBarFont=Segoe UI Variable,10,-1,5,50,0,0,0,0,0
+font=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
+menuFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
+smallestReadableFont=Segoe UI Variable,8,-1,5,50,0,0,0,0,0
+toolBarFont=Segoe UI Variable,9,-1,5,50,0,0,0,0,0
 
 [KDE]
 AnimationDurationFactor=0
@@ -152,7 +152,7 @@ SmoothScroll=false
 [WM]
 activeBackground=22,27,34
 activeBlend=230,237,243
-activeFont=Segoe UI Variable,10,-1,5,63,0,0,0,0,0
+activeFont=Segoe UI Variable,9,-1,5,63,0,0,0,0,0
 activeForeground=230,237,243
 inactiveBackground=13,17,23
 inactiveBlend=125,133,144
