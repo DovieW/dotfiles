@@ -110,10 +110,12 @@ profile exists only in the per-user runtime directory, is readable only by the
 user, and is erased after Remmina has consumed it. Certificate validation
 remains enabled.
 
-The managed Remmina profile uses fullscreen dynamic resolution, 175% Windows
-desktop scaling, and the closest supported 180% device-scale bucket. If the
-remote desktop looks incorrectly sized, confirm the local display is still
-2880×1800 at 175% before changing these managed values.
+The managed Remmina profile uses a fixed 2880×1800 fullscreen canvas with
+client fitting, 175% Windows desktop scaling, and the closest supported 180%
+device-scale bucket. Dynamic resolution is deliberately disabled for this flow:
+under Wayland it sees KDE's approximately 1646×1029 logical surface, after
+which Windows applies 175% again and appears extremely zoomed. If sizing drifts,
+confirm the local display is still 2880×1800 at 175%.
 
 F5 launch tokens are short-lived and may be single-use. If a launch was
 interrupted or used for diagnostics, download a fresh `.rdp` file before

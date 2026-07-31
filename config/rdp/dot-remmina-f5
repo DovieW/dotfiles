@@ -53,10 +53,12 @@ runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 runtime_dir.chmod(0o700)
 profile = runtime_dir / "f5-current.remmina"
 
-# This is the useful core of the 2024 files-repository workflow. Dynamic
-# resolution lets the remote desktop follow the fullscreen drawable instead of
-# hard-coding the panel's physical pixel dimensions. Remmina's global RDP
-# preferences supply the matching 175% desktop scale and 180% device bucket.
+# This restores the useful core of the 2024 files-repository workflow. On this
+# 2880x1800 panel, Wayland fractional scaling exposes a roughly 1646x1029
+# logical surface to GTK. Dynamic RDP resolution combined with Windows' 175%
+# desktop scale therefore applies the scale twice and looks extremely zoomed.
+# Request the panel's physical canvas and let Remmina fit it fullscreen; the
+# global RDP preferences then supply the correct 175% Windows desktop scale.
 settings = {
     "name": server,
     "server": server,
@@ -70,8 +72,10 @@ settings = {
     "gateway_username": "",
     "gateway_password": "",
     "disablepasswordstoring": "1",
-    "resolution_mode": "2",
-    "scale": "2",
+    "resolution_mode": "0",
+    "resolution_width": "2880",
+    "resolution_height": "1800",
+    "scale": "1",
     "viewmode": "4",
     "window_maximize": "1",
     "multimon": "0",

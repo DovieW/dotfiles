@@ -1126,13 +1126,16 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("cert:ignore", rdp_launcher)
         self.assertNotIn("/p:", rdp_launcher)
-        self.assertIn('"scale": "2"', remmina_launcher)
-        self.assertIn('"resolution_mode": "2"', remmina_launcher)
+        self.assertIn('"scale": "1"', remmina_launcher)
+        self.assertIn('"resolution_mode": "0"', remmina_launcher)
+        self.assertIn('"resolution_width": "2880"', remmina_launcher)
+        self.assertIn('"resolution_height": "1800"', remmina_launcher)
         self.assertIn('"viewmode": "4"', remmina_launcher)
         self.assertIn('"cert_ignore": "0"', remmina_launcher)
         self.assertIn('"ignore-tls-errors": "0"', remmina_launcher)
         self.assertIn('"rdp_desktopScaleFactor": "175"', remmina_preferences)
         self.assertIn('"rdp_deviceScaleFactor": "180"', remmina_preferences)
+        self.assertIn('"start_dynres": "false"', remmina_preferences)
         self.assertIn(
             "MimeType=application/x-rdp;application/x-remmina;",
             rdp_desktop,

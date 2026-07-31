@@ -14,7 +14,7 @@ DESIRED = {
     "rdp_deviceScaleFactor": "180",
     "rdp_desktopOrientation": "0",
     "start_fullscreen": "true",
-    "start_dynres": "true",
+    "start_dynres": "false",
 }
 
 

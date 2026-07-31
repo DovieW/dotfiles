@@ -121,7 +121,7 @@
   [ "$(cat "$captured_argv")" = "$rdp_file" ]
 }
 
-@test "dot-remmina-f5 builds a private fullscreen dynamic profile" {
+@test "dot-remmina-f5 builds a private physical-resolution fullscreen profile" {
   fake_bin="$BATS_TEST_TMPDIR/remmina-bin"
   captured_profile="$BATS_TEST_TMPDIR/remmina-profile"
   runtime_dir="$BATS_TEST_TMPDIR/runtime"
@@ -146,8 +146,10 @@
   grep -Fxq "server=remote.example.test" "$captured_profile"
   grep -Fxq "gateway_server=gateway.example.test" "$captured_profile"
   grep -Fxq "gatewayaccesstoken=one-time-token" "$captured_profile"
-  grep -Fxq "resolution_mode=2" "$captured_profile"
-  grep -Fxq "scale=2" "$captured_profile"
+  grep -Fxq "resolution_mode=0" "$captured_profile"
+  grep -Fxq "resolution_width=2880" "$captured_profile"
+  grep -Fxq "resolution_height=1800" "$captured_profile"
+  grep -Fxq "scale=1" "$captured_profile"
   grep -Fxq "viewmode=4" "$captured_profile"
   grep -Fxq "cert_ignore=0" "$captured_profile"
   [ ! -e "$runtime_dir/dotfiles-remmina-$(id -u)/f5-current.remmina" ]
