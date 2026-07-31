@@ -34,7 +34,8 @@ means its reusable configuration now has an authoritative replacement here.
 | `programs/qmk` | 2025-05-01 | Retain | Keyboard firmware project |
 | `programs/powertoys`, `windhawk` | 2025 | Retain | Binary application backups |
 | `programs/scrcpy`, `Newpipe` | 2025/2023 | Retain | Device tooling/data |
-| `programs/remmina`, `lazygit`, `lazydocker` setup scripts | 2024 | Retire setup | Replaced by profile-driven application |
+| `programs/remmina`, `other/linux_setup/remmina` | 2024 | Migrate sanitized flow | Stock Remmina preferences and ephemeral F5 profile generation live in dotfiles; private targets and tokens remain runtime-only |
+| `programs/lazygit`, `programs/lazydocker` setup scripts | 2024 | Retire setup | Replaced by profile-driven application |
 | `DovieW/nvim-config` | 2024-08-14 | Replace, retain history | `config/nvim`; original repository remains unchanged and is no longer deployed |
 
 The existing secret history in `files` is intentionally not rewritten by this

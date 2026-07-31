@@ -95,26 +95,29 @@ editor and its supported Remote WSL integration.
 
 ## Remote Desktop files
 
-The Kubuntu profile installs FreeRDP 3's current SDL client and registers
-`application/x-rdp` for both `.rdp` and Azure `.rdpw` files. Dolphin therefore
-opens downloaded company connection files directly with the managed
-`dot-rdp` launcher. The original file remains authoritative for server,
-gateway, authentication, device redirection, and monitor preferences; the
-launcher adds fullscreen and dynamic-resolution behavior.
+The Kubuntu profile installs Ubuntu's current FreeRDP SDL and Remmina clients
+and registers `application/x-rdp` for both `.rdp` and Azure `.rdpw` files.
+Dolphin therefore opens downloads directly with the managed `dot-rdp`
+dispatcher.
+
+Ordinary files use the stock SDL client in fullscreen dynamic-resolution mode.
+Token-bearing F5 webtop files use the restored Remmina flow: a managed helper
+reads the target, gateway, and short-lived token; generates a mode-0600 profile
+under the per-user runtime directory; opens it fullscreen with dynamic
+resolution; and deletes the generated profile. Company hostnames and tokens
+are never committed or logged. The laptop profile configures Remmina for 175%
+Windows desktop scaling and its 180% device bucket, matching the internal
+2880×1800 display at KDE's 175% scale.
 
 Remmina's Ubuntu MIME package classifies ordinary `.rdp` downloads as
 `application/x-remmina`, so the managed desktop entry also owns that MIME
 default. The launcher routes actual `.rdp`/`.rdpw` files to FreeRDP while
 preserving `.remmina`/`.rdpx` profile support through Remmina.
 
-The launcher never adds `cert:ignore`, places credentials on the command line,
-or rewrites company files. It supplies arguments through FreeRDP's secure stdin
-channel. Signed gateway launch files that explicitly disable CredSSP receive
-explicit empty username and password values there; this works around SDL
-FreeRDP's local credential dialog while leaving the embedded short-lived
-gateway token and remote Windows authentication authoritative. FreeRDP retains
-its normal certificate validation. The SDL client is preferred over the older
-Wayland client that FreeRDP now marks deprecated.
+The launcher never disables certificate validation, places credentials on the
+command line, or rewrites company files. Ordinary FreeRDP arguments use its
+stdin channel. The Remmina path deliberately uses distribution packages rather
+than a patched or locally compiled RDP client.
 
 ## Adapters
 

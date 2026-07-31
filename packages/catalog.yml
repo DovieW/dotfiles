@@ -19,6 +19,8 @@
     "jq": {"provider": "brew"},
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},
+    "remmina": {"provider": "apt"},
+    "remmina-plugin-rdp": {"provider": "apt"},
     "ripgrep": {"provider": "brew"},
     "shellcheck": {"provider": "brew"},
     "stylua": {"provider": "brew"},

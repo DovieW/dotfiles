@@ -98,17 +98,15 @@
   [ "$(cat "$clipboard")" = "firstsecond" ]
 }
 
-@test "dot-rdp bypasses the local SDL credential form for F5 launch files" {
+@test "dot-rdp routes F5 launch files through the managed Remmina flow" {
   fake_bin="$BATS_TEST_TMPDIR/rdp-bin"
   captured_argv="$BATS_TEST_TMPDIR/rdp-argv"
-  captured_stdin="$BATS_TEST_TMPDIR/rdp-stdin"
   rdp_file="$BATS_TEST_TMPDIR/f5-launch.rdp"
   mkdir -p "$fake_bin"
   printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'printf "%s\n" "$@" >"$DOT_TEST_RDP_ARGV"' \
-    'cat >"$DOT_TEST_RDP_STDIN"' >"$fake_bin/sdl-freerdp"
-  chmod +x "$fake_bin/sdl-freerdp"
+    'printf "%s\n" "$@" >"$DOT_TEST_RDP_ARGV"' >"$fake_bin/dot-remmina-f5"
+  chmod +x "$fake_bin/dot-remmina-f5"
   printf '%s\r\n' \
     'full address:s:remote.example.test' \
     'enablecredsspsupport:i:0' \
@@ -116,16 +114,43 @@
 
   run env PATH="$fake_bin:$PATH" \
     DOT_TEST_RDP_ARGV="$captured_argv" \
-    DOT_TEST_RDP_STDIN="$captured_stdin" \
+    DOT_REMMINA_F5_HELPER="$fake_bin/dot-remmina-f5" \
     "$BATS_TEST_DIRNAME/../config/rdp/dot-rdp" "$rdp_file"
 
   [ "$status" -eq 0 ]
-  [ "$(cat "$captured_argv")" = "/args-from:stdin" ]
-  grep -Fxq "$rdp_file" "$captured_stdin"
-  grep -Fxq "/f" "$captured_stdin"
-  grep -Fxq "/dynamic-resolution" "$captured_stdin"
-  grep -Fxq "/u:" "$captured_stdin"
-  grep -Fxq "/p" "$captured_stdin"
+  [ "$(cat "$captured_argv")" = "$rdp_file" ]
+}
+
+@test "dot-remmina-f5 builds a private fullscreen dynamic profile" {
+  fake_bin="$BATS_TEST_TMPDIR/remmina-bin"
+  captured_profile="$BATS_TEST_TMPDIR/remmina-profile"
+  runtime_dir="$BATS_TEST_TMPDIR/runtime"
+  rdp_file="$BATS_TEST_TMPDIR/f5-launch.rdp"
+  mkdir -p "$fake_bin" "$runtime_dir"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'cp "$2" "$DOT_TEST_REMMINA_PROFILE"' >"$fake_bin/remmina"
+  chmod +x "$fake_bin/remmina"
+  printf '%s\r\n' \
+    'full address:s:remote.example.test' \
+    'gatewayhostname:s:gateway.example.test' \
+    'gatewayaccesstoken:s:one-time-token' \
+    'authentication level:i:0' >"$rdp_file"
+
+  run env PATH="$fake_bin:$PATH" \
+    XDG_RUNTIME_DIR="$runtime_dir" \
+    DOT_TEST_REMMINA_PROFILE="$captured_profile" \
+    "$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5" "$rdp_file"
+
+  [ "$status" -eq 0 ]
+  grep -Fxq "server=remote.example.test" "$captured_profile"
+  grep -Fxq "gateway_server=gateway.example.test" "$captured_profile"
+  grep -Fxq "gatewayaccesstoken=one-time-token" "$captured_profile"
+  grep -Fxq "resolution_mode=2" "$captured_profile"
+  grep -Fxq "scale=2" "$captured_profile"
+  grep -Fxq "viewmode=4" "$captured_profile"
+  grep -Fxq "cert_ignore=0" "$captured_profile"
+  [ ! -e "$runtime_dir/dotfiles-remmina-$(id -u)/f5-current.remmina" ]
 }
 
 @test "Codex installer accepts a managed stable-channel release" {

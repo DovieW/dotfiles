@@ -33,6 +33,8 @@
       "mpv",
       "plasma-workspace",
       "power-profiles-daemon",
+      "remmina",
+      "remmina-plugin-rdp",
       "tailscale",
       "upower",
       "xclip"

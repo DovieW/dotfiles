@@ -1079,6 +1079,12 @@ class DotCliTests(unittest.TestCase):
         vscode = (ROOT / "ansible/tasks/vscode.yml").read_text()
         rdp_role = (ROOT / "ansible/tasks/rdp.yml").read_text()
         rdp_launcher = (ROOT / "config/rdp/dot-rdp").read_text()
+        remmina_launcher = (
+            ROOT / "config/rdp/dot-remmina-f5"
+        ).read_text()
+        remmina_preferences = (
+            ROOT / "config/rdp/configure-remmina"
+        ).read_text()
         rdp_desktop = (
             ROOT / "config/rdp/io.github.doview.dotfiles.rdp.desktop"
         ).read_text()
@@ -1089,8 +1095,15 @@ class DotCliTests(unittest.TestCase):
         self.assertTrue(profile["features"]["rdp_files"])
         self.assertIn("code", profile["packages"]["apt"])
         self.assertIn("freerdp-sdl", profile["packages"]["apt"])
+        self.assertIn("remmina", profile["packages"]["apt"])
+        self.assertIn("remmina-plugin-rdp", profile["packages"]["apt"])
         self.assertEqual(catalog["tools"]["code"]["provider"], "apt")
         self.assertEqual(catalog["tools"]["freerdp-sdl"]["provider"], "apt")
+        self.assertEqual(catalog["tools"]["remmina"]["provider"], "apt")
+        self.assertEqual(
+            catalog["tools"]["remmina-plugin-rdp"]["provider"],
+            "apt",
+        )
         self.assertIn("tasks/vscode.yml", playbook)
         self.assertIn("tasks/rdp.yml", playbook)
         self.assertIn("https://packages.microsoft.com/repos/code", vscode)
@@ -1100,10 +1113,12 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("Pin-Priority: 9999", vscode)
         self.assertIn("state: latest", vscode)
-        self.assertIn("name: freerdp-sdl", rdp_role)
+        self.assertIn("- freerdp-sdl", rdp_role)
+        self.assertIn("- remmina", rdp_role)
+        self.assertIn("- remmina-plugin-rdp", rdp_role)
         self.assertIn("client_options=(/f /dynamic-resolution)", rdp_launcher)
-        self.assertIn("enablecredsspsupport:i:0", rdp_launcher)
-        self.assertIn("client_options+=('/u:' /p)", rdp_launcher)
+        self.assertIn("gatewayaccesstoken:s:", rdp_launcher)
+        self.assertIn("DOT_REMMINA_F5_HELPER", rdp_launcher)
         self.assertIn('"$client" /args-from:stdin', rdp_launcher)
         self.assertNotIn(
             'exec "$client" "$rdp_file" "${client_options[@]}"',
@@ -1111,6 +1126,13 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("cert:ignore", rdp_launcher)
         self.assertNotIn("/p:", rdp_launcher)
+        self.assertIn('"scale": "2"', remmina_launcher)
+        self.assertIn('"resolution_mode": "2"', remmina_launcher)
+        self.assertIn('"viewmode": "4"', remmina_launcher)
+        self.assertIn('"cert_ignore": "0"', remmina_launcher)
+        self.assertIn('"ignore-tls-errors": "0"', remmina_launcher)
+        self.assertIn('"rdp_desktopScaleFactor": "175"', remmina_preferences)
+        self.assertIn('"rdp_deviceScaleFactor": "180"', remmina_preferences)
         self.assertIn(
             "MimeType=application/x-rdp;application/x-remmina;",
             rdp_desktop,

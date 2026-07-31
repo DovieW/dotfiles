@@ -27,6 +27,22 @@ case "${rdp_file,,}" in
     ;;
 esac
 
+# Restore the proven Remmina flow for token-bearing F5 webtop downloads. The
+# helper creates a permission-locked, short-lived profile from the downloaded
+# file and never commits or logs the company gateway, target, or token.
+if LC_ALL=C tr -d '\000\r' <"$rdp_file" |
+  grep -Eaiq '^gatewayaccesstoken:s:.+$'; then
+  remmina_helper="${DOT_REMMINA_F5_HELPER:-$HOME/.local/bin/dot-remmina-f5}"
+  if [[ ! -x "$remmina_helper" ]]; then
+    message="The managed Remmina launcher is missing. Run: dot apply --profile kubuntu-laptop --tags rdp"
+    echo "dot-rdp: $message" >&2
+    command -v notify-send >/dev/null 2>&1 &&
+      notify-send --app-name=Dotfiles "Remote Desktop needs repair" "$message"
+    exit 127
+  fi
+  exec "$remmina_helper" "$rdp_file"
+fi
+
 client=""
 for candidate in sdl-freerdp sdl-freerdp3; do
   if command -v "$candidate" >/dev/null 2>&1; then
@@ -48,19 +64,6 @@ fi
 # fullscreen, resize-aware Wayland experience without bypassing certificate
 # checks.
 client_options=(/f /dynamic-resolution)
-
-# F5 and similar signed gateway launch files can deliberately disable CredSSP,
-# omit a username, and carry a short-lived gateway access token instead. In
-# that mode FreeRDP otherwise displays its own credential form even though the
-# file is asking the remote service to direct authentication. SDL FreeRDP
-# requires both pointers to exist before it will skip that local form, so pass
-# explicit empty username and password values. They do not supply or save a
-# credential; the remote Windows login screen remains authoritative. Strip NUL
-# bytes so the setting is detected in UTF-8 and UTF-16 RDP files alike.
-if LC_ALL=C tr -d '\000\r' <"$rdp_file" |
-  grep -Eaiq '^enablecredsspsupport:i:0$'; then
-  client_options+=('/u:' /p)
-fi
 
 # FreeRDP recommends its argument channel for sensitive values. Feed every
 # argument over stdin rather than exposing even empty authentication switches

@@ -10,7 +10,10 @@
 - name: Install or upgrade FreeRDP's current SDL client
   become: true
   ansible.builtin.apt:
-    name: freerdp-sdl
+    name:
+      - freerdp-sdl
+      - remmina
+      - remmina-plugin-rdp
     state: latest  # noqa package-latest
     update_cache: true
     cache_valid_time: 3600
