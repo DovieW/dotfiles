@@ -1103,8 +1103,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("name: freerdp-sdl", rdp_role)
         self.assertIn("client_options=(/f /dynamic-resolution)", rdp_launcher)
         self.assertIn("enablecredsspsupport:i:0", rdp_launcher)
-        self.assertIn("client_options+=(/p)", rdp_launcher)
-        self.assertIn(
+        self.assertIn("client_options+=('/u:' /p)", rdp_launcher)
+        self.assertIn('"$client" /args-from:stdin', rdp_launcher)
+        self.assertNotIn(
             'exec "$client" "$rdp_file" "${client_options[@]}"',
             rdp_launcher,
         )

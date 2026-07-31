@@ -109,8 +109,14 @@ company file.
 
 Signed F5-style launch files commonly contain a short-lived gateway token, no
 username or password, and `enablecredsspsupport:i:0`. The managed launcher
-recognizes that combination and suppresses FreeRDP's otherwise-spurious local
-credential form so the remote service can direct authentication.
+recognizes that combination and supplies explicit empty username and password
+values through FreeRDP's secure stdin argument channel. This suppresses SDL
+FreeRDP's otherwise-spurious local credential form without saving a credential;
+the remote Windows login screen remains responsible for authentication.
+
+F5 launch tokens are short-lived and may be single-use. If a launch was
+interrupted or used for diagnostics, download a fresh `.rdp` file before
+retrying.
 
 ## The lock screen is blank, stock, or still shows media
 

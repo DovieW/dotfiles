@@ -46,19 +46,24 @@ fi
 # The RDP file remains authoritative for the host, gateway, authentication,
 # redirection, and multi-monitor policy. These client-side options guarantee a
 # fullscreen, resize-aware Wayland experience without bypassing certificate
-# checks or adding credentials to the process list.
+# checks.
 client_options=(/f /dynamic-resolution)
 
 # F5 and similar signed gateway launch files can deliberately disable CredSSP,
 # omit a username, and carry a short-lived gateway access token instead. In
 # that mode FreeRDP otherwise displays its own credential form even though the
-# file is asking the remote service to direct authentication. A bare /p tells
-# FreeRDP that an absent password is intentional; it does not supply or save a
-# credential. Strip NUL bytes so the setting is detected in UTF-8 and UTF-16
-# RDP files alike.
+# file is asking the remote service to direct authentication. SDL FreeRDP
+# requires both pointers to exist before it will skip that local form, so pass
+# explicit empty username and password values. They do not supply or save a
+# credential; the remote Windows login screen remains authoritative. Strip NUL
+# bytes so the setting is detected in UTF-8 and UTF-16 RDP files alike.
 if LC_ALL=C tr -d '\000\r' <"$rdp_file" |
   grep -Eaiq '^enablecredsspsupport:i:0$'; then
-  client_options+=(/p)
+  client_options+=('/u:' /p)
 fi
 
-exec "$client" "$rdp_file" "${client_options[@]}"
+# FreeRDP recommends its argument channel for sensitive values. Feed every
+# argument over stdin rather than exposing even empty authentication switches
+# (or a token-bearing RDP filename) in the process list.
+printf '%s\n' "$rdp_file" "${client_options[@]}" |
+  "$client" /args-from:stdin

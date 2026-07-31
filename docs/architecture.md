@@ -108,12 +108,13 @@ default. The launcher routes actual `.rdp`/`.rdpw` files to FreeRDP while
 preserving `.remmina`/`.rdpx` profile support through Remmina.
 
 The launcher never adds `cert:ignore`, places credentials on the command line,
-or rewrites company files. FreeRDP retains its normal certificate validation
-and interactive authentication. Signed gateway launch files that explicitly
-disable CredSSP are allowed to continue without FreeRDP inventing a local
-username/password prompt; their embedded short-lived gateway token and
-server-directed authentication remain authoritative. The SDL client is
-preferred over the older Wayland client that FreeRDP now marks deprecated.
+or rewrites company files. It supplies arguments through FreeRDP's secure stdin
+channel. Signed gateway launch files that explicitly disable CredSSP receive
+explicit empty username and password values there; this works around SDL
+FreeRDP's local credential dialog while leaving the embedded short-lived
+gateway token and remote Windows authentication authoritative. FreeRDP retains
+its normal certificate validation. The SDL client is preferred over the older
+Wayland client that FreeRDP now marks deprecated.
 
 ## Adapters
 

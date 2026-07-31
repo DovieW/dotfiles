@@ -98,6 +98,36 @@
   [ "$(cat "$clipboard")" = "firstsecond" ]
 }
 
+@test "dot-rdp bypasses the local SDL credential form for F5 launch files" {
+  fake_bin="$BATS_TEST_TMPDIR/rdp-bin"
+  captured_argv="$BATS_TEST_TMPDIR/rdp-argv"
+  captured_stdin="$BATS_TEST_TMPDIR/rdp-stdin"
+  rdp_file="$BATS_TEST_TMPDIR/f5-launch.rdp"
+  mkdir -p "$fake_bin"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$@" >"$DOT_TEST_RDP_ARGV"' \
+    'cat >"$DOT_TEST_RDP_STDIN"' >"$fake_bin/sdl-freerdp"
+  chmod +x "$fake_bin/sdl-freerdp"
+  printf '%s\r\n' \
+    'full address:s:remote.example.test' \
+    'enablecredsspsupport:i:0' \
+    'gatewayaccesstoken:s:one-time-token' >"$rdp_file"
+
+  run env PATH="$fake_bin:$PATH" \
+    DOT_TEST_RDP_ARGV="$captured_argv" \
+    DOT_TEST_RDP_STDIN="$captured_stdin" \
+    "$BATS_TEST_DIRNAME/../config/rdp/dot-rdp" "$rdp_file"
+
+  [ "$status" -eq 0 ]
+  [ "$(cat "$captured_argv")" = "/args-from:stdin" ]
+  grep -Fxq "$rdp_file" "$captured_stdin"
+  grep -Fxq "/f" "$captured_stdin"
+  grep -Fxq "/dynamic-resolution" "$captured_stdin"
+  grep -Fxq "/u:" "$captured_stdin"
+  grep -Fxq "/p" "$captured_stdin"
+}
+
 @test "Codex installer accepts a managed stable-channel release" {
   release="9.8.7"
   fake_home="$BATS_TEST_TMPDIR/codex-home"
