@@ -1149,6 +1149,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Remote Desktop files"', cli)
         self.assertIn('"io.github.doview.dotfiles.rdp.desktop"', cli)
         self.assertIn('"application/x-remmina"', cli)
+        self.assertIn("Always write an explicit default", cli)
 
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()

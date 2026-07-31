@@ -1395,18 +1395,22 @@ def apply_direct(
                     check=False,
                     capture=True,
                 ).stdout.strip()
+                # Always write an explicit default. `xdg-mime query` can fall
+                # back to mimeinfo.cache and report our desktop file even when
+                # KDE's mimeapps.list has no Default Applications entry. In
+                # that state Dolphin may still prefer Remmina's stock wrapper.
+                run(
+                    [
+                        "xdg-mime",
+                        "default",
+                        "io.github.doview.dotfiles.rdp.desktop",
+                        rdp_mime_type,
+                    ]
+                )
                 if (
                     current_rdp_handler
                     != "io.github.doview.dotfiles.rdp.desktop"
                 ):
-                    run(
-                        [
-                            "xdg-mime",
-                            "default",
-                            "io.github.doview.dotfiles.rdp.desktop",
-                            rdp_mime_type,
-                        ]
-                    )
                     changes += 1
     if features.get("lid_power_saver") and selected("power", "kde"):
         lid_mappings = {
