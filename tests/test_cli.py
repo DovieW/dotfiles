@@ -853,6 +853,33 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Dolphin singleton shortcut"', cli)
         self.assertIn('"Dolphin taskbar rule"', cli)
 
+    def test_obsidian_launcher_focuses_existing_window_across_desktops(self):
+        cli = DOT.read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        script = (
+            ROOT / "config/kwin/dot-obsidian/contents/code/main.js"
+        ).read_text()
+        wrapper = (ROOT / "config/obsidian/dot-obsidian").read_text()
+        launcher = (ROOT / "config/obsidian/obsidian.desktop").read_text()
+        service = (
+            ROOT / "config/systemd/user/dot-obsidian-launch.service"
+        ).read_text()
+
+        self.assertIn("dot-obsidianEnabled=true", kwin)
+        self.assertIn('window.desktopFileName === "obsidian"', script)
+        self.assertIn('window.caption.toLowerCase() !== "obsidian"', script)
+        self.assertIn("workspace.currentDesktop = window.desktops[0]", script)
+        self.assertIn("workspace.activeWindow = window", script)
+        self.assertIn("dot-obsidian-launch.service", script)
+        self.assertIn('"dot-obsidian"', script)
+        self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut", wrapper)
+        self.assertIn('exec /opt/Obsidian/obsidian "$@"', wrapper)
+        self.assertIn("Exec=dot-obsidian %U", launcher)
+        self.assertIn("ExecStart=/opt/Obsidian/obsidian", service)
+        self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
+        self.assertIn('"config/obsidian/obsidian.desktop"', cli)
+        self.assertIn('"Obsidian cross-desktop launcher"', cli)
+
     def test_kubuntu_manages_windows_style_touchpad_gestures(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         manifest = json.loads((ROOT / "packages/inputactions.yml").read_text())

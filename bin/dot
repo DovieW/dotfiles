@@ -1227,9 +1227,14 @@ def apply_direct(
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+            ROOT / "config/kwin/dot-obsidian/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-obsidian/metadata.json",
+            ROOT / "config/kwin/dot-obsidian/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-obsidian/contents/code/main.js",
             ROOT / "config/kwin/tabbox-large-list/metadata.json": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/metadata.json",
             ROOT / "config/kwin/tabbox-large-list/contents/ui/main.qml": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/contents/ui/main.qml",
             ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
+            ROOT / "config/systemd/user/dot-obsidian-launch.service": Path.home() / ".config/systemd/user/dot-obsidian-launch.service",
+            ROOT / "config/obsidian/dot-obsidian": Path.home() / ".local/bin/dot-obsidian",
+            ROOT / "config/obsidian/obsidian.desktop": Path.home() / ".local/share/applications/obsidian.desktop",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
             ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -1255,45 +1260,47 @@ def apply_direct(
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"], check=False)
         if command_exists("qdbus6"):
-            script_name = "dot-dolphin"
-            script_path = (
-                Path.home()
-                / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js"
-            )
-            loaded = run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Scripting",
-                    "org.kde.kwin.Scripting.isScriptLoaded",
-                    script_name,
-                ],
-                check=False,
-                capture=True,
-            )
-            if (
-                script_path.is_file()
-                and (loaded.returncode != 0 or loaded.stdout.strip() != "true")
-            ):
-                script_id = run(
+            kwin_scripts = {
+                "dot-dolphin": Path.home()
+                / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+                "dot-obsidian": Path.home()
+                / ".local/share/kwin/scripts/dot-obsidian/contents/code/main.js",
+            }
+            for script_name, script_path in kwin_scripts.items():
+                loaded = run(
                     [
                         "qdbus6",
                         "org.kde.KWin",
                         "/Scripting",
-                        "org.kde.kwin.Scripting.loadScript",
-                        str(script_path),
+                        "org.kde.kwin.Scripting.isScriptLoaded",
                         script_name,
                     ],
+                    check=False,
                     capture=True,
-                ).stdout.strip()
-                run(
-                    [
-                        "qdbus6",
-                        "org.kde.KWin",
-                        f"/Scripting/Script{script_id}",
-                        "org.kde.kwin.Script.run",
-                    ]
                 )
+                if (
+                    script_path.is_file()
+                    and (loaded.returncode != 0 or loaded.stdout.strip() != "true")
+                ):
+                    script_id = run(
+                        [
+                            "qdbus6",
+                            "org.kde.KWin",
+                            "/Scripting",
+                            "org.kde.kwin.Scripting.loadScript",
+                            str(script_path),
+                            script_name,
+                        ],
+                        capture=True,
+                    ).stdout.strip()
+                    run(
+                        [
+                            "qdbus6",
+                            "org.kde.KWin",
+                            f"/Scripting/Script{script_id}",
+                            "org.kde.kwin.Script.run",
+                        ]
+                    )
         bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
         if bitwarden_agent.is_socket():
             os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
@@ -5305,6 +5312,40 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             dolphin_singleton_ok,
             "Meta+E focuses one Dolphin window"
             if dolphin_singleton_ok
+            else "run dot apply --profile kubuntu-laptop --tags kde",
+        )
+        obsidian_script_loaded = False
+        if command_exists("qdbus6"):
+            obsidian_script = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Scripting",
+                    "org.kde.kwin.Scripting.isScriptLoaded",
+                    "dot-obsidian",
+                ],
+                check=False,
+                capture=True,
+            )
+            obsidian_script_loaded = (
+                obsidian_script.returncode == 0
+                and obsidian_script.stdout.strip() == "true"
+            )
+        obsidian_launcher = (
+            Path.home() / ".local/share/applications/obsidian.desktop"
+        )
+        obsidian_singleton_ok = (
+            "dot-obsidianEnabled=true" in kwin
+            and obsidian_script_loaded
+            and obsidian_launcher.is_file()
+            and "Exec=dot-obsidian %U"
+            in obsidian_launcher.read_text(encoding="utf-8")
+        )
+        failures += not doctor_check(
+            "Obsidian cross-desktop launcher",
+            obsidian_singleton_ok,
+            "taskbar launches focus the existing vault window across desktops"
+            if obsidian_singleton_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         dolphin_taskbar_ok = all(

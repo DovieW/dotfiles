@@ -1,0 +1,6 @@
+[Unit]
+Description=Launch Obsidian when no vault window is open
+
+[Service]
+Type=exec
+ExecStart=/opt/Obsidian/obsidian

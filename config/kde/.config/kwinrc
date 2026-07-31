@@ -10,6 +10,7 @@ Rows=1
 blendchangesEnabled=false
 desktopchangeosdEnabled=true
 dot-dolphinEnabled=true
+dot-obsidianEnabled=true
 fadeEnabled=false
 fadedesktopEnabled=false
 fadingpopupsEnabled=false
