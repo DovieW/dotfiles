@@ -23,7 +23,8 @@
 - name: Verify Emoji Picker runtime dependencies
   ansible.builtin.command:
     argv:
-      - python3
+      # Match the interpreter used by the managed launcher and Ubuntu packages.
+      - /usr/bin/python3
       - -c
       - >-
         import cairo, gi;
