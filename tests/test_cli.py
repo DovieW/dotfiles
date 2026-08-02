@@ -134,21 +134,29 @@ class DotCliTests(unittest.TestCase):
             env["PATH"] = os.pathsep.join(
                 [str(fake_bin), "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin"]
             )
-            result = subprocess.run(
-                [
-                    str(DOT),
-                    "apply",
-                    "--profile",
-                    "wsl-personal",
-                    "--tags",
-                    "packages",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Run this command in an interactive terminal", result.stderr)
+            for profile, tag in (
+                ("wsl-personal", "packages"),
+                ("kubuntu-laptop", "clipboard"),
+            ):
+                with self.subTest(profile=profile, tag=tag):
+                    result = subprocess.run(
+                        [
+                            str(DOT),
+                            "apply",
+                            "--profile",
+                            profile,
+                            "--tags",
+                            tag,
+                        ],
+                        text=True,
+                        capture_output=True,
+                        env=env,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        "Run this command in an interactive terminal",
+                        result.stderr,
+                    )
 
     def test_interactive_package_apply_asks_ansible_for_become_password(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1304,6 +1312,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("releases/latest", installer)
         self.assertNotIn("cmake", installer.lower())
         self.assertIn("QT_QPA_PLATFORM=wayland", copyq_installer)
+        self.assertIn('"clipboard",', cli)
+        self.assertIn('"emoji",', cli)
+        self.assertIn("startswith('CHANGED ')", (ROOT / "ansible/tasks/copyq.yml").read_text())
+        self.assertIn("startswith('CHANGED ')", (ROOT / "ansible/tasks/emoji-picker.yml").read_text())
         self.assertEqual(emoji_config["insert_method"], "ydotool")
         self.assertTrue(emoji_config["close_on_select"])
         self.assertIn("def palette_clipboard_menu", cli)

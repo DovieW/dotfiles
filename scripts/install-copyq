@@ -72,4 +72,4 @@ printf '%s\n' \
 chmod 0755 "$wrapper"
 mv -f -- "$wrapper" "$bin_dir/copyq"
 printf '%s\n' "$release" >"$marker"
-echo "CopyQ $release installed from the official stable channel."
+echo "CHANGED CopyQ $release installed from the official stable channel."

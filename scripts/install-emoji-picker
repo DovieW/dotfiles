@@ -64,4 +64,4 @@ chmod 0755 "$launcher"
 ln -sfn "$launcher" "$bin_dir/emoji-picker"
 printf '%s\n' "$release" >"$marker"
 
-echo "Emoji Picker $release installed from the official stable channel."
+echo "CHANGED Emoji Picker $release installed from the official stable channel."

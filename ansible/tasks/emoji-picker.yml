@@ -18,7 +18,7 @@
   ansible.builtin.command:
     argv: ["{{ dot_repo }}/scripts/install-emoji-picker", "--ensure"]
   register: dot_emoji_picker_install
-  changed_when: "' installed from ' in dot_emoji_picker_install.stdout"
+  changed_when: "dot_emoji_picker_install.stdout.startswith('CHANGED ')"
 
 - name: Verify Emoji Picker runtime dependencies
   ansible.builtin.command:

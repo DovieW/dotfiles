@@ -1606,6 +1606,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "docker",
             "gpu",
             "gestures",
+            "clipboard",
+            "emoji",
             "rdp",
             "tailscale",
             "touchpad",
