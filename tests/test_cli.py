@@ -896,7 +896,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"dot-obsidian"', script)
         self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut", wrapper)
         self.assertIn('exec /opt/Obsidian/obsidian "$@"', wrapper)
-        self.assertIn("Exec=dot-obsidian %U", launcher)
+        self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
         self.assertIn("ExecStart=/opt/Obsidian/obsidian", service)
         self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)

@@ -6014,7 +6014,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "dot-obsidianEnabled=true" in kwin
             and obsidian_script_loaded
             and obsidian_launcher.is_file()
-            and "Exec=dot-obsidian %U"
+            and "org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian"
             in obsidian_launcher.read_text(encoding="utf-8")
         )
         failures += not doctor_check(
