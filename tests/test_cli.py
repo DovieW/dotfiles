@@ -1391,7 +1391,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("spectacle \\", active_capture)
         self.assertIn("--activewindow", active_capture)
         self.assertIn("--output", active_capture)
-        self.assertIn("wl-copy --type image/png", active_capture)
+        self.assertIn("wl-copy --foreground --type image/png", active_capture)
         self.assertIn("ExecStart=/usr/bin/flameshot gui", editor_service)
         self.assertNotIn("--pin", editor_service)
         self.assertIn("showHelp=false", config)

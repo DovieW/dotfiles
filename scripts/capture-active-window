@@ -20,4 +20,12 @@ QT_QPA_PLATFORM=wayland spectacle \
     exit 1
 }
 
-wl-copy --type image/png < "$capture"
+wl-copy --foreground --type image/png < "$capture" &
+clipboard_owner=$!
+
+# wl-copy has the image open now, so the temporary pathname is no longer needed.
+unlink "$capture"
+trap - EXIT
+
+# Keep the Wayland clipboard owner alive until another application replaces it.
+wait "$clipboard_owner"
