@@ -15,12 +15,59 @@ return {
       },
     },
     opts = {
-      keymap = { preset = "default" },
+      keymap = {
+        preset = "default",
+        ["<A-y>"] = {
+          function(cmp)
+            cmp.show({ providers = { "minuet" } })
+          end,
+        },
+      },
       appearance = { nerd_font_variant = "mono" },
-      completion = { documentation = { auto_show = true, auto_show_delay_ms = 250 } },
+      completion = {
+        documentation = { auto_show = true, auto_show_delay_ms = 250 },
+        trigger = { prefetch_on_insert = false },
+      },
       signature = { enabled = true },
       snippets = { preset = "luasnip" },
       fuzzy = { implementation = "lua" },
+      sources = {
+        default = { "lsp", "path", "snippets", "buffer" },
+        providers = {
+          minuet = {
+            name = "minuet",
+            module = "minuet.blink",
+            async = true,
+            timeout_ms = 3000,
+            score_offset = 50,
+          },
+        },
+      },
+    },
+  },
+  {
+    "milanglacier/minuet-ai.nvim",
+    event = "InsertEnter",
+    opts = {
+      -- Keep the provider manual-only until an API key is deliberately added.
+      -- Alt-y invokes one completion when the key is available; enable
+      -- automatic requests later with :Minuet blink enable.
+      provider = "openai",
+      blink = { enable_auto_complete = false },
+      request_timeout = 3,
+      throttle = 1500,
+      debounce = 500,
+      context_window = 4096,
+      provider_options = {
+        openai = {
+          model = "gpt-5.4-nano",
+          api_key = "OPENAI_API_KEY",
+          optional = {
+            max_completion_tokens = 128,
+            reasoning_effort = "none",
+          },
+        },
+      },
     },
   },
   {

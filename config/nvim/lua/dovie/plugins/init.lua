@@ -17,6 +17,17 @@ return {
         },
       })
       vim.cmd.colorscheme("github_dark_default")
+
+      -- Keep the current line visible without the conspicuous slate band of
+      -- the stock GitHub theme.
+      local function soften_cursor_line()
+        vim.api.nvim_set_hl(0, "CursorLine", { bg = "#0f141a" })
+      end
+      soften_cursor_line()
+      vim.api.nvim_create_autocmd("ColorScheme", {
+        group = vim.api.nvim_create_augroup("dovie-soft-cursorline", { clear = true }),
+        callback = soften_cursor_line,
+      })
     end,
   },
   {

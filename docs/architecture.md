@@ -171,6 +171,13 @@ clients, Blink owns completion, Conform owns explicit formatting, and nvim-lint
 owns diagnostics. Formatting is manual. Autosave is guarded against special,
 unnamed, read-only, and non-file buffers.
 
+Minuet is available as a manual-only Blink completion source for API-backed AI
+completion. It makes no automatic requests and never stores a provider key:
+when deliberately enabled, it reads `OPENAI_API_KEY` only from the launching
+environment. The VS Code Neovim extension uses the same executable but detects
+`vim.g.vscode` and loads a deliberately lean editing-only configuration, leaving
+the VS Code UI, language tooling, completion, and file explorer under VS Code.
+
 The old `DovieW/nvim-config` repository remains unchanged as historical
 reference. It is not deployed and is not a second source of truth.
 

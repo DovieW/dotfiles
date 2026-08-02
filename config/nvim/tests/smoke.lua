@@ -8,6 +8,7 @@ local required = {
   "conform",
   "lint",
   "blink.cmp",
+  "minuet",
   "nvim-treesitter",
 }
 
