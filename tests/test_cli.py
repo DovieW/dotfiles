@@ -828,6 +828,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("skiptaskbarrule=2", rules)
         self.assertIn(
             "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
+            "emoji-picker-ephemeral,copyq-ephemeral,flameshot-ephemeral,"
             "ghostty-all-desktops,system-settings-ephemeral,"
             "bitwarden-ephemeral,system-monitor-ephemeral",
             rules,
@@ -838,6 +839,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("skippagerrule=2", rules)
         self.assertIn("skipswitcher=true", rules)
         self.assertIn("skipswitcherrule=2", rules)
+        self.assertIn("[emoji-picker-ephemeral]", rules)
+        self.assertIn("wmclass=emoji-picker", rules)
+        self.assertIn("[copyq-ephemeral]", rules)
+        self.assertIn("wmclass=com.github.hluk.copyq", rules)
+        self.assertIn("[flameshot-ephemeral]", rules)
+        self.assertIn("wmclass=flameshot", rules)
         self.assertIn("[ghostty-all-desktops]", rules)
         self.assertIn("wmclass=com.mitchellh.ghostty", rules)
         self.assertIn("desktops=\n", rules)

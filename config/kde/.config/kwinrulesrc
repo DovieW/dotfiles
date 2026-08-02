@@ -1,6 +1,6 @@
 [General]
-count=6
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
+count=9
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,copyq-ephemeral,flameshot-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
 
 [bitwarden-ephemeral]
 Description=Keep Bitwarden out of persistent window lists
@@ -11,6 +11,17 @@ skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
 wmclass=bitwarden
+wmclassmatch=1
+
+[copyq-ephemeral]
+Description=Keep CopyQ out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=com.github.hluk.copyq
 wmclassmatch=1
 
 [dolphin-skip-taskbar]
@@ -31,22 +42,33 @@ skiptaskbarrule=2
 wmclass=org.kde.plasma.emojier
 wmclassmatch=1
 
-[ghostty-all-desktops]
-Description=Keep Ghostty on all virtual desktops
-desktops=
-desktopsrule=2
-wmclass=com.mitchellh.ghostty
-wmclassmatch=1
-
-[system-settings-ephemeral]
-Description=Keep System Settings out of persistent window lists
+[emoji-picker-ephemeral]
+Description=Keep Emoji Picker out of persistent window lists
 skippager=true
 skippagerrule=2
 skipswitcher=true
 skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
-wmclass=systemsettings
+wmclass=emoji-picker
+wmclassmatch=1
+
+[flameshot-ephemeral]
+Description=Keep Flameshot out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=flameshot
+wmclassmatch=1
+
+[ghostty-all-desktops]
+Description=Keep Ghostty on all virtual desktops
+desktops=
+desktopsrule=2
+wmclass=com.mitchellh.ghostty
 wmclassmatch=1
 
 [system-monitor-ephemeral]
@@ -58,4 +80,15 @@ skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
 wmclass=org.kde.plasma-systemmonitor
+wmclassmatch=1
+
+[system-settings-ephemeral]
+Description=Keep System Settings out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+wmclass=systemsettings
 wmclassmatch=1
