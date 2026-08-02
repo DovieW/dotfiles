@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure|--check) ;;
+  *) echo "usage: install-copyq [--ensure|--check]" >&2; exit 2 ;;
+esac
+
+api="https://api.github.com/repos/hluk/CopyQ/releases/latest"
+app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/copyq"
+bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+marker="$app_root/current-release"
+
+release_json="$(curl --proto '=https' --tlsv1.2 -fsSL "$api")"
+readarray -t resolved < <(python3 -c '
+import json, sys
+d=json.load(sys.stdin)
+tag=d.get("tag_name", "")
+assets={a["name"]:a["browser_download_url"] for a in d.get("assets", [])}
+version=tag.removeprefix("v")
+name=f"CopyQ-{version}-x86_64.AppImage"
+print(tag)
+print(name)
+print(assets.get(name, ""))
+print(assets.get("checksums-sha512.txt", ""))
+' <<<"$release_json")
+release="${resolved[0]:-}"
+asset_name="${resolved[1]:-}"
+asset_url="${resolved[2]:-}"
+checksums_url="${resolved[3]:-}"
+
+if [[ ! "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+   [[ -z "$asset_url" || -z "$checksums_url" ]]; then
+  echo "CopyQ: latest stable Linux release assets could not be resolved." >&2
+  exit 1
+fi
+
+target="$app_root/releases/$release/$asset_name"
+installed=""
+[[ -f "$marker" ]] && installed="$(<"$marker")"
+if [[ "$installed" == "$release" && -x "$target" && -x "$bin_dir/copyq" &&
+      ! -L "$bin_dir/copyq" ]] &&
+   grep -Fq -- "$target" "$bin_dir/copyq"; then
+  echo "CopyQ $release is installed from the official stable channel."
+  exit 0
+fi
+if [[ "$mode" == --check ]]; then
+  echo "CopyQ requires update: ${installed:-missing} -> $release" >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf -- "$work_dir"' EXIT
+curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$work_dir/$asset_name"
+curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
+expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"
+if [[ ! "$expected" =~ ^[[:xdigit:]]{128}$ ]]; then
+  echo "CopyQ: official SHA-512 entry is missing or malformed." >&2
+  exit 1
+fi
+printf '%s  %s\n' "$expected" "$work_dir/$asset_name" | sha512sum --check --status
+
+install -d -m 0755 "$(dirname "$target")" "$bin_dir"
+install -m 0755 "$work_dir/$asset_name" "$target"
+wrapper="$work_dir/copyq-wrapper"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -euo pipefail' \
+  'export QT_QPA_PLATFORM=wayland' \
+  "exec \"$target\" \"\$@\"" >"$wrapper"
+chmod 0755 "$wrapper"
+mv -f -- "$wrapper" "$bin_dir/copyq"
+printf '%s\n' "$release" >"$marker"
+echo "CopyQ $release installed from the official stable channel."

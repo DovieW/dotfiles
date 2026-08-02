@@ -2,6 +2,26 @@
   "schema_version": 1,
   "default": "windows-classic",
   "tray": {
+    "extra_items": [
+      "org.kde.kdeconnect",
+      "org.kde.plasma.vault",
+      "org.kde.kupapplet",
+      "org.kde.plasma.notifications",
+      "org.kde.plasma.printmanager",
+      "org.kde.plasma.keyboardlayout",
+      "org.kde.plasma.mediacontroller",
+      "org.kde.plasma.battery",
+      "org.kde.plasma.volume",
+      "org.kde.plasma.bluetooth",
+      "org.kde.plasma.keyboardindicator",
+      "org.kde.kscreen",
+      "org.kde.plasma.cameraindicator",
+      "org.kde.plasma.devicenotifier",
+      "org.kde.plasma.weather",
+      "org.kde.plasma.networkmanagement",
+      "org.kde.plasma.brightness",
+      "org.kde.plasma.manage-inputmethod"
+    ],
     "shown_items": [
       "org.kde.plasma.networkmanagement",
       "org.kde.plasma.volume",
@@ -18,7 +38,6 @@
       "org.kde.plasma.keyboardindicator",
       "org.kde.plasma.printmanager",
       "org.kde.kupapplet",
-      "org.kde.plasma.clipboard",
       "org.kde.plasma.manage-inputmethod",
       "kded6"
     ]

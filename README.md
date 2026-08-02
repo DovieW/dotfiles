@@ -59,7 +59,7 @@ flowchart LR
 
 | Area | What is managed |
 | --- | --- |
-| **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, factory OLED calibration, power behavior, lock screen, Spectacle |
+| **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, factory OLED calibration, power behavior, lock screen, screenshots, clipboard history, emoji |
 | **Terminal** | Ghostty, one persistent tmux session, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
 | **Development** | Git, Delta, fzf, Neovim, VS Code, Docker Engine, Lazygit, Lazydocker, language tooling |
 | **Connectivity** | Tailscale and fullscreen company RDP files on native Kubuntu; Windows-host networking for WSL |
@@ -121,7 +121,31 @@ dot doctor --profile kubuntu-laptop
 dot save                           # fzf review → test → signed commit → push
 dot apply --profile kubuntu-laptop
 dot panel                          # choose a native Plasma taskbar profile
+dot clipboard                     # verify CopyQ history and Emoji Picker
 dot repos sync --profile kubuntu-laptop
+```
+
+### Clipboard and emoji that behave naturally
+
+CopyQ replaces Klipper for searchable clipboard history; it is deliberately
+kept to one job and one hidden tray-free tab. `Meta+V` opens the history and
+pastes the selected item directly.
+
+`Meta+.` opens [jockel09/emoji-picker](https://github.com/jockel09/emoji-picker),
+a small on-demand Plasma/Wayland picker. It searches emoji, favorites, recents,
+and kaomoji, inserts the selection into the focused application through
+`ydotool`, then closes. It has no background daemon. Dotfiles installs the
+latest stable tagged source without compiling or running the upstream installer;
+recent history stays local while portable preferences and favorites live in
+`config/emoji-picker/config.json`.
+
+Every action is available under the **Clipboard and Emoji** fzf menu or directly:
+
+```bash
+dot clipboard history
+dot clipboard emoji
+dot clipboard status
+dot clipboard update
 ```
 
 ### Four taskbars, one source of truth

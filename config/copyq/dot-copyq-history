@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+copyq --start-server >/dev/null 2>&1 || true
+copyq show Clipboard

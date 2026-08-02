@@ -83,6 +83,14 @@
       when: dot_profile_data.features.rdp_files | default(false)
       tags: [packages, rdp, app-updates]
 
+    - name: Configure CopyQ clipboard history
+      ansible.builtin.include_tasks:
+        file: tasks/copyq.yml
+        apply:
+          tags: [packages, clipboard, app-updates]
+      when: dot_profile_data.features.copyq | default(false)
+      tags: [packages, clipboard, app-updates]
+
     # Workstation policy intentionally follows current stable repository candidates.
     - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
       become: true
@@ -95,6 +103,14 @@
         - ansible_facts.os_family == "Debian"
         - (dot_profile_data.packages.apt | default([]) | length) > 0
       tags: [packages]
+
+    - name: Configure the direct-insertion Emoji picker
+      ansible.builtin.include_tasks:
+        file: tasks/emoji-picker.yml
+        apply:
+          tags: [packages, emoji, clipboard, app-updates]
+      when: dot_profile_data.features.emoji_picker | default(false)
+      tags: [packages, emoji, clipboard, app-updates]
 
     - name: Install or upgrade FiraCode Nerd Font Mono from the stable channel
       ansible.builtin.command:
@@ -279,7 +295,7 @@
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display, rdp]
+      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display, rdp, clipboard]
 
     - name: Configure native application window frames
       ansible.builtin.command:

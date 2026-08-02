@@ -1,0 +1,12 @@
+{
+  "favorites": [],
+  "max_recent": 36,
+  "columns": 9,
+  "emoji_size": 28,
+  "close_on_select": true,
+  "insert_method": "ydotool",
+  "skin_tone": "",
+  "gender": "",
+  "language": "en",
+  "kaomoji": true
+}

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure|--check) ;;
+  *) echo "usage: configure-copyq [--ensure|--check]" >&2; exit 2 ;;
+esac
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+copyq_bin="${XDG_BIN_HOME:-$HOME/.local/bin}/copyq"
+[[ -x "$copyq_bin" ]] || { echo "CopyQ is not installed." >&2; exit 1; }
+
+archive_root="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/archives/klipper"
+archive_marker="$archive_root/.archived"
+klipper_root="${XDG_DATA_HOME:-$HOME/.local/share}/klipper"
+if [[ "$mode" == --ensure && ! -f "$archive_marker" ]]; then
+  install -d -m 0700 "$archive_root"
+  if [[ -d "$klipper_root" ]]; then
+    archive_name="klipper-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+    tar -czf "$archive_root/$archive_name" -C "$(dirname "$klipper_root")" "$(basename "$klipper_root")"
+    chmod 0600 "$archive_root/$archive_name"
+  fi
+  printf 'Klipper history was archived before CopyQ became authoritative.\n' >"$archive_marker"
+fi
+
+if [[ "$mode" == --check ]]; then
+  "$copyq_bin" eval "config('maxitems') == 999 && config('disable_tray') && tab().indexOf('Clipboard') >= 0 && tab().indexOf('Emoji') < 0" |
+    grep -qx true || { echo "CopyQ clipboard settings drifted." >&2; exit 1; }
+  "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Wayland paste' && c.isScript})" |
+    grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
+  "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Clipboard History' && c.isGlobalShortcut && str(c.globalShortcuts).toLowerCase().indexOf('meta+v') >= 0})" |
+    grep -qx true || { echo "CopyQ Meta+V history shortcut is missing." >&2; exit 1; }
+  echo "CopyQ clipboard history and Wayland paste integration are configured."
+  exit 0
+fi
+
+"$copyq_bin" --start-server >/dev/null 2>&1 || true
+for _ in {1..40}; do
+  "$copyq_bin" eval 'print("ready")' 2>/dev/null | grep -qx ready && break
+  sleep 0.1
+done
+"$copyq_bin" eval - <"$root/config/copyq/configure.js"
+
+echo "CopyQ clipboard history configured."

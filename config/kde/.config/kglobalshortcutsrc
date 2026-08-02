@@ -42,6 +42,8 @@ Activate Window Demanding Attention=Meta+Ctrl+A,Meta+Ctrl+A,Activate Window Dema
 Cycle Overview=none,none,Cycle through Overview and Grid View
 Cycle Overview Opposite=none,none,Cycle through Grid View and Overview
 dot-dolphin=Meta+E,none,Open or Focus Dolphin
+dot-window-desktop-left=Meta+Alt+Left,none,Move Window and Follow Left
+dot-window-desktop-right=Meta+Alt+Right,none,Move Window and Follow Right
 Decrease Opacity=,,Decrease Opacity of Active Window by 5%
 Edit Tiles=Meta+T,Meta+T,Toggle Tiles Editor
 Expose=Meta+F9\tCtrl+F9,Meta+F9\tCtrl+F9,Toggle Present Windows (Current desktop)
@@ -66,8 +68,8 @@ Switch One Desktop Up=Meta+Ctrl+Up,Meta+Ctrl+Up,Switch One Desktop Up
 Switch One Desktop to the Left=Meta+Ctrl+Left,Meta+Ctrl+Left,Switch One Desktop to the Left
 Switch One Desktop to the Right=Meta+Ctrl+Right,Meta+Ctrl+Right,Switch One Desktop to the Right
 Switch Window Down=Meta+Alt+Down,Meta+Alt+Down,Switch to Window Below
-Switch Window Left=Meta+Alt+Left,Meta+Alt+Left,Switch to Window to the Left
-Switch Window Right=Meta+Alt+Right,Meta+Alt+Right,Switch to Window to the Right
+Switch Window Left=,Meta+Alt+Left,Switch to Window to the Left
+Switch Window Right=,Meta+Alt+Right,Switch to Window to the Right
 Switch Window Up=Meta+Alt+Up,Meta+Alt+Up,Switch to Window Above
 Switch to Desktop 1=Meta+F1\tCtrl+F1,Meta+F1\tCtrl+F1,Switch to Desktop 1
 Switch to Desktop 10=,,Switch to Desktop 10
@@ -277,7 +279,7 @@ previous activity=Meta+Shift+A,none,Walk through activities (Reverse)
 repeat_action=,,Manually Invoke Action on Current Clipboard
 show dashboard=Ctrl+F12,Ctrl+F12,Show Desktop
 show-barcode=,,Show Barcode…
-show-on-mouse-pos=Meta+V\tCtrl+`,Meta+V,Show Clipboard Items at Mouse Position
+show-on-mouse-pos=none,Meta+V,Show Clipboard Items at Mouse Position
 switch to next activity=,,Switch to Next Activity
 switch to previous activity=,,Switch to Previous Activity
 toggle do not disturb=,,Toggle do not disturb
@@ -293,6 +295,9 @@ RecordWindow=
 RectangularRegionScreenShot=Meta+Shift+S
 WindowUnderCursorScreenShot=
 _launch=Ctrl+Alt+Shift+Print\t
+
+[services][org.kde.plasma.emojier.desktop]
+_launch=Meta+.
 
 [wacomtablet]
 Map to fullscreen=Meta+Ctrl+F,Meta+Ctrl+F,Map to fullscreen

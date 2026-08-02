@@ -11,6 +11,7 @@ blendchangesEnabled=false
 desktopchangeosdEnabled=true
 dot-dolphinEnabled=true
 dot-obsidianEnabled=true
+dot-window-desktopEnabled=true
 fadeEnabled=false
 fadedesktopEnabled=false
 fadingpopupsEnabled=false

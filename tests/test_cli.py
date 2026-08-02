@@ -880,6 +880,42 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)
         self.assertIn('"Obsidian cross-desktop launcher"', cli)
 
+    def test_alt_meta_arrows_move_active_window_and_follow_desktop(self):
+        cli = DOT.read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        shortcuts = (
+            ROOT / "config/kde/.config/kglobalshortcutsrc"
+        ).read_text()
+        script = (
+            ROOT / "config/kwin/dot-window-desktop/contents/code/main.js"
+        ).read_text()
+
+        self.assertIn("dot-window-desktopEnabled=true", kwin)
+        self.assertIn(
+            "dot-window-desktop-left=Meta+Alt+Left",
+            shortcuts,
+        )
+        self.assertIn(
+            "dot-window-desktop-right=Meta+Alt+Right",
+            shortcuts,
+        )
+        self.assertIn(
+            "Switch Window Left=,Meta+Alt+Left",
+            shortcuts,
+        )
+        self.assertIn(
+            "Switch Window Right=,Meta+Alt+Right",
+            shortcuts,
+        )
+        self.assertIn("window.desktops = [targetDesktop]", script)
+        self.assertIn("workspace.currentDesktop = targetDesktop", script)
+        self.assertIn("workspace.activeWindow = window", script)
+        self.assertIn('if (!window || window.onAllDesktops)', script)
+        self.assertIn('"dot-window-desktop-left"', script)
+        self.assertIn('"dot-window-desktop-right"', script)
+        self.assertIn('"config/kwin/dot-window-desktop/metadata.json"', cli)
+        self.assertIn('"move window and follow shortcuts"', cli)
+
     def test_kubuntu_manages_windows_style_touchpad_gestures(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         manifest = json.loads((ROOT / "packages/inputactions.yml").read_text())
@@ -1242,6 +1278,45 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("clip.exe", powershell)
         self.assertIn("termux-api", termux["packages"]["pkg"])
         self.assertNotIn("alias clip=", common)
+
+    def test_kubuntu_uses_separate_clipboard_and_emoji_tools(self):
+        cli = DOT.read_text()
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        copyq = (ROOT / "config/copyq/configure.js").read_text()
+        shortcuts = (ROOT / "config/kde/.config/kglobalshortcutsrc").read_text()
+        installer = (ROOT / "scripts/install-emoji-picker").read_text()
+        copyq_installer = (ROOT / "scripts/install-copyq").read_text()
+        emoji_config = json.loads(
+            (ROOT / "config/emoji-picker/config.json").read_text()
+        )
+
+        self.assertTrue(profile["features"]["copyq"])
+        self.assertTrue(profile["features"]["emoji_picker"])
+        self.assertIn("python3-pyqt6", profile["packages"]["apt"])
+        self.assertIn("python3-gi-cairo", profile["packages"]["apt"])
+        self.assertIn("ydotool", profile["packages"]["apt"])
+        self.assertIn("wl-clipboard", profile["packages"]["apt"])
+        self.assertIn("config('tabs', ['Clipboard'])", copyq)
+        self.assertNotIn("Emoji", copyq)
+        self.assertIn("org.kde.plasma.emojier.desktop", shortcuts)
+        self.assertIn("_launch=Meta+.", shortcuts)
+        self.assertIn("jockel09/emoji-picker", installer)
+        self.assertIn("releases/latest", installer)
+        self.assertNotIn("cmake", installer.lower())
+        self.assertIn("QT_QPA_PLATFORM=wayland", copyq_installer)
+        self.assertEqual(emoji_config["insert_method"], "ydotool")
+        self.assertTrue(emoji_config["close_on_select"])
+        self.assertIn("def palette_clipboard_menu", cli)
+        self.assertIn("def emoji_picker_runtime", cli)
+        self.assertIn("PangoCairo.create_layout", cli)
+        self.assertIn('"CopyQ clipboard history"', cli)
+        self.assertIn('"Emoji Picker"', cli)
+        self.assertNotIn(
+            "            palette_execute(execute)\n\n\ndef palette_clipboard_menu",
+            cli,
+        )
+        self.assertIn('clipboard = sub.add_parser("clipboard")', cli)
+        self.assertIn("(?:@ai )?", cli)
 
     def test_zsh_uses_fzf_for_normal_tab_completion(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Emoji Selector
+Comment=Search and directly insert emoji
+Exec=emoji-picker
+Icon=face-smile
+Terminal=false
+Categories=Utility;
+Keywords=emoji;smiley;unicode;emoticon;kaomoji;
+StartupNotify=false
+SingleMainWindow=true
+NoDisplay=true

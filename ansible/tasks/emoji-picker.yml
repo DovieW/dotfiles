@@ -1,0 +1,42 @@
+---
+- name: Install Emoji Picker runtime dependencies
+  become: true
+  ansible.builtin.apt:
+    name:
+      - gir1.2-pango-1.0
+      - python3-cairo
+      - python3-gi
+      - python3-gi-cairo
+      - python3-pyqt6
+      - wl-clipboard
+      - ydotool
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install or upgrade Emoji Picker from the official stable channel
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/install-emoji-picker", "--ensure"]
+  register: dot_emoji_picker_install
+  changed_when: "' installed from ' in dot_emoji_picker_install.stdout"
+
+- name: Verify Emoji Picker runtime dependencies
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import cairo, gi;
+        gi.require_version('Pango', '1.0');
+        gi.require_version('PangoCairo', '1.0');
+        from gi.repository import PangoCairo;
+        from PyQt6 import QtWidgets;
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1);
+        PangoCairo.create_layout(cairo.Context(surface))
+  changed_when: false
+
+- name: Verify direct-insertion helpers
+  ansible.builtin.command:
+    argv: [which, "{{ item }}"]
+  changed_when: false
+  loop: [ydotool, wl-copy]

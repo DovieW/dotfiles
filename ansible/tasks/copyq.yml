@@ -1,0 +1,12 @@
+---
+- name: Install or upgrade CopyQ from the official stable channel
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/install-copyq", "--ensure"]
+  register: dot_copyq_install
+  changed_when: "' installed from ' in dot_copyq_install.stdout"
+
+- name: Apply managed CopyQ configuration
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/configure-copyq", "--ensure"]
+  register: dot_copyq_configure
+  changed_when: false

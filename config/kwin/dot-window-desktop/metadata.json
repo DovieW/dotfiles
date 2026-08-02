@@ -1,0 +1,17 @@
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Id": "dot-window-desktop",
+    "Name": "Move Window and Follow",
+    "Description": "Moves the active window to an adjacent virtual desktop and follows it",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [
+      {
+        "Name": "DovieW"
+      }
+    ]
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}
