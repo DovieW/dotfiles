@@ -286,6 +286,7 @@ def panel_manifest() -> dict[str, Any]:
         or not isinstance(profiles, dict)
         or default not in profiles
         or not isinstance(tray, dict)
+        or payload.get("launcher_icon") != "windows11"
     ):
         raise DotError(f"Invalid panel profile manifest: {PANEL_PROFILES_FILE}")
     for key in ("extra_items", "shown_items", "hidden_items"):
@@ -3556,8 +3557,9 @@ def plasma_evaluate(script: str) -> str:
 
 
 def panel_profile_script(profile_name: str) -> str:
-    profile = panel_profiles()[profile_name]
-    tray_policy = panel_tray_policy()
+    manifest = panel_manifest()
+    profile = manifest["profiles"][profile_name]
+    tray_policy = manifest["tray"]
     task_plugin = (
         "org.kde.plasma.taskmanager"
         if profile["task_manager"] == "labels"
@@ -3579,8 +3581,8 @@ def panel_profile_script(profile_name: str) -> str:
         "show_date": profile["show_date"],
         "launcher_icon": (
             str(ROOT / "config/kde/assets/windows11-launcher.svg")
-            if profile["launcher_icon"] == "windows11"
-            else profile["launcher_icon"]
+            if manifest["launcher_icon"] == "windows11"
+            else manifest["launcher_icon"]
         ),
         "tray_shown": ",".join(tray_policy["shown_items"]),
         "tray_hidden": ",".join(tray_policy["hidden_items"]),
@@ -3687,7 +3689,8 @@ print("applied=" + cfg.profile + ";panel=" + panel.id);
 
 
 def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
-    profile = panel_profiles().get(profile_name)
+    manifest = panel_manifest()
+    profile = manifest["profiles"].get(profile_name)
     if profile is None:
         return False, f"unknown profile {profile_name}"
     task_plugin = (
@@ -3695,7 +3698,7 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
         if profile["task_manager"] == "labels"
         else "org.kde.plasma.icontasks"
     )
-    tray_policy = panel_tray_policy()
+    tray_policy = manifest["tray"]
     probe = """
 const ps=panels();
 if (!ps.length) { print("missing"); }
@@ -3782,8 +3785,8 @@ else {
         return False, "widget order does not match"
     expected_launcher_icon = (
         str(ROOT / "config/kde/assets/windows11-launcher.svg")
-        if profile["launcher_icon"] == "windows11"
-        else profile["launcher_icon"]
+        if manifest["launcher_icon"] == "windows11"
+        else manifest["launcher_icon"]
     )
     if launcher_icon != expected_launcher_icon:
         return False, "launcher icon does not match"

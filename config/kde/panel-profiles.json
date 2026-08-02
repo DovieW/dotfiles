@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "default": "windows-classic",
+  "launcher_icon": "windows11",
   "tray": {
     "extra_items": [
       "org.kde.kdeconnect",
@@ -46,7 +47,6 @@
     "windows-classic": {
       "label": "Windows Classic",
       "description": "Current full-width 40px bar with centered labeled tasks",
-      "launcher_icon": "start-here-kubuntu",
       "floating": false,
       "length_mode": "fill",
       "width_percent": 100,
@@ -58,7 +58,6 @@
     "windows-refined": {
       "label": "Windows Refined",
       "description": "Floating 94% bar with labeled tasks and restrained margins",
-      "launcher_icon": "start-here-kubuntu",
       "floating": true,
       "length_mode": "custom",
       "width_percent": 94,
@@ -70,7 +69,6 @@
     "centered-compact": {
       "label": "Centered Compact",
       "description": "Floating 62% bar with icon tasks, compact tray, and time",
-      "launcher_icon": "start-here-kubuntu",
       "floating": true,
       "length_mode": "custom",
       "width_percent": 62,
@@ -82,7 +80,6 @@
     "unified-pill": {
       "label": "Unified Pill",
       "description": "Fit-content floating pill with a Windows-style launcher, tasks, tray, and time",
-      "launcher_icon": "windows11",
       "floating": true,
       "length_mode": "fit",
       "width_percent": null,

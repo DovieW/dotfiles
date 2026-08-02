@@ -273,7 +273,8 @@ panel. The declarative manifest is the source of truth while Plasma-generated
 containment IDs and geometry remain host-local. The selection is stored outside
 Git and is reapplied after normal configuration reconciliation. No profile uses
 Latte Dock, downloaded widgets,
-or a global theme bundle. Every profile also enforces the desktop's solid-black
+or a global theme bundle. Every profile uses the same tracked Windows 11 Start
+icon and also enforces the desktop's solid-black
 color containment; taskbar switching never selects or installs an image
 wallpaper. Folder View is filtered defensively so Plasma updates cannot make
 files on `~/Desktop` visible again. The panel contains no pager or Show Desktop

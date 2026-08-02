@@ -49,6 +49,7 @@ class DotCliTests(unittest.TestCase):
             ],
         )
         profiles = manifest["profiles"]
+        self.assertEqual(manifest["launcher_icon"], "windows11")
         self.assertEqual(
             manifest["tray"]["shown_items"],
             [
@@ -66,7 +67,9 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(profiles["centered-compact"]["task_manager"], "icons")
         self.assertEqual(profiles["unified-pill"]["length_mode"], "fit")
         self.assertFalse(profiles["unified-pill"]["spacers"])
-        self.assertEqual(profiles["unified-pill"]["launcher_icon"], "windows11")
+        self.assertTrue(
+            all("launcher_icon" not in profile for profile in profiles.values())
+        )
         cli = DOT.read_text()
         self.assertIn('panel.lengthMode = cfg.length_mode', cli)
         self.assertIn('panel.floating = cfg.floating', cli)
