@@ -29,8 +29,8 @@ if [[ "$mode" == --check ]]; then
     grep -qx true || { echo "CopyQ clipboard settings drifted." >&2; exit 1; }
   "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Wayland paste' && c.isScript})" |
     grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
-  "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Clipboard History' && c.isGlobalShortcut && str(c.globalShortcuts).toLowerCase().indexOf('meta+v') >= 0})" |
-    grep -qx true || { echo "CopyQ Meta+V history shortcut is missing." >&2; exit 1; }
+  "$copyq_bin" eval "commands().every(function(c){return c.name != 'Dotfiles Clipboard History'})" |
+    grep -qx true || { echo "CopyQ still owns a global shortcut that belongs to KDE." >&2; exit 1; }
   echo "CopyQ clipboard history and Wayland paste integration are configured."
   exit 0
 fi

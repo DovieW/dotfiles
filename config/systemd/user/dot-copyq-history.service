@@ -1,0 +1,6 @@
+[Unit]
+Description=Open managed CopyQ clipboard history
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/dot-copyq-history

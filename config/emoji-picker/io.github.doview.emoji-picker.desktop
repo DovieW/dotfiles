@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Emoji Selector
+Name=Dotfiles Emoji Picker
 Comment=Search and directly insert emoji
 Exec=emoji-picker
 Icon=face-smile

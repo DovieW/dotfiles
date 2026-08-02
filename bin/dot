@@ -916,11 +916,29 @@ def sync_managed_kglobal_shortcuts() -> None:
         "System Monitor",
         "System Monitor",
     )
-    emoji_picker = (
+    stock_emoji_picker = (
         "org.kde.plasma.emojier.desktop",
         "_launch",
         "Emoji Selector",
         "Emoji Selector",
+    )
+    emoji_picker = (
+        "kwin",
+        "dot-emoji-picker",
+        "KWin",
+        "Open Dotfiles Emoji Picker",
+    )
+    clipboard_history_meta = (
+        "kwin",
+        "dot-copyq-history-meta",
+        "KWin",
+        "Open Clipboard History (Meta+V)",
+    )
+    clipboard_history_ctrl = (
+        "kwin",
+        "dot-copyq-history-ctrl",
+        "KWin",
+        "Open Clipboard History (Ctrl+Grave)",
     )
     klipper_popup = (
         "plasmashell",
@@ -945,6 +963,9 @@ def sync_managed_kglobal_shortcuts() -> None:
         system_monitor: [117440512],
         # CopyQ replaces Klipper; the dedicated picker inserts emoji directly.
         klipper_popup: [0],
+        stock_emoji_picker: [0],
+        clipboard_history_meta: [268435542],
+        clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
@@ -1030,6 +1051,10 @@ def apply_direct(
             ROOT / "config/copyq/dot-copyq-history": Path.home() / ".local/bin/dot-copyq-history",
             ROOT / "config/copyq/copyq.desktop": Path.home() / ".config/autostart/copyq.desktop",
             ROOT / "config/copyq/io.github.doview.copyq-history.desktop": Path.home() / ".local/share/applications/io.github.doview.copyq-history.desktop",
+            ROOT / "config/kwin/dot-clipboard/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-clipboard/metadata.json",
+            ROOT / "config/kwin/dot-clipboard/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js",
+            ROOT / "config/systemd/user/dot-copyq-history.service": Path.home() / ".config/systemd/user/dot-copyq-history.service",
+            ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
         }
         for source, destination in copyq_mappings.items():
             changes += int(link_file(source, destination))
@@ -1039,9 +1064,16 @@ def apply_direct(
                 check=False,
             )
     if features.get("emoji_picker") and selected("emoji", "clipboard"):
+        obsolete_emoji_override = (
+            Path.home()
+            / ".local/share/applications/org.kde.plasma.emojier.desktop"
+        )
+        if obsolete_emoji_override.is_symlink():
+            obsolete_emoji_override.unlink()
+            changes += 1
         emoji_mappings = {
             ROOT / "config/emoji-picker/config.json": Path.home() / ".config/emoji-picker/config.json",
-            ROOT / "config/emoji-picker/org.kde.plasma.emojier.desktop": Path.home() / ".local/share/applications/org.kde.plasma.emojier.desktop",
+            ROOT / "config/emoji-picker/io.github.doview.emoji-picker.desktop": Path.home() / ".local/share/applications/io.github.doview.emoji-picker.desktop",
         }
         for source, destination in emoji_mappings.items():
             changes += int(link_file(source, destination))
@@ -1054,6 +1086,57 @@ def apply_direct(
         (features.get("copyq") and selected("clipboard"))
         or (features.get("emoji_picker") and selected("emoji", "clipboard"))
     ):
+        if command_exists("kwriteconfig6"):
+            run(
+                [
+                    "kwriteconfig6",
+                    "--file",
+                    "kwinrc",
+                    "--group",
+                    "Plugins",
+                    "--key",
+                    "dot-clipboardEnabled",
+                    "true",
+                ]
+            )
+        if command_exists("systemctl"):
+            run(["systemctl", "--user", "daemon-reload"])
+        if command_exists("qdbus6"):
+            script_name = "dot-clipboard"
+            script_path = (
+                Path.home()
+                / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js"
+            )
+            run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Scripting",
+                    "org.kde.kwin.Scripting.unloadScript",
+                    script_name,
+                ],
+                check=False,
+                capture=True,
+            )
+            script_id = run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/Scripting",
+                    "org.kde.kwin.Scripting.loadScript",
+                    str(script_path),
+                    script_name,
+                ],
+                capture=True,
+            ).stdout.strip()
+            run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    f"/Scripting/Script{script_id}",
+                    "org.kde.kwin.Script.run",
+                ]
+            )
         sync_managed_kglobal_shortcuts()
     if lockscreen_only:
         for relative in sorted(lockscreen_files):
@@ -2082,6 +2165,39 @@ def emoji_picker_runtime() -> tuple[bool, str]:
     return False, "missing " + ", ".join(missing)
 
 
+def clipboard_shortcuts_runtime() -> tuple[bool, str]:
+    if not command_exists("gdbus") or not command_exists("qdbus6"):
+        return False, "KDE shortcut services are unavailable"
+    loaded = run(
+        [
+            "qdbus6",
+            "org.kde.KWin",
+            "/Scripting",
+            "org.kde.kwin.Scripting.isScriptLoaded",
+            "dot-clipboard",
+        ],
+        check=False,
+        capture=True,
+    )
+    expected = {
+        ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
+        ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
+        ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],
+        ("org.kde.plasma.emojier.desktop", "_launch", "Emoji Selector", "Emoji Selector"): [0],
+        ("plasmashell", "show-on-mouse-pos", "plasmashell", "Show Clipboard Items at Mouse Position"): [0],
+    }
+    try:
+        assignments_ok = all(
+            kglobal_shortcut(action_id) == keys
+            for action_id, keys in expected.items()
+        )
+    except DotError as error:
+        return False, str(error)
+    if loaded.returncode == 0 and loaded.stdout.strip() == "true" and assignments_ok:
+        return True, "KWin owns Meta+V, Ctrl+`, and Meta+.; stock actions disabled"
+    return False, "KWin clipboard script or live key assignments drifted"
+
+
 def cmd_clipboard(args: argparse.Namespace) -> None:
     action = getattr(args, "clipboard_action", "status")
     profile = getattr(args, "profile", None) or update_profile(None)
@@ -2096,6 +2212,13 @@ def cmd_clipboard(args: argparse.Namespace) -> None:
                 f"`dot apply --profile {profile} --tags clipboard`."
             )
         print(f"Emoji Picker runtime: {runtime_detail}.")
+        shortcuts_ok, shortcuts_detail = clipboard_shortcuts_runtime()
+        if not shortcuts_ok:
+            raise DotError(
+                f"Clipboard shortcuts are incomplete ({shortcuts_detail}). Run "
+                f"`dot apply --profile {profile} --tags clipboard`."
+            )
+        print(f"Clipboard shortcuts: {shortcuts_detail}.")
     elif action == "history":
         run([str(Path.home() / ".local/bin/dot-copyq-history")])
     elif action == "emoji":
@@ -5158,6 +5281,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if rdp_ok
             else f"run dot apply --profile {profile['name']} --tags rdp",
         )
+    clipboard_shortcuts_ok, clipboard_shortcuts_detail = (
+        clipboard_shortcuts_runtime()
+        if profile.get("features", {}).get("copyq")
+        or profile.get("features", {}).get("emoji_picker")
+        else (True, "not enabled")
+    )
     if profile.get("features", {}).get("copyq"):
         copyq_install = run(
             [str(ROOT / "scripts/install-copyq"), "--check"],
@@ -5169,13 +5298,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             check=False,
             capture=True,
         )
-        copyq_ok = copyq_install.returncode == 0 and copyq_config.returncode == 0
+        copyq_ok = (
+            copyq_install.returncode == 0
+            and copyq_config.returncode == 0
+            and clipboard_shortcuts_ok
+        )
         failures += not doctor_check(
             "CopyQ clipboard history",
             copyq_ok,
-            "latest stable release; Meta+V and Wayland paste configured"
+            "latest stable release; Meta+V, Ctrl+`, and Wayland paste configured"
             if copyq_ok
-            else f"run dot apply --profile {profile['name']} --tags clipboard",
+            else f"{clipboard_shortcuts_detail}; run dot apply --profile "
+            f"{profile['name']} --tags clipboard",
         )
     if profile.get("features", {}).get("emoji_picker"):
         emoji_install = run(
@@ -5187,11 +5321,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         emoji_config = Path.home() / ".config/emoji-picker/config.json"
         emoji_desktop = (
             Path.home()
-            / ".local/share/applications/org.kde.plasma.emojier.desktop"
+            / ".local/share/applications/io.github.doview.emoji-picker.desktop"
         )
         emoji_ok = bool(
             emoji_install.returncode == 0
             and emoji_runtime_ok
+            and clipboard_shortcuts_ok
             and emoji_config.exists()
             and emoji_desktop.exists()
         )
@@ -5200,7 +5335,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             emoji_ok,
             "latest stable release; Meta+. directly inserts and closes"
             if emoji_ok
-            else f"{emoji_runtime_detail}; run dot apply --profile "
+            else f"{emoji_runtime_detail}; {clipboard_shortcuts_detail}; run dot apply --profile "
             f"{profile['name']} --tags clipboard",
         )
     if profile.get("features", {}).get("kde"):

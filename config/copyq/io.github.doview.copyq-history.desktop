@@ -6,3 +6,4 @@ Exec=dot-copyq-history
 Icon=edit-paste
 Terminal=false
 NoDisplay=true
+StartupNotify=false

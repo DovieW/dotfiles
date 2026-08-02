@@ -1,0 +1,6 @@
+[Unit]
+Description=Open managed direct-insertion emoji picker
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/emoji-picker

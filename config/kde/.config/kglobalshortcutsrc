@@ -42,6 +42,9 @@ Activate Window Demanding Attention=Meta+Ctrl+A,Meta+Ctrl+A,Activate Window Dema
 Cycle Overview=none,none,Cycle through Overview and Grid View
 Cycle Overview Opposite=none,none,Cycle through Grid View and Overview
 dot-dolphin=Meta+E,none,Open or Focus Dolphin
+dot-copyq-history-ctrl=Ctrl+`,none,Open Clipboard History (Ctrl+Grave)
+dot-copyq-history-meta=Meta+V,none,Open Clipboard History (Meta+V)
+dot-emoji-picker=Meta+.,none,Open Dotfiles Emoji Picker
 dot-window-desktop-left=Meta+Alt+Left,none,Move Window and Follow Left
 dot-window-desktop-right=Meta+Alt+Right,none,Move Window and Follow Right
 Decrease Opacity=,,Decrease Opacity of Active Window by 5%
@@ -297,7 +300,7 @@ WindowUnderCursorScreenShot=
 _launch=Ctrl+Alt+Shift+Print\t
 
 [services][org.kde.plasma.emojier.desktop]
-_launch=Meta+.
+_launch=
 
 [wacomtablet]
 Map to fullscreen=Meta+Ctrl+F,Meta+Ctrl+F,Map to fullscreen

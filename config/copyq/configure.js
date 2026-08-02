@@ -25,10 +25,4 @@ retained.push({
          "  if (result.exit_code || result.stderr) throw str(result.stderr)\n" +
          "}\n"
 })
-retained.push({
-    name: managedHistory,
-    cmd: 'copyq: show("Clipboard")',
-    globalShortcuts: ['meta+v'],
-    isGlobalShortcut: true
-})
 setCommands(retained)
