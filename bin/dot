@@ -1016,11 +1016,17 @@ def sync_managed_screenshot_shortcuts() -> None:
         "KWin",
         "Copy Active Window Screenshot",
     )
-    region_pin = (
+    old_region_pin = (
         "kwin",
         "dot-flameshot-region-pin",
         "KWin",
         "Pin Rectangular Screenshot",
+    )
+    region_editor = (
+        "kwin",
+        "dot-flameshot-region-editor",
+        "KWin",
+        "Edit Rectangular Screenshot",
     )
     spectacle_full = (
         "org.kde.spectacle.desktop",
@@ -1045,10 +1051,11 @@ def sync_managed_screenshot_shortcuts() -> None:
         spectacle_region: [0],
         spectacle_window: [0],
         old_flameshot: [0],
+        old_region_pin: [0],
         region_clipboard: [301989971],  # Meta+Shift+S
         full_clipboard: [16777225],  # Print
         active_window: [150994953],  # Alt+Print
-        region_pin: [369098835],  # Meta+Ctrl+Shift+S
+        region_editor: [369098835],  # Meta+Ctrl+Shift+S
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     try:
@@ -1176,8 +1183,10 @@ def apply_direct(
             / ".config/systemd/user/dot-flameshot-full-clipboard.service",
             ROOT / "config/systemd/user/dot-active-window-clipboard.service": Path.home()
             / ".config/systemd/user/dot-active-window-clipboard.service",
-            ROOT / "config/systemd/user/dot-flameshot-region-pin.service": Path.home()
-            / ".config/systemd/user/dot-flameshot-region-pin.service",
+            ROOT / "config/systemd/user/dot-flameshot-region-editor.service": Path.home()
+            / ".config/systemd/user/dot-flameshot-region-editor.service",
+            ROOT / "scripts/capture-active-window": Path.home()
+            / ".local/bin/dot-capture-active-window",
             ROOT / "config/flameshot/flameshot.ini": Path.home()
             / ".config/flameshot/flameshot.ini",
         }
@@ -1188,6 +1197,12 @@ def apply_direct(
         )
         if obsolete_service.is_symlink() and not obsolete_service.exists():
             obsolete_service.unlink()
+            changes += 1
+        obsolete_pin_service = (
+            Path.home() / ".config/systemd/user/dot-flameshot-region-pin.service"
+        )
+        if obsolete_pin_service.is_symlink() and not obsolete_pin_service.exists():
+            obsolete_pin_service.unlink()
             changes += 1
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"])
@@ -4090,7 +4105,7 @@ def palette_apply_menu(profile: str) -> None:
         (
             "screenshots",
             "Flameshot screenshots",
-            "Repair instant clipboard captures and the pinned-region overlay without changing other KDE settings",
+            "Repair instant clipboard captures and the editable-region UI without changing other KDE settings",
         ),
         (
             "clipboard",
@@ -5861,9 +5876,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     and kglobal_shortcut(
                         (
                             "kwin",
-                            "dot-flameshot-region-pin",
+                            "dot-flameshot-region-editor",
                             "KWin",
-                            "Pin Rectangular Screenshot",
+                            "Edit Rectangular Screenshot",
                         )
                     )
                     == [369098835]
@@ -5905,7 +5920,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Flameshot shortcuts",
             flameshot_ok,
-            "region and full-screen captures use Flameshot; active-window capture is silent; pin overlay available"
+            "region and full-screen captures use Flameshot; active-window capture publishes PNG; editor available"
             if flameshot_ok
             else "run dot apply --profile kubuntu-laptop --tags screenshots",
         )

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+capture="$(mktemp --suffix=.png)"
+cleanup() {
+    if [[ -e "$capture" ]]; then
+        unlink "$capture"
+    fi
+}
+trap cleanup EXIT
+
+QT_QPA_PLATFORM=wayland spectacle \
+    --activewindow \
+    --background \
+    --nonotify \
+    --output "$capture"
+
+[[ -s "$capture" ]] || {
+    printf 'Active-window capture did not produce an image.\n' >&2
+    exit 1
+}
+
+wl-copy --type image/png < "$capture"

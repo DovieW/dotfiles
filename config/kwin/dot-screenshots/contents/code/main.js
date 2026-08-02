@@ -31,8 +31,8 @@ registerShortcut(
 );
 
 registerShortcut(
-    "dot-flameshot-region-pin",
-    "Pin Rectangular Screenshot",
+    "dot-flameshot-region-editor",
+    "Edit Rectangular Screenshot",
     "Meta+Ctrl+Shift+S",
-    function () { restartUnit("dot-flameshot-region-pin.service"); }
+    function () { restartUnit("dot-flameshot-region-editor.service"); }
 );

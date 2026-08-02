@@ -1,0 +1,6 @@
+[Unit]
+Description=Select and edit a rectangular screenshot
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flameshot gui

@@ -1366,9 +1366,10 @@ class DotCliTests(unittest.TestCase):
         window_service = (
             ROOT / "config/systemd/user/dot-active-window-clipboard.service"
         ).read_text()
-        pin_service = (
-            ROOT / "config/systemd/user/dot-flameshot-region-pin.service"
+        editor_service = (
+            ROOT / "config/systemd/user/dot-flameshot-region-editor.service"
         ).read_text()
+        active_capture = (ROOT / "scripts/capture-active-window").read_text()
         config = (ROOT / "config/flameshot/flameshot.ini").read_text()
 
         self.assertIn("dot-screenshotsEnabled=true", kwin)
@@ -1378,7 +1379,7 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("dot-flameshot-full-clipboard=Print", shortcuts)
         self.assertIn("dot-active-window-clipboard=Alt+Print", shortcuts)
-        self.assertIn("dot-flameshot-region-pin=Meta+Ctrl+Shift+S", shortcuts)
+        self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
@@ -1386,11 +1387,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
         self.assertIn("flameshot gui --clipboard --accept-on-select", region_service)
         self.assertIn("flameshot full --clipboard", full_service)
-        self.assertIn(
-            "spectacle --activewindow --background --nonotify --copy-image",
-            window_service,
-        )
-        self.assertIn("flameshot gui --pin --accept-on-select", pin_service)
+        self.assertIn("dot-capture-active-window", window_service)
+        self.assertIn("spectacle \\", active_capture)
+        self.assertIn("--activewindow", active_capture)
+        self.assertIn("--output", active_capture)
+        self.assertIn("wl-copy --type image/png", active_capture)
+        self.assertIn("ExecStart=/usr/bin/flameshot gui", editor_service)
+        self.assertNotIn("--pin", editor_service)
         self.assertIn("showHelp=false", config)
         self.assertIn("uiColor=#161b22", config)
         self.assertIn("contrastUiColor=#58a6ff", config)
