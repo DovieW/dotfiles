@@ -6061,6 +6061,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             for value in (
                 "wmclass=org.kde.dolphin",
                 "wmclassmatch=1",
+                "skippager=true",
+                "skippagerrule=2",
+                "skipswitcher=true",
+                "skipswitcherrule=2",
                 "skiptaskbar=true",
                 "skiptaskbarrule=2",
             )
@@ -6068,7 +6072,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Dolphin taskbar rule",
             dolphin_taskbar_ok,
-            "hidden from the taskbar but retained in Alt+Tab"
+            "hidden from the taskbar, pager, and Alt+Tab"
             if dolphin_taskbar_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )

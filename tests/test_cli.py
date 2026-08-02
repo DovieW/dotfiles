@@ -831,6 +831,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("_launch=none,Meta+E,Dolphin", shortcuts)
         self.assertIn("wmclass=org.kde.dolphin", rules)
         self.assertIn("wmclassmatch=1", rules)
+        dolphin_rule = rules.split("[dolphin-skip-taskbar]", 1)[1].split(
+            "[emoji-selector-ephemeral]", 1
+        )[0]
+        self.assertIn("skippager=true", dolphin_rule)
+        self.assertIn("skippagerrule=2", dolphin_rule)
+        self.assertIn("skipswitcher=true", dolphin_rule)
+        self.assertIn("skipswitcherrule=2", dolphin_rule)
         self.assertIn("skiptaskbar=true", rules)
         self.assertIn("skiptaskbarrule=2", rules)
         self.assertIn(

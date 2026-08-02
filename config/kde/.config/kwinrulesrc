@@ -25,7 +25,11 @@ wmclass=com.github.hluk.copyq
 wmclassmatch=1
 
 [dolphin-skip-taskbar]
-Description=Keep Dolphin out of the taskbar
+Description=Keep Dolphin out of persistent window lists
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
 wmclass=org.kde.dolphin
