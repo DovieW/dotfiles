@@ -1,0 +1,6 @@
+[Unit]
+Description=Select a rectangle and pin it as an overlay
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flameshot gui --pin --accept-on-select

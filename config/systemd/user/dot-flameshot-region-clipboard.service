@@ -1,0 +1,6 @@
+[Unit]
+Description=Select a rectangle and copy it immediately
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flameshot gui --clipboard --accept-on-select

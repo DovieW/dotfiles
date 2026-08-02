@@ -988,15 +988,39 @@ def sync_managed_kglobal_shortcuts() -> None:
 
 
 def sync_managed_screenshot_shortcuts() -> None:
-    """Route the Windows-style screenshot keys exclusively to Flameshot."""
+    """Route each Windows-style screenshot key to its managed capture action."""
     if not command_exists("gdbus"):
         raise DotError("gdbus is required to activate managed screenshot shortcuts.")
 
-    flameshot = (
+    old_flameshot = (
         "kwin",
         "dot-flameshot-capture",
         "KWin",
         "Open Flameshot Capture",
+    )
+    region_clipboard = (
+        "kwin",
+        "dot-flameshot-region-clipboard",
+        "KWin",
+        "Copy Rectangular Screenshot",
+    )
+    full_clipboard = (
+        "kwin",
+        "dot-flameshot-full-clipboard",
+        "KWin",
+        "Copy Full Screen Screenshot",
+    )
+    active_window = (
+        "kwin",
+        "dot-active-window-clipboard",
+        "KWin",
+        "Copy Active Window Screenshot",
+    )
+    region_pin = (
+        "kwin",
+        "dot-flameshot-region-pin",
+        "KWin",
+        "Pin Rectangular Screenshot",
     )
     spectacle_full = (
         "org.kde.spectacle.desktop",
@@ -1020,8 +1044,11 @@ def sync_managed_screenshot_shortcuts() -> None:
         spectacle_full: [0],
         spectacle_region: [0],
         spectacle_window: [0],
-        # Print, Alt+Print, and Meta+Shift+S.
-        flameshot: [16777225, 150994953, 301989971],
+        old_flameshot: [0],
+        region_clipboard: [301989971],  # Meta+Shift+S
+        full_clipboard: [16777225],  # Print
+        active_window: [150994953],  # Alt+Print
+        region_pin: [369098835],  # Meta+Ctrl+Shift+S
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     try:
@@ -1143,11 +1170,25 @@ def apply_direct(
             / ".local/share/kwin/scripts/dot-screenshots/metadata.json",
             ROOT / "config/kwin/dot-screenshots/contents/code/main.js": Path.home()
             / ".local/share/kwin/scripts/dot-screenshots/contents/code/main.js",
-            ROOT / "config/systemd/user/dot-flameshot-capture.service": Path.home()
-            / ".config/systemd/user/dot-flameshot-capture.service",
+            ROOT / "config/systemd/user/dot-flameshot-region-clipboard.service": Path.home()
+            / ".config/systemd/user/dot-flameshot-region-clipboard.service",
+            ROOT / "config/systemd/user/dot-flameshot-full-clipboard.service": Path.home()
+            / ".config/systemd/user/dot-flameshot-full-clipboard.service",
+            ROOT / "config/systemd/user/dot-active-window-clipboard.service": Path.home()
+            / ".config/systemd/user/dot-active-window-clipboard.service",
+            ROOT / "config/systemd/user/dot-flameshot-region-pin.service": Path.home()
+            / ".config/systemd/user/dot-flameshot-region-pin.service",
+            ROOT / "config/flameshot/flameshot.ini": Path.home()
+            / ".config/flameshot/flameshot.ini",
         }
         for source, destination in screenshot_mappings.items():
             changes += int(link_file(source, destination))
+        obsolete_service = (
+            Path.home() / ".config/systemd/user/dot-flameshot-capture.service"
+        )
+        if obsolete_service.is_symlink() and not obsolete_service.exists():
+            obsolete_service.unlink()
+            changes += 1
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"])
         if command_exists("kwriteconfig6"):
@@ -4049,7 +4090,7 @@ def palette_apply_menu(profile: str) -> None:
         (
             "screenshots",
             "Flameshot screenshots",
-            "Repair Print, Alt+Print, and Meta+Shift+S without changing other KDE settings",
+            "Repair instant clipboard captures and the pinned-region overlay without changing other KDE settings",
         ),
         (
             "clipboard",
@@ -5793,12 +5834,39 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     kglobal_shortcut(
                         (
                             "kwin",
-                            "dot-flameshot-capture",
+                            "dot-flameshot-region-clipboard",
                             "KWin",
-                            "Open Flameshot Capture",
+                            "Copy Rectangular Screenshot",
                         )
                     )
-                    == [16777225, 150994953, 301989971]
+                    == [301989971]
+                    and kglobal_shortcut(
+                        (
+                            "kwin",
+                            "dot-flameshot-full-clipboard",
+                            "KWin",
+                            "Copy Full Screen Screenshot",
+                        )
+                    )
+                    == [16777225]
+                    and kglobal_shortcut(
+                        (
+                            "kwin",
+                            "dot-active-window-clipboard",
+                            "KWin",
+                            "Copy Active Window Screenshot",
+                        )
+                    )
+                    == [150994953]
+                    and kglobal_shortcut(
+                        (
+                            "kwin",
+                            "dot-flameshot-region-pin",
+                            "KWin",
+                            "Pin Rectangular Screenshot",
+                        )
+                    )
+                    == [369098835]
                     and kglobal_shortcut(
                         (
                             "org.kde.spectacle.desktop",
@@ -5837,7 +5905,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Flameshot shortcuts",
             flameshot_ok,
-            "Print, Alt+Print, and Meta+Shift+S open Flameshot; Spectacle bindings disabled"
+            "region and full-screen captures use Flameshot; active-window capture is silent; pin overlay available"
             if flameshot_ok
             else "run dot apply --profile kubuntu-laptop --tags screenshots",
         )

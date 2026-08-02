@@ -1,0 +1,6 @@
+[Unit]
+Description=Copy a full-screen screenshot immediately
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flameshot full --clipboard

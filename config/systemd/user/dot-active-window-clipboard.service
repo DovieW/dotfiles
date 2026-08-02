@@ -1,0 +1,7 @@
+[Unit]
+Description=Copy the active window immediately
+
+[Service]
+Type=exec
+Environment=QT_QPA_PLATFORM=wayland
+ExecStart=/usr/bin/spectacle --activewindow --background --nonotify --copy-image

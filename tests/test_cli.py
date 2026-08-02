@@ -1357,21 +1357,43 @@ class DotCliTests(unittest.TestCase):
         script = (
             ROOT / "config/kwin/dot-screenshots/contents/code/main.js"
         ).read_text()
-        service = (
-            ROOT / "config/systemd/user/dot-flameshot-capture.service"
+        region_service = (
+            ROOT / "config/systemd/user/dot-flameshot-region-clipboard.service"
         ).read_text()
+        full_service = (
+            ROOT / "config/systemd/user/dot-flameshot-full-clipboard.service"
+        ).read_text()
+        window_service = (
+            ROOT / "config/systemd/user/dot-active-window-clipboard.service"
+        ).read_text()
+        pin_service = (
+            ROOT / "config/systemd/user/dot-flameshot-region-pin.service"
+        ).read_text()
+        config = (ROOT / "config/flameshot/flameshot.ini").read_text()
 
         self.assertIn("dot-screenshotsEnabled=true", kwin)
         self.assertIn(
-            "dot-flameshot-capture=Print\\tAlt+Print\\tMeta+Shift+S",
+            "dot-flameshot-region-clipboard=Meta+Shift+S",
             shortcuts,
         )
+        self.assertIn("dot-flameshot-full-clipboard=Print", shortcuts)
+        self.assertIn("dot-active-window-clipboard=Alt+Print", shortcuts)
+        self.assertIn("dot-flameshot-region-pin=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
         self.assertIn('"RestartUnit"', script)
-        self.assertIn('"dot-flameshot-capture.service"', script)
-        self.assertIn("ExecStart=/usr/bin/flameshot gui", service)
+        self.assertIn('"dot-flameshot-region-clipboard.service"', script)
+        self.assertIn("flameshot gui --clipboard --accept-on-select", region_service)
+        self.assertIn("flameshot full --clipboard", full_service)
+        self.assertIn(
+            "spectacle --activewindow --background --nonotify --copy-image",
+            window_service,
+        )
+        self.assertIn("flameshot gui --pin --accept-on-select", pin_service)
+        self.assertIn("showHelp=false", config)
+        self.assertIn("uiColor=#161b22", config)
+        self.assertIn("contrastUiColor=#58a6ff", config)
         self.assertIn("def sync_managed_screenshot_shortcuts", cli)
         self.assertIn('selected("screenshots", "kde")', cli)
         self.assertIn('"screenshots",', cli)
