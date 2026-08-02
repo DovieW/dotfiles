@@ -1,0 +1,6 @@
+[Unit]
+Description=Open the managed Flameshot capture interface
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/flameshot gui

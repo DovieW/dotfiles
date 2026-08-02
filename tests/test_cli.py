@@ -1350,6 +1350,32 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('clipboard = sub.add_parser("clipboard")', cli)
         self.assertIn("(?:@ai )?", cli)
 
+    def test_kubuntu_routes_screenshot_shortcuts_to_flameshot(self):
+        cli = DOT.read_text()
+        shortcuts = (ROOT / "config/kde/.config/kglobalshortcutsrc").read_text()
+        kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
+        script = (
+            ROOT / "config/kwin/dot-screenshots/contents/code/main.js"
+        ).read_text()
+        service = (
+            ROOT / "config/systemd/user/dot-flameshot-capture.service"
+        ).read_text()
+
+        self.assertIn("dot-screenshotsEnabled=true", kwin)
+        self.assertIn(
+            "dot-flameshot-capture=Print\\tAlt+Print\\tMeta+Shift+S",
+            shortcuts,
+        )
+        self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
+        self.assertIn("FullScreenScreenShot=\n", shortcuts)
+        self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
+        self.assertIn('"RestartUnit"', script)
+        self.assertIn('"dot-flameshot-capture.service"', script)
+        self.assertIn("ExecStart=/usr/bin/flameshot gui", service)
+        self.assertIn("def sync_managed_screenshot_shortcuts", cli)
+        self.assertIn('selected("screenshots", "kde")', cli)
+        self.assertIn('"screenshots",', cli)
+
     def test_zsh_uses_fzf_for_normal_tab_completion(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

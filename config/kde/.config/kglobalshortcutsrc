@@ -45,6 +45,7 @@ dot-dolphin=Meta+E,none,Open or Focus Dolphin
 dot-copyq-history-ctrl=Ctrl+`,none,Open Clipboard History (Ctrl+Grave)
 dot-copyq-history-meta=Meta+V,none,Open Clipboard History (Meta+V)
 dot-emoji-picker=Meta+.,none,Open Dotfiles Emoji Picker
+dot-flameshot-capture=Print\tAlt+Print\tMeta+Shift+S,none,Open Flameshot Capture
 dot-window-desktop-left=Meta+Alt+Left,none,Move Window and Follow Left
 dot-window-desktop-right=Meta+Alt+Right,none,Move Window and Follow Right
 Decrease Opacity=,,Decrease Opacity of Active Window by 5%
@@ -288,14 +289,14 @@ switch to previous activity=,,Switch to Previous Activity
 toggle do not disturb=,,Toggle do not disturb
 
 [services][org.kde.spectacle.desktop]
-ActiveWindowScreenShot=Alt+Print
+ActiveWindowScreenShot=
 CurrentMonitorScreenShot=
-FullScreenScreenShot=Print
+FullScreenScreenShot=
 OpenWithoutScreenshot=
 RecordRegion=\t
 RecordScreen=
 RecordWindow=
-RectangularRegionScreenShot=Meta+Shift+S
+RectangularRegionScreenShot=
 WindowUnderCursorScreenShot=
 _launch=Ctrl+Alt+Shift+Print\t
 

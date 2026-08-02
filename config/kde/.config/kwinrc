@@ -12,6 +12,7 @@ desktopchangeosdEnabled=true
 dot-dolphinEnabled=true
 dot-clipboardEnabled=true
 dot-obsidianEnabled=true
+dot-screenshotsEnabled=true
 dot-window-desktopEnabled=true
 fadeEnabled=false
 fadedesktopEnabled=false
