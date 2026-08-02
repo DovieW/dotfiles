@@ -281,6 +281,17 @@
       when: dot_profile_data.features.vite_plus | default(false)
       tags: [packages, config, shell]
 
+    - name: Ensure git-sync from the official stable branch
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/scripts/install-git-sync"
+          - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+      register: dot_git_sync_install
+      changed_when: "'CHANGED ' in dot_git_sync_install.stdout"
+      check_mode: false
+      when: dot_profile_data.features.git | default(false)
+      tags: [packages, config, git, app-updates]
+
     - name: Apply portable configuration
       ansible.builtin.command:
         argv:

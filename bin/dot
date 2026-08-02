@@ -1847,6 +1847,16 @@ def cmd_apply(args: argparse.Namespace) -> None:
         ):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-codex"), mode], cwd=ROOT)
+        if profile.get("features", {}).get("git") and (
+            not direct_tags
+            or "all" in direct_tags
+            or "config" in direct_tags
+            or "packages" in direct_tags
+            or "git" in direct_tags
+            or "app-updates" in direct_tags
+        ):
+            mode = "--check" if args.check else "--ensure"
+            run([str(ROOT / "scripts/install-git-sync"), mode], cwd=ROOT)
         if not args.direct:
             print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
         apply_direct(
@@ -5190,6 +5200,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ),
             "clip reads stdin; cclip concatenates files into the clipboard",
         )
+        if profile.get("features", {}).get("git"):
+            git_sync_check = run(
+                [str(ROOT / "scripts/install-git-sync"), "--check"],
+                check=False,
+                capture=True,
+            )
+            git_sync_detail = (
+                git_sync_check.stdout or git_sync_check.stderr
+            ).strip()
+            failures += not doctor_check(
+                "git-sync",
+                git_sync_check.returncode == 0,
+                git_sync_detail
+                or f"run dot apply --profile {profile['name']} --tags git",
+            )
         tmux_config = Path.home() / ".config/tmux/tmux.conf"
         failures += not doctor_check(
             "tmux configuration",

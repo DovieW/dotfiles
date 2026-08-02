@@ -1439,6 +1439,23 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("FZF_DEFAULT_OPTS_FILE", powershell)
         self.assertIn('title = " FZF "', neovim)
 
+    def test_git_sync_is_managed_and_enabled_for_primary_branches(self):
+        cli = DOT.read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        root_gitconfig = (ROOT / "config/git/root.gitconfig").read_text()
+        sync_gitconfig = (ROOT / "config/git/sync.gitconfig").read_text()
+        installer = (ROOT / "scripts/install-git-sync").read_text()
+
+        self.assertIn('scripts/install-git-sync', cli)
+        self.assertIn('scripts/install-git-sync', playbook)
+        self.assertIn('tags: [packages, config, git, app-updates]', playbook)
+        self.assertIn('path = ~/repos/dotfiles/config/git/sync.gitconfig', root_gitconfig)
+        self.assertIn('[branch "master"]', sync_gitconfig)
+        self.assertIn('[branch "main"]', sync_gitconfig)
+        self.assertEqual(sync_gitconfig.count("syncNewFiles = true"), 2)
+        self.assertIn('https://github.com/simonthum/git-sync.git', installer)
+        self.assertIn('git ls-remote', installer)
+
     def test_neovim_is_modern_managed_and_shared_with_wsl(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

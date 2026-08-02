@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure|--check) ;;
+  *) echo "usage: install-git-sync [--ensure|--check]" >&2; exit 2 ;;
+esac
+
+repo="https://github.com/simonthum/git-sync.git"
+branch="master"
+app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/git-sync"
+bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+marker="$app_root/current-revision"
+
+remote_ref="$(git ls-remote "$repo" "refs/heads/$branch")"
+revision="${remote_ref%%[[:space:]]*}"
+if [[ ! "$revision" =~ ^[[:xdigit:]]{40}$ ]]; then
+  echo "git-sync: current upstream revision could not be resolved." >&2
+  exit 1
+fi
+
+target="$app_root/releases/$revision/git-sync"
+installed=""
+[[ -f "$marker" ]] && installed="$(<"$marker")"
+if [[ "$installed" == "$revision" && -x "$target" &&
+      -L "$bin_dir/git-sync" &&
+      "$(readlink -f -- "$bin_dir/git-sync")" == "$target" ]]; then
+  echo "git-sync ${revision:0:12} is installed from the official stable branch."
+  exit 0
+fi
+
+if [[ "$mode" == --check ]]; then
+  echo "git-sync requires update: ${installed:-missing} -> $revision" >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d)"
+stage=""
+cleanup() {
+  rm -rf -- "$work_dir"
+  [[ -z "$stage" ]] || rm -rf -- "$stage"
+}
+trap cleanup EXIT
+
+git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$branch" \
+  "$repo" "$work_dir/repo"
+actual="$(git -C "$work_dir/repo" rev-parse HEAD)"
+if [[ "$actual" != "$revision" ]]; then
+  echo "git-sync: upstream changed while it was being downloaded; retry." >&2
+  exit 1
+fi
+bash -n "$work_dir/repo/git-sync"
+
+install -d -m 0755 "$app_root/releases" "$bin_dir"
+stage="$(mktemp -d "$app_root/releases/.install.XXXXXX")"
+install -m 0755 "$work_dir/repo/git-sync" "$stage/git-sync"
+install -m 0644 "$work_dir/repo/LICENSE" "$stage/LICENSE"
+if [[ ! -d "$(dirname "$target")" ]]; then
+  mv -- "$stage" "$(dirname "$target")"
+  stage=""
+else
+  install -m 0755 "$stage/git-sync" "$target"
+  install -m 0644 "$stage/LICENSE" "$(dirname "$target")/LICENSE"
+fi
+ln -sfn "$target" "$bin_dir/git-sync"
+printf '%s\n' "$revision" >"$marker"
+
+echo "CHANGED git-sync ${revision:0:12} installed from the official stable branch."

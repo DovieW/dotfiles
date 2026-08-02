@@ -1,0 +1,6 @@
+[branch "master"]
+	sync = true
+	syncNewFiles = true
+[branch "main"]
+	sync = true
+	syncNewFiles = true

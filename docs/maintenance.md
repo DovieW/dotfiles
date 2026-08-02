@@ -27,6 +27,9 @@ committed merely to freeze a workstation:
 - Bitwarden Desktop and Obsidian resolve their latest matching stable GitHub
   release dynamically.
 - Codex and Vite+ use their official stable channels and supported updaters.
+- `git-sync` follows its maintained upstream `master` branch because the
+  project does not publish releases; dotfiles records the installed revision
+  and replaces it only after downloading and syntax-checking the new script.
 - Windows remains inventory-only, so dotfiles reports rather than changes its
   application versions.
 
@@ -49,9 +52,27 @@ WSL requires an explicit personal or work profile because both are valid there.
 The same scopes are available under **Update** in the fzf command palette.
 **Update everything** updates all installed APT packages, all Snaps, all
 Homebrew formulae, managed external Debian applications, Tmux plugins, Codex,
-Vite+, InputActions, Neovim plugins, and curated Mason language tools. A
+Vite+, git-sync, InputActions, Neovim plugins, and curated Mason language tools. A
 package-manager transaction already in progress causes an actionable refusal
 instead of competing for native locks.
+
+## Automatic repository sync
+
+`g sync` is `git sync`: Git discovers the managed `git-sync` executable on
+`PATH`, commits ordinary local changes, fetches, integrates a safe
+non-divergent upstream update, and pushes. The primary `master` and `main`
+branches opt in by default and include new files, preserving the historical
+workflow. Other branches refuse automatic mutation unless the repository opts
+in explicitly or `git sync -s` is used. Install, repair, or update only this
+utility with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags git
+```
+
+Because sync creates a normal signed commit, the Bitwarden SSH agent must be
+available whenever the repository's signing policy requires it. Conflicts,
+detached HEADs, and other non-routine states are rejected for manual review.
 
 ## Interactive command palette
 
