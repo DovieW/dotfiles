@@ -1151,7 +1151,7 @@ class DotCliTests(unittest.TestCase):
             manifest["factory_profile"]["windows_filename"],
             "TPLCD_8BAD_Default.icm",
         )
-        self.assertEqual(manifest["policy"]["adaptive_sync"], "Automatic")
+        self.assertEqual(manifest["policy"]["adaptive_sync"], "Never")
         self.assertEqual(manifest["policy"]["rgb_range"], "Automatic")
         self.assertEqual(manifest["policy"]["color_profile_source"], "ICC")
         self.assertEqual(

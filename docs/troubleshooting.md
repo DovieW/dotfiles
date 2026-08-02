@@ -74,7 +74,8 @@ The display action identifies the built-in Samsung OLED by EDID, temporarily
 mounts the `Windows-SSD` volume read-only when necessary, copies Lenovo's
 factory ICC profile, and unmounts a volume it mounted itself. If Windows is
 unavailable, the action reports a clear skip rather than installing a generic
-or incorrect profile.
+or incorrect profile. Adaptive Sync is intentionally disabled: fixed 120 Hz
+prevents uneven pointer motion in fullscreen Chromium and Electron windows.
 
 ### A taskbar profile does not match its description
 

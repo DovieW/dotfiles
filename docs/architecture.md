@@ -230,8 +230,10 @@ IdeaPad's Samsung `ATNA60HR01-0` OLED by EDID, copies Lenovo's X-Rite
 proprietary profile itself remains machine-local under
 `~/.local/share/color/icc/lenovo`.
 
-The panel policy uses automatic Adaptive Sync, automatic RGB range, automatic
-link color depth, and KWin's color-accuracy preference. HDR and wide-gamut HDR
+The panel policy disables Adaptive Sync, uses automatic RGB range and link
+color depth, and selects KWin's color-accuracy preference. Fixed 120 Hz avoids
+uneven pointer motion observed when fullscreen Chromium and Electron windows
+activated variable refresh. HDR and wide-gamut HDR
 output remain disabled for the normal desktop because this Plasma version
 cannot combine the factory ICC with HDR; calibrated SDR is the consistent
 daily-use mode. KScreen's “automatic” color-resolution readout describes

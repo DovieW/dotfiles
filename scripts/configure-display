@@ -266,7 +266,7 @@ def main() -> int:
             print("DRIFT display policy: " + "; ".join(differences))
             return 1
         print(
-            "OK display policy: factory ICC, automatic VRR/link depth, "
+            "OK display policy: factory ICC, VRR disabled, automatic link depth, "
             "accuracy priority, and SDR are active."
         )
         return 0
@@ -295,7 +295,7 @@ def main() -> int:
         return 1
     prefix = "CHANGED" if changed else "OK"
     print(
-        f"{prefix} display policy: factory ICC, automatic VRR/link depth, "
+        f"{prefix} display policy: factory ICC, VRR disabled, automatic link depth, "
         "accuracy priority, and SDR are active."
     )
     return 0

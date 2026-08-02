@@ -4125,7 +4125,7 @@ def palette_apply_menu(profile: str) -> None:
         (
             "display",
             "Internal OLED display",
-            "Apply factory ICC, automatic VRR/link depth, accurate SDR, and RGB policy",
+            "Apply factory ICC, fixed-refresh display, accurate SDR, and RGB policy",
         ),
         (
             "vscode",
