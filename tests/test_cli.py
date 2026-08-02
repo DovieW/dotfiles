@@ -1322,6 +1322,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Meta+."', clipboard_script)
         self.assertIn("dot-copyq-history.service", clipboard_script)
         self.assertIn("dot-emoji-picker.service", clipboard_script)
+        self.assertIn('"RestartUnit"', clipboard_script)
+        self.assertNotIn('"StartUnit"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
         self.assertIn("jockel09/emoji-picker", installer)
         self.assertIn("releases/latest", installer)
