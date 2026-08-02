@@ -596,6 +596,7 @@ class DotCliTests(unittest.TestCase):
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
         input_config = (ROOT / "config/kde/.config/kcminputrc").read_text()
+        launch_feedback = (ROOT / "config/kde/.config/klaunchrc").read_text()
         lock_screen = (ROOT / "config/kde/.config/kscreenlockerrc").read_text()
         plasma_pa = (ROOT / "config/kde/.config/plasmaparc").read_text()
         plasma_notify = (
@@ -609,6 +610,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Color=0,0,0", panel)
         self.assertIn("PopupPosition=BottomRight", plasma_notify)
         self.assertIn('".config/plasmanotifyrc",', cli)
+        self.assertIn('".config/klaunchrc",', cli)
+        self.assertIn("BusyCursor=false", launch_feedback)
+        self.assertIn("TaskbarButton=true", launch_feedback)
         self.assertIn(
             "Notification position is held by a process-wide Plasma singleton",
             cli,
