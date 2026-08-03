@@ -44,6 +44,7 @@ installed=""
 [[ -f "$marker" ]] && installed="$(<"$marker")"
 if [[ "$installed" == "$release" && -x "$image" && -x "$app_run" && -x "$bin_dir/copyq" &&
       ! -L "$bin_dir/copyq" ]] &&
+   grep -Fqx -- "export APPDIR=\"$app_dir\"" "$bin_dir/copyq" &&
    grep -Fq -- "$app_run" "$bin_dir/copyq"; then
   echo "CopyQ $release is installed from the official stable channel."
   exit 0
@@ -94,6 +95,7 @@ printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   'export QT_QPA_PLATFORM=wayland' \
+  "export APPDIR=\"$app_dir\"" \
   "exec \"$app_run\" \"\$@\"" >"$wrapper"
 chmod 0755 "$wrapper"
 mv -f -- "$wrapper" "$bin_dir/copyq"

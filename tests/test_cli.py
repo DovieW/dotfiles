@@ -1438,6 +1438,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("QT_QPA_PLATFORM=wayland", copyq_installer)
         self.assertIn("--appimage-extract", copyq_installer)
         self.assertIn('app_run="$app_dir/AppRun"', copyq_installer)
+        self.assertIn('export APPDIR=\\\"$app_dir\\\"', copyq_installer)
         self.assertIn('exec \\\"$app_run\\\"', copyq_installer)
         self.assertIn('"clipboard",', cli)
         self.assertIn('"emoji",', cli)
