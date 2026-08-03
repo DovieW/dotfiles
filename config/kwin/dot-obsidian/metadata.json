@@ -3,7 +3,7 @@
   "KPlugin": {
     "Id": "dot-obsidian",
     "Name": "Open or Focus Obsidian",
-    "Description": "Focuses the existing Obsidian window across virtual desktops or launches it when absent",
+    "Description": "Focuses Obsidian on the current virtual desktop or opens a new window there",
     "Version": "1.0",
     "License": "MIT",
     "Authors": [

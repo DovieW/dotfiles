@@ -75,10 +75,14 @@ def use_chrome_system_frame(data: JsonObject) -> bool:
 
 
 def use_obsidian_native_frame(data: JsonObject) -> bool:
-    if data.get("frame") == "native":
-        return False
-    data["frame"] = "native"
-    return True
+    changed = False
+    if data.get("frame") != "native":
+        data["frame"] = "native"
+        changed = True
+    if data.get("cli") is not True:
+        data["cli"] = True
+        changed = True
+    return changed
 
 
 def main() -> int:

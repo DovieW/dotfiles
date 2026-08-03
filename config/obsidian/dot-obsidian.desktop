@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Obsidian
+Comment=Open Obsidian on this virtual desktop
+Exec=/usr/bin/qdbus6 org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian
+Terminal=false
+Type=Application
+Icon=obsidian
+# Deliberately do not match real Obsidian windows on other virtual desktops.
+StartupWMClass=dot-obsidian-launcher
+NoDisplay=true
+Categories=Office;

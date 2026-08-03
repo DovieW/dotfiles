@@ -1550,7 +1550,7 @@ def apply_direct(
             ROOT / "config/kwin/tabbox-large-list/contents/ui/main.qml": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/contents/ui/main.qml",
             ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/systemd/user/dot-obsidian-launch.service": Path.home() / ".config/systemd/user/dot-obsidian-launch.service",
-            ROOT / "config/obsidian/dot-obsidian": Path.home() / ".local/bin/dot-obsidian",
+            ROOT / "config/obsidian/dot-obsidian.desktop": Path.home() / ".local/share/applications/dot-obsidian.desktop",
             ROOT / "config/obsidian/obsidian.desktop": Path.home() / ".local/share/applications/obsidian.desktop",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
             ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
@@ -1564,6 +1564,10 @@ def apply_direct(
         for source, destination in desktop_mappings.items():
             file_changed = copy_managed_file(source, destination)
             changes += int(file_changed)
+        obsolete_obsidian_wrapper = Path.home() / ".local/bin/dot-obsidian"
+        if obsolete_obsidian_wrapper.is_file() or obsolete_obsidian_wrapper.is_symlink():
+            obsolete_obsidian_wrapper.unlink()
+            changes += 1
         if command_exists("qdbus6"):
             run(
                 [
@@ -1597,10 +1601,18 @@ def apply_direct(
                     check=False,
                     capture=True,
                 )
-                if (
-                    script_path.is_file()
-                    and (loaded.returncode != 0 or loaded.stdout.strip() != "true")
-                ):
+                if script_path.is_file():
+                    if loaded.returncode == 0 and loaded.stdout.strip() == "true":
+                        run(
+                            [
+                                "qdbus6",
+                                "org.kde.KWin",
+                                "/Scripting",
+                                "org.kde.kwin.Scripting.unloadScript",
+                                script_name,
+                            ],
+                            check=False,
+                        )
                     script_id = run(
                         [
                             "qdbus6",
@@ -3615,6 +3627,12 @@ for (let i = 0; i < oldPanels.length; ++i) {{
         break;
     }}
 }}
+// Migrate the old launcher ID. That ID matched windows on other desktops, so
+// Plasma intercepted clicks before our desktop-aware launcher could run.
+launchers = launchers.replace(
+    "applications:obsidian.desktop",
+    "applications:dot-obsidian.desktop"
+);
 const panel = new Panel;
 panel.location = "bottom";
 panel.hiding = "autohide";
@@ -6056,21 +6074,29 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 obsidian_script.returncode == 0
                 and obsidian_script.stdout.strip() == "true"
             )
-        obsidian_launcher = (
-            Path.home() / ".local/share/applications/obsidian.desktop"
-        )
-        obsidian_singleton_ok = (
+        obsidian_launcher = Path.home() / ".local/share/applications/dot-obsidian.desktop"
+        obsidian_config = Path.home() / ".config/obsidian/obsidian.json"
+        obsidian_cli_enabled = False
+        if obsidian_config.is_file():
+            try:
+                obsidian_cli_enabled = bool(
+                    json.loads(obsidian_config.read_text(encoding="utf-8")).get("cli")
+                )
+            except (json.JSONDecodeError, OSError):
+                pass
+        obsidian_desktop_aware_ok = (
             "dot-obsidianEnabled=true" in kwin
             and obsidian_script_loaded
             and obsidian_launcher.is_file()
             and "org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian"
             in obsidian_launcher.read_text(encoding="utf-8")
+            and obsidian_cli_enabled
         )
         failures += not doctor_check(
-            "Obsidian cross-desktop launcher",
-            obsidian_singleton_ok,
-            "taskbar launches focus the existing vault window across desktops"
-            if obsidian_singleton_ok
+            "Obsidian desktop-aware launcher",
+            obsidian_desktop_aware_ok,
+            "taskbar reuses a local vault window or opens a new one on this desktop"
+            if obsidian_desktop_aware_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         window_desktop_script_loaded = False

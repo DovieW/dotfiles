@@ -1,6 +1,6 @@
 [Unit]
-Description=Launch Obsidian when no vault window is open
+Description=Open a new Obsidian window on the current virtual desktop
 
 [Service]
 Type=exec
-ExecStart=/opt/Obsidian/obsidian
+ExecStart=/opt/Obsidian/obsidian-cli command id=workspace:new-window

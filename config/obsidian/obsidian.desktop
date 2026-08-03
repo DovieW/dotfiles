@@ -1,11 +1,7 @@
 [Desktop Entry]
 Name=Obsidian
 Comment=Knowledge base
-# Plasma starts desktop launchers with a minimal PATH, which deliberately does
-# not include ~/.local/bin.  Invoke the KWin shortcut through its system DBus
-# client instead; the KWin script focuses an existing Obsidian window on any
-# desktop or starts its systemd user unit when none exists.
-Exec=/usr/bin/qdbus6 org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian
+Exec=/opt/Obsidian/obsidian %U
 Terminal=false
 Type=Application
 Icon=obsidian

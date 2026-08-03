@@ -55,7 +55,7 @@ class DotCliTests(unittest.TestCase):
             [
                 "applications:google-chrome.desktop",
                 "applications:com.mitchellh.ghostty.desktop",
-                "applications:obsidian.desktop",
+                "applications:dot-obsidian.desktop",
             ],
         )
         self.assertEqual(
@@ -355,7 +355,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(
             "launchers=applications:google-chrome.desktop,"
             "applications:com.mitchellh.ghostty.desktop,"
-            "applications:obsidian.desktop",
+            "applications:dot-obsidian.desktop",
             panel,
         )
         self.assertNotIn("applications:org.kde.konsole.desktop", panel)
@@ -423,6 +423,7 @@ class DotCliTests(unittest.TestCase):
             self.assertIs(chrome_data["browser"]["custom_chrome_frame"], False)
             self.assertEqual(chrome_data["private"]["account"], "preserve-me")
             self.assertEqual(obsidian_data["frame"], "native")
+            self.assertIs(obsidian_data["cli"], True)
             self.assertEqual(
                 obsidian_data["vaults"]["private-id"]["path"],
                 "/private/vault",
@@ -814,6 +815,7 @@ class DotCliTests(unittest.TestCase):
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)
         self.assertIn('data["frame"] = "native"', native_frames)
+        self.assertIn('data["cli"] = True', native_frames)
         self.assertIn("Configure native application window frames", (ROOT / "ansible/local.yml").read_text())
 
         self.assertIn("ColorScheme=GitHubDark", kdeglobals)
@@ -910,32 +912,34 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Dolphin singleton shortcut"', cli)
         self.assertIn('"Dolphin taskbar rule"', cli)
 
-    def test_obsidian_launcher_focuses_existing_window_across_desktops(self):
+    def test_obsidian_launcher_is_desktop_aware(self):
         cli = DOT.read_text()
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         script = (
             ROOT / "config/kwin/dot-obsidian/contents/code/main.js"
         ).read_text()
-        wrapper = (ROOT / "config/obsidian/dot-obsidian").read_text()
-        launcher = (ROOT / "config/obsidian/obsidian.desktop").read_text()
+        launcher = (ROOT / "config/obsidian/dot-obsidian.desktop").read_text()
+        mime_launcher = (ROOT / "config/obsidian/obsidian.desktop").read_text()
         service = (
             ROOT / "config/systemd/user/dot-obsidian-launch.service"
         ).read_text()
 
         self.assertIn("dot-obsidianEnabled=true", kwin)
         self.assertIn('window.desktopFileName === "obsidian"', script)
-        self.assertIn('window.caption.toLowerCase() !== "obsidian"', script)
-        self.assertIn("workspace.currentDesktop = window.desktops[0]", script)
+        self.assertIn("isOnDesktop(windows[index], desktop)", script)
+        self.assertIn("window.desktops = [requestedDesktop]", script)
+        self.assertIn("window.skipTaskbar = true", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-obsidian-launch.service", script)
         self.assertIn('"dot-obsidian"', script)
-        self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut", wrapper)
-        self.assertIn('exec /opt/Obsidian/obsidian "$@"', wrapper)
         self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
-        self.assertIn("ExecStart=/opt/Obsidian/obsidian", service)
+        self.assertIn("StartupWMClass=dot-obsidian-launcher", launcher)
+        self.assertIn("Exec=/opt/Obsidian/obsidian %U", mime_launcher)
+        self.assertIn("obsidian-cli command id=workspace:new-window", service)
         self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
+        self.assertIn('"config/obsidian/dot-obsidian.desktop"', cli)
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)
-        self.assertIn('"Obsidian cross-desktop launcher"', cli)
+        self.assertIn('"Obsidian desktop-aware launcher"', cli)
 
     def test_alt_meta_arrows_move_active_window_and_follow_desktop(self):
         cli = DOT.read_text()

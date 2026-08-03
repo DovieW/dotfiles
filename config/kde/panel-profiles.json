@@ -5,7 +5,7 @@
   "launchers": [
     "applications:google-chrome.desktop",
     "applications:com.mitchellh.ghostty.desktop",
-    "applications:obsidian.desktop"
+    "applications:dot-obsidian.desktop"
   ],
   "tray": {
     "extra_items": [
