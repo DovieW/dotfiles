@@ -19,7 +19,7 @@ fadedesktopEnabled=false
 fadingpopupsEnabled=false
 fullscreenEnabled=false
 glideEnabled=false
-hidecursorEnabled=true
+hidecursorEnabled=false
 kwin_gesturesEnabled=true
 magiclampEnabled=false
 maximizeEnabled=false
@@ -34,10 +34,6 @@ squashEnabled=false
 translucencyEnabled=false
 windowapertureEnabled=false
 wobblywindowsEnabled=false
-
-[Effect-hidecursor]
-HideOnTyping=true
-InactivityDuration=1
 
 [Script-desktopchangeosd]
 PopupHideDelay=200

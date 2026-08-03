@@ -321,9 +321,8 @@ Windows-style minimize, maximize, and close controls on floating windows.
 Chrome and Obsidian are surgically configured to use native system frames, so
 their maximized windows do not retain application-drawn controls or acquire a
 second permanent title bar. Their profiles, vault lists, histories, and account
-data remain untracked. KWin's native Hide Cursor effect removes the
-pointer after one second without pointer motion, including after Meta+D, and
-while typing ordinary text. Pointer movement restores it immediately.
+data remain untracked. KWin's native Hide Cursor effect is disabled so the
+pointer remains visible while idle and while typing.
 The lock screen uses the public, user-local
 `io.github.doview.dotfiles.lockscreen` Plasma shell package. It presents a
 sharp leaves wallpaper and centered Segoe clock while idle, then follows the

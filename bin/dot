@@ -51,6 +51,7 @@ KWIN_DISABLED_EFFECTS = (
     "fadingpopups",
     "fullscreen",
     "glide",
+    "hidecursor",
     "magiclamp",
     "maximize",
     "scale",
@@ -63,7 +64,7 @@ KWIN_DISABLED_EFFECTS = (
     "windowaperture",
     "wobblywindows",
 )
-KWIN_ENABLED_EFFECTS = ("hidecursor",)
+KWIN_ENABLED_EFFECTS = ()
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -5950,7 +5951,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             native_frames_detail
             or "Chrome and Obsidian use KWin-managed frames",
         )
-        hide_cursor_loaded = False
+        hide_cursor_loaded = True
         if command_exists("qdbus6"):
             hide_cursor_effect = run(
                 [
@@ -5963,23 +5964,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 check=False,
                 capture=True,
             )
-            hide_cursor_loaded = (
+            hide_cursor_loaded = not (
                 hide_cursor_effect.returncode == 0
                 and hide_cursor_effect.stdout.strip() == "true"
             )
-        hide_cursor_ok = all(
-            value in kwin
-            for value in (
-                "hidecursorEnabled=true",
-                "[Effect-hidecursor]",
-                "HideOnTyping=true",
-                "InactivityDuration=1",
-            )
-        ) and hide_cursor_loaded
+        hide_cursor_ok = (
+            "hidecursorEnabled=false" in kwin
+            and "[Effect-hidecursor]" not in kwin
+            and hide_cursor_loaded
+        )
         failures += not doctor_check(
-            "pointer auto-hide",
+            "pointer visibility",
             hide_cursor_ok,
-            "hidden after one idle second or ordinary typing; restored on pointer movement"
+            "remains visible while idle and while typing"
             if hide_cursor_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
