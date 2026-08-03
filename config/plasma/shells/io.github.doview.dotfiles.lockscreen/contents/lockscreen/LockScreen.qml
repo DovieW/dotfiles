@@ -112,8 +112,7 @@ Item {
         }
 
         function onPromptForSecretChanged() {
-            interaction.reveal();
-            passwordField.forceActiveFocus();
+            interaction.showLogin();
             if (root.queuedPassword.length > 0
                     && !authenticator.graceLocked) {
                 const password = root.queuedPassword;
@@ -173,12 +172,20 @@ Item {
 
         property bool uiVisible: false
         property bool pointerMoved: false
+        property bool keyboardRevealArmed: false
 
-        function reveal() {
+        function showLogin() {
             uiVisible = true;
             fadeTimer.restart();
-            authenticator.startAuthenticating();
             passwordField.forceActiveFocus();
+        }
+
+        function reveal() {
+            const shouldStartAuthentication = !uiVisible;
+            showLogin();
+            if (shouldStartAuthentication) {
+                authenticator.startAuthenticating();
+            }
         }
 
         anchors.fill: parent
@@ -208,8 +215,18 @@ Item {
         }
 
         Keys.onPressed: event => {
+            if (!keyboardRevealArmed) {
+                event.accepted = true;
+                return;
+            }
             reveal();
             event.accepted = false;
+        }
+
+        Timer {
+            id: initialShortcutGuard
+            interval: 500
+            onTriggered: interaction.keyboardRevealArmed = true
         }
 
         Timer {
@@ -564,6 +581,6 @@ Item {
     Component.onCompleted: {
         entranceFade.start();
         interaction.forceActiveFocus();
-        authenticator.startAuthenticating();
+        initialShortcutGuard.start();
     }
 }

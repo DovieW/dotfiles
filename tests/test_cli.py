@@ -818,6 +818,18 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("root.queuedPassword = text;", lock_qml)
         self.assertIn("authenticator.respond(password);", lock_qml)
         self.assertNotIn("enabled: !authenticator.graceLocked", lock_qml)
+        self.assertIn("property bool keyboardRevealArmed: false", lock_qml)
+        self.assertIn("id: initialShortcutGuard", lock_qml)
+        self.assertIn("interaction.showLogin();", lock_qml)
+        self.assertIn("initialShortcutGuard.start();", lock_qml)
+        self.assertIn(
+            "Component.onCompleted: {\n"
+            "        entranceFade.start();\n"
+            "        interaction.forceActiveFocus();\n"
+            "        initialShortcutGuard.start();\n"
+            "    }",
+            lock_qml,
+        )
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)

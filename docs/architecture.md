@@ -328,7 +328,10 @@ The lock screen uses the public, user-local
 `io.github.doview.dotfiles.lockscreen` Plasma shell package. It presents a
 sharp leaves wallpaper and centered Segoe clock while idle, then follows the
 active display with a blurred background, glass password card, and compact
-status controls. It never instantiates Plasma's media component or an avatar.
+status controls. Meta+L lands on that idle clock view; the password UI and PAM
+authentication begin only after a subsequent click or keypress, with the
+launching shortcut itself ignored. It never instantiates Plasma's media
+component or an avatar.
 The package declares the installed `org.kde.plasma.desktop` shell as its
 fallback, while KScreenLocker retains its compiled emergency unlock UI.
 
