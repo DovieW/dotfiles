@@ -146,9 +146,12 @@ complete stock shell while diagnosing a Plasma compatibility problem.
 
 After a rejected password, the managed theme mirrors KScreenLocker's stock
 three-second retry lifecycle: it clears the rejected secret and restarts the
-authenticator when the grace period expires. If the field remains disabled for
-longer than three seconds, reapply the `lockscreen` tag before investigating
-PAM; an older managed theme could leave the authenticator stopped indefinitely.
+authenticator when the grace period expires. Unlike the stock field, it remains
+editable during that interval: pressing Enter queues the new password in memory
+and submits it as soon as authentication is ready. The queued secret is never
+written to disk. If the field remains unresponsive for longer than three
+seconds, reapply the `lockscreen` tag before investigating PAM; an older managed
+theme could leave the authenticator stopped indefinitely.
 
 ## Closing the lid suspends the laptop
 

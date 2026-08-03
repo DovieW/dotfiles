@@ -814,6 +814,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("graceLockTimer.restart();", lock_qml)
         self.assertIn("id: graceLockTimer", lock_qml)
         self.assertIn("authenticator.startAuthenticating();", lock_qml)
+        self.assertIn('property string queuedPassword: ""', lock_qml)
+        self.assertIn("root.queuedPassword = text;", lock_qml)
+        self.assertIn("authenticator.respond(password);", lock_qml)
+        self.assertNotIn("enabled: !authenticator.graceLocked", lock_qml)
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)

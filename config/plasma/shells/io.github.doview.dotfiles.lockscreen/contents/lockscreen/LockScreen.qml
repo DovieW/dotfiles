@@ -26,6 +26,7 @@ Item {
     property bool suspendToRamSupported: false
     property bool suspendToDiskSupported: false
     property string notification: ""
+    property string queuedPassword: ""
 
     signal clearPassword()
     signal notificationRepeated()
@@ -80,6 +81,7 @@ Item {
 
         function onFailed(kind) {
             if (kind === 0) {
+                root.queuedPassword = "";
                 root.notification = i18nd(
                     "plasma_shell_org.kde.plasma.desktop",
                     "Unlocking failed"
@@ -112,6 +114,14 @@ Item {
         function onPromptForSecretChanged() {
             interaction.reveal();
             passwordField.forceActiveFocus();
+            if (root.queuedPassword.length > 0
+                    && !authenticator.graceLocked) {
+                const password = root.queuedPassword;
+                root.queuedPassword = "";
+                PasswordState.password = "";
+                passwordField.text = "";
+                authenticator.respond(password);
+            }
         }
     }
 
@@ -309,7 +319,8 @@ Item {
                             "Password"
                         )
                         echoMode: TextInput.Password
-                        enabled: !authenticator.graceLocked
+                        enabled: true
+                        readOnly: root.queuedPassword.length > 0
                         text: PasswordState.password
 
                         background: Rectangle {
@@ -334,7 +345,16 @@ Item {
 
                         onAccepted: {
                             fadeTimer.stop();
-                            authenticator.respond(text);
+                            if (graceLockTimer.running
+                                    || authenticator.graceLocked) {
+                                root.queuedPassword = text;
+                                root.notification = i18nd(
+                                    "plasma_shell_org.kde.plasma.desktop",
+                                    "Retrying…"
+                                );
+                            } else {
+                                authenticator.respond(text);
+                            }
                         }
                     }
 
@@ -530,8 +550,8 @@ Item {
         id: graceLockTimer
         interval: 3000
         onTriggered: {
-            root.clearPassword();
             authenticator.startAuthenticating();
+            passwordField.forceActiveFocus();
         }
     }
 
