@@ -36,12 +36,15 @@ if [[ ! "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   exit 1
 fi
 
-target="$app_root/releases/$release/$asset_name"
+release_dir="$app_root/releases/$release"
+image="$release_dir/$asset_name"
+app_dir="$release_dir/app"
+app_run="$app_dir/AppRun"
 installed=""
 [[ -f "$marker" ]] && installed="$(<"$marker")"
-if [[ "$installed" == "$release" && -x "$target" && -x "$bin_dir/copyq" &&
+if [[ "$installed" == "$release" && -x "$image" && -x "$app_run" && -x "$bin_dir/copyq" &&
       ! -L "$bin_dir/copyq" ]] &&
-   grep -Fq -- "$target" "$bin_dir/copyq"; then
+   grep -Fq -- "$app_run" "$bin_dir/copyq"; then
   echo "CopyQ $release is installed from the official stable channel."
   exit 0
 fi
@@ -52,23 +55,46 @@ fi
 
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "$work_dir"' EXIT
-curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$work_dir/$asset_name"
 curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
 expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"
 if [[ ! "$expected" =~ ^[[:xdigit:]]{128}$ ]]; then
   echo "CopyQ: official SHA-512 entry is missing or malformed." >&2
   exit 1
 fi
-printf '%s  %s\n' "$expected" "$work_dir/$asset_name" | sha512sum --check --status
+source_image="$image"
+if [[ ! -f "$source_image" ]] ||
+   ! printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status; then
+  source_image="$work_dir/$asset_name"
+  curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$source_image"
+  printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status
+fi
 
-install -d -m 0755 "$(dirname "$target")" "$bin_dir"
-install -m 0755 "$work_dir/$asset_name" "$target"
+# CopyQ keeps a server and clipboard monitor alive after the launcher exits.
+# Running those processes from the AppImage FUSE mount lets the runtime unmount
+# their executable and plugins, which ends in SIGBUS.  Extract the verified
+# image to a persistent release directory so every CopyQ process has stable
+# files for its full lifetime.
+(
+  cd -- "$work_dir"
+  "$source_image" --appimage-extract >/dev/null
+)
+[[ -x "$work_dir/squashfs-root/AppRun" ]] || {
+  echo "CopyQ: extracted AppImage does not contain an executable AppRun." >&2
+  exit 1
+}
+
+install -d -m 0755 "$release_dir" "$bin_dir"
+if [[ "$source_image" != "$image" ]]; then
+  install -m 0755 "$source_image" "$image"
+fi
+rm -rf -- "$app_dir"
+mv -- "$work_dir/squashfs-root" "$app_dir"
 wrapper="$work_dir/copyq-wrapper"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   'export QT_QPA_PLATFORM=wayland' \
-  "exec \"$target\" \"\$@\"" >"$wrapper"
+  "exec \"$app_run\" \"\$@\"" >"$wrapper"
 chmod 0755 "$wrapper"
 mv -f -- "$wrapper" "$bin_dir/copyq"
 printf '%s\n' "$release" >"$marker"
