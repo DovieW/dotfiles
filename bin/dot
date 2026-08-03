@@ -6095,7 +6095,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Obsidian desktop-aware launcher",
             obsidian_desktop_aware_ok,
-            "taskbar reuses a local vault window or opens a new one on this desktop"
+            "taskbar reuses a local Obsidian window or opens the active note here"
             if obsidian_desktop_aware_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )

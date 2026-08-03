@@ -935,7 +935,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
         self.assertIn("StartupWMClass=dot-obsidian-launcher", launcher)
         self.assertIn("Exec=/opt/Obsidian/obsidian %U", mime_launcher)
-        self.assertIn("obsidian-cli command id=workspace:new-window", service)
+        self.assertIn(
+            "obsidian-cli command id=workspace:open-in-new-window", service
+        )
         self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
         self.assertIn('"config/obsidian/dot-obsidian.desktop"', cli)
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)

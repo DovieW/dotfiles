@@ -1,6 +1,6 @@
 [Unit]
-Description=Open a new Obsidian window on the current virtual desktop
+Description=Open the active Obsidian note on the current virtual desktop
 
 [Service]
 Type=exec
-ExecStart=/opt/Obsidian/obsidian-cli command id=workspace:new-window
+ExecStart=/opt/Obsidian/obsidian-cli command id=workspace:open-in-new-window
