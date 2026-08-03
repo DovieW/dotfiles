@@ -4056,6 +4056,39 @@ def cmd_panel(args: argparse.Namespace) -> None:
         switch_panel_profile(selected)
 
 
+def display_mode_items() -> list[tuple[str, str, str]]:
+    manifest = load_json(
+        ROOT / "config/display/lenovo-ideapad-pro-5-16iah10.json"
+    )
+    return [
+        (name, str(item["label"]), str(item["description"]))
+        for name, item in manifest["modes"].items()
+    ]
+
+
+def cmd_display(args: argparse.Namespace) -> None:
+    script = str(ROOT / "scripts/configure-display")
+    action = getattr(args, "display_action", None)
+    if action == "list":
+        run([script, "--list"])
+        return
+    if action == "status":
+        run([script, "--status"])
+        return
+    if action == "use":
+        run([script, "--ensure", "--mode", args.mode_name])
+        return
+    if not sys.stdin.isatty():
+        raise DotError("Interactive display-mode selection requires a terminal.")
+    selected = fzf_menu(
+        display_mode_items(),
+        prompt="display mode › ",
+        header="Enter: apply immediately  Esc: cancel",
+    )
+    if selected:
+        run([script, "--ensure", "--mode", selected])
+
+
 def palette_apply(profile: str, tags: str | None = None, *, check: bool = False) -> None:
     cmd_apply(
         argparse.Namespace(
@@ -4329,6 +4362,11 @@ def palette_configuration_menu(profile: str) -> None:
                     "Status, profiles, tray visibility, repair, and saving",
                 ),
                 (
+                    "display",
+                    "Internal OLED color mode",
+                    "Switch between the recorded Windows-native look and factory-accurate color",
+                ),
+                (
                     "save-spectacle",
                     "Save Spectacle",
                     "Capture screenshot preferences and keyboard shortcuts",
@@ -4412,6 +4450,13 @@ def palette_configuration_menu(profile: str) -> None:
             continue
         if action == "panel":
             palette_panel_menu()
+            continue
+        if action == "display":
+            palette_execute(
+                lambda: cmd_display(
+                    argparse.Namespace(display_action=None, mode_name=None)
+                )
+            )
             continue
 
         def execute() -> None:
@@ -6784,6 +6829,16 @@ def build_parser() -> argparse.ArgumentParser:
     panel_use.add_argument("profile_name")
     panel_use.set_defaults(func=cmd_panel)
     panel.set_defaults(func=cmd_panel)
+    display = sub.add_parser("display")
+    display_sub = display.add_subparsers(dest="display_action")
+    display_list = display_sub.add_parser("list")
+    display_list.set_defaults(func=cmd_display)
+    display_status = display_sub.add_parser("status")
+    display_status.set_defaults(func=cmd_display)
+    display_use = display_sub.add_parser("use")
+    display_use.add_argument("mode_name")
+    display_use.set_defaults(func=cmd_display)
+    display.set_defaults(func=cmd_display)
     lockscreen = sub.add_parser("lockscreen")
     lockscreen.add_argument(
         "lockscreen_action",

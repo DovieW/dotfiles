@@ -232,18 +232,31 @@ if PowerDevil is unavailable.
 Display topology remains host-local: connector positions, external monitors,
 and KScreen UUIDs are never copied into Git. The Kubuntu laptop profile does,
 however, own a hardware-matched internal-panel policy. It recognizes the
-IdeaPad's Samsung `ATNA60HR01-0` OLED by EDID, copies Lenovo's X-Rite
-`LEN8BAD_Default` ICC profile from Windows, and applies it through KWin. The
-proprietary profile itself remains machine-local under
-`~/.local/share/color/icc/lenovo`.
+IdeaPad's Samsung `ATNA60HR01-0` OLED by EDID and provisions Lenovo's X-Rite
+profiles from the mounted Windows installation. The proprietary profiles stay
+machine-local under `~/.local/share/color/icc/lenovo`.
+
+Two reversible SDR color modes are available through `dot display`:
+
+- `windows-native` is the managed default. It uses `LEN8BAD_Native`, matching
+  Lenovo Vantage's saved Windows `ColorState` 7. This is the appropriate
+  perceptual comparison with the user's previous Windows desktop.
+- `factory-accurate` uses `LEN8BAD_Default`, Lenovo `ColorState` 4. It is the
+  restrained factory-calibrated choice for color-managed work.
+
+`dot display status` reports the live mode. `dot display use windows-native`
+and `dot display use factory-accurate` switch immediately without changing
+resolution, scaling, refresh rate, or connector geometry. Running the full
+Kubuntu profile restores `windows-native`. The mode is also reachable from
+the FZF palette under **Save and configuration → Internal OLED color mode**.
 
 The panel policy disables Adaptive Sync, uses automatic RGB range and link
 color depth, and selects KWin's color-accuracy preference. Fixed 120 Hz avoids
 uneven pointer motion observed when fullscreen Chromium and Electron windows
 activated variable refresh. HDR and wide-gamut HDR
 output remain disabled for the normal desktop because this Plasma version
-cannot combine the factory ICC with HDR; calibrated SDR is the consistent
-daily-use mode. KScreen's “automatic” color-resolution readout describes
+cannot combine the managed ICC with HDR; SDR is the consistent daily-use
+mode. KScreen's “automatic” color-resolution readout describes
 negotiated transport/compositor precision and may show a 12-bit ceiling even
 though the panel EDID describes a native 10-bit panel. Running
 `dot apply --profile kubuntu-laptop --tags display` reprovisions this policy

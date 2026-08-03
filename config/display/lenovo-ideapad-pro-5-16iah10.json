@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "device": "Lenovo IdeaPad Pro 5 16IAH10",
   "panel": {
     "connector": "eDP-1",
@@ -7,9 +7,22 @@
     "product_name": "ATNA60HR01-0",
     "windows_monitor_id": "LEN8BAD"
   },
-  "factory_profile": {
-    "windows_filename": "TPLCD_8BAD_Default.icm",
-    "install_path": "~/.local/share/color/icc/lenovo/LEN8BAD_Default.icm"
+  "default_mode": "windows-native",
+  "modes": {
+    "windows-native": {
+      "label": "Windows native",
+      "description": "Lenovo Native mode recorded as active by Vantage on Windows",
+      "windows_color_state": 7,
+      "windows_filename": "TPLCD_8BAD_Native.icm",
+      "install_path": "~/.local/share/color/icc/lenovo/LEN8BAD_Native.icm"
+    },
+    "factory-accurate": {
+      "label": "Factory accurate",
+      "description": "Lenovo Default factory calibration with restrained color-managed output",
+      "windows_color_state": 4,
+      "windows_filename": "TPLCD_8BAD_Default.icm",
+      "install_path": "~/.local/share/color/icc/lenovo/LEN8BAD_Default.icm"
+    }
   },
   "policy": {
     "adaptive_sync": "Never",

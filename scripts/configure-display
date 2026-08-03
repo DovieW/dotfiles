@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provision and apply the factory-calibrated internal-display policy."""
+"""Provision and switch the hardware-matched internal-display policy."""
 
 from __future__ import annotations
 
@@ -139,8 +139,38 @@ def unmount_windows(device: str | None) -> None:
         run(["udisksctl", "unmount", "-b", device], check=False)
 
 
-def provision_factory_profile(manifest: dict) -> tuple[Path, bool]:
-    profile = manifest["factory_profile"]
+def display_modes(manifest: dict) -> dict[str, dict]:
+    modes = manifest.get("modes")
+    default = manifest.get("default_mode")
+    if (
+        manifest.get("schema_version") != 2
+        or not isinstance(modes, dict)
+        or default not in modes
+    ):
+        raise RuntimeError("invalid display-mode manifest")
+    return modes
+
+
+def selected_mode(manifest: dict, requested: str | None) -> tuple[str, dict]:
+    modes = display_modes(manifest)
+    name = requested or manifest["default_mode"]
+    if name not in modes:
+        raise RuntimeError(
+            f"unknown display mode {name!r}; choose from: "
+            + ", ".join(modes)
+        )
+    return name, modes[name]
+
+
+def active_mode(manifest: dict, output: dict) -> str | None:
+    active_path = Path(str(output.get("iccProfilePath", ""))).expanduser()
+    for name, profile in display_modes(manifest).items():
+        if active_path == Path(profile["install_path"]).expanduser():
+            return name
+    return None
+
+
+def provision_profile(profile: dict) -> tuple[Path, bool]:
     target = Path(profile["install_path"]).expanduser()
     if target.is_file() and target.stat().st_size:
         return target, False
@@ -246,8 +276,21 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--ensure", action="store_true")
     mode.add_argument("--check", action="store_true")
+    mode.add_argument("--list", action="store_true")
+    mode.add_argument("--status", action="store_true")
+    parser.add_argument("--mode", dest="display_mode")
     args = parser.parse_args()
     manifest = load_manifest()
+    try:
+        mode_name, profile = selected_mode(manifest, args.display_mode)
+    except RuntimeError as error:
+        print(f"ERROR display policy: {error}", file=sys.stderr)
+        return 1
+    if args.list:
+        for name, item in display_modes(manifest).items():
+            marker = "*" if name == manifest["default_mode"] else " "
+            print(f"{marker} {name:<18} {item['label']}: {item['description']}")
+        return 0
     output = matched_output(manifest)
     if output is None:
         print(
@@ -255,10 +298,20 @@ def main() -> int:
             "present in KWin's host-local display state."
         )
         return 2
+    if args.status:
+        active = active_mode(manifest, output)
+        if active is None:
+            print(
+                "CUSTOM display mode: "
+                + str(output.get("iccProfilePath", "no ICC profile"))
+            )
+            return 1
+        item = display_modes(manifest)[active]
+        marker = " (managed default)" if active == manifest["default_mode"] else ""
+        print(f"ACTIVE display mode: {active}{marker}; {item['description']}")
+        return 0
 
-    profile_path = Path(
-        manifest["factory_profile"]["install_path"]
-    ).expanduser()
+    profile_path = Path(profile["install_path"]).expanduser()
     desired = desired_state(manifest, profile_path)
     differences = drift(output, desired, profile_path)
     if args.check:
@@ -266,14 +319,14 @@ def main() -> int:
             print("DRIFT display policy: " + "; ".join(differences))
             return 1
         print(
-            "OK display policy: factory ICC, VRR disabled, automatic link depth, "
-            "accuracy priority, and SDR are active."
+            f"OK display policy: {mode_name}; {profile['label']} ICC, VRR disabled, "
+            "automatic link depth, accuracy priority, and SDR are active."
         )
         return 0
 
     changed = False
     try:
-        profile_path, profile_changed = provision_factory_profile(manifest)
+        profile_path, profile_changed = provision_profile(profile)
         changed |= profile_changed
         desired = desired_state(manifest, profile_path)
         output = matched_output(manifest) or {}
@@ -295,8 +348,8 @@ def main() -> int:
         return 1
     prefix = "CHANGED" if changed else "OK"
     print(
-        f"{prefix} display policy: factory ICC, VRR disabled, automatic link depth, "
-        "accuracy priority, and SDR are active."
+        f"{prefix} display policy: {mode_name}; {profile['label']} ICC, VRR disabled, "
+        "automatic link depth, accuracy priority, and SDR are active."
     )
     return 0
 

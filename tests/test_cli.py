@@ -1195,9 +1195,23 @@ class DotCliTests(unittest.TestCase):
             manifest["panel"]["edid_identifier"],
             "SDC 16900 0 0 2024 0",
         )
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["default_mode"], "windows-native")
         self.assertEqual(
-            manifest["factory_profile"]["windows_filename"],
+            manifest["modes"]["windows-native"]["windows_filename"],
+            "TPLCD_8BAD_Native.icm",
+        )
+        self.assertEqual(
+            manifest["modes"]["windows-native"]["windows_color_state"],
+            7,
+        )
+        self.assertEqual(
+            manifest["modes"]["factory-accurate"]["windows_filename"],
             "TPLCD_8BAD_Default.icm",
+        )
+        self.assertEqual(
+            manifest["modes"]["factory-accurate"]["windows_color_state"],
+            4,
         )
         self.assertEqual(manifest["policy"]["adaptive_sync"], "Never")
         self.assertEqual(manifest["policy"]["rgb_range"], "Automatic")
@@ -1215,6 +1229,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("maxbpc", display)
         self.assertIn('"factory_display_profile"', cli)
         self.assertIn('"Internal OLED display"', cli)
+        self.assertIn('sub.add_parser("display")', cli)
+        self.assertIn('"Internal OLED color mode"', cli)
+        self.assertIn('"--mode"', display)
+        self.assertIn('"--status"', display)
         self.assertIn('"internal display policy"', cli)
         self.assertIn("tmux, nvim, display", playbook)
 
