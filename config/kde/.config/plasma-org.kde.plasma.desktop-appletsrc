@@ -79,7 +79,7 @@ expanding=true
 
 [Containments][2][Applets][5]
 immutability=1
-plugin=org.kde.plasma.taskmanager
+plugin=org.kde.plasma.icontasks
 
 [Containments][2][Applets][5][Configuration]
 launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop
@@ -90,7 +90,7 @@ groupingStrategy=1
 launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop
 middleClickAction=Close
 onlyGroupWhenFull=false
-separateLaunchers=false
+separateLaunchers=true
 showOnlyCurrentDesktop=true
 showOnlyCurrentScreen=false
 sortingStrategy=1

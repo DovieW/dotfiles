@@ -72,7 +72,9 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertEqual(profiles["windows-refined"]["width_percent"], 94)
         self.assertEqual(profiles["centered-compact"]["width_percent"], 62)
-        self.assertEqual(profiles["centered-compact"]["task_manager"], "icons")
+        self.assertTrue(
+            all(profile["task_manager"] == "icons" for profile in profiles.values())
+        )
         self.assertEqual(profiles["unified-pill"]["length_mode"], "fit")
         self.assertFalse(profiles["unified-pill"]["spacers"])
         self.assertTrue(
@@ -627,7 +629,8 @@ class DotCliTests(unittest.TestCase):
         ).read_text()
         colors = (ROOT / "config/kde/GitHubDark.colors").read_text()
 
-        self.assertIn("plugin=org.kde.plasma.taskmanager", panel)
+        self.assertIn("plugin=org.kde.plasma.icontasks", panel)
+        self.assertNotIn("plugin=org.kde.plasma.taskmanager", panel)
         self.assertIn("plugin=org.kde.desktopcontainment", panel)
         self.assertIn("wallpaperplugin=org.kde.color", panel)
         self.assertIn("Color=0,0,0", panel)
@@ -649,6 +652,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("AppletOrder=3;5;29;7;22", panel)
         self.assertIn("middleClickAction=Close", panel)
         self.assertIn("onlyGroupWhenFull=false", panel)
+        self.assertIn("separateLaunchers=true", panel)
         self.assertIn("showOnlyCurrentDesktop=true", panel)
         self.assertIn("sortingStrategy=1", panel)
         self.assertIn("panelLengthMode=0", geometry)

@@ -273,10 +273,12 @@ only removes Dynamic Boost's extra CPU/GPU power shifting under load. Reassess
 the workaround after a future NVIDIA driver or Lenovo firmware update.
 
 The Kubuntu desktop has four declarative, always-auto-hidden native Plasma
-panel profiles. Windows Classic is the full-width 40px default. Windows
-Refined floats a labeled 94% bar, Centered Compact uses a 62% icon bar, and
-Unified Pill fits a Windows-style launcher, icon tasks, tray, and clock into one floating
-panel. The declarative manifest is the source of truth while Plasma-generated
+panel profiles. Windows Classic is the full-width 40px default, Windows
+Refined floats at 94%, Centered Compact uses a 62% bar, and Unified Pill fits
+a Windows-style launcher, tasks, tray, and clock into one floating panel. All
+four use Plasma's icon task manager so pinned applications retain one stable,
+manually draggable launch-in-place order while running windows remain filtered
+to their virtual desktop. The declarative manifest is the source of truth while Plasma-generated
 containment IDs and geometry remain host-local. The selection is stored outside
 Git and is reapplied after normal configuration reconciliation. No profile uses
 Latte Dock, downloaded widgets,

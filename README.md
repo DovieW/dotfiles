@@ -153,8 +153,8 @@ dot clipboard update
 `dot panel` switches among four built-in Plasma layouts without installing a
 dock, theme bundle, or third-party widget:
 
-- **Windows Classic** — the default full-width 40px left-aligned labeled taskbar
-- **Windows Refined** — a floating 94% left-aligned labeled taskbar
+- **Windows Classic** — the default full-width 40px taskbar with stable icon positions
+- **Windows Refined** — a floating 94% taskbar with stable icon positions
 - **Centered Compact** — a floating 62% left-aligned icon taskbar
 - **Unified Pill** — a fit-content task, tray, and clock pill with a compact
   Windows-style Start icon; Meta and Alt+F1 open Kickoff

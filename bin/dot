@@ -3654,7 +3654,10 @@ configure(task, ["General"], {{
     launchers: launchers,
     middleClickAction: "Close",
     onlyGroupWhenFull: "false",
-    separateLaunchers: "false",
+    // Icon Tasks keeps pinned applications in their launcher positions when a
+    // matching window opens. That gives every virtual desktop one stable,
+    // manually draggable application order while still filtering its windows.
+    separateLaunchers: "true",
     // Plasma's manual mode is 1. Mode 0 disables sorting *and* drag-reordering.
     sortingStrategy: "1",
     // Show running windows only on their virtual desktop. Pinned launchers keep
