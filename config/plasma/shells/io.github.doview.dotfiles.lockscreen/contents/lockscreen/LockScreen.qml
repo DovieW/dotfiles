@@ -87,6 +87,7 @@ Item {
                 PasswordState.password = "";
                 passwordField.text = "";
                 passwordField.forceActiveFocus();
+                graceLockTimer.restart();
                 messageTimer.restart();
                 rejectAnimation.restart();
             }
@@ -522,6 +523,15 @@ Item {
                     onTriggered: sessionManagement.switchUser()
                 }
             }
+        }
+    }
+
+    Timer {
+        id: graceLockTimer
+        interval: 3000
+        onTriggered: {
+            root.clearPassword();
+            authenticator.startAuthenticating();
         }
     }
 

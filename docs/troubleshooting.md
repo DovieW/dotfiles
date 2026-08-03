@@ -144,6 +144,12 @@ The custom QML omits media controls entirely. KDE's stock fallback also reads
 under `[Greeter]` has no effect. Use `dot lockscreen stock` to select KDE's
 complete stock shell while diagnosing a Plasma compatibility problem.
 
+After a rejected password, the managed theme mirrors KScreenLocker's stock
+three-second retry lifecycle: it clears the rejected secret and restarts the
+authenticator when the grace period expires. If the field remains disabled for
+longer than three seconds, reapply the `lockscreen` tag before investigating
+PAM; an older managed theme could leave the authenticator stopped indefinitely.
+
 ## Closing the lid suspends the laptop
 
 The managed policy ignores lid closure and disables automatic suspend for AC,

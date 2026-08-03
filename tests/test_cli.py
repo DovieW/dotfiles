@@ -811,6 +811,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('selectionColor: "#55ffffff"', lock_qml)
         self.assertIn('Qt.formatTime(clockSource.dateTime, "h:mm AP")', lock_qml)
         self.assertIn("Layout.preferredHeight: 48", lock_qml)
+        self.assertIn("graceLockTimer.restart();", lock_qml)
+        self.assertIn("id: graceLockTimer", lock_qml)
+        self.assertIn("authenticator.startAuthenticating();", lock_qml)
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)
