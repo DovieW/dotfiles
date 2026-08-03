@@ -1223,10 +1223,12 @@ class DotCliTests(unittest.TestCase):
         self.assertFalse(manifest["policy"]["hdr"])
         self.assertFalse(manifest["policy"]["wide_color_gamut"])
         self.assertEqual(manifest["policy"]["max_bits_per_color"], 0)
+        self.assertEqual(manifest["policy"]["sdr_gamut_wideness"], 1.0)
         self.assertIn('"udisksctl", "mount"', display)
         self.assertIn('"kscreen-doctor", command', display)
         self.assertIn("colorProfileSource", display)
         self.assertIn("maxbpc", display)
+        self.assertIn("sdrGamut", display)
         self.assertIn('"factory_display_profile"', cli)
         self.assertIn('"Internal OLED display"', cli)
         self.assertIn('sub.add_parser("display")', cli)
@@ -1235,6 +1237,19 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"--status"', display)
         self.assertIn('"internal display policy"', cli)
         self.assertIn("tmux, nvim, display", playbook)
+        self.assertIn("display, vscode", playbook)
+
+        chrome_wrapper = (ROOT / "config/chromium/google-chrome-stable").read_text()
+        code_wrapper = (ROOT / "config/chromium/code").read_text()
+        chrome_desktop = (ROOT / "config/chromium/google-chrome.desktop").read_text()
+        code_desktop = (ROOT / "config/chromium/code.desktop").read_text()
+        for managed in (chrome_wrapper, code_wrapper, chrome_desktop, code_desktop):
+            self.assertIn("--disable-features=WaylandWpColorManagerV1", managed)
+        self.assertIn("config/chromium/google-chrome-stable", cli)
+        self.assertIn(".local/bin/google-chrome-stable", cli)
+        self.assertIn("config/chromium/code", cli)
+        self.assertIn(".local/bin/code", cli)
+        self.assertIn("Chromium native-gamut policy", cli)
 
     def test_kubuntu_manages_vscode_and_fullscreen_rdp_files(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

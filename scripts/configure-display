@@ -220,6 +220,7 @@ def desired_state(manifest: dict, profile_path: Path) -> dict:
         "rgbRange": policy["rgb_range"],
         "colorProfileSource": policy["color_profile_source"],
         "colorPowerTradeoff": policy["color_power_tradeoff"],
+        "sdrGamutWideness": policy["sdr_gamut_wideness"],
         "highDynamicRange": policy["hdr"],
         "wideColorGamut": policy["wide_color_gamut"],
         "maxBitsPerColor": policy["max_bits_per_color"],
@@ -252,6 +253,7 @@ def apply_policy(manifest: dict, profile_path: Path, connector: str) -> None:
         f"output.{connector}.wcg.{boolean(policy['wide_color_gamut'])}",
         f"output.{connector}.maxbpc.{max_bpc}",
         f"output.{connector}.colorPowerTradeoff.{policy['color_power_tradeoff']}",
+        f"output.{connector}.sdrGamut.{round(policy['sdr_gamut_wideness'] * 100)}",
         f"output.{connector}.iccprofile.{profile_path}",
         f"output.{connector}.colorProfileSource.{policy['color_profile_source']}",
     ]

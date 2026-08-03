@@ -1670,6 +1670,28 @@ def apply_direct(
                 or "Factory display policy failed."
             )
         changes += display.stdout.count("CHANGED ")
+    if features.get("factory_display_profile") and selected(
+        "display", "kde", "vscode", "config"
+    ):
+        chromium_mappings = {
+            ROOT / "config/chromium/google-chrome-stable": Path.home()
+            / ".local/bin/google-chrome-stable",
+            ROOT / "config/chromium/code": Path.home() / ".local/bin/code",
+            ROOT / "config/chromium/google-chrome.desktop": Path.home()
+            / ".local/share/applications/google-chrome.desktop",
+            ROOT / "config/chromium/code.desktop": Path.home()
+            / ".local/share/applications/code.desktop",
+        }
+        for source, destination in chromium_mappings.items():
+            changes += int(link_file(source, destination))
+        if command_exists("update-desktop-database"):
+            run(
+                [
+                    "update-desktop-database",
+                    str(Path.home() / ".local/share/applications"),
+                ],
+                check=False,
+            )
     if features.get("rdp_files") and selected("rdp", "config"):
         legacy_rdp_desktop = (
             Path.home() / ".local/share/applications/dot-rdp.desktop"
@@ -5690,6 +5712,31 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "internal display policy",
                 display_policy.returncode == 0,
                 display_detail.removeprefix("OK display policy: "),
+            )
+            chromium_targets = {
+                Path.home() / ".local/bin/google-chrome-stable": ROOT
+                / "config/chromium/google-chrome-stable",
+                Path.home() / ".local/bin/code": ROOT / "config/chromium/code",
+                Path.home()
+                / ".local/share/applications/google-chrome.desktop": ROOT
+                / "config/chromium/google-chrome.desktop",
+                Path.home() / ".local/share/applications/code.desktop": ROOT
+                / "config/chromium/code.desktop",
+            }
+            chromium_policy_ok = all(
+                destination.is_symlink()
+                and destination.resolve() == source.resolve()
+                and "WaylandWpColorManagerV1"
+                in source.read_text(encoding="utf-8")
+                for destination, source in chromium_targets.items()
+            )
+            failures += not doctor_check(
+                "Chromium native-gamut policy",
+                chromium_policy_ok,
+                "Chrome and VS Code use the Windows-like OLED gamut"
+                if chromium_policy_ok
+                else f"run dot apply --profile {profile['name']} "
+                "--tags display,vscode",
             )
         failures += not doctor_check(
             "display topology",

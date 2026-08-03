@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# VS Code is Electron/Chromium and needs the same native-gamut policy as Chrome.
+exec /usr/bin/code \
+  --disable-features=WaylandWpColorManagerV1 \
+  "$@"

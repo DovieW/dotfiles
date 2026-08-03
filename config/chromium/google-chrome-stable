@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Chromium's explicit Wayland color descriptions keep SDR content constrained
+# to sRGB. Lenovo's Windows Native mode instead expands SDR into the OLED's
+# native gamut, which is the preferred perceptual match on this laptop.
+exec /usr/bin/google-chrome-stable \
+  --disable-features=WaylandWpColorManagerV1 \
+  "$@"

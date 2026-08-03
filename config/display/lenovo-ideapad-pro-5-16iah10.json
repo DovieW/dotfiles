@@ -29,6 +29,7 @@
     "rgb_range": "Automatic",
     "color_profile_source": "ICC",
     "color_power_tradeoff": "PreferAccuracy",
+    "sdr_gamut_wideness": 1.0,
     "hdr": false,
     "wide_color_gamut": false,
     "max_bits_per_color": 0
