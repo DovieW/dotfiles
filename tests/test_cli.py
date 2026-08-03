@@ -83,7 +83,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('panel.floating = cfg.floating', cli)
         self.assertIn('icon: cfg.launcher_icon', cli)
         self.assertIn('"launchers": ",".join(manifest["launchers"])', cli)
-        self.assertIn('return False, "pinned launcher order does not match"', cli)
+        self.assertIn('sortingStrategy: "1"', cli)
+        self.assertIn('showOnlyCurrentDesktop: "false"', cli)
+        self.assertIn("if (liveLaunchers) launchers = liveLaunchers", cli)
+        self.assertIn("def live_panel_launchers()", cli)
         self.assertNotIn('firstSpacer = panel.addWidget', cli)
         self.assertIn('ds[i].wallpaperPlugin = "org.kde.color"', cli)
         self.assertIn(
@@ -95,7 +98,7 @@ class DotCliTests(unittest.TestCase):
             'return False, "always-hidden tray icons do not match"',
             cli,
         )
-        self.assertIn('"Save System Tray choices"', cli)
+        self.assertIn('"Save taskbar preferences"', cli)
         self.assertIn('"Check taskbar and System Tray"', cli)
         self.assertIn('panel_sub.add_parser("save")', cli)
 
@@ -646,7 +649,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("AppletOrder=3;5;29;7;22", panel)
         self.assertIn("middleClickAction=Close", panel)
         self.assertIn("onlyGroupWhenFull=false", panel)
-        self.assertIn("showOnlyCurrentDesktop=true", panel)
+        self.assertIn("showOnlyCurrentDesktop=false", panel)
+        self.assertIn("sortingStrategy=1", panel)
         self.assertIn("panelLengthMode=0", geometry)
         self.assertIn("panelVisibility=1", geometry)
         self.assertIn("thickness=40", geometry)

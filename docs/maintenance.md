@@ -265,8 +265,9 @@ dot panel use centered-compact
 ```
 
 The complete FZF workflow is available under **Save and configuration →
-Taskbar and System Tray**: validate the live taskbar, switch profiles, save tray
-visibility choices, reapply the selected profile, or list every profile.
+Taskbar and System Tray**: validate the live taskbar, switch profiles, save the
+pinned order and tray visibility choices, reapply the selected profile, or list
+every profile.
 Taskbar status is also available under **Diagnostics**, and profile repair is
 available under **Apply and repair**. Switching writes only host-local selection
 state and applies the declarative manifest through Plasma's live API. Plasma's
@@ -278,10 +279,11 @@ result means the selected profile already describes the live taskbar. A drift
 result means the intended structure must be incorporated into
 `config/kde/panel-profiles.json` or the shared panel builder before it is
 portable; do not capture Plasma's generated containment IDs as configuration.
-System Tray visibility is the exception: after choosing which entries are
-always visible, automatic, or always hidden in Plasma, run `dot panel save`.
-That command captures the live policy, validates the complete repository, and
-commits and pushes only the panel manifest.
+Pinned-app order and System Tray visibility are the editable preferences: drag
+the taskbar icons or choose which tray entries are always visible, automatic,
+or always hidden, then run `dot panel save`. That command captures both live
+preferences, validates the complete repository, and commits and pushes only
+the panel manifest.
 
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 

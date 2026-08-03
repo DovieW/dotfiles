@@ -161,15 +161,16 @@ dock, theme bundle, or third-party widget:
 
 Notification toasts use an explicit bottom-right anchor in every profile, so
 their position does not follow a centered System Tray.
-All four profiles share one declarative pinned-app order, and the task list is
-left-aligned while an expanding spacer keeps the tray and 12-hour clock at the
-right edge.
+All four profiles use one global, manually sortable task list across every
+virtual desktop. Profile switches preserve your live pinned-app order, while an
+expanding spacer keeps the tray and 12-hour clock at the right edge.
 
 The selected profile is host-local and survives a normal `dot apply`. Use
 `dot panel list`, `dot panel status`, or `dot panel use NAME` for scripting.
-After changing System Tray entries in Plasma, `dot panel save` captures their
-**Always shown**, **Shown when relevant**, and **Always hidden** policy, validates
-it, and commits and pushes the manifest.
+After dragging pinned apps or changing System Tray entries, `dot panel save`
+captures the pinned order plus the tray's **Always shown**, **Shown when
+relevant**, and **Always hidden** policy, validates it, and commits and pushes
+the manifest.
 Every switch records a recovery snapshot and prints its rollback ID. Normally,
 switch back visually with `dot panel use windows-classic`; the snapshot remains
 available for deeper recovery.

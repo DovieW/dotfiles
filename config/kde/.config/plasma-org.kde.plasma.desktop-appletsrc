@@ -91,8 +91,9 @@ launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.
 middleClickAction=Close
 onlyGroupWhenFull=false
 separateLaunchers=false
-showOnlyCurrentDesktop=true
+showOnlyCurrentDesktop=false
 showOnlyCurrentScreen=false
+sortingStrategy=1
 taskMaxWidth=Wide
 wheelEnabled=false
 

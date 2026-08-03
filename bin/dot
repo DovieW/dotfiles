@@ -3599,8 +3599,22 @@ def panel_profile_script(profile_name: str) -> str:
     data = json.dumps(values)
     return f"""
 const cfg = {data};
-const launchers = cfg.launchers;
 const oldPanels = panels();
+// Preserve the user's live pinned applications and their drag-selected order
+// when changing only the panel's visual profile. The manifest remains the
+// fallback for a fresh installation, and `dot panel save` records live edits.
+let launchers = cfg.launchers;
+for (let i = 0; i < oldPanels.length; ++i) {{
+    const oldTasks = oldPanels[i].widgets("org.kde.plasma.taskmanager").concat(
+        oldPanels[i].widgets("org.kde.plasma.icontasks")
+    );
+    if (oldTasks.length) {{
+        oldTasks[0].currentConfigGroup = ["General"];
+        const liveLaunchers = oldTasks[0].readConfig("launchers", "");
+        if (liveLaunchers) launchers = liveLaunchers;
+        break;
+    }}
+}}
 const panel = new Panel;
 panel.location = "bottom";
 panel.hiding = "autohide";
@@ -3641,8 +3655,10 @@ configure(task, ["General"], {{
     middleClickAction: "Close",
     onlyGroupWhenFull: "false",
     separateLaunchers: "false",
-    sortingStrategy: "0",
-    showOnlyCurrentDesktop: "true",
+    // Plasma's manual mode is 1. Mode 0 disables sorting *and* drag-reordering.
+    sortingStrategy: "1",
+    // Keep one stable task list instead of reshuffling it per virtual desktop.
+    showOnlyCurrentDesktop: "false",
     showOnlyCurrentScreen: "false",
     wheelEnabled: "false"
 }});
@@ -3703,7 +3719,7 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="";
+ const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="", taskSorting="", taskCurrentDesktop="";
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) {
    types.push(w.type);
@@ -3717,8 +3733,10 @@ else {
     trayHidden=w.readConfig("hiddenItems","");
    }
    if (w.type==="org.kde.plasma.taskmanager" || w.type==="org.kde.plasma.icontasks") {
-    w.currentConfigGroup=["General"];
-    taskLaunchers=w.readConfig("launchers","");
+   w.currentConfigGroup=["General"];
+   taskLaunchers=w.readConfig("launchers","");
+   taskSorting=w.readConfig("sortingStrategy","");
+   taskCurrentDesktop=w.readConfig("showOnlyCurrentDesktop","");
    }
   }
  }
@@ -3735,7 +3753,7 @@ else {
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
   p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
-  trayShown,trayHidden,launcherIcon,taskLaunchers
+  trayShown,trayHidden,launcherIcon,taskLaunchers,taskSorting,taskCurrentDesktop
  ].join("|"));
 }
 """
@@ -3743,7 +3761,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 14:
+    if len(parts) != 16:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -3760,6 +3778,8 @@ else {
         tray_hidden,
         launcher_icon,
         task_launchers,
+        task_sorting,
+        task_current_desktop,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -3793,8 +3813,10 @@ else {
     )
     if launcher_icon != expected_launcher_icon:
         return False, "launcher icon does not match"
-    if task_launchers.split(",") != manifest["launchers"]:
-        return False, "pinned launcher order does not match"
+    if task_sorting != "1":
+        return False, "taskbar is not in manual drag-reordering mode"
+    if task_current_desktop != "false":
+        return False, "taskbar is filtered to the current virtual desktop"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":
@@ -3864,6 +3886,24 @@ else {
     }
 
 
+def live_panel_launchers() -> list[str]:
+    output = plasma_evaluate(
+        """
+const ps=panels(); let value="";
+for (let i=0;i<ps.length && !value;++i) {
+ const tasks=ps[i].widgets("org.kde.plasma.taskmanager").concat(
+  ps[i].widgets("org.kde.plasma.icontasks"));
+ if (tasks.length) {
+  tasks[0].currentConfigGroup=["General"];
+  value=tasks[0].readConfig("launchers","");
+ }
+}
+print(value);
+"""
+    )
+    return list(dict.fromkeys(item for item in output.split(",") if item))
+
+
 def save_live_panel_tray_policy() -> None:
     dirty = run(
         ["git", "status", "--porcelain", "--", str(PANEL_PROFILES_FILE)],
@@ -3873,24 +3913,26 @@ def save_live_panel_tray_policy() -> None:
     if dirty:
         raise DotError(
             "The panel profile manifest already has uncommitted changes. "
-            "Review or commit it before saving the live tray."
+            "Review or commit it before saving the live panel preferences."
         )
     staged = run(["git", "diff", "--cached", "--quiet"], cwd=ROOT, check=False)
     if staged.returncode:
         raise DotError(
             "The Git index already contains staged changes. "
-            "Commit or unstage them before saving the live tray."
+            "Commit or unstage them before saving the live panel preferences."
         )
 
     policy = live_panel_tray_policy()
+    launchers = live_panel_launchers()
     payload = panel_manifest()
     updated_tray = dict(payload["tray"])
     updated_tray.update(policy)
-    if payload["tray"] == updated_tray:
-        print("The live System Tray policy already matches dotfiles.")
+    if payload["tray"] == updated_tray and payload["launchers"] == launchers:
+        print("The live panel preferences already match dotfiles.")
         return
     original = PANEL_PROFILES_FILE.read_bytes()
     payload["tray"] = updated_tray
+    payload["launchers"] = launchers
     atomic_text(
         PANEL_PROFILES_FILE,
         json.dumps(payload, indent=2) + "\n",
@@ -3901,14 +3943,14 @@ def save_live_panel_tray_policy() -> None:
         panel_manifest()
         matches, detail = panel_profile_matches(active_panel_profile())
         if not matches:
-            raise DotError(f"Captured tray policy did not validate: {detail}")
+            raise DotError(f"Captured panel preferences did not validate: {detail}")
         validation = run([str(ROOT / "tests/run")], cwd=ROOT, check=False)
         if validation.returncode:
-            raise DotError("Validation failed after capturing the tray policy.")
+            raise DotError("Validation failed after capturing panel preferences.")
         env = nvim_git_environment()
         run(["git", "add", "--", str(PANEL_PROFILES_FILE)], cwd=ROOT)
         run(
-            ["git", "commit", "-m", "update Plasma System Tray policy"],
+            ["git", "commit", "-m", "update Plasma panel preferences"],
             cwd=ROOT,
             env=env,
         )
@@ -3923,7 +3965,7 @@ def save_live_panel_tray_policy() -> None:
                 check=False,
             )
         raise
-    print("Saved, validated, committed, and pushed the live System Tray policy.")
+    print("Saved, validated, committed, and pushed the live panel preferences.")
 
 
 def switch_panel_profile(profile_name: str, *, force: bool = False) -> None:
@@ -4148,7 +4190,7 @@ def palette_apply_menu(profile: str) -> None:
         (
             "panel",
             "Selected taskbar profile",
-            f"Rebuild {active_panel_profile()} including the saved System Tray policy",
+            f"Rebuild {active_panel_profile()} while preserving the live pinned order",
         ),
         (
             "lockscreen",
@@ -4201,9 +4243,9 @@ def palette_panel_menu() -> None:
                     f"Choose one of four native Plasma layouts · {active_panel_profile()} active",
                 ),
                 (
-                    "save-tray",
-                    "Save System Tray choices",
-                    "Capture always shown, automatic, and always hidden icons; validate, commit, and push",
+                    "save-panel",
+                    "Save taskbar preferences",
+                    "Capture pinned order and tray visibility; validate, commit, and push",
                 ),
                 (
                     "reapply",
@@ -4234,7 +4276,7 @@ def palette_panel_menu() -> None:
             selected = active_panel_profile()
             palette_execute(lambda: switch_panel_profile(selected, force=True))
             continue
-        panel_action = "save" if action == "save-tray" else action
+        panel_action = "save" if action == "save-panel" else action
         palette_execute(
             lambda: cmd_panel(
                 argparse.Namespace(
@@ -5594,9 +5636,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         required_panel_state = (
             "plugin=org.kde.plasma.kickoff",
             "middleClickAction=Close",
-            "showOnlyCurrentDesktop=true",
+            "sortingStrategy=1",
+            "showOnlyCurrentDesktop=false",
             "showOnlyCurrentScreen=false",
-            "launchers=" + ",".join(panel_manifest()["launchers"]),
             "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
             "hiddenItems=org.kde.plasma.notifications",
         )
