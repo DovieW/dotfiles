@@ -161,9 +161,10 @@ dock, theme bundle, or third-party widget:
 
 Notification toasts use an explicit bottom-right anchor in every profile, so
 their position does not follow a centered System Tray.
-All four profiles use one global, manually sortable task list across every
-virtual desktop. Profile switches preserve your live pinned-app order, while an
-expanding spacer keeps the tray and 12-hour clock at the right edge.
+All four profiles preserve one manually sortable pinned-app order, while
+running windows appear only on their own virtual desktop. Ghostty is the narrow
+exception: its KWin rule makes it available on every desktop. An expanding
+spacer keeps the tray and 12-hour clock at the right edge.
 
 The selected profile is host-local and survives a normal `dot apply`. Use
 `dot panel list`, `dot panel status`, or `dot panel use NAME` for scripting.

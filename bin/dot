@@ -3657,8 +3657,9 @@ configure(task, ["General"], {{
     separateLaunchers: "false",
     // Plasma's manual mode is 1. Mode 0 disables sorting *and* drag-reordering.
     sortingStrategy: "1",
-    // Keep one stable task list instead of reshuffling it per virtual desktop.
-    showOnlyCurrentDesktop: "false",
+    // Show running windows only on their virtual desktop. Pinned launchers keep
+    // their manual order; KWin rules independently make rare apps global.
+    showOnlyCurrentDesktop: "true",
     showOnlyCurrentScreen: "false",
     wheelEnabled: "false"
 }});
@@ -3815,8 +3816,8 @@ else {
         return False, "launcher icon does not match"
     if task_sorting != "1":
         return False, "taskbar is not in manual drag-reordering mode"
-    if task_current_desktop != "false":
-        return False, "taskbar is filtered to the current virtual desktop"
+    if task_current_desktop != "true":
+        return False, "taskbar is showing windows from other virtual desktops"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":
@@ -5637,7 +5638,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "plugin=org.kde.plasma.kickoff",
             "middleClickAction=Close",
             "sortingStrategy=1",
-            "showOnlyCurrentDesktop=false",
+            "showOnlyCurrentDesktop=true",
             "showOnlyCurrentScreen=false",
             "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
             "hiddenItems=org.kde.plasma.notifications",
