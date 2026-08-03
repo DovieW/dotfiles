@@ -51,6 +51,14 @@ class DotCliTests(unittest.TestCase):
         profiles = manifest["profiles"]
         self.assertEqual(manifest["launcher_icon"], "windows11")
         self.assertEqual(
+            manifest["launchers"],
+            [
+                "applications:google-chrome.desktop",
+                "applications:com.mitchellh.ghostty.desktop",
+                "applications:obsidian.desktop",
+            ],
+        )
+        self.assertEqual(
             manifest["tray"]["shown_items"],
             [
                 "org.kde.plasma.networkmanagement",
@@ -74,6 +82,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('panel.lengthMode = cfg.length_mode', cli)
         self.assertIn('panel.floating = cfg.floating', cli)
         self.assertIn('icon: cfg.launcher_icon', cli)
+        self.assertIn('"launchers": ",".join(manifest["launchers"])', cli)
+        self.assertIn('return False, "pinned launcher order does not match"', cli)
+        self.assertNotIn('firstSpacer = panel.addWidget', cli)
         self.assertIn('ds[i].wallpaperPlugin = "org.kde.color"', cli)
         self.assertIn(
             '.dotfiles-never-show-desktop-icons',
@@ -344,6 +355,15 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("applications:org.kde.konsole.desktop", panel)
         self.assertIn('ROOT / "config/ghostty/config"', cli)
+        self.assertIn(
+            'ROOT / "config/environment.d/20-locale.conf"',
+            cli,
+        )
+        locale_environment = (
+            ROOT / "config/environment.d/20-locale.conf"
+        ).read_text()
+        self.assertIn("LANG=en_US.UTF-8", locale_environment)
+        self.assertIn("LC_TIME=en_US.UTF-8", locale_environment)
         self.assertIn('"Ghostty configuration"', cli)
         self.assertIn('"terminal font"', cli)
         installer = (ROOT / "scripts/install-firacode-nerd-font").read_text()
@@ -619,11 +639,11 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("[Containments][1][Wallpaper][org.kde.image]", panel)
         self.assertNotIn("plugin=org.kde.plasma.folder", panel)
-        self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 2)
+        self.assertEqual(panel.count("plugin=org.kde.plasma.panelspacer"), 1)
         self.assertEqual(panel.count("plugin=org.kde.plasma.kickoff"), 1)
         self.assertNotIn("plugin=org.kde.plasma.pager", panel)
         self.assertNotIn("plugin=org.kde.plasma.showdesktop", panel)
-        self.assertIn("AppletOrder=3;28;5;29;7;22", panel)
+        self.assertIn("AppletOrder=3;5;29;7;22", panel)
         self.assertIn("middleClickAction=Close", panel)
         self.assertIn("onlyGroupWhenFull=false", panel)
         self.assertIn("showOnlyCurrentDesktop=true", panel)

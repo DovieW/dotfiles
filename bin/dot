@@ -283,12 +283,16 @@ def panel_manifest() -> dict[str, Any]:
     profiles = payload.get("profiles")
     default = payload.get("default")
     tray = payload.get("tray")
+    launchers = payload.get("launchers")
     if (
         payload.get("schema_version") != 1
         or not isinstance(profiles, dict)
         or default not in profiles
         or not isinstance(tray, dict)
         or payload.get("launcher_icon") != "windows11"
+        or not isinstance(launchers, list)
+        or not all(isinstance(item, str) and item for item in launchers)
+        or len(launchers) != len(set(launchers))
     ):
         raise DotError(f"Invalid panel profile manifest: {PANEL_PROFILES_FILE}")
     for key in ("extra_items", "shown_items", "hidden_items"):
@@ -1534,6 +1538,7 @@ def apply_direct(
         desktop_mappings = {
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf": Path.home() / ".config/environment.d/10-bitwarden-ssh-agent.conf",
+            ROOT / "config/environment.d/20-locale.conf": Path.home() / ".config/environment.d/20-locale.conf",
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
@@ -3589,11 +3594,7 @@ def panel_profile_script(profile_name: str) -> str:
         "tray_shown": ",".join(tray_policy["shown_items"]),
         "tray_hidden": ",".join(tray_policy["hidden_items"]),
         "tray_extra": ",".join(tray_policy["extra_items"]),
-        "launchers": (
-            "applications:google-chrome.desktop,"
-            "applications:com.mitchellh.ghostty.desktop,"
-            "applications:obsidian.desktop"
-        ),
+        "launchers": ",".join(manifest["launchers"]),
     }
     data = json.dumps(values)
     return f"""
@@ -3603,6 +3604,8 @@ const oldPanels = panels();
 const panel = new Panel;
 panel.location = "bottom";
 panel.hiding = "autohide";
+// Keep custom-width and fit-content panels centered on the screen, while the
+// widgets inside every panel start at the left edge.
 panel.alignment = "center";
 panel.height = cfg.height;
 panel.lengthMode = cfg.length_mode;
@@ -3629,12 +3632,6 @@ configure(kickoff, ["General"], {{
 }});
 kickoff.globalShortcut = "Alt+F1";
 
-let firstSpacer = null;
-if (cfg.spacers) {{
-    firstSpacer = panel.addWidget("org.kde.plasma.panelspacer");
-    configure(firstSpacer, ["General"], {{expanding: "true"}});
-}}
-
 const task = panel.addWidget(cfg.task);
 configure(task, [], {{launchers: launchers}});
 configure(task, ["General"], {{
@@ -3644,6 +3641,7 @@ configure(task, ["General"], {{
     middleClickAction: "Close",
     onlyGroupWhenFull: "false",
     separateLaunchers: "false",
+    sortingStrategy: "0",
     showOnlyCurrentDesktop: "true",
     showOnlyCurrentScreen: "false",
     wheelEnabled: "false"
@@ -3705,7 +3703,7 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="";
+ const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="";
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) {
    types.push(w.type);
@@ -3717,6 +3715,10 @@ else {
     w.currentConfigGroup=["General"];
     trayShown=w.readConfig("shownItems","");
     trayHidden=w.readConfig("hiddenItems","");
+   }
+   if (w.type==="org.kde.plasma.taskmanager" || w.type==="org.kde.plasma.icontasks") {
+    w.currentConfigGroup=["General"];
+    taskLaunchers=w.readConfig("launchers","");
    }
   }
  }
@@ -3733,7 +3735,7 @@ else {
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
   p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
-  trayShown,trayHidden,launcherIcon
+  trayShown,trayHidden,launcherIcon,taskLaunchers
  ].join("|"));
 }
 """
@@ -3741,7 +3743,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 13:
+    if len(parts) != 14:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -3757,6 +3759,7 @@ else {
         tray_shown,
         tray_hidden,
         launcher_icon,
+        task_launchers,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -3775,8 +3778,6 @@ else {
         ) != expected_length:
             return False, "custom width does not match"
     expected_types = ["org.kde.plasma.kickoff"]
-    if profile["spacers"]:
-        expected_types.append("org.kde.plasma.panelspacer")
     expected_types.append(task_plugin)
     if profile["spacers"]:
         expected_types.append("org.kde.plasma.panelspacer")
@@ -3792,6 +3793,8 @@ else {
     )
     if launcher_icon != expected_launcher_icon:
         return False, "launcher icon does not match"
+    if task_launchers.split(",") != manifest["launchers"]:
+        return False, "pinned launcher order does not match"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":
@@ -5593,7 +5596,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "middleClickAction=Close",
             "showOnlyCurrentDesktop=true",
             "showOnlyCurrentScreen=false",
-            "launchers=applications:google-chrome.desktop,applications:com.mitchellh.ghostty.desktop,applications:obsidian.desktop",
+            "launchers=" + ",".join(panel_manifest()["launchers"]),
             "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
             "hiddenItems=org.kde.plasma.notifications",
         )

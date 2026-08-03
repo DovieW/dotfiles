@@ -285,7 +285,8 @@ icon and also enforces the desktop's solid-black
 color containment; taskbar switching never selects or installs an image
 wallpaper. Folder View is filtered defensively so Plasma updates cannot make
 files on `~/Desktop` visible again. The panel contains no pager or Show Desktop
-widget.
+widget. Every profile left-aligns its task list, shares the same ordered launcher
+manifest, and keeps the tray and locale-driven 12-hour clock on the right.
 Meta opens Kickoff. Alt+Space opens a centered KRunner
 instance whose Applications provider is the only enabled runner. The panel's
 screen-edge highlight is disabled and its pointer activation delay is zero.

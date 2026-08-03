@@ -153,14 +153,17 @@ dot clipboard update
 `dot panel` switches among four built-in Plasma layouts without installing a
 dock, theme bundle, or third-party widget:
 
-- **Windows Classic** — the default full-width 40px labeled taskbar
-- **Windows Refined** — a floating 94% labeled taskbar
-- **Centered Compact** — a floating 62% icon taskbar
+- **Windows Classic** — the default full-width 40px left-aligned labeled taskbar
+- **Windows Refined** — a floating 94% left-aligned labeled taskbar
+- **Centered Compact** — a floating 62% left-aligned icon taskbar
 - **Unified Pill** — a fit-content task, tray, and clock pill with a compact
   Windows-style Start icon; Meta and Alt+F1 open Kickoff
 
 Notification toasts use an explicit bottom-right anchor in every profile, so
 their position does not follow a centered System Tray.
+All four profiles share one declarative pinned-app order, and the task list is
+left-aligned while an expanding spacer keeps the tray and 12-hour clock at the
+right edge.
 
 The selected profile is host-local and survives a normal `dot apply`. Use
 `dot panel list`, `dot panel status`, or `dot panel use NAME` for scripting.

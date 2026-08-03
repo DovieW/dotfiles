@@ -70,13 +70,6 @@ fontWeight=400
 showDate=true
 showSeconds=false
 
-[Containments][2][Applets][28]
-immutability=1
-plugin=org.kde.plasma.panelspacer
-
-[Containments][2][Applets][28][Configuration][General]
-expanding=true
-
 [Containments][2][Applets][29]
 immutability=1
 plugin=org.kde.plasma.panelspacer
@@ -203,4 +196,4 @@ knownItems=org.kde.kdeconnect,org.kde.plasma.vault,org.kde.kupapplet,org.kde.pla
 shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery
 
 [Containments][2][General]
-AppletOrder=3;28;5;29;7;22
+AppletOrder=3;5;29;7;22

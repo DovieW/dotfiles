@@ -2,6 +2,11 @@
   "schema_version": 1,
   "default": "windows-classic",
   "launcher_icon": "windows11",
+  "launchers": [
+    "applications:google-chrome.desktop",
+    "applications:com.mitchellh.ghostty.desktop",
+    "applications:obsidian.desktop"
+  ],
   "tray": {
     "extra_items": [
       "org.kde.kdeconnect",
@@ -46,7 +51,7 @@
   "profiles": {
     "windows-classic": {
       "label": "Windows Classic",
-      "description": "Current full-width 40px bar with centered labeled tasks",
+      "description": "Full-width 40px bar with left-aligned labeled tasks",
       "floating": false,
       "length_mode": "fill",
       "width_percent": 100,
@@ -57,7 +62,7 @@
     },
     "windows-refined": {
       "label": "Windows Refined",
-      "description": "Floating 94% bar with labeled tasks and restrained margins",
+      "description": "Floating 94% bar with left-aligned labeled tasks and restrained margins",
       "floating": true,
       "length_mode": "custom",
       "width_percent": 94,
@@ -68,7 +73,7 @@
     },
     "centered-compact": {
       "label": "Centered Compact",
-      "description": "Floating 62% bar with icon tasks, compact tray, and time",
+      "description": "Floating 62% bar with left-aligned icon tasks, compact tray, and time",
       "floating": true,
       "length_mode": "custom",
       "width_percent": 62,
@@ -79,7 +84,7 @@
     },
     "unified-pill": {
       "label": "Unified Pill",
-      "description": "Fit-content floating pill with a Windows-style launcher, tasks, tray, and time",
+      "description": "Fit-content floating pill with a stable Windows-style launcher order, tray, and time",
       "floating": true,
       "length_mode": "fit",
       "width_percent": null,
