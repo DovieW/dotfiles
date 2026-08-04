@@ -1,0 +1,3 @@
+# The IdeaPad screenshot key emits Meta+Shift+S while Fn Lock is disabled.
+# Enable Fn Lock so the key emits KEY_SYSRQ/Print and reaches KGlobalAccel.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="VPC2004:00", ATTR{fn_lock}="1"

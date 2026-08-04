@@ -1524,6 +1524,14 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("def sync_managed_screenshot_shortcuts", cli)
         self.assertIn('selected("screenshots", "kde")', cli)
         self.assertIn('"screenshots",', cli)
+        fn_lock = (
+            ROOT / "config/udev/90-dotfiles-ideapad-fn-lock.rules"
+        ).read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn('KERNEL=="VPC2004:00"', fn_lock)
+        self.assertIn('ATTR{fn_lock}="1"', fn_lock)
+        self.assertIn("Make the IdeaPad screenshot key emit Print", playbook)
+        self.assertIn("--sysname-match=VPC2004:00", playbook)
 
     def test_zsh_uses_fzf_for_normal_tab_completion(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())

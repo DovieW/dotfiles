@@ -522,6 +522,32 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, kde]
 
+    - name: Make the IdeaPad screenshot key emit Print
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/udev/90-dotfiles-ideapad-fn-lock.rules"
+        dest: /etc/udev/rules.d/90-dotfiles-ideapad-fn-lock.rules
+        mode: "0644"
+      register: dot_ideapad_fn_lock_rule
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde, screenshots]
+
+    - name: Apply the IdeaPad Print-key mode
+      become: true
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - trigger
+          - --action=add
+          - --subsystem-match=platform
+          - --sysname-match=VPC2004:00
+      when:
+        - dot_profile_data.features.kde | default(false)
+        - dot_ideapad_fn_lock_rule.changed
+        - not ansible_check_mode
+      changed_when: true
+      tags: [config, kde, screenshots]
+
     - name: Report when the system lid fallback becomes active
       ansible.builtin.debug:
         msg: >-
