@@ -61,6 +61,13 @@ dot secrets truenas-api --role audit
 dot secrets truenas-api --role operator
 ```
 
+TrueNAS ships with a self-signed `localhost` certificate. Credential setup
+shows its SHA-256 fingerprint and asks for a one-time `trust` confirmation.
+The exact certificate is then pinned in Bitwarden. Routine commands remain
+encrypted and automatic, while an unexpected certificate change is rejected
+before an API key is sent. No private CA setup or global insecure TLS setting
+is required.
+
 The audit identity handles status, doctor, diff, and inventory. The operator
 identity should have only the service/application runtime permissions needed by
 the supported apply path. SSH is retained for bootstrap and break-glass work,

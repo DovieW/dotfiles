@@ -2418,7 +2418,10 @@ def cmd_secrets_tailscale_oauth(args: argparse.Namespace) -> None:
 
 
 def validate_truenas_api(
-    url: str, api_key: str, ca_file: str | None = None
+    url: str,
+    api_key: str,
+    ca_file: str | None = None,
+    pinned_certificate_pem: str | None = None,
 ) -> None:
     try:
         from websockets.sync.client import connect
@@ -2428,7 +2431,14 @@ def validate_truenas_api(
         ) from exc
     if not re.fullmatch(r"wss://.+/api/(?:current|v[0-9.]+)", url):
         raise DotError("TrueNAS API URL must look like wss://truenas-scale/api/current")
-    context = __import__("ssl").create_default_context(cafile=ca_file)
+    ssl_module = __import__("ssl")
+    if pinned_certificate_pem:
+        context = ssl_module.create_default_context(cadata=pinned_certificate_pem)
+        # TrueNAS's factory certificate is self-signed for localhost. Trust
+        # this exact certificate while deliberately ignoring only its name.
+        context.check_hostname = False
+    else:
+        context = ssl_module.create_default_context(cafile=ca_file)
     try:
         websocket = connect(url, ssl=context, open_timeout=10, close_timeout=5)
         websocket.send(
@@ -2452,6 +2462,23 @@ def validate_truenas_api(
         raise DotError("TrueNAS rejected that API key")
 
 
+def fetch_truenas_certificate(url: str) -> tuple[str, str]:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "wss" or not parsed.hostname:
+        raise DotError("TrueNAS API URL must use wss://")
+    try:
+        ssl_module = __import__("ssl")
+        pem = ssl_module.get_server_certificate(
+            (parsed.hostname, parsed.port or 443), timeout=10
+        )
+        der = ssl_module.PEM_cert_to_DER_cert(pem)
+    except Exception as exc:
+        raise DotError(f"Could not read the TrueNAS TLS certificate: {exc}") from exc
+    digest = hashlib.sha256(der).hexdigest().upper()
+    fingerprint = ":".join(digest[index : index + 2] for index in range(0, 64, 2))
+    return pem, fingerprint
+
+
 def cmd_secrets_truenas_api(args: argparse.Namespace) -> None:
     role = args.role
     item_name = (
@@ -2460,15 +2487,16 @@ def cmd_secrets_truenas_api(args: argparse.Namespace) -> None:
     api_url = input("TrueNAS API URL [wss://truenas-scale/api/current]: ").strip()
     api_url = api_url or "wss://truenas-scale/api/current"
     api_key = getpass.getpass(f"TrueNAS {role} API key: ").strip()
-    ca_file = input(
-        "Trusted CA certificate file for this TrueNAS endpoint [system trust]: "
-    ).strip()
-    if ca_file:
-        ca_path = Path(ca_file).expanduser()
-        if not ca_path.is_file():
-            raise DotError(f"TrueNAS CA file does not exist: {ca_path}")
-        ca_file = str(ca_path)
-    validate_truenas_api(api_url, api_key, ca_file or None)
+    certificate_pem, fingerprint = fetch_truenas_certificate(api_url)
+    print("TrueNAS presented this TLS certificate fingerprint:")
+    print(f"  SHA256 {fingerprint}")
+    print(
+        "This one-time trust pins the exact certificate. Future certificate "
+        "changes will be rejected before an API key is sent."
+    )
+    if input("Type `trust` to accept this certificate: ").strip() != "trust":
+        raise DotError("TrueNAS certificate was not trusted; nothing was stored")
+    validate_truenas_api(api_url, api_key, pinned_certificate_pem=certificate_pem)
     session, should_lock = bw_session()
     try:
         run(["bw", "sync", "--session", session], check=False, capture=True)
@@ -2476,16 +2504,24 @@ def cmd_secrets_truenas_api(args: argparse.Namespace) -> None:
         fields = [
             field
             for field in (item or {}).get("fields", [])
-            if field.get("name") not in {"api_url", "api_key", "ca_file", "ca_pem"}
+            if field.get("name")
+            not in {
+                "api_url",
+                "api_key",
+                "ca_file",
+                "ca_pem",
+                "cert_pem",
+                "cert_sha256",
+                "tls_mode",
+            }
         ]
-        if ca_file:
-            fields.append(
-                {
-                    "name": "ca_pem",
-                    "value": Path(ca_file).read_text(encoding="utf-8"),
-                    "type": 1,
-                }
-            )
+        fields.extend(
+            [
+                {"name": "cert_pem", "value": certificate_pem, "type": 1},
+                {"name": "cert_sha256", "value": fingerprint, "type": 0},
+                {"name": "tls_mode", "value": "pinned-certificate", "type": 0},
+            ]
+        )
         fields.extend(
             [
                 {"name": "api_url", "value": api_url, "type": 0},
@@ -2674,6 +2710,8 @@ def cmd_homelab(args: argparse.Namespace) -> None:
         "TAILSCALE_OAUTH_CLIENT_ID",
         "TAILSCALE_OAUTH_CLIENT_SECRET",
         "TRUENAS_CA_FILE",
+        "TRUENAS_CERT_FILE",
+        "TRUENAS_TLS_MODE",
     ):
         environment.pop(name, None)
     try:
@@ -2682,13 +2720,20 @@ def cmd_homelab(args: argparse.Namespace) -> None:
             environment["TRUENAS_API_URL"] = bw_field(item, "api_url")
             environment["TRUENAS_AUDIT_API_KEY"] = bw_field(item, "api_key")
             ca_pem = bw_field(item, "ca_pem", required=False)
-            if ca_pem:
+            cert_pem = bw_field(item, "cert_pem", required=False)
+            tls_mode = bw_field(item, "tls_mode", required=False)
+            trust_pem = cert_pem or ca_pem
+            if trust_pem:
                 descriptor, ca_name = tempfile.mkstemp(prefix="dot-truenas-ca-", suffix=".pem")
                 temporary_ca = Path(ca_name)
                 os.fchmod(descriptor, 0o600)
                 with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                    stream.write(ca_pem)
-                environment["TRUENAS_CA_FILE"] = str(temporary_ca)
+                    stream.write(trust_pem)
+                if cert_pem and tls_mode == "pinned-certificate":
+                    environment["TRUENAS_CERT_FILE"] = str(temporary_ca)
+                    environment["TRUENAS_TLS_MODE"] = tls_mode
+                else:
+                    environment["TRUENAS_CA_FILE"] = str(temporary_ca)
         if needs_truenas_operator:
             item = bw_get_item(BW_TRUENAS_OPERATOR_ITEM, session)
             operator_url = bw_field(item, "api_url")
@@ -2714,6 +2759,8 @@ def cmd_homelab(args: argparse.Namespace) -> None:
             "TAILSCALE_OAUTH_CLIENT_ID",
             "TAILSCALE_OAUTH_CLIENT_SECRET",
             "TRUENAS_CA_FILE",
+            "TRUENAS_CERT_FILE",
+            "TRUENAS_TLS_MODE",
         ):
             environment.pop(name, None)
         if temporary_ca is not None:
