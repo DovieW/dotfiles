@@ -28,9 +28,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("panel", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("tailscale", result.stdout)
+        self.assertIn("homelab", result.stdout)
         self.assertIn("update", result.stdout)
 
-    def test_tailscale_api_token_is_not_loaded_by_shell_startup(self):
+    def test_homelab_secrets_are_not_loaded_by_shell_startup(self):
         for path in (
             ROOT / "config/shell/zshrc",
             ROOT / "config/shell/bashrc",
@@ -40,9 +41,47 @@ class DotCliTests(unittest.TestCase):
             self.assertNotIn("TAILSCALE_API_KEY", text)
             self.assertNotIn("tskey-api-", text)
         cli = DOT.read_text()
+        self.assertIn('BW_TAILSCALE_OAUTH_ITEM = "dotfiles/tailscale-oauth"', cli)
         self.assertIn('BW_TAILSCALE_API_ITEM = "dotfiles/tailscale-api"', cli)
-        self.assertIn('secrets_sub.add_parser("tailscale-api")', cli)
+        self.assertIn('secrets_sub.add_parser("tailscale-oauth")', cli)
+        self.assertIn('secrets_sub.add_parser("truenas-api")', cli)
+        self.assertIn('sub.add_parser("homelab")', cli)
+        self.assertNotIn('secrets_sub.add_parser("tailscale-api")', cli)
+        self.assertNotIn("def cmd_secrets_tailscale_api", cli)
         self.assertIn('"type": 1', cli)
+
+    def test_dot_uses_the_system_python_with_websocket_support(self):
+        self.assertEqual(DOT.read_text().splitlines()[0], "#!/usr/bin/python3")
+
+    def test_homelab_menu_reaches_every_action(self):
+        cli = DOT.read_text()
+        for action in (
+            "status",
+            "doctor",
+            "diff-all",
+            "diff-truenas",
+            "diff-tailscale",
+            "apps",
+            "apply-truenas",
+            "apply-tailscale",
+            "import-tailscale",
+            "backups",
+            "rollback-truenas",
+            "rollback-tailscale",
+            "validate",
+            "sync",
+            "oauth",
+            "truenas-audit",
+            "truenas-operator",
+        ):
+            self.assertIn(f'(\"{action}\",', cli)
+
+    def test_homelab_schema_example_is_redacted(self):
+        example = json.loads((ROOT / "examples/homelab-v1.json").read_text())
+        self.assertEqual(example["schema_version"], 1)
+        text = json.dumps(example)
+        self.assertNotIn("tskey-", text)
+        self.assertNotIn("api_key", text.lower())
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):

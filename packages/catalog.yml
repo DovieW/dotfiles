@@ -19,6 +19,7 @@
     "jq": {"provider": "brew"},
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},
+    "python3-websockets": {"provider": "apt"},
     "remmina": {"provider": "apt"},
     "remmina-plugin-rdp": {"provider": "apt"},
     "ripgrep": {"provider": "brew"},

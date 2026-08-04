@@ -289,6 +289,7 @@ docs/         architecture, maintenance, migration, and troubleshooting
   updating, and rollback
 - [Docker](docs/docker.md) — native Docker Engine on Kubuntu and WSL
 - [Tailscale](docs/tailscale.md) — installation and enrollment boundaries
+- [Homelab](docs/homelab.md) — private TrueNAS inventory, tailnet policy, and guarded operations
 - [Migration ledger](docs/migration-ledger.md) — where the old configuration
   went
 - [Troubleshooting](docs/troubleshooting.md) — actionable recovery paths

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """One entry point for Dovie's reproducible environment."""
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import sys
 import tempfile
 from typing import Any
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -39,6 +40,17 @@ NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
 BW_TAILSCALE_API_ITEM = "dotfiles/tailscale-api"
+BW_TAILSCALE_OAUTH_ITEM = "dotfiles/tailscale-oauth"
+BW_TRUENAS_AUDIT_ITEM = "dotfiles/truenas-audit-api"
+BW_TRUENAS_OPERATOR_ITEM = "dotfiles/truenas-operator-api"
+HOMELAB_REPO = Path.home() / "repos/homelab-infra"
+HOMELAB_REPOSITORY = {
+    "name": "homelab-infra",
+    "url": "git@github.com:DovieW/homelab-infra.git",
+    "path": "~/repos/homelab-infra",
+    "profiles": ["kubuntu-laptop", "wsl-personal"],
+    "account": "personal",
+}
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 LOCKSCREEN_PACKAGE_ID = "io.github.doview.dotfiles.lockscreen"
 LOCKSCREEN_PACKAGE_SOURCE = (
@@ -2087,6 +2099,27 @@ def bw_edit_item(item: dict[str, Any], session: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
+def bw_delete_item(item: dict[str, Any], session: str) -> None:
+    item_id = item.get("id")
+    if not item_id:
+        raise DotError("Bitwarden item cannot be moved to trash without an ID")
+    run(["bw", "delete", "item", item_id, "--session", session], capture=True)
+
+
+def bw_field(item: dict[str, Any], name: str, *, required: bool = True) -> str:
+    value = next(
+        (
+            field.get("value")
+            for field in item.get("fields", [])
+            if field.get("name") == name
+        ),
+        None,
+    )
+    if not value and required:
+        raise DotError(f"Bitwarden item {item.get('name')} has no {name} field")
+    return str(value or "")
+
+
 def key_parts(item: dict[str, Any]) -> tuple[str, str]:
     ssh = item.get("sshKey") or {}
     private = ssh.get("privateKey")
@@ -2280,48 +2313,88 @@ def cmd_secrets_initialize(args: argparse.Namespace) -> None:
             run(["bw", "lock"], check=False)
 
 
-def validate_tailscale_api_token(token: str) -> None:
-    if not re.fullmatch(r"tskey-api-[A-Za-z0-9_-]+", token):
-        raise DotError("That does not look like a Tailscale API access token")
-    credentials = base64.b64encode(f"{token}:".encode()).decode()
+def tailscale_oauth_token(client_id: str, client_secret: str) -> str:
+    if not client_id or not client_secret:
+        raise DotError("Tailscale OAuth client ID and secret are required")
+    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     request = urllib.request.Request(
-        "https://api.tailscale.com/api/v2/tailnet/-/acl",
-        headers={"Authorization": f"Basic {credentials}"},
+        "https://api.tailscale.com/api/v2/oauth/token",
+        data=urllib.parse.urlencode({"grant_type": "client_credentials"}).encode(),
+        headers={
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
-            if response.status != 200:
-                raise DotError(
-                    f"Tailscale rejected the token with HTTP {response.status}"
-                )
+            payload = json.load(response)
     except urllib.error.HTTPError as exc:
-        raise DotError(f"Tailscale rejected the token with HTTP {exc.code}") from exc
+        raise DotError(f"Tailscale OAuth failed with HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise DotError(f"Could not validate the Tailscale token: {exc.reason}") from exc
+        raise DotError(f"Tailscale OAuth failed: {exc.reason}") from exc
+    token = payload.get("access_token")
+    if not token:
+        raise DotError("Tailscale OAuth response did not include an access token")
+    return str(token)
 
 
-def cmd_secrets_tailscale_api(args: argparse.Namespace) -> None:
+def validate_tailscale_oauth(client_id: str, client_secret: str) -> None:
+    token = tailscale_oauth_token(client_id, client_secret)
+
+    def request(path: str, *, method: str = "GET", body: bytes | None = None) -> bytes:
+        headers = {"Authorization": f"Bearer {token}"}
+        if body is not None:
+            headers["Content-Type"] = "application/hujson"
+        api_request = urllib.request.Request(
+            f"https://api.tailscale.com/api/v2{path}",
+            data=body,
+            headers=headers,
+            method=method,
+        )
+        with urllib.request.urlopen(api_request, timeout=20) as response:
+            return response.read()
+
+    try:
+        policy = request("/tailnet/-/acl")
+        request("/tailnet/-/devices")
+        request("/tailnet/-/acl/validate", method="POST", body=policy)
+    except urllib.error.HTTPError as exc:
+        raise DotError(
+            "The OAuth client is valid but lacks a required policy/device scope. "
+            f"Grant policy_file plus the minimum device inventory scopes (HTTP {exc.code})."
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise DotError(f"Could not validate Tailscale OAuth: {exc.reason}") from exc
+
+
+def cmd_secrets_tailscale_oauth(args: argparse.Namespace) -> None:
+    client_id = input("Tailscale OAuth client ID: ").strip()
+    client_secret = getpass.getpass("Tailscale OAuth client secret: ").strip()
+    validate_tailscale_oauth(client_id, client_secret)
     session, should_lock = bw_session()
     try:
         run(["bw", "sync", "--session", session], check=False, capture=True)
-        token = getpass.getpass("New Tailscale API access token: ").strip()
-        validate_tailscale_api_token(token)
-
-        item = bw_get_item(BW_TAILSCALE_API_ITEM, session, required=False)
+        item = bw_get_item(BW_TAILSCALE_OAUTH_ITEM, session, required=False)
         fields = [
             field
             for field in (item or {}).get("fields", [])
-            if field.get("name") != "api_token"
+            if field.get("name") not in {"client_id", "client_secret"}
         ]
-        fields.append({"name": "api_token", "value": token, "type": 1})
+        fields.extend(
+            [
+                {"name": "client_id", "value": client_id, "type": 1},
+                {"name": "client_secret", "value": client_secret, "type": 1},
+            ]
+        )
         if item is None:
             item = {
                 "type": 2,
-                "name": BW_TAILSCALE_API_ITEM,
+                "name": BW_TAILSCALE_OAUTH_ITEM,
                 "favorite": False,
                 "notes": (
-                    "Tailscale API access token used only by explicit dotfiles "
-                    "administration commands. Never load it from shell startup."
+                    "Scoped Tailscale OAuth client. Access tokens are minted "
+                    "for one hour and never persisted."
                 ),
                 "secureNote": {"type": 0},
                 "fields": fields,
@@ -2330,11 +2403,113 @@ def cmd_secrets_tailscale_api(args: argparse.Namespace) -> None:
         else:
             item["fields"] = fields
             saved = bw_edit_item(item, session)
-        if saved.get("name") != BW_TAILSCALE_API_ITEM:
-            raise DotError("Bitwarden returned an unexpected Tailscale item")
+        if saved.get("name") != BW_TAILSCALE_OAUTH_ITEM:
+            raise DotError("Bitwarden returned an unexpected Tailscale OAuth item")
+        legacy = bw_get_item(BW_TAILSCALE_API_ITEM, session, required=False)
+        if legacy is not None:
+            bw_delete_item(legacy, session)
+            print(f"Moved superseded {BW_TAILSCALE_API_ITEM} to Bitwarden trash.")
         run(["bw", "sync", "--session", session], check=False, capture=True)
-        print(f"Stored and validated: {BW_TAILSCALE_API_ITEM}")
+        print(f"Stored and validated: {BW_TAILSCALE_OAUTH_ITEM}")
     finally:
+        client_secret = ""
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def validate_truenas_api(
+    url: str, api_key: str, ca_file: str | None = None
+) -> None:
+    try:
+        from websockets.sync.client import connect
+    except ImportError as exc:
+        raise DotError(
+            "python3-websockets is required. Apply the workstation profile first."
+        ) from exc
+    if not re.fullmatch(r"wss://.+/api/(?:current|v[0-9.]+)", url):
+        raise DotError("TrueNAS API URL must look like wss://truenas-scale/api/current")
+    context = __import__("ssl").create_default_context(cafile=ca_file)
+    try:
+        websocket = connect(url, ssl=context, open_timeout=10, close_timeout=5)
+        websocket.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "auth.login_with_api_key",
+                    "params": [api_key],
+                }
+            )
+        )
+        while True:
+            response = json.loads(websocket.recv())
+            if response.get("id") == 1:
+                break
+        websocket.close()
+    except Exception as exc:
+        raise DotError(f"Could not authenticate to the TrueNAS API: {exc}") from exc
+    if response.get("result") is not True:
+        raise DotError("TrueNAS rejected that API key")
+
+
+def cmd_secrets_truenas_api(args: argparse.Namespace) -> None:
+    role = args.role
+    item_name = (
+        BW_TRUENAS_AUDIT_ITEM if role == "audit" else BW_TRUENAS_OPERATOR_ITEM
+    )
+    api_url = input("TrueNAS API URL [wss://truenas-scale/api/current]: ").strip()
+    api_url = api_url or "wss://truenas-scale/api/current"
+    api_key = getpass.getpass(f"TrueNAS {role} API key: ").strip()
+    ca_file = input(
+        "Trusted CA certificate file for this TrueNAS endpoint [system trust]: "
+    ).strip()
+    if ca_file:
+        ca_path = Path(ca_file).expanduser()
+        if not ca_path.is_file():
+            raise DotError(f"TrueNAS CA file does not exist: {ca_path}")
+        ca_file = str(ca_path)
+    validate_truenas_api(api_url, api_key, ca_file or None)
+    session, should_lock = bw_session()
+    try:
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        item = bw_get_item(item_name, session, required=False)
+        fields = [
+            field
+            for field in (item or {}).get("fields", [])
+            if field.get("name") not in {"api_url", "api_key", "ca_file", "ca_pem"}
+        ]
+        if ca_file:
+            fields.append(
+                {
+                    "name": "ca_pem",
+                    "value": Path(ca_file).read_text(encoding="utf-8"),
+                    "type": 1,
+                }
+            )
+        fields.extend(
+            [
+                {"name": "api_url", "value": api_url, "type": 0},
+                {"name": "api_key", "value": api_key, "type": 1},
+            ]
+        )
+        if item is None:
+            item = {
+                "type": 2,
+                "name": item_name,
+                "favorite": False,
+                "notes": f"TrueNAS {role} JSON-RPC identity for explicit homelab commands.",
+                "secureNote": {"type": 0},
+                "fields": fields,
+            }
+            saved = bw_create_item(item, session)
+        else:
+            item["fields"] = fields
+            saved = bw_edit_item(item, session)
+        if saved.get("name") != item_name:
+            raise DotError("Bitwarden returned an unexpected TrueNAS item")
+        print(f"Stored and validated: {item_name}")
+    finally:
+        api_key = ""
         if should_lock:
             run(["bw", "lock"], check=False)
 
@@ -2366,6 +2541,183 @@ def cmd_repos_sync(args: argparse.Namespace) -> None:
                 print(f"Cloning {repo['name']}")
                 run(["git", "clone", repo["url"], str(destination)])
     finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def ensure_homelab_manifest(session: str) -> None:
+    item = bw_get_item(BW_BOOTSTRAP_ITEM, session)
+    try:
+        manifest = json.loads(item.get("notes") or "{}")
+    except json.JSONDecodeError as exc:
+        raise DotError(f"{BW_BOOTSTRAP_ITEM} notes are not valid JSON: {exc}") from exc
+    repositories = manifest.setdefault("repositories", [])
+    existing = next(
+        (repo for repo in repositories if repo.get("name") == "homelab-infra"),
+        None,
+    )
+    if existing == HOMELAB_REPOSITORY:
+        return
+    if existing is None:
+        repositories.append(dict(HOMELAB_REPOSITORY))
+    else:
+        existing.clear()
+        existing.update(HOMELAB_REPOSITORY)
+    item["notes"] = json.dumps(manifest, indent=2)
+    bw_edit_item(item, session)
+
+
+def cmd_homelab_sync(args: argparse.Namespace) -> None:
+    session, should_lock = bw_session()
+    try:
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        ensure_homelab_manifest(session)
+        if (HOMELAB_REPO / ".git").is_dir():
+            print("Updating homelab-infra")
+            run(
+                [
+                    "git",
+                    "-C",
+                    str(HOMELAB_REPO),
+                    "fetch",
+                    "--all",
+                    "--prune",
+                    "--tags",
+                ]
+            )
+            status = run(
+                ["git", "-C", str(HOMELAB_REPO), "status", "--porcelain"],
+                capture=True,
+            ).stdout.strip()
+            if status:
+                print("Fetched homelab-infra; local changes were preserved without merging.")
+            else:
+                upstream = run(
+                    ["git", "-C", str(HOMELAB_REPO), "rev-parse", "--abbrev-ref", "@{u}"],
+                    check=False,
+                    capture=True,
+                )
+                if upstream.returncode == 0:
+                    run(["git", "-C", str(HOMELAB_REPO), "merge", "--ff-only", upstream.stdout.strip()])
+        elif HOMELAB_REPO.exists():
+            raise DotError(
+                f"Homelab destination exists but is not a Git repository: {HOMELAB_REPO}"
+            )
+        else:
+            HOMELAB_REPO.parent.mkdir(parents=True, exist_ok=True)
+            run(
+                [
+                    "git",
+                    "clone",
+                    HOMELAB_REPOSITORY["url"],
+                    str(HOMELAB_REPO),
+                ]
+            )
+        print("Private homelab repository is available.")
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def homelab_command() -> Path:
+    command = HOMELAB_REPO / "bin/homelab"
+    if not command.is_file():
+        raise DotError(
+            "Private homelab repository is missing. Run `dot homelab sync` first."
+        )
+    return command
+
+
+def cmd_homelab(args: argparse.Namespace) -> None:
+    action = args.homelab_action
+    if action is None:
+        profile = update_profile(getattr(args, "profile", None))
+        palette_homelab_menu(profile)
+        return
+    target = getattr(args, "target", None)
+    run_id = getattr(args, "run_id", None)
+    if action in {"apply", "import", "rollback"} and target is None:
+        raise DotError(f"dot homelab {action} requires truenas or tailscale")
+    if action not in {"diff", "apply", "import", "rollback"} and target is not None:
+        raise DotError(f"dot homelab {action} does not accept a target")
+    if action == "rollback" and not run_id:
+        raise DotError("dot homelab rollback requires a backup run ID")
+    if action != "rollback" and run_id is not None:
+        raise DotError(f"dot homelab {action} does not accept a backup run ID")
+    if action == "sync":
+        cmd_homelab_sync(args)
+        return
+    if action == "credentials":
+        raise DotError(
+            "Choose a credential explicitly: `dot secrets tailscale-oauth`, "
+            "`dot secrets truenas-api --role audit`, or "
+            "`dot secrets truenas-api --role operator`."
+        )
+    command = homelab_command()
+    if action in {"validate", "backups"}:
+        run([str(command), action], cwd=HOMELAB_REPO)
+        return
+    needs_truenas_audit = action in {"status", "doctor", "apps"} or (
+        action == "diff" and target in {None, "truenas"}
+    ) or (action in {"apply", "rollback"} and target == "truenas")
+    needs_truenas_operator = action in {"apply", "rollback"} and target == "truenas"
+    needs_tailscale = action in {"status", "doctor"} or (
+        action in {"diff", "apply", "import", "rollback"}
+        and target in {None, "tailscale"}
+    )
+    session, should_lock = bw_session()
+    environment = os.environ.copy()
+    temporary_ca: Path | None = None
+    for name in (
+        "TRUENAS_AUDIT_API_KEY",
+        "TRUENAS_OPERATOR_API_KEY",
+        "TAILSCALE_OAUTH_CLIENT_ID",
+        "TAILSCALE_OAUTH_CLIENT_SECRET",
+        "TRUENAS_CA_FILE",
+    ):
+        environment.pop(name, None)
+    try:
+        if needs_truenas_audit:
+            item = bw_get_item(BW_TRUENAS_AUDIT_ITEM, session)
+            environment["TRUENAS_API_URL"] = bw_field(item, "api_url")
+            environment["TRUENAS_AUDIT_API_KEY"] = bw_field(item, "api_key")
+            ca_pem = bw_field(item, "ca_pem", required=False)
+            if ca_pem:
+                descriptor, ca_name = tempfile.mkstemp(prefix="dot-truenas-ca-", suffix=".pem")
+                temporary_ca = Path(ca_name)
+                os.fchmod(descriptor, 0o600)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    stream.write(ca_pem)
+                environment["TRUENAS_CA_FILE"] = str(temporary_ca)
+        if needs_truenas_operator:
+            item = bw_get_item(BW_TRUENAS_OPERATOR_ITEM, session)
+            operator_url = bw_field(item, "api_url")
+            if operator_url != environment.get("TRUENAS_API_URL"):
+                raise DotError("TrueNAS audit and operator credentials target different API URLs")
+            environment["TRUENAS_OPERATOR_API_KEY"] = bw_field(item, "api_key")
+        if needs_tailscale:
+            item = bw_get_item(BW_TAILSCALE_OAUTH_ITEM, session)
+            environment["TAILSCALE_OAUTH_CLIENT_ID"] = bw_field(item, "client_id")
+            environment["TAILSCALE_OAUTH_CLIENT_SECRET"] = bw_field(
+                item, "client_secret"
+            )
+        arguments = [str(command), action]
+        if target:
+            arguments.append(target)
+        if run_id:
+            arguments.append(run_id)
+        run(arguments, cwd=HOMELAB_REPO, env=environment)
+    finally:
+        for name in (
+            "TRUENAS_AUDIT_API_KEY",
+            "TRUENAS_OPERATOR_API_KEY",
+            "TAILSCALE_OAUTH_CLIENT_ID",
+            "TAILSCALE_OAUTH_CLIENT_SECRET",
+            "TRUENAS_CA_FILE",
+        ):
+            environment.pop(name, None)
+        if temporary_ca is not None:
+            temporary_ca.unlink(missing_ok=True)
         if should_lock:
             run(["bw", "lock"], check=False)
 
@@ -4905,6 +5257,86 @@ def palette_services_menu(profile: str) -> None:
         palette_execute(execute)
 
 
+def palette_homelab_menu(profile: str) -> None:
+    while True:
+        action = fzf_menu(
+            [
+                ("status", "Health summary", "Read-only TrueNAS and Tailscale health summary"),
+                ("doctor", "Complete homelab doctor", "Check credentials, APIs, pools, shares, services, apps, alerts, updates, nodes, and policy"),
+                ("diff-all", "Review all drift", "Compare live TrueNAS and tailnet state with the private repository"),
+                ("diff-truenas", "Review TrueNAS drift", "Read-only pool, share, service, app, snapshot, alert, and update comparison"),
+                ("diff-tailscale", "Review Tailscale drift", "Read-only node posture and policy comparison"),
+                ("apps", "Application inventory", "Show application state, available updates, health, and owning repositories"),
+                ("apply-truenas", "Apply TrueNAS runtime state", "Preview and confirm only supported service and application start/stop changes"),
+                ("apply-tailscale", "Publish tailnet policy", "Validate, back up, preview, and confirm the authoritative policy"),
+                ("import-tailscale", "Import live tailnet policy", "Write the current policy into the private repo for review"),
+                ("backups", "List local backups", "Show owner-only pre-change and pre-rollback snapshots on this workstation"),
+                ("rollback-truenas", "Rollback TrueNAS runtime state", "Select a backup, preview it, back up live state, and confirm supported restoration"),
+                ("rollback-tailscale", "Rollback tailnet policy", "Select a backup, validate it, preview it, back up live policy, and confirm restoration"),
+                ("validate", "Validate private repository", "Run inventory and policy structure validation without remote access"),
+                ("sync", "Sync private homelab repository", "Register it in the Bitwarden manifest and clone or fetch it"),
+                ("oauth", "Store Tailscale OAuth client", "Validate a scoped client, store it, and retire the old user token"),
+                ("truenas-audit", "Store TrueNAS audit key", "Validate and store the read-only JSON-RPC identity"),
+                ("truenas-operator", "Store TrueNAS operator key", "Validate and store the narrowly privileged apply identity"),
+                ("back", "Back", "Return to the main menu"),
+            ],
+            prompt="homelab › ",
+        )
+        if action in (None, "back"):
+            return
+        if action == "oauth":
+            palette_execute(lambda: cmd_secrets_tailscale_oauth(argparse.Namespace()))
+            continue
+        if action in {"truenas-audit", "truenas-operator"}:
+            role = action.removeprefix("truenas-")
+            palette_execute(
+                lambda: cmd_secrets_truenas_api(argparse.Namespace(role=role))
+            )
+            continue
+        if action.startswith("apply-") and not palette_confirm(
+            f"Preview {action.removeprefix('apply-')} changes",
+            "The private CLI will show the exact diff, create a backup, and require a second explicit confirmation",
+        ):
+            continue
+        target = None
+        homelab_action = action
+        if action.startswith("diff-"):
+            homelab_action = "diff"
+            suffix = action.removeprefix("diff-")
+            target = None if suffix == "all" else suffix
+        elif action.startswith("apply-"):
+            homelab_action = "apply"
+            target = action.removeprefix("apply-")
+        elif action == "import-tailscale":
+            homelab_action = "import"
+            target = "tailscale"
+        run_id = None
+        if action.startswith("rollback-"):
+            homelab_action = "rollback"
+            target = action.removeprefix("rollback-")
+            backup_root = Path.home() / ".local/state/homelab-infra/backups"
+            candidates = [
+                (path.parent.name, path.parent.name, f"Restore the {target} snapshot from {path.parent.name}")
+                for path in sorted(backup_root.glob(f"*/{target}.json"), reverse=True)
+            ]
+            if not candidates:
+                print(f"No local {target} backups are available.")
+                continue
+            run_id = fzf_menu(candidates, prompt=f"{target} backup › ")
+            if run_id is None:
+                continue
+        palette_execute(
+            lambda: cmd_homelab(
+                argparse.Namespace(
+                    homelab_action=homelab_action,
+                    target=target,
+                    run_id=run_id,
+                    profile=profile,
+                )
+            )
+        )
+
+
 def palette_diagnostics_menu(profile: str) -> None:
     while True:
         action = fzf_menu(
@@ -4985,10 +5417,12 @@ def palette_advanced_menu(profile: str) -> None:
                 ),
                 ("secrets-init", "Initialize bootstrap note", "Create the private Bitwarden manifest from a local draft"),
                 (
-                    "tailscale-api",
-                    "Store or rotate Tailscale API token",
-                    "Validate it and save it as a hidden Bitwarden field",
+                    "tailscale-oauth",
+                    "Store or rotate Tailscale OAuth client",
+                    "Validate scoped access and save both values as hidden Bitwarden fields",
                 ),
+                ("truenas-audit", "Store TrueNAS audit key", "Validate the read-only JSON-RPC identity"),
+                ("truenas-operator", "Store TrueNAS operator key", "Validate the limited apply identity"),
                 ("repos", "Sync repositories", "Clone or fetch repositories from the private manifest"),
                 ("device", "Show device identity", "Display the stable logical device ID"),
                 ("back", "Back", "Return to the main menu"),
@@ -5056,9 +5490,15 @@ def palette_advanced_menu(profile: str) -> None:
                         argparse.Namespace(draft=draft)
                     )
                 )
-        elif action == "tailscale-api":
+        elif action == "tailscale-oauth":
             palette_execute(
-                lambda: cmd_secrets_tailscale_api(argparse.Namespace())
+                lambda: cmd_secrets_tailscale_oauth(argparse.Namespace())
+            )
+        elif action in {"truenas-audit", "truenas-operator"}:
+            palette_execute(
+                lambda: cmd_secrets_truenas_api(
+                    argparse.Namespace(role=action.removeprefix("truenas-"))
+                )
             )
         elif action == "repos":
             palette_execute(
@@ -5085,6 +5525,7 @@ def cmd_palette() -> None:
                 ("clipboard", "Clipboard and Emoji", "CopyQ history and direct-insertion emoji tools"),
                 ("repositories", "Repositories and packages", "Sync repos, add packages, and inspect manifests"),
                 ("services", "Network and services", "Tailscale, Docker, Codex, Vite+, and gestures"),
+                ("homelab", "Homelab", "TrueNAS inventory, tailnet policy, drift, apps, and guarded apply operations"),
                 ("diagnostics", "Diagnostics", "Doctor, tests, drift, update checks, and service failures"),
                 ("advanced", "Bootstrap and secrets", "Device identity, Bitwarden, bootstrap, and repository setup"),
                 ("profile", "Switch active profile", f"Currently using {profile}"),
@@ -5111,6 +5552,8 @@ def cmd_palette() -> None:
             palette_repositories_menu(profile)
         elif action == "services":
             palette_services_menu(profile)
+        elif action == "homelab":
+            palette_homelab_menu(profile)
         elif action == "diagnostics":
             palette_diagnostics_menu(profile)
         elif action == "advanced":
@@ -6839,6 +7282,30 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if linger.returncode == 0 and linger.stdout.strip() == "yes"
             else "enable with loginctl enable-linger",
         )
+    homelab_cli = HOMELAB_REPO / "bin/homelab"
+    homelab_available = homelab_cli.is_file() and os.access(homelab_cli, os.X_OK)
+    failures += not doctor_check(
+        "homelab adapter",
+        homelab_available,
+        f"{homelab_cli}; remote credentials are checked by `dot homelab doctor`"
+        if homelab_available
+        else "run dot homelab sync",
+    )
+    if homelab_available:
+        homelab_validate = run(
+            [str(homelab_cli), "validate"],
+            cwd=HOMELAB_REPO,
+            check=False,
+            capture=True,
+        )
+        homelab_detail = (
+            homelab_validate.stdout or homelab_validate.stderr
+        ).strip()
+        failures += not doctor_check(
+            "homelab repository",
+            homelab_validate.returncode == 0,
+            homelab_detail or "private inventory validation failed",
+        )
     if failures:
         raise DotError(f"Doctor found {failures} failing check(s)")
 
@@ -6933,6 +7400,32 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["status", "up", "down"],
     )
     tailscale.set_defaults(func=cmd_tailscale)
+    homelab = sub.add_parser("homelab")
+    homelab.add_argument(
+        "homelab_action",
+        nargs="?",
+        choices=[
+            "status",
+            "doctor",
+            "diff",
+            "apply",
+            "apps",
+            "sync",
+            "import",
+            "validate",
+            "backups",
+            "rollback",
+            "credentials",
+        ],
+    )
+    homelab.add_argument(
+        "target",
+        nargs="?",
+        choices=["truenas", "tailscale"],
+    )
+    homelab.add_argument("run_id", nargs="?")
+    homelab.add_argument("--profile")
+    homelab.set_defaults(func=cmd_homelab)
     clipboard = sub.add_parser("clipboard")
     clipboard.add_argument(
         "clipboard_action",
@@ -6991,8 +7484,11 @@ def build_parser() -> argparse.ArgumentParser:
     secret_sync.add_argument("--device")
     secret_sync.add_argument("--no-register", action="store_true")
     secret_sync.set_defaults(func=cmd_secrets_sync)
-    secret_tailscale = secrets_sub.add_parser("tailscale-api")
-    secret_tailscale.set_defaults(func=cmd_secrets_tailscale_api)
+    secret_tailscale = secrets_sub.add_parser("tailscale-oauth")
+    secret_tailscale.set_defaults(func=cmd_secrets_tailscale_oauth)
+    secret_truenas = secrets_sub.add_parser("truenas-api")
+    secret_truenas.add_argument("--role", required=True, choices=["audit", "operator"])
+    secret_truenas.set_defaults(func=cmd_secrets_truenas_api)
     capture = sub.add_parser("capture")
     capture.add_argument("target", choices=["kde"])
     capture.add_argument(

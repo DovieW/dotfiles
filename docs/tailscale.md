@@ -47,19 +47,24 @@ Normal `dot update --profile kubuntu-laptop` runs keep the package on the
 latest stable repository candidate without changing enrollment or tailnet
 options.
 
-## Administration API token
+## Administration OAuth client
 
-Tailnet inventory and policy automation uses a user-generated API access token
-stored as the hidden `api_token` field of the Bitwarden secure note
-`dotfiles/tailscale-api`. Store or rotate it interactively:
+Homelab inventory and policy automation uses a narrowly scoped OAuth client
+stored in the Bitwarden secure note `dotfiles/tailscale-oauth`. Store or rotate
+it interactively:
 
 ```bash
-dot secrets tailscale-api
+dot secrets tailscale-oauth
 ```
 
-The command unlocks Bitwarden only for its own process, validates the token
-against the Tailscale API, stores it without placing it in a process argument,
-and locks the CLI vault afterward. The token must never be exported from
+The resulting one-hour access token exists only in the explicit homelab
+process. It is never loaded by shell startup or persisted to disk. Successful
+OAuth migration moves the superseded `dotfiles/tailscale-api` user token to
+Bitwarden trash.
+
+The command unlocks Bitwarden only for its own process, validates the OAuth
+client against the Tailscale API, stores it without placing it in a process
+argument, and locks the CLI vault afterward. The credentials must never be exported from
 `.zshrc`, `.bashrc`, or another startup file.
 
 ## Policy

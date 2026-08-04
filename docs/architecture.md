@@ -75,6 +75,12 @@ Ansible role validates Tailscale's signing-key fingerprint, follows the stable
 repository for the active Ubuntu release, installs the latest package, and
 enables `tailscaled`.
 
+Remote infrastructure state is intentionally not stored in this public
+repository. [`homelab.md`](homelab.md) documents the split: dotfiles owns local
+clients and the secure adapter, while private `DovieW/homelab-infra` owns the
+reviewed TrueNAS inventory and authoritative tailnet policy. Normal profile
+apply never invokes a homelab mutation.
+
 Authentication is machine state, not portable configuration. Apply never
 stores an auth key and never joins a tailnet silently; the user performs the
 one-time browser enrollment with `sudo tailscale up`. Subsequent applies

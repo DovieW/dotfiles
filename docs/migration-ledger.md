@@ -27,7 +27,9 @@ means its reusable configuration now has an authoritative replacement here.
 | `programs/controld`, `programs/nextdns` | 2026-01-18 | Retain | Private service state and credentials |
 | `programs/chatgpt` | 2026-02-06 | Retain | Independent reporting project |
 | `programs/copilot-cli` | 2026-01-15 | Retain | Experimental project material |
-| `programs/truenas-scale`, `TrueNAS Core`, `meshcentral` | 2026-01/2023 | Retain | Infrastructure tooling and backups |
+| `programs/truenas-scale` generic audit behavior | 2026-01 | Replace after live validation | Private `DovieW/homelab-infra`; JSON-RPC clients replace SSH command construction and tracked `tns.env` |
+| `programs/truenas-scale` password-argument scripts, Omnivore DB mutation, old Debian VM/mount commands | 2026-01 and older | Historical; do not migrate | Unsafe or obsolete material remains in `files` until the reviewed replacement passes live validation |
+| `TrueNAS Core` database exports and `meshcentral` state | 2023 | Retain | Recovery exports and application-private state remain outside dotfiles |
 | `programs/Bruno`, `Insomnia` | 2026-04/2023 | Retain | API-client state |
 | `programs/OBS`, `EventGhost`, `LGHUB`, `MPC-BE` | 2023 | Retain | Application exports/backups |
 | `programs/qBittorrent` | 2026-06-15 | Retain | Third-party search plugins and app state |
