@@ -1502,7 +1502,7 @@ class DotCliTests(unittest.TestCase):
             shortcuts,
         )
         self.assertIn("dot-flameshot-full-clipboard=Print", shortcuts)
-        self.assertIn("dot-active-window-clipboard=Alt+Print", shortcuts)
+        self.assertIn("dot-active-window-clipboard=Meta+Print", shortcuts)
         self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)

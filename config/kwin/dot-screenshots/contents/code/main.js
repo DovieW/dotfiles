@@ -26,7 +26,7 @@ registerShortcut(
 registerShortcut(
     "dot-active-window-clipboard",
     "Copy Active Window Screenshot",
-    "Alt+Print",
+    "Meta+Print",
     function () { restartUnit("dot-active-window-clipboard.service"); }
 );
 

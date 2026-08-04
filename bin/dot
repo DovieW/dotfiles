@@ -1065,7 +1065,7 @@ def sync_managed_screenshot_shortcuts() -> None:
         old_region_pin: [0],
         region_clipboard: [301989971],  # Meta+Shift+S
         full_clipboard: [16777225],  # Print
-        active_window: [150994953],  # Alt+Print
+        active_window: [285212681],  # Meta+Print
         region_editor: [369098835],  # Meta+Ctrl+Shift+S
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
@@ -6145,7 +6145,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                             "Copy Active Window Screenshot",
                         )
                     )
-                    == [150994953]
+                    == [285212681]
                     and kglobal_shortcut(
                         (
                             "kwin",
