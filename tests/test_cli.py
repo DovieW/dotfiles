@@ -73,6 +73,7 @@ class DotCliTests(unittest.TestCase):
             "rollback-truenas",
             "rollback-tailscale",
             "validate",
+            "validate-tailscale",
             "sync",
             "oauth",
             "truenas-audit",

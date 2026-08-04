@@ -2674,8 +2674,10 @@ def cmd_homelab(args: argparse.Namespace) -> None:
     run_id = getattr(args, "run_id", None)
     if action in {"apply", "import", "rollback"} and target is None:
         raise DotError(f"dot homelab {action} requires truenas or tailscale")
-    if action not in {"diff", "apply", "import", "rollback"} and target is not None:
+    if action not in {"diff", "apply", "import", "rollback", "validate"} and target is not None:
         raise DotError(f"dot homelab {action} does not accept a target")
+    if action == "validate" and target not in {None, "tailscale"}:
+        raise DotError("dot homelab validate accepts only tailscale")
     if action == "rollback" and not run_id:
         raise DotError("dot homelab rollback requires a backup run ID")
     if action != "rollback" and run_id is not None:
@@ -2690,7 +2692,7 @@ def cmd_homelab(args: argparse.Namespace) -> None:
             "`dot secrets truenas-api --role operator`."
         )
     command = homelab_command()
-    if action in {"validate", "backups"}:
+    if action == "backups" or (action == "validate" and target is None):
         run([str(command), action], cwd=HOMELAB_REPO)
         return
     needs_truenas_audit = action in {"status", "doctor", "alerts", "apps"} or (
@@ -2700,7 +2702,7 @@ def cmd_homelab(args: argparse.Namespace) -> None:
     needs_tailscale = action in {"status", "doctor"} or (
         action in {"diff", "apply", "import", "rollback"}
         and target in {None, "tailscale"}
-    )
+    ) or (action == "validate" and target == "tailscale")
     session, should_lock = bw_session()
     environment = os.environ.copy()
     temporary_ca: Path | None = None
@@ -5322,6 +5324,7 @@ def palette_homelab_menu(profile: str) -> None:
                 ("rollback-truenas", "Rollback TrueNAS runtime state", "Select a backup, preview it, back up live state, and confirm supported restoration"),
                 ("rollback-tailscale", "Rollback tailnet policy", "Select a backup, validate it, preview it, back up live policy, and confirm restoration"),
                 ("validate", "Validate private repository", "Run inventory and policy structure validation without remote access"),
+                ("validate-tailscale", "Validate tailnet policy", "Ask Tailscale to validate the policy and embedded tests without publishing it"),
                 ("sync", "Sync private homelab repository", "Register it in the Bitwarden manifest and clone or fetch it"),
                 ("oauth", "Store Tailscale OAuth client", "Validate a scoped client, store it, and retire the old user token"),
                 ("truenas-audit", "Store TrueNAS audit key", "Validate and store the read-only JSON-RPC identity"),
@@ -5357,6 +5360,9 @@ def palette_homelab_menu(profile: str) -> None:
             target = action.removeprefix("apply-")
         elif action == "import-tailscale":
             homelab_action = "import"
+            target = "tailscale"
+        elif action == "validate-tailscale":
+            homelab_action = "validate"
             target = "tailscale"
         run_id = None
         if action.startswith("rollback-"):
