@@ -47,6 +47,21 @@ Normal `dot update --profile kubuntu-laptop` runs keep the package on the
 latest stable repository candidate without changing enrollment or tailnet
 options.
 
+## Administration API token
+
+Tailnet inventory and policy automation uses a user-generated API access token
+stored as the hidden `api_token` field of the Bitwarden secure note
+`dotfiles/tailscale-api`. Store or rotate it interactively:
+
+```bash
+dot secrets tailscale-api
+```
+
+The command unlocks Bitwarden only for its own process, validates the token
+against the Tailscale API, stores it without placing it in a process argument,
+and locks the CLI vault afterward. The token must never be exported from
+`.zshrc`, `.bashrc`, or another startup file.
+
 ## Policy
 
 Dotfiles does not automatically enable Tailscale SSH, advertise routes, use an

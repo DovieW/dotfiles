@@ -30,6 +30,20 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("tailscale", result.stdout)
         self.assertIn("update", result.stdout)
 
+    def test_tailscale_api_token_is_not_loaded_by_shell_startup(self):
+        for path in (
+            ROOT / "config/shell/zshrc",
+            ROOT / "config/shell/bashrc",
+            ROOT / "config/shell/common.sh",
+        ):
+            text = path.read_text()
+            self.assertNotIn("TAILSCALE_API_KEY", text)
+            self.assertNotIn("tskey-api-", text)
+        cli = DOT.read_text()
+        self.assertIn('BW_TAILSCALE_API_ITEM = "dotfiles/tailscale-api"', cli)
+        self.assertIn('secrets_sub.add_parser("tailscale-api")', cli)
+        self.assertIn('"type": 1', cli)
+
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
             self.assertEqual(json.loads(path.read_text())["schema_version"], 1)

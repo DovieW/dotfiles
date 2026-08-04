@@ -20,6 +20,8 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+import urllib.error
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +38,7 @@ NVIM_CONFIG_DIR = ROOT / "config/nvim"
 NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
+BW_TAILSCALE_API_ITEM = "dotfiles/tailscale-api"
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 LOCKSCREEN_PACKAGE_ID = "io.github.doview.dotfiles.lockscreen"
 LOCKSCREEN_PACKAGE_SOURCE = (
@@ -2068,6 +2071,22 @@ def bw_create_item(item: dict[str, Any], session: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
+def bw_edit_item(item: dict[str, Any], session: str) -> dict[str, Any]:
+    item_id = item.get("id")
+    if not item_id:
+        raise DotError("Bitwarden item cannot be updated without an ID")
+    encoded = base64.b64encode(json.dumps(item).encode()).decode()
+    proc = subprocess.run(
+        ["bw", "edit", "item", item_id, "--session", session],
+        input=encoded,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return json.loads(proc.stdout)
+
+
 def key_parts(item: dict[str, Any]) -> tuple[str, str]:
     ssh = item.get("sshKey") or {}
     private = ssh.get("privateKey")
@@ -2256,6 +2275,65 @@ def cmd_secrets_initialize(args: argparse.Namespace) -> None:
         if created.get("name") != BW_BOOTSTRAP_ITEM:
             raise DotError("Bitwarden returned an unexpected item after initialization")
         print(f"Created Bitwarden secure note: {BW_BOOTSTRAP_ITEM}")
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+
+def validate_tailscale_api_token(token: str) -> None:
+    if not re.fullmatch(r"tskey-api-[A-Za-z0-9_-]+", token):
+        raise DotError("That does not look like a Tailscale API access token")
+    credentials = base64.b64encode(f"{token}:".encode()).decode()
+    request = urllib.request.Request(
+        "https://api.tailscale.com/api/v2/tailnet/-/acl",
+        headers={"Authorization": f"Basic {credentials}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if response.status != 200:
+                raise DotError(
+                    f"Tailscale rejected the token with HTTP {response.status}"
+                )
+    except urllib.error.HTTPError as exc:
+        raise DotError(f"Tailscale rejected the token with HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise DotError(f"Could not validate the Tailscale token: {exc.reason}") from exc
+
+
+def cmd_secrets_tailscale_api(args: argparse.Namespace) -> None:
+    session, should_lock = bw_session()
+    try:
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        token = getpass.getpass("New Tailscale API access token: ").strip()
+        validate_tailscale_api_token(token)
+
+        item = bw_get_item(BW_TAILSCALE_API_ITEM, session, required=False)
+        fields = [
+            field
+            for field in (item or {}).get("fields", [])
+            if field.get("name") != "api_token"
+        ]
+        fields.append({"name": "api_token", "value": token, "type": 1})
+        if item is None:
+            item = {
+                "type": 2,
+                "name": BW_TAILSCALE_API_ITEM,
+                "favorite": False,
+                "notes": (
+                    "Tailscale API access token used only by explicit dotfiles "
+                    "administration commands. Never load it from shell startup."
+                ),
+                "secureNote": {"type": 0},
+                "fields": fields,
+            }
+            saved = bw_create_item(item, session)
+        else:
+            item["fields"] = fields
+            saved = bw_edit_item(item, session)
+        if saved.get("name") != BW_TAILSCALE_API_ITEM:
+            raise DotError("Bitwarden returned an unexpected Tailscale item")
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        print(f"Stored and validated: {BW_TAILSCALE_API_ITEM}")
     finally:
         if should_lock:
             run(["bw", "lock"], check=False)
@@ -4906,6 +4984,11 @@ def palette_advanced_menu(profile: str) -> None:
                     "Provision local identity and key files without registering keys",
                 ),
                 ("secrets-init", "Initialize bootstrap note", "Create the private Bitwarden manifest from a local draft"),
+                (
+                    "tailscale-api",
+                    "Store or rotate Tailscale API token",
+                    "Validate it and save it as a hidden Bitwarden field",
+                ),
                 ("repos", "Sync repositories", "Clone or fetch repositories from the private manifest"),
                 ("device", "Show device identity", "Display the stable logical device ID"),
                 ("back", "Back", "Return to the main menu"),
@@ -4973,6 +5056,10 @@ def palette_advanced_menu(profile: str) -> None:
                         argparse.Namespace(draft=draft)
                     )
                 )
+        elif action == "tailscale-api":
+            palette_execute(
+                lambda: cmd_secrets_tailscale_api(argparse.Namespace())
+            )
         elif action == "repos":
             palette_execute(
                 lambda: cmd_repos_sync(argparse.Namespace(profile=profile))
@@ -6904,6 +6991,8 @@ def build_parser() -> argparse.ArgumentParser:
     secret_sync.add_argument("--device")
     secret_sync.add_argument("--no-register", action="store_true")
     secret_sync.set_defaults(func=cmd_secrets_sync)
+    secret_tailscale = secrets_sub.add_parser("tailscale-api")
+    secret_tailscale.set_defaults(func=cmd_secrets_tailscale_api)
     capture = sub.add_parser("capture")
     capture.add_argument("target", choices=["kde"])
     capture.add_argument(
