@@ -61,6 +61,7 @@ class DotCliTests(unittest.TestCase):
         for action in (
             "status",
             "doctor",
+            "alerts",
             "diff-all",
             "diff-truenas",
             "diff-tailscale",

@@ -2693,7 +2693,7 @@ def cmd_homelab(args: argparse.Namespace) -> None:
     if action in {"validate", "backups"}:
         run([str(command), action], cwd=HOMELAB_REPO)
         return
-    needs_truenas_audit = action in {"status", "doctor", "apps"} or (
+    needs_truenas_audit = action in {"status", "doctor", "alerts", "apps"} or (
         action == "diff" and target in {None, "truenas"}
     ) or (action in {"apply", "rollback"} and target == "truenas")
     needs_truenas_operator = action in {"apply", "rollback"} and target == "truenas"
@@ -5310,6 +5310,7 @@ def palette_homelab_menu(profile: str) -> None:
             [
                 ("status", "Health summary", "Read-only TrueNAS and Tailscale health summary"),
                 ("doctor", "Complete homelab doctor", "Check credentials, APIs, pools, shares, services, apps, alerts, updates, nodes, and policy"),
+                ("alerts", "Active TrueNAS alerts", "List full alert severity and messages without changing the server"),
                 ("diff-all", "Review all drift", "Compare live TrueNAS and tailnet state with the private repository"),
                 ("diff-truenas", "Review TrueNAS drift", "Read-only pool, share, service, app, snapshot, alert, and update comparison"),
                 ("diff-tailscale", "Review Tailscale drift", "Read-only node posture and policy comparison"),
@@ -7454,6 +7455,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "status",
             "doctor",
+            "alerts",
             "diff",
             "apply",
             "apps",

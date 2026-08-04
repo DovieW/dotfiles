@@ -16,6 +16,7 @@ Run `dot homelab` for the complete described FZF menu, or call actions directly:
 ```bash
 dot homelab status
 dot homelab doctor
+dot homelab alerts
 dot homelab diff truenas
 dot homelab diff tailscale
 dot homelab apps
