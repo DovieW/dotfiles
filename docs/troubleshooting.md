@@ -120,6 +120,11 @@ replace the custom canvas with its approximately 1644×1028 logical surface,
 which looks correctly sized but fuzzy when stretched over the physical panel.
 Dynamic resolution remains disabled.
 
+The generated profile selects Remmina's Best quality preset, and dotfiles
+manages that preset with FreeRDP's font-smoothing flag enabled. If remote text
+looks jagged after an update, reconnect the RDP session and verify that
+`rdp_quality_9=80` remains in `~/.config/remmina/remmina.pref`.
+
 F5 launch tokens are short-lived and may be single-use. If a launch was
 interrupted or used for diagnostics, download a fresh `.rdp` file before
 retrying.

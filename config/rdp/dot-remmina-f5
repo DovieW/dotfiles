@@ -105,7 +105,10 @@ settings = {
     "span": "0",
     "colordepth": "99",
     "network": "none",
-    "quality": "0",
+    # Remmina quality 9 is its Best preset. The managed 0x80 mask enables
+    # FreeRDP font smoothing without disabling themes, composition, or other
+    # desktop effects. Quality 0 uses 0x6F and makes Windows text jagged.
+    "quality": "9",
     "disableclipboard": "1",
     "sound": "off",
     "cert_ignore": "0",

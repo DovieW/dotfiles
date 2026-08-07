@@ -176,6 +176,7 @@
   grep -Fxq "resolution_height=1800" "$captured_profile"
   grep -Fxq "scale=1" "$captured_profile"
   grep -Fxq "viewmode=4" "$captured_profile"
+  grep -Fxq "quality=9" "$captured_profile"
   grep -Fxq "cert_ignore=0" "$captured_profile"
   [ ! -e "$runtime_dir/dotfiles-remmina-$(id -u)/f5-current.remmina" ]
 }

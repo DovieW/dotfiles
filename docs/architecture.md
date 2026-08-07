@@ -109,6 +109,9 @@ generated profile. Windows renders that physical canvas at 175% desktop scale
 and the closest supported 180% device bucket. The launcher does not pass
 Remmina's command-line fullscreen override because it substitutes GTK's
 low-resolution logical surface and produces blurry client-side enlargement.
+It selects Remmina's Best rendering preset, with FreeRDP font smoothing
+explicitly enabled, so Windows text uses ClearType-style antialiasing rather
+than the jagged low-bandwidth preset.
 Company hostnames and tokens are never committed or logged.
 
 Remmina's Ubuntu MIME package classifies ordinary `.rdp` downloads as
