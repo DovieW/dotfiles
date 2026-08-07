@@ -190,6 +190,19 @@ Use `dot update --check` for a read-only report, or `--system` / `--apps` to
 limit the scope. The Kubuntu profile is inferred on this laptop; explicit
 profiles remain available for multi-profile machines such as WSL.
 
+Checks run concurrently, and each provider prints as soon as it finishes, so a
+slow Neovim or network-backed application check does not hide faster package
+manager results. Every pending item includes its exact installed and available
+version (or plugin commit), plus the provider's elapsed time:
+
+```text
+Checking 6 providers in parallel; results appear as they finish.
+[UPDATES] APT: 2 available (0.8s)
+  git   1:2.45.2-1ubuntu1 -> 1:2.45.2-1ubuntu1.1
+  curl  8.5.0-2ubuntu10.6 -> 8.5.0-2ubuntu10.8
+[OK] Homebrew: up to date (1.2s)
+```
+
 ### Capture a setting you just changed
 
 `dot save` turns desktop customization into a short, reviewable workflow. It

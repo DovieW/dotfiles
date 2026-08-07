@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import datetime as dt
 import difflib
 import getpass
@@ -19,7 +21,8 @@ import socket
 import subprocess
 import sys
 import tempfile
-from typing import Any
+import time
+from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2650,80 +2653,272 @@ def active_package_transactions() -> list[str]:
     return sorted(active)
 
 
-def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool) -> None:
-    pending = 0
-    if system and command_exists("apt-get"):
-        apt = run(["apt-get", "--simulate", "dist-upgrade"], check=False, capture=True)
-        if apt.returncode:
-            raise DotError((apt.stderr or apt.stdout).strip() or "APT update check failed.")
-        apt_packages = re.findall(r"^Inst\s+(\S+)", apt.stdout, re.MULTILINE)
-        pending += len(apt_packages)
-        detail = ", ".join(apt_packages[:12])
-        if len(apt_packages) > 12:
-            detail += f", and {len(apt_packages) - 12} more"
-        print(f"APT: {len(apt_packages)} update(s){f' — {detail}' if detail else ''}")
+@dataclass(frozen=True)
+class AvailableUpdate:
+    name: str
+    installed: str
+    available: str
 
-    if apps and command_exists("snap"):
-        snap = run(["snap", "refresh", "--list"], check=False, capture=True)
-        snap_output = (snap.stdout or snap.stderr).strip()
-        if snap.returncode and "All snaps up to date" not in snap_output:
-            raise DotError(snap_output or "Snap update check failed.")
-        snap_lines = [
-            line
-            for line in snap_output.splitlines()
-            if line.strip() and not line.startswith("Name") and "up to date" not in line
-        ]
-        pending += len(snap_lines)
-        print(f"Snap: {len(snap_lines)} update(s)")
 
-    if apps and command_exists("brew"):
-        brew = run(["brew", "outdated", "--formula"], check=False, capture=True)
-        if brew.returncode:
-            raise DotError((brew.stderr or brew.stdout).strip() or "Homebrew update check failed.")
-        brew_packages = [line for line in brew.stdout.splitlines() if line.strip()]
-        pending += len(brew_packages)
-        print(f"Homebrew: {len(brew_packages)} update(s)")
+@dataclass(frozen=True)
+class UpdateCheckResult:
+    provider: str
+    updates: tuple[AvailableUpdate, ...] = ()
 
-    if apps and profile.get("packages", {}).get("deb"):
-        external_updates: list[str] = []
-        for name in profile["packages"]["deb"]:
-            resolved = run(
-                [str(ROOT / "scripts/fetch-external-deb"), name],
-                check=False,
-                capture=True,
-            )
-            if resolved.returncode:
-                raise DotError(
-                    (resolved.stderr or resolved.stdout).strip()
-                    or f"Could not check {name}."
-                )
-            package_path = Path(resolved.stdout.strip())
-            package_name = run(
-                ["dpkg-deb", "--field", str(package_path), "Package"],
-                capture=True,
-            ).stdout.strip()
-            available = run(
-                ["dpkg-deb", "--field", str(package_path), "Version"],
-                capture=True,
-            ).stdout.strip()
-            installed = run(
-                ["dpkg-query", "-W", "-f=${Version}", package_name],
-                check=False,
-                capture=True,
-            )
-            newer = installed.returncode != 0 or run(
-                ["dpkg", "--compare-versions", available, "gt", installed.stdout.strip()],
-                check=False,
-            ).returncode == 0
-            if newer:
-                external_updates.append(name)
-        pending += len(external_updates)
-        print(
-            f"External applications: {len(external_updates)} update(s)"
-            f"{f' — {', '.join(external_updates)}' if external_updates else ''}"
+
+def parse_apt_updates(output: str) -> tuple[AvailableUpdate, ...]:
+    updates: list[AvailableUpdate] = []
+    for line in output.splitlines():
+        match = re.match(
+            r"^Inst\s+(\S+)(?:\s+\[([^\]]+)\])?\s+\((\S+)",
+            line,
         )
+        if not match:
+            continue
+        updates.append(
+            AvailableUpdate(
+                name=match.group(1),
+                installed=match.group(2) or "not installed",
+                available=match.group(3),
+            )
+        )
+    return tuple(updates)
 
-    print(f"Total provider updates currently visible: {pending}")
+
+def parse_snap_rows(output: str) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] != "Name":
+            versions[fields[0]] = fields[1]
+    return versions
+
+
+def parse_brew_updates(output: str) -> tuple[AvailableUpdate, ...]:
+    try:
+        payload = json.loads(output or "{}")
+    except json.JSONDecodeError as error:
+        raise DotError(f"Homebrew returned invalid update metadata: {error}") from error
+    updates: list[AvailableUpdate] = []
+    for formula in payload.get("formulae", []):
+        installed_versions = formula.get("installed_versions") or []
+        updates.append(
+            AvailableUpdate(
+                name=str(formula.get("name", "unknown")),
+                installed=", ".join(str(version) for version in installed_versions)
+                or "not installed",
+                available=str(formula.get("current_version") or "unknown"),
+            )
+        )
+    return tuple(updates)
+
+
+def check_apt_updates() -> UpdateCheckResult:
+    result = run(
+        ["apt-get", "--simulate", "dist-upgrade"],
+        check=False,
+        capture=True,
+    )
+    if result.returncode:
+        raise DotError((result.stderr or result.stdout).strip() or "APT check failed.")
+    return UpdateCheckResult("APT", parse_apt_updates(result.stdout))
+
+
+def check_snap_updates() -> UpdateCheckResult:
+    available_result = run(
+        ["snap", "refresh", "--list"],
+        check=False,
+        capture=True,
+    )
+    output = (available_result.stdout or available_result.stderr).strip()
+    if available_result.returncode and "All snaps up to date" not in output:
+        raise DotError(output or "Snap check failed.")
+    if "All snaps up to date" in output:
+        return UpdateCheckResult("Snap")
+    available = parse_snap_rows(output)
+    if not available:
+        return UpdateCheckResult("Snap")
+    installed_result = run(["snap", "list"], check=False, capture=True)
+    if installed_result.returncode:
+        raise DotError(
+            (installed_result.stderr or installed_result.stdout).strip()
+            or "Could not read installed Snap versions."
+        )
+    installed = parse_snap_rows(installed_result.stdout)
+    return UpdateCheckResult(
+        "Snap",
+        tuple(
+            AvailableUpdate(name, installed.get(name, "unknown"), version)
+            for name, version in sorted(available.items())
+        ),
+    )
+
+
+def check_brew_updates() -> UpdateCheckResult:
+    result = run(
+        ["brew", "outdated", "--formula", "--json=v2"],
+        check=False,
+        capture=True,
+    )
+    if result.returncode:
+        raise DotError(
+            (result.stderr or result.stdout).strip() or "Homebrew check failed."
+        )
+    return UpdateCheckResult("Homebrew", parse_brew_updates(result.stdout))
+
+
+def check_external_deb_update(name: str) -> UpdateCheckResult:
+    result = run(
+        [str(ROOT / "scripts/fetch-external-deb"), name],
+        check=False,
+        capture=True,
+    )
+    if result.returncode:
+        raise DotError(
+            (result.stderr or result.stdout).strip() or f"Could not check {name}."
+        )
+    package_path = Path(result.stdout.strip())
+    package_name = run(
+        ["dpkg-deb", "--field", str(package_path), "Package"],
+        capture=True,
+    ).stdout.strip()
+    available = run(
+        ["dpkg-deb", "--field", str(package_path), "Version"],
+        capture=True,
+    ).stdout.strip()
+    installed_result = run(
+        ["dpkg-query", "-W", "-f=${Version}", package_name],
+        check=False,
+        capture=True,
+    )
+    installed = (
+        installed_result.stdout.strip()
+        if installed_result.returncode == 0
+        else "not installed"
+    )
+    newer = installed_result.returncode != 0 or run(
+        ["dpkg", "--compare-versions", available, "gt", installed],
+        check=False,
+    ).returncode == 0
+    updates = (
+        (AvailableUpdate(name, installed, available),)
+        if newer
+        else ()
+    )
+    return UpdateCheckResult(f"External / {name}", updates)
+
+
+def check_nvim_updates() -> UpdateCheckResult:
+    with tempfile.TemporaryDirectory(prefix="dot-nvim-check-") as directory:
+        _, candidate_lock = prepare_nvim_candidate(Path(directory))
+        current = json.loads(NVIM_LOCK_FILE.read_text()) if NVIM_LOCK_FILE.exists() else {}
+        candidate = json.loads(candidate_lock.read_text())
+    updates: list[AvailableUpdate] = []
+    for name in sorted(set(current) | set(candidate)):
+        if current.get(name) == candidate.get(name):
+            continue
+        before = current.get(name) or {}
+        after = candidate.get(name) or {}
+        updates.append(
+            AvailableUpdate(
+                name=name,
+                installed=str(before.get("commit") or "not locked")[:12],
+                available=str(after.get("commit") or "removed")[:12],
+            )
+        )
+    return UpdateCheckResult("Neovim plugins", tuple(updates))
+
+
+def render_update_result(result: UpdateCheckResult, elapsed: float) -> int:
+    if not result.updates:
+        print(f"[OK] {result.provider}: up to date ({elapsed:.1f}s)", flush=True)
+        return 0
+    print(
+        f"[UPDATES] {result.provider}: {len(result.updates)} available "
+        f"({elapsed:.1f}s)",
+        flush=True,
+    )
+    width = max(len(update.name) for update in result.updates)
+    for update in result.updates:
+        print(
+            f"  {update.name:<{width}}  {update.installed} -> {update.available}",
+            flush=True,
+        )
+    return len(result.updates)
+
+
+def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool) -> None:
+    checks: list[tuple[str, Callable[[], UpdateCheckResult]]] = []
+    skipped: list[str] = []
+    if system:
+        if command_exists("apt-get"):
+            checks.append(("APT", check_apt_updates))
+        else:
+            skipped.append("APT (apt-get is unavailable)")
+    if apps:
+        for provider, command, callback in (
+            ("Snap", "snap", check_snap_updates),
+            ("Homebrew", "brew", check_brew_updates),
+        ):
+            if command_exists(command):
+                checks.append((provider, callback))
+            else:
+                skipped.append(f"{provider} ({command} is unavailable)")
+        if profile.get("packages", {}).get("deb"):
+            if command_exists("dpkg-deb") and command_exists("dpkg-query"):
+                for name in profile["packages"]["deb"]:
+                    checks.append(
+                        (
+                            f"External / {name}",
+                            lambda package=name: check_external_deb_update(package),
+                        )
+                    )
+            else:
+                skipped.append("External Debian applications (dpkg tools unavailable)")
+        if profile.get("features", {}).get("neovim"):
+            if command_exists("nvim"):
+                checks.append(("Neovim plugins", check_nvim_updates))
+            else:
+                skipped.append("Neovim plugins (nvim is unavailable)")
+
+    for detail in skipped:
+        print(f"[SKIP] {detail}", flush=True)
+    if not checks:
+        print("No supported update providers are available for this scope.")
+        return
+
+    started = time.monotonic()
+    print(
+        f"Checking {len(checks)} providers in parallel; results appear as they finish.",
+        flush=True,
+    )
+    pending = 0
+    failures: list[str] = []
+    with ThreadPoolExecutor(
+        max_workers=len(checks),
+        thread_name_prefix="dot-update",
+    ) as executor:
+        submitted = {
+            executor.submit(callback): (provider, time.monotonic())
+            for provider, callback in checks
+        }
+        for future in as_completed(submitted):
+            provider, provider_started = submitted[future]
+            elapsed = time.monotonic() - provider_started
+            try:
+                pending += render_update_result(future.result(), elapsed)
+            except Exception as error:
+                failures.append(provider)
+                print(f"[FAIL] {provider}: {error} ({elapsed:.1f}s)", flush=True)
+
+    total_elapsed = time.monotonic() - started
+    print(
+        f"Summary: {pending} update(s), {len(checks) - len(failures)} successful "
+        f"check(s), {len(failures)} failed ({total_elapsed:.1f}s).",
+        flush=True,
+    )
+    if failures:
+        raise DotError("Update checks failed: " + ", ".join(failures))
 
 
 def update_profile(explicit: str | None) -> str:
@@ -2757,15 +2952,6 @@ def cmd_update(args: argparse.Namespace) -> None:
         system = apps = True
     if getattr(args, "check", False):
         report_pending_updates(profile, system=system, apps=apps)
-        if apps and profile.get("features", {}).get("neovim"):
-            cmd_nvim(
-                argparse.Namespace(
-                    nvim_action="update",
-                    profile=profile_name,
-                    check=True,
-                    run_id=None,
-                )
-            )
         return
     blockers = active_package_transactions()
     if blockers:
@@ -2859,6 +3045,7 @@ def prepare_nvim_candidate(root: Path) -> tuple[dict[str, str], Path]:
             ["stylua", "--check", "init.lua", "lua", "tests"],
             cwd=candidate,
             env=env,
+            capture=True,
         )
     run_nvim_smoke(env=env)
     return env, candidate / "lazy-lock.json"

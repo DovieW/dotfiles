@@ -527,7 +527,42 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Update everything"', cli)
         self.assertIn('"Check for pending updates"', cli)
         self.assertIn("update_nvim_tools()", cli)
+        self.assertIn("ThreadPoolExecutor", cli)
+        self.assertIn("for future in as_completed(submitted)", cli)
+        self.assertIn("results appear as they finish", cli)
+        self.assertIn("{update.installed} -> {update.available}", cli)
+        self.assertIn('"--json=v2"', cli)
+        self.assertIn("check_nvim_updates", cli)
         self.assertIn("[config, shell, tmux, app-updates]", playbook)
+
+    def test_update_metadata_preserves_installed_and_available_versions(self):
+        module = runpy.run_path(str(DOT))
+
+        apt_updates = module["parse_apt_updates"](
+            "Inst curl [8.5.0-2ubuntu10.6] "
+            "(8.5.0-2ubuntu10.8 Ubuntu:26.04/update [amd64])\n"
+        )
+        self.assertEqual(len(apt_updates), 1)
+        self.assertEqual(apt_updates[0].name, "curl")
+        self.assertEqual(apt_updates[0].installed, "8.5.0-2ubuntu10.6")
+        self.assertEqual(apt_updates[0].available, "8.5.0-2ubuntu10.8")
+
+        brew_updates = module["parse_brew_updates"](
+            json.dumps(
+                {
+                    "formulae": [
+                        {
+                            "name": "fzf",
+                            "installed_versions": ["0.61.1"],
+                            "current_version": "0.62.0",
+                        }
+                    ]
+                }
+            )
+        )
+        self.assertEqual(len(brew_updates), 1)
+        self.assertEqual(brew_updates[0].installed, "0.61.1")
+        self.assertEqual(brew_updates[0].available, "0.62.0")
 
     def test_palette_uses_described_columns_and_exposes_every_workflow(self):
         text = DOT.read_text()
