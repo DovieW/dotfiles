@@ -2593,10 +2593,7 @@ def cmd_meshcentral(args: argparse.Namespace) -> None:
         print(f"MeshCentral service active: {'yes' if active else 'no'}")
         print(f"MeshCentral configuration: {config or 'not found'}")
         if not installed:
-            print(
-                "Enroll with `dot secrets meshcentral-agent`, then "
-                "`dot meshcentral enroll`."
-            )
+            print("Enroll with `dot meshcentral enroll`.")
         return
 
     if platform.system() != "Linux":
@@ -2605,50 +2602,55 @@ def cmd_meshcentral(args: argparse.Namespace) -> None:
         ["curl", "sudo", "systemctl"],
         "Run `dot apply --profile kubuntu-laptop --tags meshcentral` first.",
     )
-    session, should_lock = bw_session()
-    try:
-        run(["bw", "sync", "--session", session], check=False, capture=True)
-        item = bw_get_item(BW_MESHCENTRAL_ITEM, session)
+    if action == "enroll":
+        install_command = getpass.getpass("MeshCentral Linux install command: ")
+        enrollment = parse_meshcentral_install_command(install_command)
+    else:
+        session, should_lock = bw_session()
         try:
-            notes = json.loads(str(item.get("notes") or ""))
-        except json.JSONDecodeError as exc:
-            raise DotError(
-                f"Bitwarden item {BW_MESHCENTRAL_ITEM} is not valid JSON"
-            ) from exc
-        enrollment = normalize_meshcentral_enrollment(notes)
-        with tempfile.TemporaryDirectory(prefix="dot-meshcentral-") as temp_dir:
-            installer = Path(temp_dir) / "meshinstall.sh"
-            run(
-                [
-                    "curl",
-                    "--fail",
-                    "--show-error",
-                    "--silent",
-                    "--location",
-                    "--proto",
-                    "=https",
-                    "--tlsv1.2",
-                    "--output",
-                    str(installer),
-                    enrollment["installer_url"],
-                ]
-            )
-            if not installer.is_file() or installer.stat().st_size == 0:
-                raise DotError("MeshCentral returned an empty installer")
-            if not installer.read_bytes().startswith(b"#!"):
-                raise DotError("MeshCentral returned an unexpected installer format")
-            installer.chmod(0o700)
-            run(
-                [
-                    "sudo",
-                    str(installer),
-                    enrollment["server_url"],
-                    enrollment["mesh_id"],
-                ]
-            )
-    finally:
-        if should_lock:
-            run(["bw", "lock"], check=False)
+            run(["bw", "sync", "--session", session], check=False, capture=True)
+            item = bw_get_item(BW_MESHCENTRAL_ITEM, session)
+            try:
+                notes = json.loads(str(item.get("notes") or ""))
+            except json.JSONDecodeError as exc:
+                raise DotError(
+                    f"Bitwarden item {BW_MESHCENTRAL_ITEM} is not valid JSON"
+                ) from exc
+            enrollment = normalize_meshcentral_enrollment(notes)
+        finally:
+            if should_lock:
+                run(["bw", "lock"], check=False)
+
+    with tempfile.TemporaryDirectory(prefix="dot-meshcentral-") as temp_dir:
+        installer = Path(temp_dir) / "meshinstall.sh"
+        run(
+            [
+                "curl",
+                "--fail",
+                "--show-error",
+                "--silent",
+                "--location",
+                "--proto",
+                "=https",
+                "--tlsv1.2",
+                "--output",
+                str(installer),
+                enrollment["installer_url"],
+            ]
+        )
+        if not installer.is_file() or installer.stat().st_size == 0:
+            raise DotError("MeshCentral returned an empty installer")
+        if not installer.read_bytes().startswith(b"#!"):
+            raise DotError("MeshCentral returned an unexpected installer format")
+        installer.chmod(0o700)
+        run(
+            [
+                "sudo",
+                str(installer),
+                enrollment["server_url"],
+                enrollment["mesh_id"],
+            ]
+        )
     installed, enabled, active, config = meshcentral_service_state()
     if not installed or not active:
         raise DotError(
@@ -5327,7 +5329,7 @@ def palette_services_menu(profile: str) -> None:
                 ("tailscale-down", "Disconnect Tailscale", "Stop tailnet connectivity without removing state"),
                 ("meshcentral-status", "MeshCentral status", "Show agent enrollment, service, and configuration state"),
                 ("meshcentral-prereqs", "Install MeshCentral prerequisites", "Install HTTPS tooling and repair an existing agent service"),
-                ("meshcentral-enroll", "Enroll with MeshCentral", "Use the Bitwarden-stored Linux agent invitation"),
+                ("meshcentral-enroll", "Enroll with MeshCentral", "Paste and validate a Linux agent invitation without retaining it"),
                 ("docker-status", "Docker status", "Show daemon, Compose, and Buildx runtime information"),
                 ("docker-repair", "Install or repair Docker", "Apply native Engine, Compose, and Buildx"),
                 ("codex-status", "Codex Remote Control status", "Show the persistent user service"),
@@ -5352,7 +5354,7 @@ def palette_services_menu(profile: str) -> None:
             continue
         if action == "meshcentral-enroll" and not palette_confirm(
             "Enroll this laptop with MeshCentral",
-            "Download and run the agent installer for the Bitwarden-stored device group",
+            "Paste, validate, download, and run a Linux agent invitation",
         ):
             continue
 
@@ -5901,7 +5903,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             mesh_installed,
             "agent installed"
             if mesh_installed
-            else "run dot secrets meshcentral-agent, then dot meshcentral enroll",
+            else "run dot meshcentral enroll",
         )
         failures += not doctor_check(
             "MeshCentral service",
@@ -7487,7 +7489,7 @@ def build_parser() -> argparse.ArgumentParser:
     meshcentral = sub.add_parser("meshcentral")
     meshcentral.add_argument(
         "meshcentral_action",
-        choices=["status", "enroll"],
+        choices=["status", "enroll", "enroll-stored"],
     )
     meshcentral.set_defaults(func=cmd_meshcentral)
     clipboard = sub.add_parser("clipboard")

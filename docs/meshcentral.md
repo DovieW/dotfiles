@@ -16,20 +16,28 @@ Linux, and copy the complete generated install command. Then run:
 
 ```bash
 dot apply --profile kubuntu-laptop --tags meshcentral
-dot secrets meshcentral-agent
 dot meshcentral enroll
 dot meshcentral status
 ```
 
-Paste the complete generated command only at the hidden prompt from
-`dot secrets meshcentral-agent`. The command is parsed as enrollment data; it
-is never evaluated by a shell. The validated HTTPS server origin, same-origin
-installer URL, and device-group identifier are stored in the Bitwarden secure
-note `dotfiles/meshcentral-agent`.
+Paste the complete generated command at the hidden prompt. The command is
+parsed as enrollment data; it is never evaluated by a shell, written to disk,
+or retained after enrollment. The validated HTTPS server origin, same-origin
+installer URL, and device-group identifier are passed to the installer as
+fixed arguments.
 
-`dot meshcentral enroll` retrieves that note for one process, downloads the
-current installer directly from the configured MeshCentral server, invokes it
-with fixed arguments, verifies the system service, and locks Bitwarden again.
+`dot meshcentral enroll` downloads the current installer directly from the
+configured MeshCentral server, invokes it, and verifies the system service.
+
+For repeatable enrollment, the invitation can optionally be stored as the
+Bitwarden secure note `dotfiles/meshcentral-agent`:
+
+```bash
+dot secrets meshcentral-agent
+dot meshcentral enroll-stored
+```
+
+The default enrollment path deliberately does not depend on Bitwarden.
 
 ## Maintenance
 

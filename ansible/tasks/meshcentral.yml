@@ -23,5 +23,5 @@
   ansible.builtin.debug:
     msg: >-
       MeshCentral prerequisites are ready. Enrollment is intentionally separate:
-      run `dot secrets meshcentral-agent`, then `dot meshcentral enroll`.
+      run `dot meshcentral enroll`.
   when: "'meshagent.service' not in ansible_facts.services"
