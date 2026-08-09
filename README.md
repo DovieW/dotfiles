@@ -125,6 +125,56 @@ dot clipboard                     # verify CopyQ history and Emoji Picker
 dot repos sync --profile kubuntu-laptop
 ```
 
+### Transcription
+
+The Linux shell profile installs `transcribe`, a standalone TypeScript/OpenTUI
+application for Kubuntu and WSL. The first invocation builds the pinned release;
+later invocations need neither Node nor Bun. Use the action launcher without
+arguments or its clean scriptable interface:
+
+```bash
+transcribe
+transcribe run recording.mp4 --name interview --provider openai --model gpt-transcribe
+transcribe run 'https://www.youtube.com/watch?v=…' --provider youtube-transcript
+transcribe resume RUN_ID
+transcribe restart RUN_ID
+transcribe compare RUN_A RUN_B
+transcribe export RUN_ID --format json --output ./transcript.json
+transcribe doctor
+```
+
+The library supports local media, individual YouTube videos, playlists,
+existing YouTube subtitles and cleanup, Groq/OpenAI/Fireworks, bounded retries,
+chunk concurrency, safe pause/resume, named alternative runs, TXT/JSON export,
+and a searchable transcript workbench. The top-level Quick Transcribe action
+uses the remembered settings, starts immediately after local-file selection,
+and opens the completed transcript. Viewer search, match navigation, terminal
+clipboard copy, timestamp/speaker formatting, and `$EDITOR` handoff are built
+in. Normalized audio and work files remain in the central XDG library rather
+than cluttering source directories.
+
+SQLite indexes the library at
+`~/.local/state/dotfiles/transcribe/library.sqlite3`; portable `source.json` and
+`run.json` manifests remain beside artifacts. Settings are stored with mode
+`0600` at `~/.config/dotfiles/transcribe/config.json`. Existing managed Bash-era
+runs are imported idempotently on first launch. Run `transcribe migrate PATH`
+for an explicitly selected older work directory.
+
+The model picker follows the selected provider. OpenAI offers `whisper-1`,
+`gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, and `gpt-transcribe` for
+ordinary transcription;
+enabling diarization selects `gpt-4o-transcribe-diarize`. Groq offers
+`whisper-large-v3` and `whisper-large-v3-turbo`. Fireworks retains its
+`whisper-v3` and `whisper-v3-turbo` choices.
+
+The comparison UI first chooses one source and exactly two completed named runs;
+it can also accept external TXT files. OpenAI `gpt-5.6-luna` returns an
+ephemeral judgment that is never added to the library.
+
+Credentials come only from `GROQ_API_KEY`, `OPENAI_API_KEY`, or
+`FIREWORKS_API_KEY` in the current process environment. The program never
+prompts for, stores, or retrieves keys from Bitwarden.
+
 ### Clipboard and emoji that behave naturally
 
 CopyQ replaces Klipper for searchable clipboard history; it is deliberately

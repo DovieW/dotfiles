@@ -1137,6 +1137,21 @@ def apply_direct(
         }
         for source, destination in mappings.items():
             changes += int(link_file(source, destination))
+        transcribe_current = (
+            Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+            / "dotfiles/transcribe/current/transcribe"
+        )
+        transcribe_source = (
+            transcribe_current
+            if transcribe_current.is_file()
+            else ROOT / "config/transcription/transcribe"
+        )
+        changes += int(
+            link_file(
+                transcribe_source,
+                Path.home() / ".local/bin/transcribe",
+            )
+        )
     if features.get("neovim") and selected("nvim"):
         changes += int(link_file(ROOT / "config/nvim", Path.home() / ".config/nvim"))
     if features.get("git") and selected("git"):
@@ -2502,6 +2517,14 @@ def cmd_vite_plus_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-vite-plus"), "--update"], cwd=ROOT)
 
 
+def cmd_transcribe_install(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-transcribe"), "--install"], cwd=ROOT)
+
+
+def cmd_transcribe_update(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-transcribe"), "--update"], cwd=ROOT)
+
+
 def cmd_tailscale(args: argparse.Namespace) -> None:
     require_commands(
         ["tailscale"],
@@ -3319,6 +3342,8 @@ def cmd_update(args: argparse.Namespace) -> None:
         cmd_codex_update(args)
     if apps and profile.get("features", {}).get("vite_plus"):
         cmd_vite_plus_update(args)
+    if apps and profile.get("features", {}).get("shell"):
+        cmd_transcribe_update(args)
     if apps and profile.get("features", {}).get("neovim"):
         cmd_nvim(
             argparse.Namespace(
@@ -5892,6 +5917,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             str(dot_command),
         )
         failures += not doctor_check("mbash", (Path.home() / ".local/bin/mbash").exists(), "minimal Bash entry point")
+        transcribe_check = run(
+            [str(ROOT / "scripts/install-transcribe"), "--check"],
+            check=False,
+            capture=True,
+        )
+        transcribe_detail = (
+            transcribe_check.stdout or transcribe_check.stderr
+        ).strip()
+        failures += not doctor_check(
+            "transcribe",
+            transcribe_check.returncode == 0,
+            transcribe_detail or "run dot transcribe install",
+        )
         clipboard_commands = [
             Path.home() / ".local/bin/clip",
             Path.home() / ".local/bin/cclip",
@@ -7423,6 +7461,14 @@ def build_parser() -> argparse.ArgumentParser:
     vite_plus_install.set_defaults(func=cmd_vite_plus_install)
     vite_plus_update = vite_plus_sub.add_parser("update")
     vite_plus_update.set_defaults(func=cmd_vite_plus_update)
+    transcribe = sub.add_parser("transcribe")
+    transcribe_sub = transcribe.add_subparsers(
+        dest="transcribe_command", required=True
+    )
+    transcribe_install = transcribe_sub.add_parser("install")
+    transcribe_install.set_defaults(func=cmd_transcribe_install)
+    transcribe_update = transcribe_sub.add_parser("update")
+    transcribe_update.set_defaults(func=cmd_transcribe_update)
     tailscale = sub.add_parser("tailscale")
     tailscale.add_argument(
         "tailscale_action",

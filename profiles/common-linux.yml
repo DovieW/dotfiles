@@ -16,6 +16,7 @@
     "apt": [
       "build-essential",
       "curl",
+      "ffmpeg",
       "git",
       "openssh-client",
       "python3",
@@ -48,6 +49,7 @@
       "tree-sitter-cli",
       "yamllint",
       "yq",
+      "yt-dlp",
       "zoxide",
       "zsh-autosuggestions",
       "zsh-syntax-highlighting"

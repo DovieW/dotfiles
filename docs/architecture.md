@@ -198,6 +198,24 @@ their own, while history and SSH selection remain compact. Neovim's fzf-lua
 uses the same visual language but retains native editor previews and
 highlighting.
 
+The managed `transcribe` program is a compiled Bun/TypeScript application using
+OpenTUI and SolidJS. The common shell feature links a bootstrap entry point;
+`dot transcribe install` builds a pinned standalone release and atomically makes
+it current. Bun, Node, and `node_modules` are build-time concerns only.
+
+One domain layer serves both the action-oriented TUI and the clean CLI. A
+SQLite library owns source, named-run, chunk, playlist, and lifecycle state in
+WAL mode. Versioned per-source and per-run JSON manifests make artifacts
+inspectable and allow recovery. Source audio is normalized into a shared cache;
+run directories contain only settings, checkpoints, logs, and TXT/JSON output.
+Jobs are attached, stop scheduling work when paused, finish active requests,
+and resume from transactional chunk checkpoints.
+
+Provider adapters expose explicit model capabilities so language fields,
+prompts, timestamps, upload limits, and diarization cannot form unsupported
+combinations. Credentials are read exclusively from the current environment.
+No key, comparison request, or comparison response is persisted.
+
 ## Device identity and secrets
 
 The first bootstrap writes a stable logical device ID to

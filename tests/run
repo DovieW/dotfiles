@@ -8,7 +8,8 @@ python3 tests/validate_profiles.py
 python3 -m unittest tests/test_cli.py
 
 if command -v shellcheck >/dev/null 2>&1; then
-  mapfile -t shell_files < <(find bin config scripts tests -type f \
+  mapfile -t shell_files < <(find bin config scripts tests \
+    -path '*/node_modules/*' -prune -o -type f \
     \( -name '*.sh' -o -name mbash -o -name dot-rdp -o -name 'git-*' -o -name provision-segoe -o -name 'install-*' \) \
     -not -name git-repo-analysis -print)
   shellcheck "${shell_files[@]}"
