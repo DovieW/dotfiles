@@ -1,0 +1,27 @@
+---
+- name: Install MeshCentral agent prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: latest  # noqa package-latest
+    update_cache: true
+
+- name: Read system service state
+  ansible.builtin.service_facts:
+
+- name: Enable and start an enrolled MeshCentral agent
+  become: true
+  ansible.builtin.systemd_service:
+    name: meshagent.service
+    enabled: true
+    state: started
+  when: "'meshagent.service' in ansible_facts.services"
+
+- name: Explain explicit MeshCentral enrollment
+  ansible.builtin.debug:
+    msg: >-
+      MeshCentral prerequisites are ready. Enrollment is intentionally separate:
+      run `dot secrets meshcentral-agent`, then `dot meshcentral enroll`.
+  when: "'meshagent.service' not in ansible_facts.services"

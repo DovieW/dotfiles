@@ -28,7 +28,61 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("panel", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("tailscale", result.stdout)
+        self.assertIn("meshcentral", result.stdout)
         self.assertIn("update", result.stdout)
+
+    def test_meshcentral_generated_command_is_parsed_without_shell_execution(self):
+        module = runpy.run_path(str(DOT))
+        parse = module["parse_meshcentral_install_command"]
+        command = (
+            '(wget "https://mc.example.test/meshagents?script=1" '
+            '-O ./meshinstall.sh || wget '
+            '"https://mc.example.test/meshagents?script=1" '
+            '-O ./meshinstall.sh --no-proxy) && '
+            'chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh '
+            "https://mc.example.test 'abcdefghijklmnop'"
+        )
+        self.assertEqual(
+            parse(command),
+            {
+                "schema_version": 1,
+                "server_url": "https://mc.example.test",
+                "installer_url": "https://mc.example.test/meshagents?script=1",
+                "mesh_id": "abcdefghijklmnop",
+            },
+        )
+
+    def test_meshcentral_enrollment_rejects_insecure_or_cross_origin_urls(self):
+        module = runpy.run_path(str(DOT))
+        normalize = module["normalize_meshcentral_enrollment"]
+        error = module["DotError"]
+        baseline = {
+            "schema_version": 1,
+            "server_url": "https://mc.example.test",
+            "installer_url": "https://mc.example.test/meshagents?script=1",
+            "mesh_id": "abcdefghijklmnop",
+        }
+        for changes in (
+            {"server_url": "http://mc.example.test"},
+            {"server_url": "https://mc.example.test/path"},
+            {"installer_url": "https://evil.example/meshagents?script=1"},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(error):
+                normalize({**baseline, **changes})
+
+    def test_kubuntu_meshcentral_integration_is_explicit_and_documented(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        self.assertTrue(profile["features"]["meshcentral_agent"])
+        self.assertIn(
+            "tasks/meshcentral.yml",
+            (ROOT / "ansible/local.yml").read_text(),
+        )
+        task = (ROOT / "ansible/tasks/meshcentral.yml").read_text()
+        self.assertIn("meshagent.service", task)
+        self.assertNotIn("mesh_id", task)
+        docs = (ROOT / "docs/meshcentral.md").read_text()
+        self.assertIn("dot secrets meshcentral-agent", docs)
+        self.assertIn("never evaluated by a shell", docs)
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):

@@ -59,6 +59,14 @@
       when: dot_profile_data.features.tailscale | default(false)
       tags: [packages, tailscale, app-updates]
 
+    - name: Configure MeshCentral agent
+      ansible.builtin.include_tasks:
+        file: tasks/meshcentral.yml
+        apply:
+          tags: [packages, meshcentral]
+      when: dot_profile_data.features.meshcentral_agent | default(false)
+      tags: [packages, meshcentral]
+
     - name: Configure Ubuntu's recommended NVIDIA driver
       ansible.builtin.include_tasks:
         file: tasks/nvidia.yml
