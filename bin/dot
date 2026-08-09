@@ -2033,25 +2033,68 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     )
 
 
-def bw_session() -> tuple[str, bool]:
-    require_commands(["bw"], "Install Bitwarden CLI, then run `bw login`.")
-    status = run(["bw", "status"], capture=True)
-    state = json.loads(status.stdout).get("status")
-    if state == "unauthenticated":
-        raise DotError("Bitwarden CLI is not logged in. Run `bw login` once, then retry.")
-    if state == "unlocked":
-        session = os.environ.get("BW_SESSION")
-        if session:
-            return session, False
-    # Capture only the session token. The password prompt is written to stderr
-    # and must remain attached to the terminal so it is visible to the user.
+def _bw_capture_session(action: str) -> tuple[str | None, int]:
+    # Capture only the session token. Prompts and errors remain attached to the
+    # terminal, while the token stays inside this process and is never exported.
     proc = subprocess.run(
-        ["bw", "unlock", "--raw"],
-        check=True,
+        ["bw", action, "--raw"],
+        check=False,
         text=True,
         stdout=subprocess.PIPE,
     )
-    return proc.stdout.strip(), True
+    token = proc.stdout.strip()
+    if proc.returncode == 0 and not token:
+        raise DotError(f"Bitwarden {action} succeeded without returning a session token.")
+    return (token if proc.returncode == 0 else None), proc.returncode
+
+
+def _bw_login_session() -> tuple[str, bool]:
+    print("Bitwarden CLI login is required; completing it now.")
+    session, returncode = _bw_capture_session("login")
+    if returncode or session is None:
+        raise DotError("Bitwarden login failed.")
+    return session, True
+
+
+def bw_session() -> tuple[str, bool]:
+    require_commands(["bw"], "Install the Bitwarden CLI, then retry.")
+    status = run(["bw", "status"], check=False, capture=True)
+    if status.returncode:
+        raise DotError("Could not read Bitwarden CLI status.")
+    try:
+        state = json.loads(status.stdout).get("status")
+    except json.JSONDecodeError as exc:
+        raise DotError("Bitwarden CLI returned invalid status data.") from exc
+
+    session = os.environ.get("BW_SESSION")
+    if state == "unlocked" and session:
+        return session, False
+    if state == "unauthenticated":
+        return _bw_login_session()
+    if state not in {"locked", "unlocked"}:
+        raise DotError(f"Unsupported Bitwarden CLI status: {state or 'missing'}")
+
+    session, returncode = _bw_capture_session("unlock")
+    if returncode == 0 and session is not None:
+        return session, True
+
+    if not sys.stdin.isatty():
+        raise DotError(
+            "Bitwarden unlock failed. Run `bw logout`, then retry so dot can perform a fresh login."
+        )
+    answer = input(
+        "Bitwarden unlock failed. Refresh the CLI login now? [y/N] "
+    ).strip().lower()
+    if answer not in {"y", "yes"}:
+        raise DotError(
+            "Bitwarden unlock failed. Run `bw logout`, then retry when ready."
+        )
+
+    # A successful login can return an immediately usable session even when a
+    # later standalone unlock fails because the CLI's cached crypto state is
+    # stale. Replace that state and retain the new session only in this process.
+    run(["bw", "logout"], check=False, capture=True)
+    return _bw_login_session()
 
 
 def bw_get_item(name: str, session: str, *, required: bool = True) -> dict[str, Any] | None:

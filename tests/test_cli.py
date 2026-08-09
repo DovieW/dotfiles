@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 DOT = ROOT / "bin/dot"
@@ -83,6 +84,113 @@ class DotCliTests(unittest.TestCase):
         docs = (ROOT / "docs/meshcentral.md").read_text()
         self.assertIn("dot secrets meshcentral-agent", docs)
         self.assertIn("never evaluated by a shell", docs)
+
+    def test_bw_session_logs_in_when_cli_is_unauthenticated(self):
+        module = runpy.run_path(str(DOT))
+        bw_session = module["bw_session"]
+        globals_ = bw_session.__globals__
+        commands = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(
+                command, 0, stdout='{"status":"unauthenticated"}\n', stderr=""
+            )
+
+        def fake_subprocess_run(command, **_kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(
+                command, 0, stdout="fresh-session\n", stderr=""
+            )
+
+        with (
+            mock.patch.dict(
+                globals_,
+                {
+                    "run": fake_run,
+                    "require_commands": lambda *_args, **_kwargs: None,
+                },
+            ),
+            mock.patch.object(
+                globals_["subprocess"], "run", side_effect=fake_subprocess_run
+            ),
+            mock.patch.dict(os.environ, {"BW_SESSION": ""}),
+        ):
+            self.assertEqual(bw_session(), ("fresh-session", True))
+
+        self.assertEqual(commands[-1], ["bw", "login", "--raw"])
+
+    def test_bw_session_recovers_from_stale_cli_crypto_state(self):
+        module = runpy.run_path(str(DOT))
+        bw_session = module["bw_session"]
+        globals_ = bw_session.__globals__
+        regular_commands = []
+        session_commands = []
+
+        def fake_run(command, **_kwargs):
+            regular_commands.append(command)
+            if command == ["bw", "status"]:
+                return subprocess.CompletedProcess(
+                    command, 0, stdout='{"status":"locked"}\n', stderr=""
+                )
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        def fake_subprocess_run(command, **_kwargs):
+            session_commands.append(command)
+            if command[1] == "unlock":
+                return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                command, 0, stdout="recovered-session\n", stderr=""
+            )
+
+        fake_stdin = mock.Mock()
+        fake_stdin.isatty.return_value = True
+        with (
+            mock.patch.dict(
+                globals_,
+                {
+                    "run": fake_run,
+                    "require_commands": lambda *_args, **_kwargs: None,
+                },
+            ),
+            mock.patch.object(
+                globals_["subprocess"], "run", side_effect=fake_subprocess_run
+            ),
+            mock.patch.object(globals_["sys"], "stdin", fake_stdin),
+            mock.patch("builtins.input", return_value="yes"),
+            mock.patch.dict(os.environ, {"BW_SESSION": ""}),
+        ):
+            self.assertEqual(bw_session(), ("recovered-session", True))
+
+        self.assertEqual(
+            session_commands,
+            [["bw", "unlock", "--raw"], ["bw", "login", "--raw"]],
+        )
+        self.assertIn(["bw", "logout"], regular_commands)
+
+    def test_bw_session_reuses_existing_in_process_session(self):
+        module = runpy.run_path(str(DOT))
+        bw_session = module["bw_session"]
+        globals_ = bw_session.__globals__
+
+        def fake_run(command, **_kwargs):
+            return subprocess.CompletedProcess(
+                command, 0, stdout='{"status":"unlocked"}\n', stderr=""
+            )
+
+        with (
+            mock.patch.dict(
+                globals_,
+                {
+                    "run": fake_run,
+                    "require_commands": lambda *_args, **_kwargs: None,
+                },
+            ),
+            mock.patch.object(globals_["subprocess"], "run") as process_run,
+            mock.patch.dict(os.environ, {"BW_SESSION": "existing-session"}),
+        ):
+            self.assertEqual(bw_session(), ("existing-session", False))
+            process_run.assert_not_called()
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
