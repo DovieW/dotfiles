@@ -303,9 +303,18 @@ named Ed25519 key per physical device and account. Kubuntu and Windows use
 Bitwarden’s SSH agent; WSL and Termux receive permission-locked key files during
 explicit setup.
 
-Vault sessions stay in-process and are locked afterward. `BW_SESSION`, private
-keys, tokens, environment files, Bitwarden data, and proprietary Microsoft font
-files are never committed.
+Bitwarden session tokens stay in-process and are never exported or persisted.
+`dot` leaves the CLI login intact by default; set
+`DOTFILES_BW_LOCK_AFTER_USE=1` to explicitly lock a vault session opened by
+`dot` after the command finishes. A caller-supplied `BW_SESSION` remains under
+the caller's control.
+
+Each new process may still request the master password because `BW_SESSION` is
+not persisted. If cached CLI crypto state is stale, `dot` offers one explicit
+logout/login recovery.
+
+Private keys, tokens, environment files, Bitwarden data, and proprietary
+Microsoft font files are never committed.
 
 To create the private bootstrap note on a new vault:
 

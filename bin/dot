@@ -2063,12 +2063,21 @@ def _bw_capture_session(action: str) -> tuple[str | None, int]:
     return (token if proc.returncode == 0 else None), proc.returncode
 
 
+def _bw_should_lock_after_use() -> bool:
+    return os.environ.get("DOTFILES_BW_LOCK_AFTER_USE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _bw_login_session() -> tuple[str, bool]:
     print("Bitwarden CLI login is required; completing it now.")
     session, returncode = _bw_capture_session("login")
     if returncode or session is None:
         raise DotError("Bitwarden login failed.")
-    return session, True
+    return session, _bw_should_lock_after_use()
 
 
 def bw_session() -> tuple[str, bool]:
@@ -2091,7 +2100,7 @@ def bw_session() -> tuple[str, bool]:
 
     session, returncode = _bw_capture_session("unlock")
     if returncode == 0 and session is not None:
-        return session, True
+        return session, _bw_should_lock_after_use()
 
     if not sys.stdin.isatty():
         raise DotError(

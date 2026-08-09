@@ -114,9 +114,12 @@ class DotCliTests(unittest.TestCase):
             mock.patch.object(
                 globals_["subprocess"], "run", side_effect=fake_subprocess_run
             ),
-            mock.patch.dict(os.environ, {"BW_SESSION": ""}),
+            mock.patch.dict(
+                os.environ,
+                {"BW_SESSION": "", "DOTFILES_BW_LOCK_AFTER_USE": ""},
+            ),
         ):
-            self.assertEqual(bw_session(), ("fresh-session", True))
+            self.assertEqual(bw_session(), ("fresh-session", False))
 
         self.assertEqual(commands[-1], ["bw", "login", "--raw"])
 
@@ -158,9 +161,12 @@ class DotCliTests(unittest.TestCase):
             ),
             mock.patch.object(globals_["sys"], "stdin", fake_stdin),
             mock.patch("builtins.input", return_value="yes"),
-            mock.patch.dict(os.environ, {"BW_SESSION": ""}),
+            mock.patch.dict(
+                os.environ,
+                {"BW_SESSION": "", "DOTFILES_BW_LOCK_AFTER_USE": ""},
+            ),
         ):
-            self.assertEqual(bw_session(), ("recovered-session", True))
+            self.assertEqual(bw_session(), ("recovered-session", False))
 
         self.assertEqual(
             session_commands,
@@ -187,10 +193,42 @@ class DotCliTests(unittest.TestCase):
                 },
             ),
             mock.patch.object(globals_["subprocess"], "run") as process_run,
-            mock.patch.dict(os.environ, {"BW_SESSION": "existing-session"}),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "BW_SESSION": "existing-session",
+                    "DOTFILES_BW_LOCK_AFTER_USE": "1",
+                },
+            ),
         ):
             self.assertEqual(bw_session(), ("existing-session", False))
             process_run.assert_not_called()
+
+    def test_bw_session_can_lock_after_use_when_explicitly_requested(self):
+        module = runpy.run_path(str(DOT))
+        bw_session = module["bw_session"]
+        globals_ = bw_session.__globals__
+        status = subprocess.CompletedProcess(
+            ["bw", "status"],
+            0,
+            stdout='{"status":"unauthenticated"}',
+            stderr="",
+        )
+        with (
+            mock.patch.dict(
+                globals_,
+                {
+                    "run": mock.Mock(return_value=status),
+                    "require_commands": lambda *_args, **_kwargs: None,
+                    "_bw_capture_session": lambda _action: ("fresh-session", 0),
+                },
+            ),
+            mock.patch.dict(
+                os.environ,
+                {"BW_SESSION": "", "DOTFILES_BW_LOCK_AFTER_USE": "1"},
+            ),
+        ):
+            self.assertEqual(bw_session(), ("fresh-session", True))
 
     def test_profiles_are_parseable(self):
         for path in (ROOT / "profiles").glob("*.yml"):
