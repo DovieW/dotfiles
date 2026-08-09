@@ -67,6 +67,14 @@
       when: dot_profile_data.features.meshcentral_agent | default(false)
       tags: [packages, meshcentral]
 
+    - name: Configure NoMachine remote desktop
+      ansible.builtin.include_tasks:
+        file: tasks/nomachine.yml
+        apply:
+          tags: [packages, nomachine, app-updates]
+      when: dot_profile_data.features.nomachine | default(false)
+      tags: [packages, nomachine, app-updates]
+
     - name: Configure Ubuntu's recommended NVIDIA driver
       ansible.builtin.include_tasks:
         file: tasks/nvidia.yml

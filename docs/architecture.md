@@ -30,6 +30,8 @@ Linux package ownership is intentional:
 - Tailscale's official stable Ubuntu APT repository owns the native Kubuntu
   client. The Windows client is inventory-only, and WSL uses the Windows host
   rather than running a nested Tailscale node.
+- NoMachine's verified official Debian package owns remote access to the
+  physical Plasma Wayland session. Its NX daemon binds only to Tailscale.
 - Snap is exception-only and no application is currently managed through it.
 - Termux uses `pkg`.
 - Windows manifests are records and never trigger application installation.
@@ -84,6 +86,18 @@ The Windows profile records `Tailscale.Tailscale` for native installation.
 Neither WSL profile installs Tailscale. This follows Tailscale's guidance to use
 the Windows host client instead of nesting Tailscale traffic inside Tailscale
 traffic, which can break connectivity.
+
+## NoMachine
+
+The native Kubuntu profile uses NoMachine's free edition to mirror the existing
+Plasma Wayland session with client-aware display resizing. The NX listener is
+bound to the current Tailscale IPv4 address; LAN discovery, NoMachine Network,
+and UPnP mapping are disabled. This keeps remote desktop private without making
+the NoMachine relay service or a public router port part of the design.
+
+MeshCentral remains a separate management channel. It continues to provide
+inventory, terminal, and file access even though its desktop viewer does not
+support the workstation's Wayland session.
 
 ## Visual Studio Code
 

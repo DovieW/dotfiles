@@ -1944,6 +1944,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "emoji",
             "rdp",
             "meshcentral",
+            "nomachine",
             "tailscale",
             "touchpad",
             "vscode",
@@ -4845,6 +4846,11 @@ def palette_apply_menu(profile: str) -> None:
         ("nvim", "Neovim", "Apply config, locked plugins, parsers, and language tools"),
         ("docker", "Docker Engine", "Repair native engine, Compose, Buildx, and service state"),
         ("tailscale", "Tailscale", "Repair stable repository, package, and daemon"),
+        (
+            "nomachine",
+            "NoMachine remote desktop",
+            "Install the free edition and bind it to the Tailscale address",
+        ),
         ("gpu", "NVIDIA GPU", "Apply Ubuntu's recommended driver and PRIME policy"),
         ("gestures", "Touchpad gestures", "Build and apply Windows-style InputActions gestures"),
         ("touchpad", "Touchpad workaround", "Apply the scoped libinput jump-detection override"),
@@ -5331,6 +5337,8 @@ def palette_services_menu(profile: str) -> None:
                 ("meshcentral-status", "MeshCentral status", "Show agent enrollment, service, and configuration state"),
                 ("meshcentral-prereqs", "Install MeshCentral prerequisites", "Install HTTPS tooling and repair an existing agent service"),
                 ("meshcentral-enroll", "Enroll with MeshCentral", "Paste and validate a Linux agent invitation without retaining it"),
+                ("nomachine-status", "NoMachine status", "Show server state and the Tailscale-only listener"),
+                ("nomachine-install", "Install or repair NoMachine", "Install the free edition and bind it to Tailscale"),
                 ("docker-status", "Docker status", "Show daemon, Compose, and Buildx runtime information"),
                 ("docker-repair", "Install or repair Docker", "Apply native Engine, Compose, and Buildx"),
                 ("codex-status", "Codex Remote Control status", "Show the persistent user service"),
@@ -5376,6 +5384,11 @@ def palette_services_menu(profile: str) -> None:
                 palette_apply(profile, "meshcentral")
             elif action == "meshcentral-enroll":
                 cmd_meshcentral(argparse.Namespace(meshcentral_action="enroll"))
+            elif action == "nomachine-status":
+                run(["/etc/NX/nxserver", "--status"])
+                run(["ss", "-lntup", "sport = :4000"])
+            elif action == "nomachine-install":
+                palette_apply(profile, "nomachine")
             elif action == "docker-status":
                 run(["docker", "info"])
                 run(["docker", "compose", "version"])
@@ -5919,6 +5932,24 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             str(mesh_config)
             if mesh_config is not None
             else "enrollment configuration not found",
+        )
+    if profile.get("features", {}).get("nomachine"):
+        nomachine_server = Path("/etc/NX/nxserver")
+        nomachine_status = (
+            run(
+                [str(nomachine_server), "--status"],
+                check=False,
+                capture=True,
+            )
+            if nomachine_server.exists()
+            else None
+        )
+        failures += not doctor_check(
+            "NoMachine server",
+            nomachine_status is not None and nomachine_status.returncode == 0,
+            "server installed and running"
+            if nomachine_status is not None and nomachine_status.returncode == 0
+            else f"run dot apply --profile {profile['name']} --tags nomachine",
         )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")

@@ -14,6 +14,7 @@
     "kde": true,
     "lid_power_saver": true,
     "meshcentral_agent": true,
+    "nomachine": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
     "rdp_files": true,

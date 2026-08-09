@@ -361,6 +361,7 @@ docs/         architecture, maintenance, migration, and troubleshooting
   updating, and rollback
 - [Docker](docs/docker.md) — native Docker Engine on Kubuntu and WSL
 - [Tailscale](docs/tailscale.md) — installation and enrollment boundaries
+- [NoMachine](docs/nomachine.md) — Tailscale-only Plasma Wayland remote desktop
 - [Migration ledger](docs/migration-ledger.md) — where the old configuration
   went
 - [Troubleshooting](docs/troubleshooting.md) — actionable recovery paths

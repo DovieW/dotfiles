@@ -511,6 +511,24 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Tailscale enrollment"', cli)
         self.assertIn("editor = nvim", git_config)
 
+    def test_nomachine_is_private_to_the_kubuntu_tailnet(self):
+        kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        local = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/nomachine.yml").read_text()
+        docs = (ROOT / "docs/nomachine.md").read_text()
+
+        self.assertTrue(kubuntu["features"]["nomachine"])
+        self.assertIn("tasks/nomachine.yml", local)
+        self.assertIn("tailscale, ip, -4", task)
+        self.assertIn("NXDListenAddress", task)
+        self.assertIn("NXUDPPort", task)
+        self.assertIn("EnableLocalNetworkBroadcast", task)
+        self.assertIn("EnableNetwork", task)
+        self.assertIn("EnableUPnP", task)
+        self.assertIn("sha256:", task)
+        self.assertIn("nx://", task)
+        self.assertIn("dot apply --profile kubuntu-laptop --tags nomachine", docs)
+
     def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         config = (ROOT / "config/ghostty/config").read_text()

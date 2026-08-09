@@ -1,0 +1,101 @@
+---
+- name: Validate NoMachine host platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture == "x86_64"
+    fail_msg: >-
+      This managed NoMachine package is supported only on the native amd64
+      Ubuntu or Kubuntu workstation.
+
+- name: Read the active Tailscale IPv4 address
+  ansible.builtin.command:
+    argv: [tailscale, ip, -4]
+  register: dot_nomachine_tailscale_ip
+  changed_when: false
+  check_mode: false
+
+- name: Require one active Tailscale IPv4 address
+  ansible.builtin.assert:
+    that:
+      - dot_nomachine_tailscale_ip.rc == 0
+      - dot_nomachine_tailscale_ip.stdout_lines | length == 1
+      - >-
+        (dot_nomachine_tailscale_ip.stdout | trim) is
+        match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$')
+    fail_msg: >-
+      NoMachine is intentionally Tailscale-only. Connect this laptop to its
+      tailnet before applying the nomachine tag.
+
+- name: Create the managed package cache
+  become: true
+  ansible.builtin.file:
+    path: /var/cache/dotfiles
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download the official NoMachine free-edition package
+  become: true
+  ansible.builtin.get_url:
+    url: >-
+      https://download.nomachine.com/download/9.8/Linux/nomachine_9.8.2_1_amd64.deb
+    dest: /var/cache/dotfiles/nomachine_9.8.2_1_amd64.deb
+    # Provider-published MD5: 29f24af614a1cd3da4e69c407fe31b2a.
+    checksum: sha256:6c26d79ccfd21aca8a2d72b01b291896e8909adcb173eeabc75d8fdc59b83b64
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install NoMachine
+  become: true
+  ansible.builtin.apt:
+    deb: /var/cache/dotfiles/nomachine_9.8.2_1_amd64.deb
+    state: present
+
+- name: Restrict NoMachine to private direct Tailscale connections
+  become: true
+  ansible.builtin.lineinfile:
+    path: /usr/NX/etc/server.cfg
+    regexp: "(?i)^#?{{ item.key }}\\s+"
+    line: "{{ item.key }} {{ item.value }}"
+  loop:
+    - key: NXDListenAddress
+      value: '"{{ dot_nomachine_tailscale_ip.stdout | trim }}"'
+    - key: NXUDPPort
+      value: "0"
+    - key: EnableLocalNetworkBroadcast
+      value: "0"
+    - key: EnableNetwork
+      value: "0"
+    - key: EnableUPnP
+      value: none
+  register: dot_nomachine_private_config
+
+- name: Restart NoMachine after private-network configuration
+  become: true
+  ansible.builtin.command:
+    argv: [/etc/NX/nxserver, --restart]
+  when: dot_nomachine_private_config.changed
+
+- name: Read NoMachine server status
+  become: true
+  ansible.builtin.command:
+    argv: [/etc/NX/nxserver, --status]
+  register: dot_nomachine_status
+  changed_when: false
+
+- name: Verify the NoMachine NX listener
+  ansible.builtin.wait_for:
+    host: "{{ dot_nomachine_tailscale_ip.stdout | trim }}"
+    port: 4000
+    state: started
+    timeout: 15
+
+- name: Report the private NoMachine endpoint
+  ansible.builtin.debug:
+    msg: >-
+      NoMachine is running at nx://{{ dot_nomachine_tailscale_ip.stdout | trim }}:4000.
+      Connect with the NoMachine client and this workstation's Linux account.
+      UDP transport is disabled so traffic cannot bypass the Tailscale-only TCP bind.
