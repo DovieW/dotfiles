@@ -35,13 +35,14 @@ class DotCliTests(unittest.TestCase):
     def test_meshcentral_generated_command_is_parsed_without_shell_execution(self):
         module = runpy.run_path(str(DOT))
         parse = module["parse_meshcentral_install_command"]
+        mesh_id = "a" * 31 + "@" + "b" * 31 + "$"
         command = (
             '(wget "https://mc.example.test/meshagents?script=1" '
             '-O ./meshinstall.sh || wget '
             '"https://mc.example.test/meshagents?script=1" '
             '-O ./meshinstall.sh --no-proxy) && '
             'chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh '
-            "https://mc.example.test 'abcdefghijklmnop'"
+            f"https://mc.example.test '{mesh_id}'"
         )
         self.assertEqual(
             parse(command),
@@ -49,7 +50,7 @@ class DotCliTests(unittest.TestCase):
                 "schema_version": 1,
                 "server_url": "https://mc.example.test",
                 "installer_url": "https://mc.example.test/meshagents?script=1",
-                "mesh_id": "abcdefghijklmnop",
+                "mesh_id": mesh_id,
             },
         )
 
@@ -61,12 +62,14 @@ class DotCliTests(unittest.TestCase):
             "schema_version": 1,
             "server_url": "https://mc.example.test",
             "installer_url": "https://mc.example.test/meshagents?script=1",
-            "mesh_id": "abcdefghijklmnop",
+            "mesh_id": "a" * 64,
         }
         for changes in (
             {"server_url": "http://mc.example.test"},
             {"server_url": "https://mc.example.test/path"},
             {"installer_url": "https://evil.example/meshagents?script=1"},
+            {"mesh_id": "a" * 63},
+            {"mesh_id": "a" * 63 + "/"},
         ):
             with self.subTest(changes=changes), self.assertRaises(error):
                 normalize({**baseline, **changes})

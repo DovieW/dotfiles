@@ -2212,7 +2212,7 @@ def normalize_meshcentral_enrollment(payload: dict[str, Any]) -> dict[str, Any]:
             "MeshCentral installer must be the HTTPS meshagents?script=1 URL "
             "from the same server"
         )
-    if not re.fullmatch(r"[A-Za-z0-9_-]{16,2048}", mesh_id):
+    if not re.fullmatch(r"[A-Za-z0-9_@$-]{64,2048}", mesh_id):
         raise DotError("MeshCentral device-group identifier is invalid")
     return {
         "schema_version": 1,
@@ -2234,7 +2234,8 @@ def parse_meshcentral_install_command(command: str) -> dict[str, Any]:
     invocation = re.search(
         r"(?:sudo(?:\s+-E)?\s+)?(?:\./|\S*/)?meshinstall\.sh\s+"
         r"(?P<server>['\"]?https://[^\s'\"]+['\"]?)\s+"
-        r"(?P<mesh>['\"]?[A-Za-z0-9_-]{16,2048}['\"]?)",
+        r"(?P<mesh>['\"]?[A-Za-z0-9_@$-]{64,2048}['\"]?)"
+        r"(?=\s|$|[;&|)])",
         command,
     )
     if not installer_urls or invocation is None:
