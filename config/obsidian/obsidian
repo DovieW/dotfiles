@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Obsidian is Electron/Chromium and needs the same native-gamut policy as
+# Chrome and VS Code on the laptop's OLED display.
+exec /opt/Obsidian/obsidian \
+  --disable-features=WaylandWpColorManagerV1 \
+  "$@"

@@ -1575,7 +1575,6 @@ def apply_direct(
             ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/systemd/user/dot-obsidian-launch.service": Path.home() / ".config/systemd/user/dot-obsidian-launch.service",
             ROOT / "config/obsidian/dot-obsidian.desktop": Path.home() / ".local/share/applications/dot-obsidian.desktop",
-            ROOT / "config/obsidian/obsidian.desktop": Path.home() / ".local/share/applications/obsidian.desktop",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
             ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
@@ -1701,10 +1700,13 @@ def apply_direct(
             ROOT / "config/chromium/google-chrome-stable": Path.home()
             / ".local/bin/google-chrome-stable",
             ROOT / "config/chromium/code": Path.home() / ".local/bin/code",
+            ROOT / "config/obsidian/obsidian": Path.home() / ".local/bin/obsidian",
             ROOT / "config/chromium/google-chrome.desktop": Path.home()
             / ".local/share/applications/google-chrome.desktop",
             ROOT / "config/chromium/code.desktop": Path.home()
             / ".local/share/applications/code.desktop",
+            ROOT / "config/obsidian/obsidian.desktop": Path.home()
+            / ".local/share/applications/obsidian.desktop",
         }
         for source, destination in chromium_mappings.items():
             changes += int(link_file(source, destination))
@@ -6365,11 +6367,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 Path.home() / ".local/bin/google-chrome-stable": ROOT
                 / "config/chromium/google-chrome-stable",
                 Path.home() / ".local/bin/code": ROOT / "config/chromium/code",
+                Path.home() / ".local/bin/obsidian": ROOT
+                / "config/obsidian/obsidian",
                 Path.home()
                 / ".local/share/applications/google-chrome.desktop": ROOT
                 / "config/chromium/google-chrome.desktop",
                 Path.home() / ".local/share/applications/code.desktop": ROOT
                 / "config/chromium/code.desktop",
+                Path.home() / ".local/share/applications/obsidian.desktop": ROOT
+                / "config/obsidian/obsidian.desktop",
             }
             chromium_policy_ok = all(
                 destination.is_symlink()
@@ -6381,7 +6387,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             failures += not doctor_check(
                 "Chromium native-gamut policy",
                 chromium_policy_ok,
-                "Chrome and VS Code use the Windows-like OLED gamut"
+                "Chrome, VS Code, and Obsidian use the Windows-like OLED gamut"
                 if chromium_policy_ok
                 else f"run dot apply --profile {profile['name']} "
                 "--tags display,vscode",

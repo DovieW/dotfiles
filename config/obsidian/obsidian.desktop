@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Obsidian
 Comment=Knowledge base
-Exec=/opt/Obsidian/obsidian %U
+Exec=/opt/Obsidian/obsidian --disable-features=WaylandWpColorManagerV1 %U
 Terminal=false
 Type=Application
 Icon=obsidian

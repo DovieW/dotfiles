@@ -1343,7 +1343,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"dot-obsidian"', script)
         self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
         self.assertIn("StartupWMClass=dot-obsidian-launcher", launcher)
-        self.assertIn("Exec=/opt/Obsidian/obsidian %U", mime_launcher)
+        self.assertIn(
+            "Exec=/opt/Obsidian/obsidian "
+            "--disable-features=WaylandWpColorManagerV1 %U",
+            mime_launcher,
+        )
         self.assertIn(
             "obsidian-cli command id=workspace:open-in-new-window", service
         )
@@ -1650,14 +1654,25 @@ class DotCliTests(unittest.TestCase):
 
         chrome_wrapper = (ROOT / "config/chromium/google-chrome-stable").read_text()
         code_wrapper = (ROOT / "config/chromium/code").read_text()
+        obsidian_wrapper = (ROOT / "config/obsidian/obsidian").read_text()
         chrome_desktop = (ROOT / "config/chromium/google-chrome.desktop").read_text()
         code_desktop = (ROOT / "config/chromium/code.desktop").read_text()
-        for managed in (chrome_wrapper, code_wrapper, chrome_desktop, code_desktop):
+        obsidian_desktop = (ROOT / "config/obsidian/obsidian.desktop").read_text()
+        for managed in (
+            chrome_wrapper,
+            code_wrapper,
+            obsidian_wrapper,
+            chrome_desktop,
+            code_desktop,
+            obsidian_desktop,
+        ):
             self.assertIn("--disable-features=WaylandWpColorManagerV1", managed)
         self.assertIn("config/chromium/google-chrome-stable", cli)
         self.assertIn(".local/bin/google-chrome-stable", cli)
         self.assertIn("config/chromium/code", cli)
         self.assertIn(".local/bin/code", cli)
+        self.assertIn("config/obsidian/obsidian", cli)
+        self.assertIn(".local/bin/obsidian", cli)
         self.assertIn("Chromium native-gamut policy", cli)
 
     def test_kubuntu_manages_vscode_and_fullscreen_rdp_files(self):
