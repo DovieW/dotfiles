@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Apply the small, portable portion of Codex's user configuration."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import re
+import tempfile
+
+
+SETTING = 'default_permissions = ":danger-full-access"'
+
+
+def config_path() -> Path:
+    explicit = os.environ.get("CODEX_CONFIG_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    return codex_home / "config.toml"
+
+
+def managed_text(current: str) -> str:
+    lines = current.splitlines()
+    first_section = next(
+        (index for index, line in enumerate(lines) if re.match(r"^\s*\[", line)),
+        len(lines),
+    )
+    matches = [
+        index
+        for index, line in enumerate(lines[:first_section])
+        if re.match(r"^\s*default_permissions\s*=", line)
+    ]
+    if matches:
+        lines[matches[0]] = SETTING
+        for index in reversed(matches[1:]):
+            del lines[index]
+    else:
+        lines.insert(0, SETTING)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    path = config_path()
+    current = path.read_text() if path.exists() else ""
+    expected = managed_text(current)
+    if args.check:
+        if current != expected:
+            print(
+                "Codex default permissions are not Full Access; "
+                "run dot apply --profile kubuntu-laptop --tags codex."
+            )
+            return 1
+        print("Codex default permissions: Full Access (danger-full-access).")
+        return 0
+    if current == expected:
+        print("Codex default permissions already use Full Access.")
+        return 0
+    write_atomic(path, expected)
+    print("Configured Codex default permissions: Full Access (danger-full-access).")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

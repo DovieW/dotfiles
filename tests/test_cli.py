@@ -533,7 +533,29 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("{update.installed} -> {update.available}", cli)
         self.assertIn('"--json=v2"', cli)
         self.assertIn("check_nvim_updates", cli)
+        self.assertIn("check_codex_updates", cli)
+        self.assertIn("check_vite_plus_updates", cli)
         self.assertIn("[config, shell, tmux, app-updates]", playbook)
+
+    def test_codex_permissions_are_managed_without_replacing_other_config(self):
+        script = ROOT / "scripts/configure-codex"
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text('model = "gpt-5.6-terra"\n\n[plugins]\nenabled = true\n')
+            environment = os.environ.copy()
+            environment["CODEX_CONFIG_FILE"] = str(config)
+            applied = subprocess.run(
+                [str(script)], text=True, capture_output=True, env=environment
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            text = config.read_text()
+            self.assertIn('default_permissions = ":danger-full-access"', text)
+            self.assertIn('model = "gpt-5.6-terra"', text)
+            self.assertIn("[plugins]\nenabled = true", text)
+            checked = subprocess.run(
+                [str(script), "--check"], text=True, capture_output=True, env=environment
+            )
+            self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_update_metadata_preserves_installed_and_available_versions(self):
         module = runpy.run_path(str(DOT))

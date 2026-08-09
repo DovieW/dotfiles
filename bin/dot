@@ -1809,7 +1809,8 @@ def apply_direct(
             source = ROOT / "config/docker/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
-    if features.get("codex_remote_control") and selected("codex"):
+    if features.get("codex_remote_control") and selected("codex", "config"):
+        run([str(ROOT / "scripts/configure-codex")], cwd=ROOT)
         unit_name = "codex-remote-control.service"
         source = ROOT / "config/systemd/user" / unit_name
         destination = Path.home() / ".config/systemd/user" / unit_name
@@ -2829,6 +2830,75 @@ def check_nvim_updates() -> UpdateCheckResult:
     return UpdateCheckResult("Neovim plugins", tuple(updates))
 
 
+def parse_codex_release_version(output: str) -> str:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise DotError(f"Codex returned invalid release metadata: {error}") from error
+    tag = str(payload.get("tag_name") or "")
+    version = tag.removeprefix("rust-v")
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", version):
+        raise DotError("Codex release metadata did not contain a stable version.")
+    return version
+
+
+def check_codex_updates() -> UpdateCheckResult:
+    codex = Path.home() / ".local/bin/codex"
+    installed = "not installed"
+    if codex.is_file() or codex.is_symlink():
+        result = run([str(codex), "--version"], check=False, capture=True)
+        if result.returncode:
+            raise DotError((result.stderr or result.stdout).strip() or "Codex version check failed.")
+        match = re.search(r"(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)", result.stdout)
+        if not match:
+            raise DotError("The installed Codex CLI did not report a version.")
+        installed = match.group(1)
+    metadata = run(
+        [
+            "curl",
+            "--proto", "=https",
+            "--tlsv1.2",
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "https://releases.openai.com/codex/channels/latest",
+        ],
+        check=False,
+        capture=True,
+        timeout=30,
+    )
+    if metadata.returncode:
+        raise DotError((metadata.stderr or metadata.stdout).strip() or "Codex release check failed.")
+    available = parse_codex_release_version(metadata.stdout)
+    updates = () if installed == available else (
+        AvailableUpdate("codex", installed, available),
+    )
+    return UpdateCheckResult("Codex CLI", updates)
+
+
+def strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+
+
+def check_vite_plus_updates() -> UpdateCheckResult:
+    vp = Path.home() / ".vite-plus/bin/vp"
+    if not vp.exists():
+        raise DotError(f"Vite+ is missing at {vp}.")
+    result = run([str(vp), "upgrade", "--check"], check=False, capture=True, timeout=60)
+    output = strip_ansi("\n".join(part for part in (result.stdout, result.stderr) if part))
+    if result.returncode:
+        raise DotError(output.strip() or "Vite+ update check failed.")
+    match = re.search(r"found vite-plus@(\S+) \(current: (\S+)\)", output)
+    if not match:
+        raise DotError("Vite+ did not report its current and available versions.")
+    available, installed = match.groups()
+    updates = () if installed == available else (
+        AvailableUpdate("vite-plus", installed, available),
+    )
+    return UpdateCheckResult("Vite+", updates)
+
+
 def render_update_result(result: UpdateCheckResult, elapsed: float) -> int:
     if not result.updates:
         print(f"[OK] {result.provider}: up to date ({elapsed:.1f}s)", flush=True)
@@ -2880,6 +2950,16 @@ def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool)
                 checks.append(("Neovim plugins", check_nvim_updates))
             else:
                 skipped.append("Neovim plugins (nvim is unavailable)")
+        if profile.get("features", {}).get("codex_remote_control"):
+            if command_exists("curl"):
+                checks.append(("Codex CLI", check_codex_updates))
+            else:
+                skipped.append("Codex CLI (curl is unavailable)")
+        if profile.get("features", {}).get("vite_plus"):
+            if (Path.home() / ".vite-plus/bin/vp").exists():
+                checks.append(("Vite+", check_vite_plus_updates))
+            else:
+                skipped.append("Vite+ (managed command is unavailable)")
 
     for detail in skipped:
         print(f"[SKIP] {detail}", flush=True)
@@ -6903,6 +6983,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             vite_plus_detail or "managed Vite+ check failed",
         )
     if profile.get("features", {}).get("codex_remote_control"):
+        codex_config_check = run(
+            [str(ROOT / "scripts/configure-codex"), "--check"],
+            check=False,
+            capture=True,
+        )
+        codex_config_detail = (
+            codex_config_check.stdout or codex_config_check.stderr
+        ).strip()
+        failures += not doctor_check(
+            "Codex default permissions",
+            codex_config_check.returncode == 0,
+            codex_config_detail or "managed Codex permissions check failed",
+        )
         codex_check = run(
             [str(ROOT / "scripts/install-codex"), "--check"],
             check=False,
