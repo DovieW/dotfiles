@@ -127,14 +127,15 @@ dot repos sync --profile kubuntu-laptop
 
 ### Transcription
 
-The Linux shell profile installs `transcribe`, a standalone TypeScript/OpenTUI
-application for Kubuntu and WSL. The first invocation builds the pinned release;
-later invocations need neither Node nor Bun. Use the action launcher without
-arguments or its clean scriptable interface:
+The Linux shell profile installs
+[`transcribe`](https://github.com/DovieW/transcribe-cli), the standalone public
+TypeScript/OpenTUI application for Linux and WSL. Dotfiles downloads a pinned,
+checksum-verified GitHub release; running it needs neither Node nor Bun. Use the
+action launcher without arguments or its clean scriptable interface:
 
 ```bash
 transcribe
-transcribe run recording.mp4 --name interview --provider openai --model gpt-transcribe
+transcribe run recording.mp4 --name interview --provider openai --model gpt-4o-transcribe
 transcribe run 'https://www.youtube.com/watch?v=…' --provider youtube-transcript
 transcribe resume RUN_ID
 transcribe restart RUN_ID
@@ -153,16 +154,15 @@ clipboard copy, timestamp/speaker formatting, and `$EDITOR` handoff are built
 in. Normalized audio and work files remain in the central XDG library rather
 than cluttering source directories.
 
-SQLite indexes the library at
-`~/.local/state/dotfiles/transcribe/library.sqlite3`; portable `source.json` and
-`run.json` manifests remain beside artifacts. Settings are stored with mode
-`0600` at `~/.config/dotfiles/transcribe/config.json`. Existing managed Bash-era
-runs are imported idempotently on first launch. Run `transcribe migrate PATH`
-for an explicitly selected older work directory.
+SQLite indexes the library under `~/.local/state/transcribe`; portable
+`source.json` and `run.json` manifests remain beside artifacts. Settings are
+stored with mode `0600` under `~/.config/transcribe`. Existing dotfiles users
+continue using their earlier library automatically, and managed Bash-era runs
+are imported idempotently on first launch. Run `transcribe migrate PATH` for an
+explicitly selected older work directory.
 
 The model picker follows the selected provider. OpenAI offers `whisper-1`,
-`gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, and `gpt-transcribe` for
-ordinary transcription;
+`gpt-4o-mini-transcribe`, and `gpt-4o-transcribe` for ordinary transcription;
 enabling diarization selects `gpt-4o-transcribe-diarize`. Groq offers
 `whisper-large-v3` and `whisper-large-v3-turbo`. Fireworks retains its
 `whisper-v3` and `whisper-v3-turbo` choices.

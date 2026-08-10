@@ -196,6 +196,33 @@
   [[ "$output" == *"Codex CLI $release is installed"* ]]
 }
 
+@test "transcribe installer downloads and verifies the pinned public release" {
+  fake_home="$BATS_TEST_TMPDIR/transcribe-home"
+  fake_release="$BATS_TEST_TMPDIR/transcribe-linux-x64"
+  mkdir -p "$fake_home"
+  printf '#!/bin/sh\nprintf "transcribe 2.0.0\\n"\n' >"$fake_release"
+  chmod +x "$fake_release"
+  release_hash="$(sha256sum "$fake_release" | cut -d' ' -f1)"
+
+  run env HOME="$fake_home" \
+    XDG_DATA_HOME="$fake_home/data" \
+    XDG_BIN_HOME="$fake_home/bin" \
+    TRANSCRIBE_RELEASE_URL="file://$fake_release" \
+    TRANSCRIBE_EXPECTED_SHA256="$release_hash" \
+    "$BATS_TEST_DIRNAME/../scripts/install-transcribe" --install
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DovieW/transcribe-cli"* ]]
+  [ -L "$fake_home/bin/transcribe" ]
+
+  run env HOME="$fake_home" \
+    XDG_DATA_HOME="$fake_home/data" \
+    XDG_BIN_HOME="$fake_home/bin" \
+    TRANSCRIBE_EXPECTED_SHA256="$release_hash" \
+    "$BATS_TEST_DIRNAME/../scripts/install-transcribe" --check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"public release is current"* ]]
+}
+
 @test "Codex installer check does not download when the CLI is missing" {
   fake_home="$BATS_TEST_TMPDIR/missing-codex-home"
   mkdir -p "$fake_home"

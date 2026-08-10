@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="$ROOT/config/transcription"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 INSTALL_ROOT="$DATA_HOME/dotfiles/transcribe"
 CURRENT="$INSTALL_ROOT/current/transcribe"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
+VERSION="2.0.0"
+REPOSITORY="DovieW/transcribe-cli"
+ASSET="transcribe-linux-x64"
+RELEASE_URL="${TRANSCRIBE_RELEASE_URL:-https://github.com/$REPOSITORY/releases/download/v$VERSION/$ASSET}"
+EXPECTED_SHA256="${TRANSCRIBE_EXPECTED_SHA256:-cbb07c0e491165ae092e05ca55a501e4398278a526f11443b81556efec76baf6}"
 
 usage() {
   printf 'Usage: install-transcribe --install|--update|--check\n'
 }
 
-source_hash() {
-  find "$SOURCE/src" "$SOURCE/tests" -type f -print0 \
-    | sort -z \
-    | xargs -0 sha256sum
-  sha256sum "$SOURCE/package.json" "$SOURCE/package-lock.json" \
-    "$SOURCE/tsconfig.json" "$SOURCE/build.ts"
-}
-
-expected_hash() {
-  source_hash | sha256sum | cut -d' ' -f1
-}
-
 check_install() {
-  local wanted installed=""
-  wanted="$(expected_hash)"
-  [[ -f "$INSTALL_ROOT/source-hash" ]] && installed="$(<"$INSTALL_ROOT/source-hash")"
-  if [[ -x "$CURRENT" && "$installed" == "$wanted" ]] \
-    && "$CURRENT" version | grep -qx 'transcribe 2.0.0'; then
-    printf 'transcribe 2.0.0 standalone executable is current\n'
+  local installed=""
+  [[ -x "$CURRENT" ]] && installed="$(sha256sum "$CURRENT" | cut -d' ' -f1)"
+  if [[ "$installed" == "$EXPECTED_SHA256" ]] \
+    && "$CURRENT" version | grep -qx "transcribe $VERSION"; then
+    printf 'transcribe %s public release is current\n' "$VERSION"
     return 0
   fi
   printf 'transcribe is missing or stale; run dot transcribe install\n' >&2
@@ -38,32 +28,43 @@ check_install() {
 }
 
 install_app() {
-  local npm_path release hash temp_link
-  npm_path="$(command -v npm || true)"
-  if [[ -z "$npm_path" && -x "$HOME/.vite-plus/bin/npm" ]]; then
-    npm_path="$HOME/.vite-plus/bin/npm"
-  fi
-  [[ -n "$npm_path" ]] || {
-    printf 'npm is required to build transcribe. Run dot vite-plus install first.\n' >&2
+  local release temp_link
+  command -v curl >/dev/null || {
+    printf 'curl is required to install transcribe.\n' >&2
     return 1
   }
-  hash="$(expected_hash)"
-  release="$INSTALL_ROOT/releases/$hash"
+  command -v sha256sum >/dev/null || {
+    printf 'sha256sum is required to verify transcribe.\n' >&2
+    return 1
+  }
+  release="$INSTALL_ROOT/releases/$VERSION"
   if [[ ! -x "$release/transcribe" ]]; then
-    "$npm_path" ci --no-audit --no-fund --prefix "$SOURCE"
-    "$SOURCE/node_modules/.bin/bun" run --cwd "$SOURCE" build
+    TEMP_DIR="$(mktemp -d)"
+    curl --fail --location --silent --show-error --retry 3 \
+      --output "$TEMP_DIR/transcribe" "$RELEASE_URL"
+    printf '%s  %s\n' "$EXPECTED_SHA256" "$TEMP_DIR/transcribe" | sha256sum --check --status - || {
+      printf 'Downloaded transcribe release failed checksum verification.\n' >&2
+      return 1
+    }
     mkdir -p "$release"
-    install -m 0755 "$SOURCE/dist/transcribe" "$release/transcribe"
+    install -m 0755 "$TEMP_DIR/transcribe" "$release/transcribe"
+  elif [[ "$(sha256sum "$release/transcribe" | cut -d' ' -f1)" != "$EXPECTED_SHA256" ]]; then
+    printf 'Managed transcribe release failed checksum verification; remove %s and retry.\n' "$release" >&2
+    return 1
   fi
   mkdir -p "$INSTALL_ROOT" "$BIN_HOME"
   ln -sfn "$release" "$INSTALL_ROOT/current"
-  printf '%s\n' "$hash" > "$INSTALL_ROOT/source-hash"
-  chmod 0600 "$INSTALL_ROOT/source-hash"
   temp_link="$BIN_HOME/.transcribe-link-$$"
   ln -s "$CURRENT" "$temp_link"
   mv -Tf "$temp_link" "$BIN_HOME/transcribe"
-  printf 'Installed transcribe 2.0.0 to %s\n' "$CURRENT"
+  printf 'Installed transcribe %s from https://github.com/%s\n' "$VERSION" "$REPOSITORY"
 }
+
+TEMP_DIR=""
+cleanup() {
+  [[ -z "$TEMP_DIR" ]] || rm -rf -- "$TEMP_DIR"
+}
+trap cleanup EXIT
 
 case "${1:-}" in
   --check) check_install ;;

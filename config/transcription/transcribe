@@ -6,7 +6,7 @@ INSTALLER="$ROOT/scripts/install-transcribe"
 CURRENT="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/transcribe/current/transcribe"
 
 if [[ ! -x "$CURRENT" ]]; then
-  printf 'Building the managed transcribe application for first use…\n' >&2
+  printf 'Installing the managed transcribe application for first use…\n' >&2
   "$INSTALLER" --install >&2
 fi
 exec "$CURRENT" "$@"

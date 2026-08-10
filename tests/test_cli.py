@@ -749,89 +749,19 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ffmpeg", profile["packages"]["apt"])
         self.assertIn("yt-dlp", profile["packages"]["brew"])
 
-    def _legacy_transcribe_has_cli_and_fzf_interfaces(self):
-        script = (ROOT / "config/transcription/transcribe").read_text()
-        self.assertIn("interactive_menu()", script)
-        self.assertIn("Transcribe local media", script)
-        self.assertIn("Transcribe YouTube", script)
-        self.assertIn('if (( LOCAL_INPUT == 1 )); then', script)
-        self.assertIn("settings_review()", script)
-        self.assertIn("transcribe.json", script)
-        self.assertIn("Start transcription", script)
-        for model in (
-            "whisper-1",
-            "gpt-4o-mini-transcribe",
-            "gpt-4o-transcribe",
-            "gpt-4o-transcribe-diarize",
-            "gpt-transcribe",
-            "whisper-large-v3",
-            "whisper-large-v3-turbo",
-        ):
-            self.assertIn(model, script)
-        self.assertIn("Compare two transcripts", script)
-        self.assertIn('COMMAND_MODE="compare"', script)
-        self.assertIn('"model": "gpt-5.6-luna"', script)
-        self.assertIn('"provider"$\'\\t\'"Provider"', script)
-        self.assertNotIn('"provider\\tProvider\\t$SETTING_PROVIDER"', script)
-        self.assertIn("existing_local_run_mode()", script)
-        self.assertIn("Continue existing work", script)
-        self.assertIn("Restart transcript", script)
-        self.assertIn("Restart everything", script)
-        self.assertIn("-name '*.groq-work'", script)
-        settings_arguments = script.split("settings_arguments() {", 1)[1].split("\n}", 1)[0]
-        self.assertTrue(settings_arguments.rstrip().endswith("return 0"))
-        self.assertIn("local_transcript_path()", script)
-        self.assertIn('"sources" / f"{name}-{identifier}" / "runs"', script)
-        self.assertIn("-c${chunk_seconds}-o${overlap}-p${continuity}-cc${concurrency}", script)
-        self.assertIn("choose_local_run()", script)
-        self.assertIn("Create a new run", script)
-        self.assertIn("run.json", script)
-        self.assertIn("XDG_STATE_HOME", script)
-        self.assertIn("managed_transcript_inventory()", script)
-        self.assertIn("select exactly two runs", script)
-        self.assertIn("${#COMPARE_SELECTIONS[@]} != 2", script)
-
-    def test_transcribe_is_a_compiled_opentui_application(self):
-        root = ROOT / "config/transcription"
-        manifest = json.loads((root / "package.json").read_text())
-        self.assertEqual(manifest["version"], "2.0.0")
-        self.assertEqual(manifest["dependencies"]["@opentui/solid"], "0.5.1")
-        self.assertEqual(manifest["dependencies"]["solid-js"], "1.9.12")
-        self.assertTrue((root / "package-lock.json").is_file())
-        self.assertIn("Bun.build", (root / "build.ts").read_text())
-        self.assertIn("compile:", (root / "build.ts").read_text())
-        tui = (root / "src/tui.tsx").read_text()
-        cli = (root / "src/cli.ts").read_text()
-        storage = (root / "src/storage.ts").read_text()
-        providers = (root / "src/providers.ts").read_text()
-        self.assertIn('title="home"', tui)
-        self.assertIn("New transcription", tui)
-        self.assertIn("Compare transcripts", tui)
-        self.assertIn("Every value below is visible", tui)
-        for model in (
-            "whisper-1",
-            "gpt-4o-mini-transcribe",
-            "gpt-4o-transcribe",
-            "gpt-4o-transcribe-diarize",
-            "gpt-transcribe",
-            "whisper-large-v3",
-            "whisper-large-v3-turbo",
-        ):
-            self.assertIn(model, (root / "src/models.ts").read_text())
-        self.assertIn('model: "gpt-5.6-luna"', providers)
-        self.assertIn("library.sqlite3", storage)
-        self.assertIn("CREATE TABLE chunks", storage)
-        self.assertIn("migrateLegacy", storage)
-        for command in (
-            "run", "resume", "restart", "compare", "export", "migrate", "doctor"
-        ):
-            self.assertIn(f'command === "{command}"', cli)
-
     def test_transcribe_installer_is_managed_by_dot(self):
         installer = ROOT / "scripts/install-transcribe"
         self.assertTrue(installer.stat().st_mode & 0o111)
-        self.assertIn('node_modules/.bin/bun" run --cwd', installer.read_text())
-        self.assertIn("source-hash", installer.read_text())
+        installer_text = installer.read_text()
+        self.assertIn("DovieW/transcribe-cli", installer_text)
+        self.assertIn('VERSION="2.0.0"', installer_text)
+        self.assertIn("EXPECTED_SHA256", installer_text)
+        self.assertIn("sha256sum --check", installer_text)
+        self.assertNotIn("npm", installer_text)
+        self.assertEqual(
+            [path.name for path in (ROOT / "config/transcription").iterdir()],
+            ["transcribe"],
+        )
         cli = DOT.read_text()
         self.assertIn("def cmd_transcribe_install", cli)
         self.assertIn("def cmd_transcribe_update", cli)
