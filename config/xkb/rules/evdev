@@ -1,0 +1,5 @@
+// Extend the system ruleset with dotfiles-owned keyboard options.
+! include %S/evdev
+
+! option = symbols
+  dotfiles:alt_print = +dotfiles(alt_print)

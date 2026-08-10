@@ -1,0 +1,9 @@
+[Layout]
+DisplayNames=
+LayoutList=us
+LayoutLoopCount=-1
+Model=pc105
+Options=dotfiles:alt_print
+ResetOldOptions=true
+Use=true
+VariantList=

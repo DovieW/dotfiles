@@ -78,6 +78,7 @@ KDE_FILES = (
     ".config/kwinrc",
     ".config/kwinrulesrc",
     ".config/kglobalshortcutsrc",
+    ".config/kxkbrc",
     ".config/krunnerrc",
     ".config/spectaclerc",
     ".config/kcminputrc",
@@ -1062,7 +1063,7 @@ def sync_managed_screenshot_shortcuts() -> None:
         spectacle_window: [0],
         region_clipboard: [301989971],  # Meta+Shift+S
         full_clipboard: [16777225],  # Print
-        active_window: [285212681],  # Meta+Print
+        active_window: [150994953, 285212681],  # Alt+Print, Meta+Print
         region_editor: [369098835],  # Meta+Ctrl+Shift+S
         callback_probe: [0],
     }
@@ -1258,6 +1259,11 @@ def apply_direct(
             / ".local/bin/dot-capture-active-window",
             ROOT / "config/flameshot/flameshot.ini": Path.home()
             / ".config/flameshot/flameshot.ini",
+            ROOT / "config/kde/.config/kxkbrc": Path.home() / ".config/kxkbrc",
+            ROOT / "config/xkb/rules/evdev": Path.home()
+            / ".config/xkb/rules/evdev",
+            ROOT / "config/xkb/symbols/dotfiles": Path.home()
+            / ".config/xkb/symbols/dotfiles",
         }
         for source, destination in screenshot_mappings.items():
             changes += int(link_file(source, destination))
@@ -1286,6 +1292,15 @@ def apply_direct(
                     "--key",
                     "dot-screenshotsEnabled",
                     "true",
+                ]
+            )
+        if command_exists("qdbus6"):
+            run(
+                [
+                    "qdbus6",
+                    "org.kde.KWin",
+                    "/KWin",
+                    "org.kde.KWin.reconfigure",
                 ]
             )
         if command_exists("qdbus6"):
@@ -6826,7 +6841,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                             "Copy Active Window Screenshot",
                         )
                     )
-                    == [285212681]
+                    == [150994953, 285212681]
                     and kglobal_shortcut(
                         (
                             "kwin",

@@ -1906,6 +1906,9 @@ class DotCliTests(unittest.TestCase):
         probe_service = (
             ROOT / "config/systemd/user/dot-screenshots-probe.service"
         ).read_text()
+        xkb_rules = (ROOT / "config/xkb/rules/evdev").read_text()
+        xkb_symbols = (ROOT / "config/xkb/symbols/dotfiles").read_text()
+        keyboard_config = (ROOT / "config/kde/.config/kxkbrc").read_text()
         active_capture = (ROOT / "scripts/capture-active-window").read_text()
         config = (ROOT / "config/flameshot/flameshot.ini").read_text()
 
@@ -1915,7 +1918,10 @@ class DotCliTests(unittest.TestCase):
             shortcuts,
         )
         self.assertIn("dot-flameshot-full-clipboard=Print", shortcuts)
-        self.assertIn("dot-active-window-clipboard=Meta+Print", shortcuts)
+        self.assertIn(
+            "dot-active-window-clipboard=Alt+Print\\tMeta+Print",
+            shortcuts,
+        )
         self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
@@ -1923,6 +1929,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"RestartUnit"', script)
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
         self.assertIn('"dot-screenshots-probe.service"', script)
+        self.assertIn('"Alt+Print"', script)
         self.assertIn("flameshot gui --clipboard --accept-on-select", region_service)
         self.assertIn("flameshot full --clipboard", full_service)
         self.assertIn("dot-capture-active-window", window_service)
@@ -1940,6 +1947,14 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("def managed_screenshot_callback_ok", cli)
         self.assertIn("org.kde.KGlobalAccel.unregister", cli)
         self.assertIn("kwin-dot-screenshots-runtime", cli)
+        self.assertIn("config/xkb/rules/evdev", cli)
+        self.assertIn("config/xkb/symbols/dotfiles", cli)
+        self.assertIn('".config/kxkbrc"', cli)
+        self.assertIn("dotfiles:alt_print", xkb_rules)
+        self.assertIn("+dotfiles(alt_print)", xkb_rules)
+        self.assertIn('type[Group1] = "TWO_LEVEL"', xkb_symbols)
+        self.assertIn("[ Print, Print ]", xkb_symbols)
+        self.assertIn("Options=dotfiles:alt_print", keyboard_config)
         self.assertIn('selected("screenshots", "kde")', cli)
         self.assertIn('"screenshots",', cli)
         fn_lock = (

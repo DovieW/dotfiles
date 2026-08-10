@@ -1,0 +1,8 @@
+// Keep Alt as an ordinary modifier on Print instead of consuming it as SysRq.
+partial modifier_keys
+xkb_symbols "alt_print" {
+    replace key <PRSC> {
+        type[Group1] = "TWO_LEVEL",
+        symbols[Group1] = [ Print, Print ]
+    };
+};
