@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tailscale
+Comment=Show Tailscale status and controls in the system tray
+Exec=tailscale systray
+Icon=tailscale
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-after=panel

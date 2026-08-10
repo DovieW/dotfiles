@@ -489,6 +489,10 @@ class DotCliTests(unittest.TestCase):
         windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
         role = (ROOT / "ansible/tasks/tailscale.yml").read_text()
+        local = (ROOT / "ansible/local.yml").read_text()
+        systray = (
+            ROOT / "config/tailscale/tailscale-systray.desktop"
+        ).read_text()
         cli = DOT.read_text()
         git_config = (ROOT / "config/git/default.gitconfig").read_text()
 
@@ -506,8 +510,20 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("state: latest", role)
         self.assertIn("name: tailscaled", role)
         self.assertIn("sudo tailscale up", role)
+        self.assertIn("tailscale, get, operator", role)
+        self.assertIn('tailscale, set, "--operator={{ ansible_user_id }}"', role)
+        self.assertRegex(local, r"tags: \[[^\]]*screenshots, tailscale\]")
         self.assertNotIn("auth-key", role)
         self.assertNotIn("tailscale up --authkey", role)
+        self.assertIn("Exec=tailscale systray", systray)
+        self.assertIn("OnlyShowIn=KDE;", systray)
+        self.assertIn(
+            'ROOT / "config/tailscale/tailscale-systray.desktop"', cli
+        )
+        self.assertIn(
+            'Path.home() / ".config/autostart/tailscale-systray.desktop"',
+            cli,
+        )
         self.assertIn('"Tailscale enrollment"', cli)
         self.assertIn("editor = nvim", git_config)
 

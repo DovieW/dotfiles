@@ -1165,6 +1165,13 @@ def apply_direct(
             source = ROOT / "config/git/bin" / tool
             if source.exists():
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
+    if features.get("tailscale") and selected("tailscale"):
+        changes += int(
+            link_file(
+                ROOT / "config/tailscale/tailscale-systray.desktop",
+                Path.home() / ".config/autostart/tailscale-systray.desktop",
+            )
+        )
     if features.get("copyq") and selected("clipboard"):
         copyq_mappings = {
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",

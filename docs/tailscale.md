@@ -5,6 +5,10 @@
 Kubuntu uses Tailscale's official stable Ubuntu APT repository. Dotfiles
 validates the repository signing-key fingerprint, installs the latest stable
 package, and enables the `tailscaled` system service.
+On KDE, the same profile starts `tailscale systray` after Plasma's panel so
+status and controls remain available from the system tray after every login.
+The role grants the signed-in Linux user local operator access, which lets the
+tray control this node without granting general administrator privileges.
 
 Windows records `Tailscale.Tailscale` in its inventory-only Winget manifest.
 The Windows adapter does not install it automatically.

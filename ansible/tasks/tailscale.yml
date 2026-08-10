@@ -111,6 +111,22 @@
     state: started
   when: not ansible_check_mode
 
+- name: Read the Tailscale desktop operator
+  become: true
+  ansible.builtin.command:
+    argv: [tailscale, get, operator]
+  register: dot_tailscale_operator
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Allow the desktop user to operate Tailscale
+  become: true
+  ansible.builtin.command:
+    argv: [tailscale, set, "--operator={{ ansible_user_id }}"]
+  when:
+    - not ansible_check_mode
+    - dot_tailscale_operator.stdout | trim != ansible_user_id
+
 - name: Read Tailscale connection state
   ansible.builtin.command:
     argv: [tailscale, status, --json]
