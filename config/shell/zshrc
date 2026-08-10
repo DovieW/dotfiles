@@ -123,3 +123,6 @@ ssh() { dot_ssh_select "$@"; }
 if [[ -n ${PROFILE_ZSH_STARTUP:-} ]]; then
   zprof
 fi
+
+# sentry
+fpath=("/home/dovie/.local/share/zsh/site-functions" $fpath)
