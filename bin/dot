@@ -1008,12 +1008,6 @@ def sync_managed_screenshot_shortcuts() -> None:
     if not command_exists("gdbus"):
         raise DotError("gdbus is required to activate managed screenshot shortcuts.")
 
-    old_flameshot = (
-        "kwin",
-        "dot-flameshot-capture",
-        "KWin",
-        "Open Flameshot Capture",
-    )
     region_clipboard = (
         "kwin",
         "dot-flameshot-region-clipboard",
@@ -1032,17 +1026,17 @@ def sync_managed_screenshot_shortcuts() -> None:
         "KWin",
         "Copy Active Window Screenshot",
     )
-    old_region_pin = (
-        "kwin",
-        "dot-flameshot-region-pin",
-        "KWin",
-        "Pin Rectangular Screenshot",
-    )
     region_editor = (
         "kwin",
         "dot-flameshot-region-editor",
         "KWin",
         "Edit Rectangular Screenshot",
+    )
+    callback_probe = (
+        "kwin",
+        "dot-screenshots-probe",
+        "KWin",
+        "Verify Screenshot Shortcuts",
     )
     spectacle_full = (
         "org.kde.spectacle.desktop",
@@ -1066,12 +1060,11 @@ def sync_managed_screenshot_shortcuts() -> None:
         spectacle_full: [0],
         spectacle_region: [0],
         spectacle_window: [0],
-        old_flameshot: [0],
-        old_region_pin: [0],
         region_clipboard: [301989971],  # Meta+Shift+S
         full_clipboard: [16777225],  # Print
-        active_window: [150994953],  # Alt+Print
+        active_window: [285212681],  # Meta+Print
         region_editor: [369098835],  # Meta+Ctrl+Shift+S
+        callback_probe: [0],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     try:
@@ -1090,6 +1083,42 @@ def sync_managed_screenshot_shortcuts() -> None:
             except DotError:
                 pass
         raise
+
+
+def managed_screenshot_callback_ok() -> bool:
+    """Prove the registered KWin action still has a live callback."""
+    if not command_exists("qdbus6") or not command_exists("systemctl"):
+        return False
+
+    service = "dot-screenshots-probe.service"
+    run(["systemctl", "--user", "stop", service], check=False, capture=True)
+    try:
+        invoked = run(
+            [
+                "qdbus6",
+                "org.kde.kglobalaccel",
+                "/component/kwin",
+                "org.kde.kglobalaccel.Component.invokeShortcut",
+                "dot-screenshots-probe",
+            ],
+            check=False,
+            capture=True,
+        )
+        if invoked.returncode:
+            return False
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            active = run(
+                ["systemctl", "--user", "is-active", service],
+                check=False,
+                capture=True,
+            )
+            if active.stdout.strip() == "active":
+                return True
+            time.sleep(0.05)
+        return False
+    finally:
+        run(["systemctl", "--user", "stop", service], check=False, capture=True)
 
 
 def apply_direct(
@@ -1223,6 +1252,8 @@ def apply_direct(
             / ".config/systemd/user/dot-active-window-clipboard.service",
             ROOT / "config/systemd/user/dot-flameshot-region-editor.service": Path.home()
             / ".config/systemd/user/dot-flameshot-region-editor.service",
+            ROOT / "config/systemd/user/dot-screenshots-probe.service": Path.home()
+            / ".config/systemd/user/dot-screenshots-probe.service",
             ROOT / "scripts/capture-active-window": Path.home()
             / ".local/bin/dot-capture-active-window",
             ROOT / "config/flameshot/flameshot.ini": Path.home()
@@ -1263,17 +1294,52 @@ def apply_direct(
                 Path.home()
                 / ".local/share/kwin/scripts/dot-screenshots/contents/code/main.js"
             )
-            run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Scripting",
-                    "org.kde.kwin.Scripting.unloadScript",
-                    script_name,
-                ],
-                check=False,
-                capture=True,
+            runtime_state = STATE_DIR / "kwin-dot-screenshots-runtime"
+            previous_runtime = (
+                runtime_state.read_text(encoding="utf-8").strip()
+                if runtime_state.exists()
+                else ""
             )
+            runtime_name = (
+                f"{script_name}-"
+                f"{hashlib.sha256(script_path.read_bytes()).hexdigest()[:12]}-"
+                f"{time.time_ns():x}"
+            )
+            for loaded_name in dict.fromkeys(
+                name for name in (script_name, previous_runtime, runtime_name) if name
+            ):
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.unloadScript",
+                        loaded_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
+            for action_name in (
+                "dot-flameshot-capture",
+                "dot-flameshot-region-pin",
+                "dot-flameshot-region-clipboard",
+                "dot-flameshot-full-clipboard",
+                "dot-active-window-clipboard",
+                "dot-flameshot-region-editor",
+                "dot-screenshots-probe",
+            ):
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.kglobalaccel",
+                        "/kglobalaccel",
+                        "org.kde.KGlobalAccel.unregister",
+                        "kwin",
+                        action_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
             script_id = run(
                 [
                     "qdbus6",
@@ -1281,19 +1347,47 @@ def apply_direct(
                     "/Scripting",
                     "org.kde.kwin.Scripting.loadScript",
                     str(script_path),
-                    script_name,
+                    runtime_name,
                 ],
                 capture=True,
             ).stdout.strip()
-            run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    f"/Scripting/Script{script_id}",
-                    "org.kde.kwin.Script.run",
-                ]
-            )
-            sync_managed_screenshot_shortcuts()
+            try:
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        f"/Scripting/Script{script_id}",
+                        "org.kde.kwin.Script.run",
+                    ]
+                )
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        f"/Scripting/Script{script_id}",
+                        "org.freedesktop.DBus.Peer.Ping",
+                    ]
+                )
+                sync_managed_screenshot_shortcuts()
+                if not managed_screenshot_callback_ok():
+                    raise DotError(
+                        "KWin registered screenshot action names without live callbacks."
+                    )
+            except Exception:
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.unloadScript",
+                        runtime_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                raise
+            runtime_state.parent.mkdir(parents=True, exist_ok=True)
+            runtime_state.write_text(runtime_name + "\n", encoding="utf-8")
     if (
         (features.get("copyq") and selected("clipboard"))
         or (features.get("emoji_picker") and selected("emoji", "clipboard"))
@@ -6678,22 +6772,32 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         screenshot_script_loaded = False
         screenshot_shortcuts_ok = False
+        screenshot_callback_ok = False
         if command_exists("qdbus6") and command_exists("gdbus"):
-            screenshot_script = run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Scripting",
-                    "org.kde.kwin.Scripting.isScriptLoaded",
-                    "dot-screenshots",
-                ],
-                check=False,
-                capture=True,
-            )
-            screenshot_script_loaded = (
-                screenshot_script.returncode == 0
-                and screenshot_script.stdout.strip() == "true"
-            )
+            runtime_state = STATE_DIR / "kwin-dot-screenshots-runtime"
+            screenshot_script_names = ["dot-screenshots"]
+            if runtime_state.exists():
+                runtime_name = runtime_state.read_text(encoding="utf-8").strip()
+                if runtime_name:
+                    screenshot_script_names.append(runtime_name)
+            for script_name in screenshot_script_names:
+                screenshot_script = run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.isScriptLoaded",
+                        script_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                if (
+                    screenshot_script.returncode == 0
+                    and screenshot_script.stdout.strip() == "true"
+                ):
+                    screenshot_script_loaded = True
+                    break
             try:
                 screenshot_shortcuts_ok = (
                     kglobal_shortcut(
@@ -6722,7 +6826,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                             "Copy Active Window Screenshot",
                         )
                     )
-                    == [150994953]
+                    == [285212681]
                     and kglobal_shortcut(
                         (
                             "kwin",
@@ -6732,6 +6836,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                         )
                     )
                     == [369098835]
+                    and kglobal_shortcut(
+                        (
+                            "kwin",
+                            "dot-screenshots-probe",
+                            "KWin",
+                            "Verify Screenshot Shortcuts",
+                        )
+                    )
+                    == [0]
                     and kglobal_shortcut(
                         (
                             "org.kde.spectacle.desktop",
@@ -6762,10 +6875,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 )
             except DotError:
                 screenshot_shortcuts_ok = False
+            screenshot_callback_ok = managed_screenshot_callback_ok()
         flameshot_ok = (
             command_exists("flameshot")
             and screenshot_script_loaded
             and screenshot_shortcuts_ok
+            and screenshot_callback_ok
         )
         failures += not doctor_check(
             "Flameshot shortcuts",

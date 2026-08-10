@@ -1,0 +1,7 @@
+[Unit]
+Description=Verify the managed screenshot shortcut callback
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true
+RemainAfterExit=yes

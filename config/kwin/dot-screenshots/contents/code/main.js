@@ -26,7 +26,7 @@ registerShortcut(
 registerShortcut(
     "dot-active-window-clipboard",
     "Copy Active Window Screenshot",
-    "Alt+Print",
+    "Meta+Print",
     function () { restartUnit("dot-active-window-clipboard.service"); }
 );
 
@@ -35,4 +35,11 @@ registerShortcut(
     "Edit Rectangular Screenshot",
     "Meta+Ctrl+Shift+S",
     function () { restartUnit("dot-flameshot-region-editor.service"); }
+);
+
+registerShortcut(
+    "dot-screenshots-probe",
+    "Verify Screenshot Shortcuts",
+    "",
+    function () { restartUnit("dot-screenshots-probe.service"); }
 );

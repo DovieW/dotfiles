@@ -1903,6 +1903,9 @@ class DotCliTests(unittest.TestCase):
         editor_service = (
             ROOT / "config/systemd/user/dot-flameshot-region-editor.service"
         ).read_text()
+        probe_service = (
+            ROOT / "config/systemd/user/dot-screenshots-probe.service"
+        ).read_text()
         active_capture = (ROOT / "scripts/capture-active-window").read_text()
         config = (ROOT / "config/flameshot/flameshot.ini").read_text()
 
@@ -1912,13 +1915,14 @@ class DotCliTests(unittest.TestCase):
             shortcuts,
         )
         self.assertIn("dot-flameshot-full-clipboard=Print", shortcuts)
-        self.assertIn("dot-active-window-clipboard=Alt+Print", shortcuts)
+        self.assertIn("dot-active-window-clipboard=Meta+Print", shortcuts)
         self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
         self.assertIn('"RestartUnit"', script)
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
+        self.assertIn('"dot-screenshots-probe.service"', script)
         self.assertIn("flameshot gui --clipboard --accept-on-select", region_service)
         self.assertIn("flameshot full --clipboard", full_service)
         self.assertIn("dot-capture-active-window", window_service)
@@ -1928,12 +1932,24 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wl-copy --foreground --type image/png", active_capture)
         self.assertIn("ExecStart=/usr/bin/flameshot gui", editor_service)
         self.assertNotIn("--pin", editor_service)
+        self.assertIn("RemainAfterExit=yes", probe_service)
         self.assertIn("showHelp=false", config)
         self.assertIn("uiColor=#161b22", config)
         self.assertIn("contrastUiColor=#58a6ff", config)
         self.assertIn("def sync_managed_screenshot_shortcuts", cli)
+        self.assertIn("def managed_screenshot_callback_ok", cli)
+        self.assertIn("org.kde.KGlobalAccel.unregister", cli)
+        self.assertIn("kwin-dot-screenshots-runtime", cli)
         self.assertIn('selected("screenshots", "kde")', cli)
         self.assertIn('"screenshots",', cli)
+        fn_lock = (
+            ROOT / "config/udev/90-dotfiles-ideapad-fn-lock.rules"
+        ).read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn('KERNEL=="VPC2004:00"', fn_lock)
+        self.assertIn('ATTR{fn_lock}="1"', fn_lock)
+        self.assertIn("Make the IdeaPad screenshot key emit Print", playbook)
+        self.assertIn("--sysname-match=VPC2004:00", playbook)
 
     def test_zsh_uses_fzf_for_normal_tab_completion(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
