@@ -1772,6 +1772,15 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"application/x-remmina"', cli)
         self.assertIn("Always write an explicit default", cli)
 
+    def test_kubuntu_manages_android_tools(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+
+        self.assertIn("adb", profile["packages"]["apt"])
+        self.assertIn("scrcpy", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["adb"]["provider"], "apt")
+        self.assertEqual(catalog["tools"]["scrcpy"]["provider"], "apt")
+
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
         config = (ROOT / "config/tmux/tmux.conf").read_text()

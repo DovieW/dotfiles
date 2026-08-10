@@ -7,6 +7,7 @@
     "windows": "record"
   },
   "tools": {
+    "adb": {"provider": "apt"},
     "ansible": {"provider": "brew"},
     "bat": {"provider": "brew"},
     "code": {"provider": "apt"},
@@ -23,6 +24,7 @@
     "remmina": {"provider": "apt"},
     "remmina-plugin-rdp": {"provider": "apt"},
     "ripgrep": {"provider": "brew"},
+    "scrcpy": {"provider": "apt"},
     "shellcheck": {"provider": "brew"},
     "stylua": {"provider": "brew"},
     "tailscale": {"provider": "apt"},

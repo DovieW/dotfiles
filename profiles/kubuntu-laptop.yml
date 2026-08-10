@@ -25,6 +25,7 @@
   },
   "packages": {
     "apt": [
+      "adb",
       "code",
       "flameshot",
       "fonts-cascadia-code",
@@ -44,6 +45,7 @@
       "python3-pyqt6",
       "remmina",
       "remmina-plugin-rdp",
+      "scrcpy",
       "tailscale",
       "upower",
       "wl-clipboard",
