@@ -1532,6 +1532,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("state: latest", role)
         self.assertIn("prime-select, on-demand", role)
         self.assertIn("nvidia-powerd.service", role)
+        self.assertIn("systemctl, is-failed, --quiet, nvidia-powerd.service", role)
+        self.assertIn("dot_nvidia_powerd_failed.rc == 0", role)
         self.assertIn('"NVIDIA userspace"', cli)
         self.assertIn('"NVIDIA Dynamic Boost workaround"', cli)
         self.assertNotIn("nvidia-driver-595", role)

@@ -71,6 +71,17 @@
     - not ansible_check_mode
     - not (dot_profile_data.features.nvidia_dynamic_boost | default(true) | bool)
 
+- name: Read the disabled Dynamic Boost failure state
+  become: true
+  ansible.builtin.command:
+    argv: [systemctl, is-failed, --quiet, nvidia-powerd.service]
+  register: dot_nvidia_powerd_failed
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - not (dot_profile_data.features.nvidia_dynamic_boost | default(true) | bool)
+
 - name: Clear the disabled Dynamic Boost failure state
   become: true
   ansible.builtin.command:
@@ -79,6 +90,7 @@
   when:
     - not ansible_check_mode
     - not (dot_profile_data.features.nvidia_dynamic_boost | default(true) | bool)
+    - dot_nvidia_powerd_failed.rc == 0
 
 - name: Report NVIDIA reboot requirement
   ansible.builtin.debug:
