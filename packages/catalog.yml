@@ -21,6 +21,7 @@
     "jq": {"provider": "brew"},
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},
+    "openssh-server": {"provider": "apt"},
     "remmina": {"provider": "apt"},
     "remmina-plugin-rdp": {"provider": "apt"},
     "ripgrep": {"provider": "brew"},

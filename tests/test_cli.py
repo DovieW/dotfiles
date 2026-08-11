@@ -1711,6 +1711,13 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(catalog["tools"]["adb"]["provider"], "apt")
         self.assertEqual(catalog["tools"]["scrcpy"]["provider"], "apt")
 
+    def test_kubuntu_manages_openssh_server(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+
+        self.assertIn("openssh-server", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["openssh-server"]["provider"], "apt")
+
     def test_tmux_configuration_is_managed(self):
         cli = DOT.read_text()
         config = (ROOT / "config/tmux/tmux.conf").read_text()

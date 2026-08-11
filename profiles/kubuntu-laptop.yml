@@ -37,6 +37,7 @@
       "konsole",
       "libglib2.0-bin",
       "mpv",
+      "openssh-server",
       "plasma-workspace",
       "power-profiles-daemon",
       "python3-cairo",
