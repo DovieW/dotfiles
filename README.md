@@ -63,7 +63,7 @@ flowchart LR
 | **Terminal** | Ghostty, one persistent tmux session, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
 | **Development** | Git, Delta, fzf, Neovim, VS Code, Docker Engine, Lazygit, Lazydocker, language tooling |
 | **Connectivity** | Tailscale and fullscreen company RDP files on native Kubuntu; Windows-host networking for WSL |
-| **Applications** | Stable-provider installs for Bitwarden, Obsidian, Codex, Vite+, and the declared package catalog |
+| **Applications** | Stable-provider installs for Bitwarden, Obsidian, ChatGPT Desktop with Codex, the Codex CLI, Vite+, and the declared package catalog |
 | **Identity** | Per-device Ed25519 authentication and commit signing through Bitwarden and GitHub |
 | **Safety** | Drift detection, selective KDE capture, automatic backups, rollback, secret scanning, and idempotence tests |
 

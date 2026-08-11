@@ -1,0 +1,90 @@
+---
+- name: Validate ChatGPT desktop operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture == "x86_64"
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: >-
+      The managed ChatGPT desktop installation supports native Ubuntu/Kubuntu
+      on x86_64.
+
+- name: Install ChatGPT repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the system APT keyring directory for ChatGPT
+  become: true
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install OpenAI's ChatGPT repository signing key
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/chatgpt-archive-keyring.asc"
+    dest: /usr/share/keyrings/chatgpt-archive-keyring.asc
+    mode: "0644"
+  when: not ansible_check_mode
+
+- name: Read OpenAI's ChatGPT signing-key fingerprint
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /usr/share/keyrings/chatgpt-archive-keyring.asc
+  register: dot_chatgpt_key
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate OpenAI's ChatGPT signing key
+  ansible.builtin.assert:
+    that: >-
+      '3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4'
+      in dot_chatgpt_key.stdout
+    fail_msg: >-
+      The managed ChatGPT repository key did not contain the expected OpenAI
+      fingerprint. The repository will not be configured.
+  when: not ansible_check_mode
+
+- name: Configure OpenAI's stable ChatGPT repository
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/chatgpt.sources"
+    dest: /etc/apt/sources.list.d/chatgpt.sources
+    mode: "0644"
+  when: not ansible_check_mode
+
+- name: Install or upgrade ChatGPT desktop to latest stable
+  become: true
+  ansible.builtin.apt:
+    name: chatgpt
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+# The package's first-install hook writes an equivalent source using its binary
+# keyring. Reassert the dotfiles-owned source so a first apply is converged.
+- name: Reconcile OpenAI's stable ChatGPT repository after installation
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/chatgpt.sources"
+    dest: /etc/apt/sources.list.d/chatgpt.sources
+    mode: "0644"
+  when: not ansible_check_mode
+
+- name: Explain ChatGPT desktop check mode
+  ansible.builtin.debug:
+    msg: >-
+      A real apply will verify OpenAI's repository signing key, configure the
+      official stable APT repository, and install the latest ChatGPT desktop
+      app with Codex.
+  when: ansible_check_mode

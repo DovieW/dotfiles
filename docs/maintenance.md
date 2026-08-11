@@ -26,6 +26,7 @@ committed merely to freeze a workstation:
   profile.
 - Bitwarden Desktop and Obsidian resolve their latest matching stable GitHub
   release dynamically.
+- ChatGPT Desktop with Codex follows OpenAI's signed stable APT repository.
 - Codex and Vite+ use their official stable channels and supported updaters.
 - `git-sync` follows its maintained upstream `master` branch because the
   project does not publish releases; dotfiles records the installed revision

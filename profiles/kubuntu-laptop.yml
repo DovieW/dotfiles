@@ -4,6 +4,7 @@
   "inherits": ["common-linux"],
   "account": "personal",
   "features": {
+    "chatgpt_desktop": true,
     "codex_remote_control": true,
     "copyq": true,
     "emoji_picker": true,
@@ -26,6 +27,7 @@
   "packages": {
     "apt": [
       "adb",
+      "chatgpt",
       "code",
       "flameshot",
       "fonts-cascadia-code",

@@ -475,6 +475,28 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
 
+    def test_kubuntu_manages_chatgpt_desktop_from_openai_repository(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        role = (ROOT / "ansible/tasks/chatgpt.yml").read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        key = ROOT / "config/apt/chatgpt-archive-keyring.asc"
+        source = ROOT / "config/apt/chatgpt.sources"
+
+        self.assertTrue(profile["features"]["chatgpt_desktop"])
+        self.assertIn("chatgpt", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["chatgpt"]["provider"], "apt")
+        self.assertIn("tasks/chatgpt.yml", playbook)
+        self.assertIn(
+            "https://persistent.oaistatic.com/codex-app-prod/linux/deb",
+            source.read_text(),
+        )
+        self.assertIn("3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4", role)
+        self.assertIn("state: latest", role)
+        self.assertTrue(key.is_file())
+        self.assertIn("BEGIN PGP PUBLIC KEY BLOCK", key.read_text())
+        self.assertIn("Architectures: amd64", source.read_text())
+
     def test_kubuntu_and_wsl_own_native_docker_engine(self):
         for name in ("kubuntu-laptop", "wsl-personal", "wsl-work"):
             profile = json.loads((ROOT / f"profiles/{name}.yml").read_text())

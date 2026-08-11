@@ -91,6 +91,14 @@
       when: dot_profile_data.features.vscode | default(false)
       tags: [packages, vscode, app-updates]
 
+    - name: Configure ChatGPT desktop with Codex
+      ansible.builtin.include_tasks:
+        file: tasks/chatgpt.yml
+        apply:
+          tags: [packages, chatgpt, codex, app-updates]
+      when: dot_profile_data.features.chatgpt_desktop | default(false)
+      tags: [packages, chatgpt, codex, app-updates]
+
     - name: Configure Remote Desktop file support
       ansible.builtin.include_tasks:
         file: tasks/rdp.yml

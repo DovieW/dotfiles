@@ -10,6 +10,7 @@
     "adb": {"provider": "apt"},
     "ansible": {"provider": "brew"},
     "bat": {"provider": "brew"},
+    "chatgpt": {"provider": "apt"},
     "code": {"provider": "apt"},
     "curl": {"provider": "apt"},
     "fd": {"provider": "brew"},
