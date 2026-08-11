@@ -1771,29 +1771,45 @@ def apply_direct(
                             "org.kde.kwin.Script.run",
                         ]
                     )
+    if features.get("kde") and selected("kde", "display", "vscode", "config"):
         bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
-        if bitwarden_agent.is_socket():
-            os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
-            if command_exists("systemctl"):
-                run(
-                    [
-                        "systemctl",
-                        "--user",
-                        "set-environment",
-                        f"SSH_AUTH_SOCK={bitwarden_agent}",
-                    ],
-                    check=False,
-                )
-            if command_exists("dbus-update-activation-environment"):
-                run(
-                    [
-                        "dbus-update-activation-environment",
-                        "--systemd",
-                        "SSH_AUTH_SOCK",
-                    ],
-                    check=False,
-                    env=os.environ.copy(),
-                )
+        os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
+        if command_exists("systemctl"):
+            # Ubuntu's user ssh-agent.socket overwrites SSH_AUTH_SOCK after
+            # environment.d has selected Bitwarden. Mask the competing socket
+            # so future graphical sessions retain the managed agent route.
+            run(
+                ["systemctl", "--user", "mask", "--now", "ssh-agent.socket"],
+                check=False,
+            )
+            run(
+                [
+                    "systemctl",
+                    "--user",
+                    "set-environment",
+                    f"SSH_AUTH_SOCK={bitwarden_agent}",
+                ],
+                check=False,
+            )
+        if command_exists("dbus-update-activation-environment"):
+            run(
+                [
+                    "dbus-update-activation-environment",
+                    "--systemd",
+                    "SSH_AUTH_SOCK",
+                ],
+                check=False,
+                env=os.environ.copy(),
+            )
+        changes += int(
+            copy_managed_file(
+                ROOT / "config/systemd/user/dot-obsidian-launch.service",
+                Path.home()
+                / ".config/systemd/user/dot-obsidian-launch.service",
+            )
+        )
+        if command_exists("systemctl"):
+            run(["systemctl", "--user", "daemon-reload"], check=False)
     if features.get("factory_display_profile") and selected("display"):
         display = run(
             [str(ROOT / "scripts/configure-display"), "--ensure"],
@@ -1826,6 +1842,15 @@ def apply_direct(
         }
         for source, destination in chromium_mappings.items():
             changes += int(link_file(source, destination))
+        # Override the vendor desktop-file ID too. KDE may otherwise launch
+        # /opt/Obsidian directly and bypass the managed SSH-agent wrapper.
+        changes += int(
+            link_file(
+                ROOT / "config/obsidian/obsidian.desktop",
+                Path.home()
+                / ".local/share/applications/md.obsidian.Obsidian.desktop",
+            )
+        )
         if command_exists("update-desktop-database"):
             run(
                 [
@@ -6320,6 +6345,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if gui_agent_ok
                 else "reapply the Kubuntu profile, then restart graphical Git clients",
             )
+            native_agent_state = run(
+                ["systemctl", "--user", "is-enabled", "ssh-agent.socket"],
+                check=False,
+                capture=True,
+            ).stdout.strip()
+            failures += not doctor_check(
+                "competing OpenSSH agent disabled",
+                native_agent_state == "masked",
+                "masked"
+                if native_agent_state == "masked"
+                else "reapply the Kubuntu profile to preserve Bitwarden routing",
+            )
     if profile.get("features", {}).get("vscode"):
         failures += not doctor_check(
             "Visual Studio Code",
@@ -6490,8 +6527,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 / "config/chromium/google-chrome.desktop",
                 Path.home() / ".local/share/applications/code.desktop": ROOT
                 / "config/chromium/code.desktop",
-                Path.home() / ".local/share/applications/obsidian.desktop": ROOT
-                / "config/obsidian/obsidian.desktop",
             }
             chromium_policy_ok = all(
                 destination.is_symlink()
@@ -6499,6 +6534,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 and "WaylandWpColorManagerV1"
                 in source.read_text(encoding="utf-8")
                 for destination, source in chromium_targets.items()
+            )
+            obsidian_desktop = (
+                Path.home() / ".local/share/applications/obsidian.desktop"
+            )
+            obsidian_desktop_source = ROOT / "config/obsidian/obsidian.desktop"
+            chromium_policy_ok = (
+                chromium_policy_ok
+                and obsidian_desktop.is_symlink()
+                and obsidian_desktop.resolve() == obsidian_desktop_source.resolve()
+                and "Exec=/home/dovie/.local/bin/obsidian"
+                in obsidian_desktop_source.read_text(encoding="utf-8")
             )
             failures += not doctor_check(
                 "Chromium native-gamut policy",

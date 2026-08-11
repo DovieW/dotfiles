@@ -259,7 +259,11 @@ SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock" ssh-add -L
 The first command should report
 `SSH_AUTH_SOCK=$HOME/.bitwarden-ssh-agent.sock`. Existing graphical processes
 retain the environment with which they started, so reloading a vault or plugin
-is not sufficient after correcting the session agent.
+is not sufficient after correcting the session agent. The Kubuntu profile
+masks Ubuntu's competing `ssh-agent.socket`; `dot doctor` verifies both that
+mask and the Bitwarden route. Managed Obsidian launchers additionally set the
+socket explicitly, but an Obsidian process that predates the fix must still be
+fully quit and reopened once.
 
 Enter the administrator password when prompted. PowerDevil is restarted only
 when its managed configuration changes. The systemd-logind fallback is

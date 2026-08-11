@@ -1290,9 +1290,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
         self.assertIn("StartupWMClass=dot-obsidian-launcher", launcher)
         self.assertIn(
-            "Exec=/opt/Obsidian/obsidian "
-            "--disable-features=WaylandWpColorManagerV1 %U",
+            "Exec=/home/dovie/.local/bin/obsidian %U",
             mime_launcher,
+        )
+        self.assertIn(
+            "Environment=SSH_AUTH_SOCK=%h/.bitwarden-ssh-agent.sock",
+            service,
         )
         self.assertIn(
             "obsidian-cli command id=workspace:open-in-new-window", service
@@ -1300,6 +1303,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
         self.assertIn('"config/obsidian/dot-obsidian.desktop"', cli)
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)
+        self.assertIn(
+            '".local/share/applications/md.obsidian.Obsidian.desktop"',
+            cli,
+        )
         self.assertIn('"Obsidian desktop-aware launcher"', cli)
 
     def test_alt_meta_arrows_move_active_window_and_follow_desktop(self):
@@ -1447,9 +1454,14 @@ class DotCliTests(unittest.TestCase):
             'ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf"',
             cli,
         )
+        self.assertIn(
+            '["systemctl", "--user", "mask", "--now", "ssh-agent.socket"]',
+            cli,
+        )
         self.assertIn('"dbus-update-activation-environment"', cli)
         self.assertIn('"set-environment"', cli)
         self.assertIn('"graphical SSH agent routing"', cli)
+        self.assertIn('"competing OpenSSH agent disabled"', cli)
         self.assertIn('["ssh-add", "-L"]', cli)
         self.assertIn("timeout=5", cli)
 
@@ -1612,9 +1624,12 @@ class DotCliTests(unittest.TestCase):
             obsidian_wrapper,
             chrome_desktop,
             code_desktop,
-            obsidian_desktop,
         ):
             self.assertIn("--disable-features=WaylandWpColorManagerV1", managed)
+        self.assertIn(
+            'export SSH_AUTH_SOCK="${HOME}/.bitwarden-ssh-agent.sock"',
+            obsidian_wrapper,
+        )
         self.assertIn("config/chromium/google-chrome-stable", cli)
         self.assertIn(".local/bin/google-chrome-stable", cli)
         self.assertIn("config/chromium/code", cli)

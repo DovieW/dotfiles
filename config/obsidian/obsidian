@@ -3,6 +3,11 @@ set -euo pipefail
 
 # Obsidian is Electron/Chromium and needs the same native-gamut policy as
 # Chrome and VS Code on the laptop's OLED display.
+# Git commit signing uses the private key held by Bitwarden. Set the stable
+# socket path explicitly so Obsidian does not depend on whichever SSH agent
+# Plasma happened to export when the graphical session started.
+export SSH_AUTH_SOCK="${HOME}/.bitwarden-ssh-agent.sock"
+
 exec /opt/Obsidian/obsidian \
   --disable-features=WaylandWpColorManagerV1 \
   "$@"

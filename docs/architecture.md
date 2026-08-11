@@ -414,6 +414,10 @@ firmware's palm classification.
 Native Linux graphical applications receive
 `SSH_AUTH_SOCK=${HOME}/.bitwarden-ssh-agent.sock` through systemd's
 `environment.d` mechanism. This makes Obsidian and other desktop Git clients
-use the same Bitwarden-held device key as interactive shells. Bitwarden starts
-at login and must remain running and unlocked for SSH authentication or commit
-signing; the private key is never materialized on Kubuntu.
+use the same Bitwarden-held device key as interactive shells. The conflicting
+Ubuntu `ssh-agent.socket` is masked because its startup hook would otherwise
+replace the managed socket in systemd's user environment. Obsidian also exports
+the Bitwarden socket in its wrapper and desktop-aware service so every launch
+path is deterministic. Bitwarden starts at login and must remain running and
+unlocked for SSH authentication or commit signing; the private key is never
+materialized on Kubuntu.
