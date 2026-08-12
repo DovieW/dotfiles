@@ -19,10 +19,16 @@ var retained = commands().filter(function(command) {
 retained.push({
     name: managedName,
     isScript: true,
-    cmd: "global.paste = function() {\n" +
+    cmd: "global.dotfilesPasteVersion = 3\n" +
+         "global.dotfilesPaste = function() {\n" +
          "  var result = execute('dot-copyq-paste')\n" +
          "  if (!result) throw 'Could not start dot-copyq-paste'\n" +
          "  if (result.exit_code || result.stderr) throw str(result.stderr)\n" +
-         "}\n"
+         "}\n" +
+         "Object.defineProperty(global, 'paste', {\n" +
+         "  value: global.dotfilesPaste,\n" +
+         "  writable: true,\n" +
+         "  configurable: true\n" +
+         "})\n"
 })
 setCommands(retained)
