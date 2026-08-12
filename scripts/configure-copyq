@@ -42,7 +42,7 @@ if [[ "$mode" == --check ]]; then
     grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
   "$copyq_bin" eval "commands().every(function(c){return c.name != 'Dotfiles Clipboard History'})" |
     grep -qx true || { echo "CopyQ still owns a global shortcut that belongs to KDE." >&2; exit 1; }
-  "$copyq_bin" eval "global.dotfilesPasteVersion == 3 && global.paste === global.dotfilesPaste" |
+  "$copyq_bin" eval "global.dotfilesPasteVersion == 4 && global.paste === global.dotfilesPaste" |
     grep -qx true || { echo "CopyQ Wayland paste override is not loaded." >&2; exit 1; }
   echo "CopyQ clipboard history and Wayland paste integration are configured."
   exit 0
@@ -50,21 +50,6 @@ fi
 
 "$copyq_bin" --start-server >/dev/null 2>&1 || true
 wait_until_ready
-paste_version="$("$copyq_bin" eval 'print(global.dotfilesPasteVersion || 0)' 2>/dev/null || true)"
 "$copyq_bin" eval - <"$root/config/copyq/configure.js"
-
-# Script commands are loaded only when the CopyQ server starts. Restart after
-# installing a new managed script version so paste() never remains the native,
-# Wayland-incompatible implementation until the next login.
-if [[ "$paste_version" != 3 ]]; then
-  "$copyq_bin" exit >/dev/null 2>&1 || true
-  copyq_app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/copyq/releases/"
-  for _ in {1..100}; do
-    pgrep -u "$(id -u)" -f "$copyq_app_root" >/dev/null || break
-    sleep 0.1
-  done
-  "$copyq_bin" --start-server >/dev/null 2>&1 || true
-  wait_until_ready
-fi
 
 echo "CopyQ clipboard history configured."

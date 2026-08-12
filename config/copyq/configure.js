@@ -16,19 +16,25 @@ var managedHistory = 'Dotfiles Clipboard History'
 var retained = commands().filter(function(command) {
     return command.name !== managedName && command.name !== managedHistory
 })
+var managedScript = "global.dotfilesPasteVersion = 4\n" +
+                    "global.dotfilesPaste = function() {\n" +
+                    "  var result = execute('dot-copyq-paste')\n" +
+                    "  if (!result) throw 'Could not start dot-copyq-paste'\n" +
+                    "  if (result.exit_code || result.stderr) throw str(result.stderr)\n" +
+                    "}\n" +
+                    "Object.defineProperty(global, 'paste', {\n" +
+                    "  value: global.dotfilesPaste,\n" +
+                    "  writable: true,\n" +
+                    "  configurable: true\n" +
+                    "})\n"
 retained.push({
     name: managedName,
     isScript: true,
-    cmd: "global.dotfilesPasteVersion = 3\n" +
-         "global.dotfilesPaste = function() {\n" +
-         "  var result = execute('dot-copyq-paste')\n" +
-         "  if (!result) throw 'Could not start dot-copyq-paste'\n" +
-         "  if (result.exit_code || result.stderr) throw str(result.stderr)\n" +
-         "}\n" +
-         "Object.defineProperty(global, 'paste', {\n" +
-         "  value: global.dotfilesPaste,\n" +
-         "  writable: true,\n" +
-         "  configurable: true\n" +
-         "})\n"
+    cmd: managedScript
 })
 setCommands(retained)
+
+// setCommands() persists script commands but does not load them into the
+// already-running server. Apply this one immediately without restarting CopyQ
+// and killing its clipboard helpers, which CopyQ reports as exit-code alerts.
+var managedScriptResult = eval(managedScript)
