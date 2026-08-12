@@ -4,4 +4,4 @@ ConditionFileIsExecutable=/usr/lib/chatgpt/resources/codex
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl --user try-restart codex-remote-control.service
+ExecStart=/usr/bin/systemctl --user --no-block try-restart codex-remote-control.service

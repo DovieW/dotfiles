@@ -12,6 +12,10 @@ Type=simple
 ExecStart=/usr/lib/chatgpt/resources/codex app-server --remote-control --listen unix://
 Restart=always
 RestartSec=5s
+# Active sessions may keep an old core alive after SIGTERM. Give them a short
+# grace period, then complete the version switch instead of blocking for the
+# systemd default of 90 seconds.
+TimeoutStopSec=15s
 
 [Install]
 WantedBy=default.target

@@ -46,13 +46,15 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn(f"ConditionFileIsExecutable={desktop_core}", service)
         self.assertIn(f"ExecStart={desktop_core} app-server", service)
+        self.assertIn("TimeoutStopSec=15s", service)
         self.assertNotIn("%h/.local/bin/codex", service)
         self.assertIn(f"PathChanged={desktop_core}", refresh_path)
         self.assertIn(
             "Unit=codex-remote-control-refresh.service", refresh_path
         )
         self.assertIn(
-            "try-restart codex-remote-control.service", refresh_service
+            "--no-block try-restart codex-remote-control.service",
+            refresh_service,
         )
 
         cli = DOT.read_text()

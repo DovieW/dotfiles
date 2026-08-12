@@ -425,5 +425,9 @@ If the paths differ, fully close active Codex work and run:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user restart codex-remote-control.service
+systemctl --user --no-block restart codex-remote-control.service
 ```
+
+The command returns after queuing the restart. Existing Remote Control sessions
+disconnect, and systemd gives the old core up to 15 seconds to exit before
+starting the Desktop-matched core.

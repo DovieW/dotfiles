@@ -370,7 +370,9 @@ use the same storage and protocol version.
 `codex-remote-control-refresh.path` watches the bundled core. After the Desktop
 package replaces it, systemd restarts Remote Control onto the new app version.
 That restart disconnects active remote sessions, but prevents an older daemon
-from continuing to write shared state after an app upgrade.
+from continuing to write shared state after an app upgrade. The watcher queues
+the restart without blocking, and the service limits graceful shutdown to 15
+seconds because an active old core may otherwise wait indefinitely.
 
 The official installer and stable-channel policy are stored in
 `packages/codex.yml`. A normal apply installs Codex only when the managed
