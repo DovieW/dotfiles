@@ -10,7 +10,10 @@ import re
 import tempfile
 
 
-SETTING = 'default_permissions = ":danger-full-access"'
+SETTINGS = {
+    "default_permissions": 'default_permissions = ":danger-full-access"',
+    "approval_policy": 'approval_policy = "never"',
+}
 
 
 def config_path() -> Path:
@@ -27,17 +30,18 @@ def managed_text(current: str) -> str:
         (index for index, line in enumerate(lines) if re.match(r"^\s*\[", line)),
         len(lines),
     )
-    matches = [
-        index
-        for index, line in enumerate(lines[:first_section])
-        if re.match(r"^\s*default_permissions\s*=", line)
-    ]
-    if matches:
-        lines[matches[0]] = SETTING
-        for index in reversed(matches[1:]):
-            del lines[index]
-    else:
-        lines.insert(0, SETTING)
+    for key, setting in reversed(SETTINGS.items()):
+        matches = [
+            index
+            for index, line in enumerate(lines[:first_section])
+            if re.match(rf"^\s*{re.escape(key)}\s*=", line)
+        ]
+        if matches:
+            lines[matches[0]] = setting
+            for index in reversed(matches[1:]):
+                del lines[index]
+        else:
+            lines.insert(0, setting)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -69,17 +73,17 @@ def main() -> int:
     if args.check:
         if current != expected:
             print(
-                "Codex default permissions are not Full Access; "
+                "Codex defaults are not Full Access without approvals; "
                 "run dot apply --profile kubuntu-laptop --tags codex."
             )
             return 1
-        print("Codex default permissions: Full Access (danger-full-access).")
+        print("Codex defaults: Full Access without approvals.")
         return 0
     if current == expected:
-        print("Codex default permissions already use Full Access.")
+        print("Codex defaults already use Full Access without approvals.")
         return 0
     write_atomic(path, expected)
-    print("Configured Codex default permissions: Full Access (danger-full-access).")
+    print("Configured Codex defaults: Full Access without approvals.")
     return 0
 
 

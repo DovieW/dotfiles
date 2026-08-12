@@ -661,11 +661,19 @@ class DotCliTests(unittest.TestCase):
             'ROOT / "config/environment.d/20-locale.conf"',
             cli,
         )
+        self.assertIn(
+            'ROOT / "config/environment.d/30-user-path.conf"',
+            cli,
+        )
         locale_environment = (
             ROOT / "config/environment.d/20-locale.conf"
         ).read_text()
         self.assertIn("LANG=en_US.UTF-8", locale_environment)
         self.assertIn("LC_TIME=en_US.UTF-8", locale_environment)
+        user_path_environment = (
+            ROOT / "config/environment.d/30-user-path.conf"
+        ).read_text()
+        self.assertIn("PATH=${HOME}/.vite-plus/bin:", user_path_environment)
         self.assertIn('"Ghostty configuration"', cli)
         self.assertIn('"terminal font"', cli)
         installer = (ROOT / "scripts/install-firacode-nerd-font").read_text()
@@ -881,6 +889,7 @@ class DotCliTests(unittest.TestCase):
             self.assertEqual(applied.returncode, 0, applied.stderr)
             text = config.read_text()
             self.assertIn('default_permissions = ":danger-full-access"', text)
+            self.assertIn('approval_policy = "never"', text)
             self.assertIn('model = "gpt-5.6-terra"', text)
             self.assertIn("[plugins]\nenabled = true", text)
             checked = subprocess.run(

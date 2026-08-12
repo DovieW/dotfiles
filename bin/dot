@@ -1679,6 +1679,7 @@ def apply_direct(
             ROOT / "config/alacritty/alacritty.toml": Path.home() / ".config/alacritty/alacritty.toml",
             ROOT / "config/environment.d/10-bitwarden-ssh-agent.conf": Path.home() / ".config/environment.d/10-bitwarden-ssh-agent.conf",
             ROOT / "config/environment.d/20-locale.conf": Path.home() / ".config/environment.d/20-locale.conf",
+            ROOT / "config/environment.d/30-user-path.conf": Path.home() / ".config/environment.d/30-user-path.conf",
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
