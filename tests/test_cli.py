@@ -2072,6 +2072,18 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("noice.nvim", plugins.lower())
         self.assertNotIn("copilot", plugins.lower())
 
+    def test_glow_is_managed_for_kubuntu_wsl_and_termux(self):
+        common = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        termux = json.loads((ROOT / "profiles/termux.yml").read_text())
+
+        self.assertIn("glow", common["packages"]["brew"])
+        self.assertEqual(catalog["tools"]["glow"]["provider"], "brew")
+        self.assertIn("glow", termux["packages"]["pkg"])
+        for name in ("kubuntu-laptop", "wsl-personal", "wsl-work"):
+            profile = json.loads((ROOT / f"profiles/{name}.yml").read_text())
+            self.assertIn("common-linux", profile["inherits"])
+
     def test_neovim_lockfile_is_populated(self):
         lock = json.loads((ROOT / "config/nvim/lazy-lock.json").read_text())
         self.assertGreaterEqual(len(lock), 20)

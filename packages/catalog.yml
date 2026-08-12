@@ -19,6 +19,7 @@
     "fzf": {"provider": "brew"},
     "fzf-tab": {"provider": "brew"},
     "git": {"provider": "apt"},
+    "glow": {"provider": "brew"},
     "jq": {"provider": "brew"},
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},

@@ -10,6 +10,6 @@
     "materialize_ssh_key": true
   },
   "packages": {
-    "pkg": ["bat", "fd", "fzf", "git", "nodejs-lts", "openssh", "python", "ripgrep", "termux-api", "tmux", "zsh"]
+    "pkg": ["bat", "fd", "fzf", "git", "glow", "nodejs-lts", "openssh", "python", "ripgrep", "termux-api", "tmux", "zsh"]
   }
 }
