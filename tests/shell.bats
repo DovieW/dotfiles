@@ -55,6 +55,38 @@
   [ "$status" -eq 0 ]
 }
 
+@test "cat renders one Markdown file with Glow and preserves Bat otherwise" {
+  fake_bin="$BATS_TEST_TMPDIR/cat-bin"
+  call_log="$BATS_TEST_TMPDIR/cat-calls"
+  markdown="$BATS_TEST_TMPDIR/notes.md"
+  text_file="$BATS_TEST_TMPDIR/notes.txt"
+  mkdir -p "$fake_bin"
+  printf '# heading\n' >"$markdown"
+  printf 'plain text\n' >"$text_file"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'printf "glow\\n" >>"$DOT_TEST_CAT_LOG"' \
+    'printf "arg=%s\\n" "$@" >>"$DOT_TEST_CAT_LOG"' >"$fake_bin/glow"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'printf "bat\\n" >>"$DOT_TEST_CAT_LOG"' \
+    'printf "arg=%s\\n" "$@" >>"$DOT_TEST_CAT_LOG"' >"$fake_bin/bat"
+  chmod +x "$fake_bin/glow" "$fake_bin/bat"
+
+  run env PATH="$fake_bin:/usr/bin:/bin" DOT_TEST_CAT_LOG="$call_log" \
+    bash --noprofile --norc -c \
+    'source "$1"; PATH="$4:/usr/bin:/bin"; cat "$2"; cat "$3"; cat "$2" "$3"' bash \
+    "$BATS_TEST_DIRNAME/../config/shell/common.sh" "$markdown" "$text_file" "$fake_bin"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^glow$' "$call_log")" -eq 1 ]
+  [ "$(grep -c '^bat$' "$call_log")" -eq 2 ]
+  grep -Fxq "arg=--" "$call_log"
+  grep -Fxq "arg=$markdown" "$call_log"
+  grep -Fxq "arg=--no-paging" "$call_log"
+  grep -Fxq "arg=--plain" "$call_log"
+  grep -Fxq "arg=$text_file" "$call_log"
+}
+
 @test "shared fzf configuration contains presentation options only" {
   config="$BATS_TEST_DIRNAME/../config/fzf/fzfrc"
   run grep -E -- '--(height|preview|prompt|delimiter|multi)(=|$)' "$config"

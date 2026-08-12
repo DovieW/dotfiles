@@ -86,9 +86,24 @@ else
   alias ll='ls -hlAF --color=auto'
 fi
 
-if command -v bat >/dev/null 2>&1; then
-  alias cat='bat --no-paging --plain'
-fi
+cat() {
+  if [ "$#" -eq 1 ] && [ -f "$1" ]; then
+    case "$1" in
+      *.md)
+        if command -v glow >/dev/null 2>&1; then
+          command glow -- "$1"
+          return
+        fi
+        ;;
+    esac
+  fi
+
+  if command -v bat >/dev/null 2>&1; then
+    command bat --no-paging --plain "$@"
+  else
+    command cat "$@"
+  fi
+}
 
 groot() {
   local root
