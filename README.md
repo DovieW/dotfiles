@@ -336,8 +336,9 @@ The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 - The Plasma desktop behaves like a carefully edited version of Windows:
   familiar Meta shortcuts, immediate auto-hide panel, task view, window rules,
   custom gestures, Windows fonts, and a minimal leaves lock screen.
-- Codex Remote Control is supervised by a persistent user service and survives
-  logout and reboot.
+- Codex Remote Control is supervised by a persistent user service, survives
+  logout and reboot, and tracks the core bundled with Desktop to prevent shared
+  state version mismatches.
 
 ## Repository map
 

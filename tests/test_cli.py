@@ -32,6 +32,34 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("meshcentral", result.stdout)
         self.assertIn("update", result.stdout)
 
+    def test_codex_remote_control_tracks_desktop_core(self):
+        service = (
+            ROOT / "config/systemd/user/codex-remote-control.service"
+        ).read_text()
+        refresh_path = (
+            ROOT / "config/systemd/user/codex-remote-control-refresh.path"
+        ).read_text()
+        refresh_service = (
+            ROOT / "config/systemd/user/codex-remote-control-refresh.service"
+        ).read_text()
+        desktop_core = "/usr/lib/chatgpt/resources/codex"
+
+        self.assertIn(f"ConditionFileIsExecutable={desktop_core}", service)
+        self.assertIn(f"ExecStart={desktop_core} app-server", service)
+        self.assertNotIn("%h/.local/bin/codex", service)
+        self.assertIn(f"PathChanged={desktop_core}", refresh_path)
+        self.assertIn(
+            "Unit=codex-remote-control-refresh.service", refresh_path
+        )
+        self.assertIn(
+            "try-restart codex-remote-control.service", refresh_service
+        )
+
+        cli = DOT.read_text()
+        self.assertIn('Path("/usr/lib/chatgpt/resources/codex")', cli)
+        self.assertIn('"codex-remote-control-refresh.path"', cli)
+        self.assertIn("Codex Remote Control version alignment", cli)
+
     def test_meshcentral_generated_command_is_parsed_without_shell_execution(self):
         module = runpy.run_path(str(DOT))
         parse = module["parse_meshcentral_install_command"]

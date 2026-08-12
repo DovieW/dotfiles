@@ -363,23 +363,30 @@ journalctl --user -u codex-remote-control.service
 
 The service starts during boot and systemd restarts it after a failure. The
 profile enables user lingering so it also remains available after logout. It
-uses the standalone Codex installation at `~/.local/bin/codex`; an npm-managed
-Codex installation does not satisfy this requirement.
+uses the Codex core bundled with Desktop at `/usr/lib/chatgpt/resources/codex`.
+This is intentional: Desktop and Remote Control share `~/.codex` state and must
+use the same storage and protocol version.
+
+`codex-remote-control-refresh.path` watches the bundled core. After the Desktop
+package replaces it, systemd restarts Remote Control onto the new app version.
+That restart disconnects active remote sessions, but prevents an older daemon
+from continuing to write shared state after an app upgrade.
 
 The official installer and stable-channel policy are stored in
 `packages/codex.yml`. A normal apply installs Codex only when the managed
 standalone installation is absent. Any healthy managed stable version is
 accepted.
 
-To update Codex:
+To update the standalone terminal CLI:
 
 ```bash
 dot codex update
 ```
 
-The update leaves an already-running Remote Control process alone because
-restarting it disconnects active remote sessions. The new release takes effect
-after the next service restart or reboot.
+This does not change Remote Control. Update Desktop through its package manager;
+the path unit then restarts Remote Control with the newly bundled core. Run
+`dot doctor --profile kubuntu-laptop` to verify the active service executable
+matches the Desktop core.
 
 ## Vite+
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Codex Desktop core updates
+
+[Path]
+PathChanged=/usr/lib/chatgpt/resources/codex
+Unit=codex-remote-control-refresh.service
+
+[Install]
+WantedBy=default.target

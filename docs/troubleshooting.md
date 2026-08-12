@@ -409,3 +409,21 @@ release through the official installer, whose release archive verification is
 retained. Do not run `codex app-server daemon bootstrap` from a session
 currently connected through that daemon: bootstrapping replaces the app-server
 and disconnects the session.
+
+Remote Control does not use the standalone CLI. It uses
+`/usr/lib/chatgpt/resources/codex` so its version stays aligned with Desktop.
+Check both the update watcher and the running executable with:
+
+```bash
+systemctl --user status codex-remote-control-refresh.path
+main_pid="$(systemctl --user show codex-remote-control.service --property=MainPID --value)"
+readlink -f "/proc/$main_pid/exe"
+readlink -f /usr/lib/chatgpt/resources/codex
+```
+
+If the paths differ, fully close active Codex work and run:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart codex-remote-control.service
+```

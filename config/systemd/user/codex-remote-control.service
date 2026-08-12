@@ -3,11 +3,13 @@ Description=Codex app-server with Remote Control
 Documentation=https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan
 Wants=network-online.target
 After=network-online.target
-ConditionFileIsExecutable=%h/.local/bin/codex
+ConditionFileIsExecutable=/usr/lib/chatgpt/resources/codex
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/codex app-server --remote-control --listen unix://
+# Remote Control shares ~/.codex state with Codex Desktop. Use the core bundled
+# with the app so both processes always read and write the same state format.
+ExecStart=/usr/lib/chatgpt/resources/codex app-server --remote-control --listen unix://
 Restart=always
 RestartSec=5s
 
