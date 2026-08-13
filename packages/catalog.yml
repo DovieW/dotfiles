@@ -31,6 +31,7 @@
     "ripgrep": {"provider": "brew"},
     "scrcpy": {"provider": "apt"},
     "shellcheck": {"provider": "brew"},
+    "spectacle": {"provider": "apt"},
     "stylua": {"provider": "brew"},
     "tailscale": {"provider": "apt"},
     "tmux": {"provider": "brew"},
