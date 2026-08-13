@@ -44,12 +44,15 @@ if [[ "$mode" == --check ]]; then
     grep -qx true || { echo "CopyQ still owns a global shortcut that belongs to KDE." >&2; exit 1; }
   "$copyq_bin" eval "global.dotfilesPasteVersion == 4 && global.paste === global.dotfilesPaste" |
     grep -qx true || { echo "CopyQ Wayland paste override is not loaded." >&2; exit 1; }
-  echo "CopyQ clipboard history and Wayland paste integration are configured."
+  "$copyq_bin" eval "var theme = new Settings(info('config')); print(theme.value('Theme/bg') == '#0d1117' && theme.value('Theme/fg') == '#e6edf3' && theme.value('Theme/sel_bg') == '#1f6feb' && theme.value('Theme/style_main_window') == 'true')" |
+    grep -qx true || { echo "CopyQ GitHub Dark theme drifted." >&2; exit 1; }
+  echo "CopyQ clipboard history, GitHub Dark theme, and Wayland paste integration are configured."
   exit 0
 fi
 
 "$copyq_bin" --start-server >/dev/null 2>&1 || true
 wait_until_ready
+"$copyq_bin" eval 'loadTheme(arguments[1])' "$root/config/copyq/github-dark.ini"
 "$copyq_bin" eval - <"$root/config/copyq/configure.js"
 
-echo "CopyQ clipboard history configured."
+echo "CopyQ clipboard history and GitHub Dark theme configured."
