@@ -1,5 +1,5 @@
 config('maxitems', 999)
-config('clipboard_mime_size_limit', 'image/.*:0;application/x-qt-image:0;.*:100M')
+config('clipboard_mime_size_limit', '.*:100M')
 config('clipboard_tab', 'Clipboard')
 config('tabs', ['Clipboard'])
 config('hide_tabs', true)

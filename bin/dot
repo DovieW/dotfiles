@@ -1257,6 +1257,8 @@ def apply_direct(
             / ".config/systemd/user/dot-screenshots-probe.service",
             ROOT / "scripts/capture-active-window": Path.home()
             / ".local/bin/dot-capture-active-window",
+            ROOT / "scripts/capture-flameshot": Path.home()
+            / ".local/bin/dot-capture-flameshot",
             ROOT / "config/flameshot/flameshot.ini": Path.home()
             / ".config/flameshot/flameshot.ini",
             ROOT / "config/kde/.config/kxkbrc": Path.home() / ".config/kxkbrc",

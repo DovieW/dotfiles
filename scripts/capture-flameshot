@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-}"
+capture="$(mktemp --suffix=.png)"
+unlink "$capture"
+cleanup() {
+    if [[ -e "$capture" ]]; then
+        unlink "$capture"
+    fi
+}
+trap cleanup EXIT
+
+case "$mode" in
+    region)
+        QT_QPA_PLATFORM=wayland flameshot gui --path "$capture" --accept-on-select
+        ;;
+    full)
+        QT_QPA_PLATFORM=wayland flameshot full --path "$capture"
+        ;;
+    *)
+        printf 'usage: capture-flameshot {region|full}\n' >&2
+        exit 2
+        ;;
+esac
+
+[[ -s "$capture" ]] || {
+    printf 'Flameshot did not produce an image.\n' >&2
+    exit 1
+}
+
+wl-copy --foreground --type image/png < "$capture" &
+clipboard_owner=$!
+
+# CopyQ must read from a stable clipboard owner. Flameshot's transient provider
+# can disappear while KSystemClipboard is fetching PNG data and crash the
+# monitor; wl-copy remains alive until another clipboard owner replaces it.
+unlink "$capture"
+trap - EXIT
+wait "$clipboard_owner"

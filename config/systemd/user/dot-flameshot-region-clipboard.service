@@ -3,4 +3,4 @@ Description=Select a rectangle and copy it immediately
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/flameshot gui --clipboard --accept-on-select
+ExecStart=%h/.local/bin/dot-capture-flameshot region

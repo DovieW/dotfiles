@@ -179,9 +179,9 @@ prompts for, stores, or retrieves keys from Bitwarden.
 
 CopyQ replaces Klipper for searchable clipboard history; it is deliberately
 kept to one job and one hidden tray-free tab. `Meta+V` opens the history and
-pastes the selected item directly. Image MIME data stays available on the live
-system clipboard but is not archived by CopyQ, avoiding an upstream Wayland
-clipboard-monitor crash triggered by transient screenshot providers.
+pastes the selected item directly. Text and screenshots are both retained in
+history. Flameshot captures are handed to the Wayland clipboard through a
+long-lived `wl-copy` owner so CopyQ can safely archive their PNG data.
 
 `Meta+.` opens [jockel09/emoji-picker](https://github.com/jockel09/emoji-picker),
 a small on-demand Plasma/Wayland picker. It searches emoji, favorites, recents,

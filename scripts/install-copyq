@@ -50,7 +50,6 @@ install_wrapper() {
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
     'export QT_QPA_PLATFORM=wayland' \
-    'export COPYQ_CLIPBOARD_MIME_SIZE_LIMIT="image/.*:0;application/x-qt-image:0;.*:100M"' \
     "export APPDIR=\"$app_dir\"" \
     "exec \"$app_run\" \"\$@\"" >"$wrapper"
   chmod 0755 "$wrapper"
@@ -64,7 +63,7 @@ fi
 wrapper_ready=false
 if [[ -x "$bin_dir/copyq" && ! -L "$bin_dir/copyq" ]] &&
    grep -Fqx -- "export APPDIR=\"$app_dir\"" "$bin_dir/copyq" &&
-   grep -Fqx -- "export COPYQ_CLIPBOARD_MIME_SIZE_LIMIT=\"image/.*:0;application/x-qt-image:0;.*:100M\"" "$bin_dir/copyq" &&
+   ! grep -Fq -- "COPYQ_CLIPBOARD_MIME_SIZE_LIMIT" "$bin_dir/copyq" &&
    grep -Fq -- "$app_run" "$bin_dir/copyq"; then
   wrapper_ready=true
 fi
