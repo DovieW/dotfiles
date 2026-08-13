@@ -764,6 +764,21 @@ class DotCliTests(unittest.TestCase):
             self.assertTrue(package["asset_regex"].endswith(r"\.deb$"))
             self.assertNotIn("version", package)
 
+    def test_kubuntu_manages_rustdesk_from_official_stable_releases(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        manifest = json.loads((ROOT / "packages/external-deb.yml").read_text())
+
+        self.assertIn("rustdesk", profile["packages"]["deb"])
+        self.assertEqual(
+            manifest["packages"]["rustdesk"]["source"],
+            "rustdesk/rustdesk",
+        )
+        self.assertEqual(manifest["packages"]["rustdesk"]["channel"], "stable")
+        self.assertEqual(
+            manifest["packages"]["rustdesk"]["asset_regex"],
+            r"^rustdesk-[0-9.]+-x86_64\.deb$",
+        )
+
     def test_kde_apply_refuses_uncaptured_local_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             fake_home = Path(directory)
