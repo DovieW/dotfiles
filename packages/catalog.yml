@@ -8,6 +8,7 @@
   },
   "tools": {
     "adb": {"provider": "apt"},
+    "anydesk": {"provider": "apt"},
     "ansible": {"provider": "brew"},
     "bat": {"provider": "brew"},
     "chatgpt": {"provider": "apt"},

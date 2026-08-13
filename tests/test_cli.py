@@ -1789,6 +1789,23 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(catalog["tools"]["adb"]["provider"], "apt")
         self.assertEqual(catalog["tools"]["scrcpy"]["provider"], "apt")
 
+    def test_kubuntu_manages_anydesk_from_official_repository(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        role = (ROOT / "ansible/tasks/anydesk.yml").read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        key = ROOT / "config/apt/anydesk-archive-keyring.asc"
+
+        self.assertTrue(profile["features"]["anydesk"])
+        self.assertIn("anydesk", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["anydesk"]["provider"], "apt")
+        self.assertIn("tasks/anydesk.yml", playbook)
+        self.assertIn("https://deb.anydesk.com", role)
+        self.assertIn("06B5EA2FAE208E7CDA9761DCA2FB21D5A8772835", role)
+        self.assertIn("state: latest", role)
+        self.assertTrue(key.is_file())
+        self.assertIn("BEGIN PGP PUBLIC KEY BLOCK", key.read_text())
+
     def test_kubuntu_manages_openssh_server(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())

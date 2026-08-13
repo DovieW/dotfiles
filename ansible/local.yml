@@ -51,6 +51,14 @@
       when: dot_profile_data.features.docker_engine | default(false)
       tags: [packages, docker]
 
+    - name: Configure AnyDesk remote desktop
+      ansible.builtin.include_tasks:
+        file: tasks/anydesk.yml
+        apply:
+          tags: [packages, anydesk, app-updates]
+      when: dot_profile_data.features.anydesk | default(false)
+      tags: [packages, anydesk, app-updates]
+
     - name: Configure Tailscale
       ansible.builtin.include_tasks:
         file: tasks/tailscale.yml

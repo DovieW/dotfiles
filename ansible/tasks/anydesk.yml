@@ -1,0 +1,92 @@
+---
+- name: Validate AnyDesk operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture in ["x86_64", "aarch64"]
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: >-
+      The managed AnyDesk installation supports native Ubuntu/Kubuntu on
+      x86_64 and ARM64.
+
+- name: Install AnyDesk repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the AnyDesk APT keyring directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install AnyDesk's repository signing key
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/anydesk-archive-keyring.asc"
+    dest: /etc/apt/keyrings/keys.anydesk.com.asc
+    mode: "0644"
+  when: not ansible_check_mode
+
+- name: Read AnyDesk's signing-key fingerprint
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /etc/apt/keyrings/keys.anydesk.com.asc
+  register: dot_anydesk_key
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate AnyDesk's package signing key
+  ansible.builtin.assert:
+    that: >-
+      '06B5EA2FAE208E7CDA9761DCA2FB21D5A8772835'
+      in dot_anydesk_key.stdout
+    fail_msg: >-
+      The managed AnyDesk repository key did not contain the expected
+      fingerprint. The repository will not be configured.
+  when: not ansible_check_mode
+
+- name: Configure AnyDesk's stable APT repository
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/anydesk.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://deb.anydesk.com
+      Suites: all
+      Components: main
+      Architectures: amd64 arm64
+      Signed-By: /etc/apt/keyrings/keys.anydesk.com.asc
+  when: not ansible_check_mode
+
+- name: Remove AnyDesk's legacy repository definition
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/anydesk-stable.list
+    state: absent
+  when: not ansible_check_mode
+
+- name: Install or upgrade AnyDesk to latest stable
+  become: true
+  ansible.builtin.apt:
+    name: anydesk
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
+
+- name: Explain AnyDesk check mode
+  ansible.builtin.debug:
+    msg: >-
+      A real apply will validate AnyDesk's repository signing key, configure
+      the official stable APT repository, and install the latest AnyDesk app.
+  when: ansible_check_mode

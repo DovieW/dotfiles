@@ -4,6 +4,7 @@
   "inherits": ["common-linux"],
   "account": "personal",
   "features": {
+    "anydesk": true,
     "chatgpt_desktop": true,
     "codex_remote_control": true,
     "copyq": true,
@@ -27,6 +28,7 @@
   "packages": {
     "apt": [
       "adb",
+      "anydesk",
       "chatgpt",
       "code",
       "flameshot",
