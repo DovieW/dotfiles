@@ -1983,6 +1983,9 @@ class DotCliTests(unittest.TestCase):
         luna_ocr_service = (
             ROOT / "config/systemd/user/dot-luna-ocr-region.service"
         ).read_text()
+        luna_assist_service = (
+            ROOT / "config/systemd/user/dot-luna-assist-region.service"
+        ).read_text()
         xkb_rules = (ROOT / "config/xkb/rules/evdev").read_text()
         xkb_symbols = (ROOT / "config/xkb/symbols/dotfiles").read_text()
         keyboard_config = (ROOT / "config/kde/.config/kxkbrc").read_text()
@@ -2002,6 +2005,7 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
         self.assertIn("dot-luna-ocr-region=Meta+Shift+T", shortcuts)
+        self.assertIn("dot-luna-assist-region=Meta+Shift+L", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
@@ -2009,6 +2013,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
         self.assertIn('"dot-screenshots-probe.service"', script)
         self.assertIn('"dot-luna-ocr-region.service"', script)
+        self.assertIn('"dot-luna-assist-region.service"', script)
         self.assertIn('"Alt+Print"', script)
         self.assertIn("dot-capture-flameshot region", region_service)
         self.assertIn("dot-capture-flameshot full", full_service)
@@ -2025,6 +2030,7 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("--pin", editor_service)
         self.assertIn("RemainAfterExit=yes", probe_service)
         self.assertIn("luna-ocr capture", luna_ocr_service)
+        self.assertIn("luna-ocr ask", luna_assist_service)
         self.assertIn(
             "LoadCredentialEncrypted=luna-ocr-openai-api-key",
             luna_ocr_service,

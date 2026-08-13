@@ -45,6 +45,13 @@ registerShortcut(
 );
 
 registerShortcut(
+    "dot-luna-assist-region",
+    "Ask Luna about Screen Region",
+    "Meta+Shift+L",
+    function () { restartUnit("dot-luna-assist-region.service"); }
+);
+
+registerShortcut(
     "dot-screenshots-probe",
     "Verify Screenshot Shortcuts",
     "",

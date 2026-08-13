@@ -23,6 +23,7 @@
     "git": {"provider": "apt"},
     "glow": {"provider": "brew"},
     "jq": {"provider": "brew"},
+    "kdialog": {"provider": "apt"},
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},
     "openssh-server": {"provider": "apt"},

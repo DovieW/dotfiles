@@ -1039,6 +1039,12 @@ def sync_managed_screenshot_shortcuts() -> None:
         "KWin",
         "Copy Text from Screen Region",
     )
+    luna_assist_region = (
+        "kwin",
+        "dot-luna-assist-region",
+        "KWin",
+        "Ask Luna about Screen Region",
+    )
     callback_probe = (
         "kwin",
         "dot-screenshots-probe",
@@ -1072,6 +1078,7 @@ def sync_managed_screenshot_shortcuts() -> None:
         active_window: [150994953, 285212681],  # Alt+Print, Meta+Print
         region_editor: [369098835],  # Meta+Ctrl+Shift+S
         luna_ocr_region: [301989972],  # Meta+Shift+T
+        luna_assist_region: [301989964],  # Meta+Shift+L
         callback_probe: [0],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
@@ -1266,6 +1273,8 @@ def apply_direct(
             / ".config/systemd/user/dot-screenshots-probe.service",
             ROOT / "config/systemd/user/dot-luna-ocr-region.service": Path.home()
             / ".config/systemd/user/dot-luna-ocr-region.service",
+            ROOT / "config/systemd/user/dot-luna-assist-region.service": Path.home()
+            / ".config/systemd/user/dot-luna-assist-region.service",
             ROOT / "scripts/capture-active-window": Path.home()
             / ".local/bin/dot-capture-active-window",
             ROOT / "scripts/capture-flameshot": Path.home()

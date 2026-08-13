@@ -39,6 +39,7 @@
       "gir1.2-pango-1.0",
       "imagemagick",
       "kde-config-gtk-style",
+      "kdialog",
       "kio-extras",
       "konsole",
       "libglib2.0-bin",
