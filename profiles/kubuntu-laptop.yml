@@ -15,6 +15,7 @@
     "inputactions": true,
     "kde": true,
     "lid_power_saver": true,
+    "luna_ocr": true,
     "meshcentral_agent": true,
     "nomachine": true,
     "nvidia_driver": true,
@@ -36,10 +37,12 @@
       "freerdp-sdl",
       "ghostty",
       "gir1.2-pango-1.0",
+      "imagemagick",
       "kde-config-gtk-style",
       "kio-extras",
       "konsole",
       "libglib2.0-bin",
+      "libnotify-bin",
       "mpv",
       "openssh-server",
       "plasma-workspace",
@@ -57,7 +60,7 @@
       "xclip",
       "ydotool"
     ],
-    "brew": ["lazydocker", "lazygit"],
+    "brew": ["bun", "lazydocker", "lazygit"],
     "deb": ["bitwarden", "obsidian", "rustdesk"],
     "snap": []
   }

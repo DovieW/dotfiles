@@ -1033,6 +1033,12 @@ def sync_managed_screenshot_shortcuts() -> None:
         "KWin",
         "Edit Rectangular Screenshot",
     )
+    luna_ocr_region = (
+        "kwin",
+        "dot-luna-ocr-region",
+        "KWin",
+        "Copy Text from Screen Region",
+    )
     callback_probe = (
         "kwin",
         "dot-screenshots-probe",
@@ -1065,6 +1071,7 @@ def sync_managed_screenshot_shortcuts() -> None:
         full_clipboard: [16777225],  # Print
         active_window: [150994953, 285212681],  # Alt+Print, Meta+Print
         region_editor: [369098835],  # Meta+Ctrl+Shift+S
+        luna_ocr_region: [301989972],  # Meta+Shift+T
         callback_probe: [0],
     }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
@@ -1240,6 +1247,8 @@ def apply_direct(
                 check=False,
             )
     if features.get("kde") and selected("screenshots", "kde"):
+        if features.get("luna_ocr"):
+            run([str(ROOT / "scripts/install-luna-ocr"), "--ensure"], cwd=ROOT)
         screenshot_mappings = {
             ROOT / "config/kwin/dot-screenshots/metadata.json": Path.home()
             / ".local/share/kwin/scripts/dot-screenshots/metadata.json",
@@ -1255,6 +1264,8 @@ def apply_direct(
             / ".config/systemd/user/dot-flameshot-region-editor.service",
             ROOT / "config/systemd/user/dot-screenshots-probe.service": Path.home()
             / ".config/systemd/user/dot-screenshots-probe.service",
+            ROOT / "config/systemd/user/dot-luna-ocr-region.service": Path.home()
+            / ".config/systemd/user/dot-luna-ocr-region.service",
             ROOT / "scripts/capture-active-window": Path.home()
             / ".local/bin/dot-capture-active-window",
             ROOT / "scripts/capture-flameshot": Path.home()
@@ -2689,6 +2700,18 @@ def cmd_transcribe_install(_args: argparse.Namespace) -> None:
 
 def cmd_transcribe_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-transcribe"), "--update"], cwd=ROOT)
+
+
+def cmd_luna_ocr_install(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-luna-ocr"), "--install"], cwd=ROOT)
+
+
+def cmd_luna_ocr_update(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-luna-ocr"), "--update"], cwd=ROOT)
+
+
+def cmd_luna_ocr_check(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-luna-ocr"), "--check"], cwd=ROOT)
 
 
 def cmd_tailscale(args: argparse.Namespace) -> None:
@@ -6128,6 +6151,20 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             transcribe_check.returncode == 0,
             transcribe_detail or "run dot transcribe install",
         )
+        if profile.get("features", {}).get("luna_ocr"):
+            luna_ocr_check = run(
+                [str(ROOT / "scripts/install-luna-ocr"), "--check"],
+                check=False,
+                capture=True,
+            )
+            luna_ocr_detail = (
+                luna_ocr_check.stdout or luna_ocr_check.stderr
+            ).strip()
+            failures += not doctor_check(
+                "luna-ocr",
+                luna_ocr_check.returncode == 0,
+                luna_ocr_detail or "run dot luna-ocr install",
+            )
         clipboard_commands = [
             Path.home() / ".local/bin/clip",
             Path.home() / ".local/bin/cclip",
@@ -7764,6 +7801,14 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe_install.set_defaults(func=cmd_transcribe_install)
     transcribe_update = transcribe_sub.add_parser("update")
     transcribe_update.set_defaults(func=cmd_transcribe_update)
+    luna_ocr = sub.add_parser("luna-ocr")
+    luna_ocr_sub = luna_ocr.add_subparsers(dest="luna_ocr_command", required=True)
+    luna_ocr_install = luna_ocr_sub.add_parser("install")
+    luna_ocr_install.set_defaults(func=cmd_luna_ocr_install)
+    luna_ocr_update = luna_ocr_sub.add_parser("update")
+    luna_ocr_update.set_defaults(func=cmd_luna_ocr_update)
+    luna_ocr_check = luna_ocr_sub.add_parser("check")
+    luna_ocr_check.set_defaults(func=cmd_luna_ocr_check)
     tailscale = sub.add_parser("tailscale")
     tailscale.add_argument(
         "tailscale_action",

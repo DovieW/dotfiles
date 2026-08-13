@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in --ensure|--install|--update|--check) ;; *) echo "Usage: install-luna-ocr --ensure|--install|--update|--check" >&2; exit 2 ;; esac
+
+repository="DovieW/luna-ocr"
+asset="luna-ocr-linux-x64"
+checksum_asset="luna-ocr-linux-x64.sha256"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+install_root="$data_home/dotfiles/luna-ocr"
+current="$install_root/current/luna-ocr"
+api_url="${LUNA_OCR_RELEASE_API_URL:-https://api.github.com/repos/$repository/releases/latest}"
+
+for required in curl python3 sha256sum; do command -v "$required" >/dev/null || { echo "$required is required to install luna-ocr." >&2; exit 1; }; done
+
+release_json="$(curl --fail --location --silent --show-error --retry 3 "$api_url")"
+mapfile -t release < <(RELEASE_JSON="$release_json" python3 - "$asset" "$checksum_asset" <<'PY'
+import json, os, sys
+asset = sys.argv[1]
+checksum_asset = sys.argv[2]
+data = json.loads(os.environ["RELEASE_JSON"])
+if data.get("draft") or data.get("prerelease"):
+    raise SystemExit("latest release must be stable")
+tag = data.get("tag_name", "")
+if not tag.startswith("v"):
+    raise SystemExit("release tag must start with v")
+assets = {item["name"]: item["browser_download_url"] for item in data.get("assets", [])}
+print(tag[1:])
+print(assets[asset])
+print(assets[checksum_asset])
+PY
+)
+version="${release[0]}"
+binary_url="${LUNA_OCR_RELEASE_URL:-${release[1]}}"
+checksum_url="${LUNA_OCR_CHECKSUM_URL:-${release[2]}}"
+
+healthy() { [[ -x "$current" ]] && [[ "$($current version 2>/dev/null)" == "luna-ocr $version" ]]; }
+if [[ "$mode" == "--check" ]]; then healthy && { echo "luna-ocr $version public release is current"; exit 0; }; echo "luna-ocr is missing or stale; run dot luna-ocr install" >&2; exit 1; fi
+if [[ "$mode" == "--ensure" ]] && healthy; then echo "luna-ocr $version public release is current"; exit 0; fi
+
+temporary_root="${TMPDIR:-/tmp}"
+temporary_dir="$(mktemp -d "$temporary_root/dotfiles-luna-ocr.XXXXXX")"
+cleanup() { case "$temporary_dir" in "$temporary_root"/dotfiles-luna-ocr.*) rm -rf -- "$temporary_dir" ;; esac; }
+trap cleanup EXIT INT TERM
+curl --fail --location --silent --show-error --retry 3 --output "$temporary_dir/$asset" "$binary_url"
+curl --fail --location --silent --show-error --retry 3 --output "$temporary_dir/$asset.sha256" "$checksum_url"
+expected="$(awk 'NF {print $1; exit}' "$temporary_dir/$asset.sha256")"
+[[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Release checksum is invalid." >&2; exit 1; }
+actual="$(sha256sum "$temporary_dir/$asset" | awk '{print $1}')"
+[[ "${actual,,}" == "${expected,,}" ]] || { echo "Downloaded luna-ocr failed checksum verification." >&2; exit 1; }
+chmod 0755 "$temporary_dir/$asset"
+[[ "$("$temporary_dir/$asset" version)" == "luna-ocr $version" ]] || { echo "Downloaded luna-ocr version mismatch." >&2; exit 1; }
+release_dir="$install_root/releases/$version"
+mkdir -p "$release_dir" "$bin_home"
+install -m 0755 "$temporary_dir/$asset" "$release_dir/luna-ocr"
+ln -sfn "$release_dir" "$install_root/current"
+temporary_link="$bin_home/.luna-ocr-link-$$"
+ln -s "$current" "$temporary_link"
+mv -Tf "$temporary_link" "$bin_home/luna-ocr"
+echo "Installed luna-ocr $version from https://github.com/$repository"

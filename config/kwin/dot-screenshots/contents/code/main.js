@@ -38,6 +38,13 @@ registerShortcut(
 );
 
 registerShortcut(
+    "dot-luna-ocr-region",
+    "Copy Text from Screen Region",
+    "Meta+Shift+T",
+    function () { restartUnit("dot-luna-ocr-region.service"); }
+);
+
+registerShortcut(
     "dot-screenshots-probe",
     "Verify Screenshot Shortcuts",
     "",

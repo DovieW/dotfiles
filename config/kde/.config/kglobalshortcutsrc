@@ -49,6 +49,7 @@ dot-active-window-clipboard=Alt+Print\tMeta+Print,none,Copy Active Window Screen
 dot-flameshot-full-clipboard=Print,none,Copy Full Screen Screenshot
 dot-flameshot-region-clipboard=Meta+Shift+S,none,Copy Rectangular Screenshot
 dot-flameshot-region-editor=Meta+Ctrl+Shift+S,none,Edit Rectangular Screenshot
+dot-luna-ocr-region=Meta+Shift+T,none,Copy Text from Screen Region
 dot-screenshots-probe=none,none,Verify Screenshot Shortcuts
 dot-window-desktop-left=Meta+Alt+Left,none,Move Window and Follow Left
 dot-window-desktop-right=Meta+Alt+Right,none,Move Window and Follow Right

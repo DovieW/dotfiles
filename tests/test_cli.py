@@ -1973,6 +1973,9 @@ class DotCliTests(unittest.TestCase):
         probe_service = (
             ROOT / "config/systemd/user/dot-screenshots-probe.service"
         ).read_text()
+        luna_ocr_service = (
+            ROOT / "config/systemd/user/dot-luna-ocr-region.service"
+        ).read_text()
         xkb_rules = (ROOT / "config/xkb/rules/evdev").read_text()
         xkb_symbols = (ROOT / "config/xkb/symbols/dotfiles").read_text()
         keyboard_config = (ROOT / "config/kde/.config/kxkbrc").read_text()
@@ -1991,12 +1994,14 @@ class DotCliTests(unittest.TestCase):
             shortcuts,
         )
         self.assertIn("dot-flameshot-region-editor=Meta+Ctrl+Shift+S", shortcuts)
+        self.assertIn("dot-luna-ocr-region=Meta+Shift+T", shortcuts)
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
         self.assertIn('"RestartUnit"', script)
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
         self.assertIn('"dot-screenshots-probe.service"', script)
+        self.assertIn('"dot-luna-ocr-region.service"', script)
         self.assertIn('"Alt+Print"', script)
         self.assertIn("dot-capture-flameshot region", region_service)
         self.assertIn("dot-capture-flameshot full", full_service)
@@ -2012,6 +2017,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ExecStart=/usr/bin/flameshot gui", editor_service)
         self.assertNotIn("--pin", editor_service)
         self.assertIn("RemainAfterExit=yes", probe_service)
+        self.assertIn("luna-ocr capture", luna_ocr_service)
+        self.assertIn(
+            "LoadCredentialEncrypted=luna-ocr-openai-api-key",
+            luna_ocr_service,
+        )
         self.assertIn("showHelp=false", config)
         self.assertIn("uiColor=#161b22", config)
         self.assertIn("contrastUiColor=#58a6ff", config)
@@ -2037,6 +2047,22 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('ATTR{fn_lock}="1"', fn_lock)
         self.assertIn("Make the IdeaPad screenshot key emit Print", playbook)
         self.assertIn("--sysname-match=VPC2004:00", playbook)
+
+    def test_kubuntu_manages_bun_with_homebrew(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        self.assertIn("bun", profile["packages"]["brew"])
+        self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
+
+    def test_luna_ocr_release_installer_is_managed(self):
+        cli = DOT.read_text()
+        installer = (ROOT / "scripts/install-luna-ocr").read_text()
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        self.assertTrue(profile["features"]["luna_ocr"])
+        self.assertIn("DovieW/luna-ocr", installer)
+        self.assertIn("luna-ocr-linux-x64.sha256", installer)
+        self.assertIn('sub.add_parser("luna-ocr")', cli)
+        self.assertIn('ROOT / "scripts/install-luna-ocr"', cli)
 
     def test_zsh_uses_fzf_for_normal_tab_completion(self):
         common = json.loads((ROOT / "profiles/common-linux.yml").read_text())

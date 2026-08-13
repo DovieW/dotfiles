@@ -1,0 +1,16 @@
+[Unit]
+Description=Select a rectangle and extract text with Luna OCR
+
+[Service]
+Type=exec
+LoadCredentialEncrypted=luna-ocr-openai-api-key
+LoadCredentialEncrypted=luna-ocr-cerebras-api-key
+LoadCredentialEncrypted=luna-ocr-baseten-api-key
+LoadCredentialEncrypted=luna-ocr-groq-api-key
+LoadCredentialEncrypted=luna-ocr-together-api-key
+Environment=OPENAI_API_KEY_FILE=%d/luna-ocr-openai-api-key
+Environment=CEREBRAS_API_KEY_FILE=%d/luna-ocr-cerebras-api-key
+Environment=BASETEN_API_KEY_FILE=%d/luna-ocr-baseten-api-key
+Environment=GROQ_API_KEY_FILE=%d/luna-ocr-groq-api-key
+Environment=TOGETHER_API_KEY_FILE=%d/luna-ocr-together-api-key
+ExecStart=%h/.local/bin/luna-ocr capture
