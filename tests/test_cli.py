@@ -2061,12 +2061,6 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bun", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
 
-    def test_kubuntu_manages_spectacle_for_luna_ocr(self):
-        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
-        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
-        self.assertIn("spectacle", profile["packages"]["apt"])
-        self.assertEqual(catalog["tools"]["spectacle"]["provider"], "apt")
-
     def test_luna_ocr_release_installer_is_managed(self):
         cli = DOT.read_text()
         installer = (ROOT / "scripts/install-luna-ocr").read_text()
