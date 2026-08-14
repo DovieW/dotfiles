@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+github_user="${1:-}"
+tailscale_ip="${2:-}"
+if [[ ! "$github_user" =~ ^[A-Za-z0-9-]+$ ]]; then
+  echo "usage: bootstrap-remote-support GITHUB-USER TAILSCALE-IPV4" >&2
+  exit 2
+fi
+python3 - "$tailscale_ip" <<'PY'
+import ipaddress
+import sys
+
+address = ipaddress.ip_address(sys.argv[1])
+if address.version != 4 or address not in ipaddress.ip_network("100.64.0.0/10"):
+    raise SystemExit("remote support requires one Tailscale CGNAT IPv4 address")
+PY
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf -- "$work_dir"' EXIT
+keys="$work_dir/github.keys"
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+  "https://github.com/${github_user}.keys" --output "$keys"
+
+if [[ ! -s "$keys" ]]; then
+  echo "GitHub account ${github_user} did not publish any SSH keys." >&2
+  exit 1
+fi
+while IFS= read -r key; do
+  [[ -z "$key" ]] && continue
+  case "$key" in
+    ssh-ed25519\ *|ssh-rsa\ *|ecdsa-sha2-nistp256\ *|ecdsa-sha2-nistp384\ *|ecdsa-sha2-nistp521\ *) ;;
+    *) echo "GitHub returned an unsupported SSH public-key record." >&2; exit 1 ;;
+  esac
+  ssh-keygen -l -f <(printf '%s\n' "$key") >/dev/null
+done <"$keys"
+
+sudo apt-get update
+sudo apt-get install -y openssh-server
+
+install -d -m 0700 "$HOME/.ssh" "$HOME/.ssh/authorized_keys.d"
+install -m 0600 "$keys" "$HOME/.ssh/authorized_keys.d/dotfiles-github"
+
+sshd_config="$work_dir/00-dotfiles-remote-support.conf"
+cat >"$sshd_config" <<EOF
+# Managed by dotfiles. Normal OpenSSH is transported over Tailscale.
+ListenAddress ${tailscale_ip}
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys.d/dotfiles-github
+EOF
+sudo install -m 0644 "$sshd_config" /etc/ssh/sshd_config.d/00-dotfiles-remote-support.conf
+sudo sshd -t
+sudo systemctl enable --now ssh
+sudo systemctl restart ssh
+
+effective="$(sudo sshd -T)"
+grep -qx 'passwordauthentication no' <<<"$effective"
+grep -qx 'kbdinteractiveauthentication no' <<<"$effective"
+grep -qx 'permitrootlogin no' <<<"$effective"
+grep -qx 'pubkeyauthentication yes' <<<"$effective"
+echo "Secure normal OpenSSH is active on ${tailscale_ip} with ${github_user}'s published workstation keys."

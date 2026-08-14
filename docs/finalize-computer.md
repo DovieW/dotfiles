@@ -11,6 +11,14 @@ Bootstrap establishes identity, repositories, browser/password-manager access,
 the agent runtime, portable configuration, and the safe operating-system
 baseline. On an unregistered computer it defers machine-sensitive tags:
 
+Before the long profile phase, bootstrap installs Tailscale, requires its
+one-time browser enrollment, and configures key-only normal OpenSSH using the
+public workstation keys published by the managed GitHub account. It prints the
+stable Tailscale SSH target for remote troubleshooting. This is ordinary SSH
+over Tailscale, not Tailscale SSH; no reusable private key or Tailscale auth key
+is stored on DOTBOOT. Finalization refuses to complete if either endpoint is
+not securely active.
+
 - `anydesk`
 - `gpu`
 - `meshcentral`

@@ -240,6 +240,23 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("https://github.com/DovieW/dotfiles.git", launcher)
         self.assertIn("verified USB bundle", launcher)
 
+    def test_remote_support_precedes_identity_and_requires_tailscale(self):
+        cli = DOT.read_text()
+        support = (ROOT / "scripts/bootstrap-remote-support").read_text()
+        self.assertLess(
+            cli.index('phase("remote-support", configure_remote_support)'),
+            cli.index('phase("identity", authenticate)'),
+        )
+        self.assertIn('["sudo", "tailscale", "up"]', cli)
+        self.assertIn('Remote support ready: ssh ', cli)
+        self.assertIn("PasswordAuthentication no", support)
+        self.assertIn("KbdInteractiveAuthentication no", support)
+        self.assertIn("PermitRootLogin no", support)
+        self.assertIn("ListenAddress ${tailscale_ip}", support)
+        self.assertIn('ipaddress.ip_network("100.64.0.0/10")', support)
+        self.assertIn("authorized_keys.d/dotfiles-github", support)
+        self.assertNotIn("tailscale ssh", support.lower())
+
     def test_bootstrap_preflight_rejects_identity_drift(self):
         module = runpy.run_path(str(DOT))
         function = module["bootstrap_preflight"]

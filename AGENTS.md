@@ -23,6 +23,9 @@ blindly apply the entire `kubuntu-laptop` profile.
    Review every privileged or externally visible change before applying it.
 7. Run `bin/dot finalize apply --profile <profile>` only after the tracked
    manifest accurately describes the reviewed machine.
+   For native Kubuntu, confirm the early remote-support phase completed:
+   Tailscale must be joined and normal key-only OpenSSH must be active. Do not
+   substitute Tailscale SSH or place reusable private/auth keys on DOTBOOT.
 8. Run `bin/dot doctor --profile <profile>`. Enrollment, authentication,
    reboot, attached-display, and other physical acceptance boundaries must be
    reported separately; do not disguise them as completed validation.

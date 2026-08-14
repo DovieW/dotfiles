@@ -60,6 +60,7 @@ MESH_AGENT_CONFIG_PATHS = (
     Path("/usr/local/mesh/meshagent.msh"),
 )
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
+REMOTE_SUPPORT_GITHUB_USER = "DovieW"
 LOCKSCREEN_PACKAGE_ID = "io.github.doview.dotfiles.lockscreen"
 LOCKSCREEN_PACKAGE_SOURCE = (
     ROOT / "config/plasma/shells" / LOCKSCREEN_PACKAGE_ID
@@ -2834,6 +2835,47 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         elif choice not in {"n", "no"}:
             raise DotError("Identity-migration choice must be yes or no.")
     bootstrap_preflight(profile, device)
+    if profile.get("features", {}).get("tailscale"):
+        def configure_remote_support() -> None:
+            cmd_apply(
+                argparse.Namespace(
+                    profile=args.profile,
+                    tags="tailscale",
+                    skip_tags=None,
+                    check=False,
+                    direct=False,
+                    force_kde=False,
+                )
+            )
+            status = run(
+                ["tailscale", "status", "--json"],
+                check=False,
+                capture=True,
+            )
+            try:
+                backend = json.loads(status.stdout or "{}").get("BackendState", "")
+            except json.JSONDecodeError:
+                backend = ""
+            if status.returncode != 0 or backend != "Running":
+                print(
+                    "Tailscale enrollment is required before the long setup so this "
+                    "computer can be supported remotely. Complete the browser flow now."
+                )
+                run(["sudo", "tailscale", "up"])
+            ip = run(["tailscale", "ip", "-4"], capture=True).stdout.strip()
+            if not ip or "\n" in ip:
+                raise DotError("Tailscale did not report one stable IPv4 address after enrollment.")
+            run(
+                [
+                    str(ROOT / "scripts/bootstrap-remote-support"),
+                    REMOTE_SUPPORT_GITHUB_USER,
+                    ip,
+                ],
+                cwd=ROOT,
+            )
+            print(f"Remote support ready: ssh {getpass.getuser()}@{ip}")
+
+        phase("remote-support", configure_remote_support)
     if not args.skip_secrets:
         def authenticate() -> None:
             if profile["name"] == "kubuntu-laptop":
@@ -2923,6 +2965,37 @@ def cmd_finalize(args: argparse.Namespace) -> None:
         raise DotError(
             f"Device manifest profile {manifest['profile']} does not match {profile['name']}"
         )
+    if profile.get("features", {}).get("tailscale"):
+        ssh_ready = all(
+            run(["systemctl", "is-active", "--quiet", service], check=False).returncode == 0
+            for service in ("ssh", "tailscaled")
+        )
+        tailscale_status = run(
+            ["tailscale", "status", "--json"],
+            check=False,
+            capture=True,
+        )
+        try:
+            tailscale_running = (
+                json.loads(tailscale_status.stdout or "{}").get("BackendState") == "Running"
+            )
+        except json.JSONDecodeError:
+            tailscale_running = False
+        sshd = run(["sudo", "sshd", "-T"], check=False, capture=True)
+        secure_ssh = sshd.returncode == 0 and all(
+            setting in sshd.stdout.splitlines()
+            for setting in (
+                "passwordauthentication no",
+                "kbdinteractiveauthentication no",
+                "permitrootlogin no",
+                "pubkeyauthentication yes",
+            )
+        )
+        if not (ssh_ready and tailscale_running and secure_ssh):
+            raise DotError(
+                "Finalization requires active Tailscale and secure normal OpenSSH. "
+                "Rerun START-LINUX.sh to repair the remote-support phase."
+            )
     approved = manifest["approved_tags"]
     if approved:
         cmd_apply(
