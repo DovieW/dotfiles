@@ -287,15 +287,20 @@ def inferred_device_id() -> str:
     return value or "unnamed-device"
 
 
-def ensure_device(explicit: str | None = None) -> str:
-    path = CONFIG_DIR / "device.json"
-    existing = load_json(path) if path.exists() else {}
-    device = explicit if explicit is not None else (existing.get("device_id") or inferred_device_id())
+def validate_device_id(device: Any) -> str:
     if not isinstance(device, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,62})", device):
         raise DotError(
             "Device ID must be 1-63 lowercase letters, numbers, or hyphens, "
             "starting with a letter or number."
         )
+    return device
+
+
+def ensure_device(explicit: str | None = None) -> str:
+    path = CONFIG_DIR / "device.json"
+    existing = load_json(path) if path.exists() else {}
+    device = explicit if explicit is not None else (existing.get("device_id") or inferred_device_id())
+    validate_device_id(device)
     payload = {"schema_version": 1, "device_id": device}
     atomic_text(path, json.dumps(payload, indent=2) + "\n", 0o600)
     return device
@@ -2907,6 +2912,19 @@ def bw_create_item(item: dict[str, Any], session: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
+def bw_edit_item(item: dict[str, Any], session: str) -> dict[str, Any]:
+    encoded = base64.b64encode(json.dumps(item).encode()).decode()
+    proc = subprocess.run(
+        ["bw", "edit", "item", str(item["id"]), "--session", session],
+        input=encoded,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return json.loads(proc.stdout)
+
+
 def bw_upsert_secure_note(
     name: str, notes: dict[str, Any], session: str
 ) -> dict[str, Any]:
@@ -2929,16 +2947,7 @@ def bw_upsert_secure_note(
             "secureNote": {"type": 0},
         }
     )
-    encoded = base64.b64encode(json.dumps(existing).encode()).decode()
-    proc = subprocess.run(
-        ["bw", "edit", "item", str(existing["id"]), "--session", session],
-        input=encoded,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return json.loads(proc.stdout)
+    return bw_edit_item(existing, session)
 
 
 def normalize_meshcentral_enrollment(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3176,6 +3185,87 @@ def cmd_secrets_sync(args: argparse.Namespace) -> None:
     finally:
         if should_lock:
             run(["bw", "lock"], check=False)
+
+
+def cmd_device_rename(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    old = validate_device_id(args.old_device)
+    new = validate_device_id(args.new_device)
+    if old == new:
+        raise DotError("Old and new device IDs are identical.")
+    device_path = CONFIG_DIR / "device.json"
+    if not device_path.exists():
+        raise DotError(f"Dotfiles device identity does not exist: {device_path}")
+    current = load_json(device_path).get("device_id")
+    if current == new:
+        print(f"Device identity is already {new}.")
+        return
+    if current != old:
+        raise DotError(f"Current dotfiles device is {current!r}, not {old!r}.")
+    hostname = socket.gethostname().lower()
+    if hostname != new:
+        raise DotError(
+            f"System hostname is {hostname!r}. Rename and reboot the operating "
+            f"system to {new!r} before migrating dotfiles identity."
+        )
+    account = profile.get("account", "personal")
+    old_name = f"dotfiles/ssh/{account}/{old}"
+    new_name = f"dotfiles/ssh/{account}/{new}"
+    state_path = STATE_DIR / "bootstrap" / f"{profile['name']}.json"
+    state = load_json(state_path) if state_path.exists() else None
+    if state is not None and state.get("device") not in {old, new}:
+        raise DotError(
+            f"Bootstrap state belongs to {state.get('device')!r}; refusing a partial migration."
+        )
+    session, should_lock = bw_session()
+    try:
+        run(["bw", "sync", "--session", session], check=False, capture=True)
+        old_item = bw_get_item(old_name, session, required=False)
+        new_item = bw_get_item(new_name, session, required=False)
+        if old_item is not None and new_item is not None:
+            raise DotError(
+                f"Both {old_name} and {new_name} exist in Bitwarden; refusing to choose one."
+            )
+        if old_item is None and new_item is None:
+            raise DotError(
+                f"Neither {old_name} nor {new_name} exists in Bitwarden; "
+                "the prior identity phase cannot be migrated safely."
+            )
+        item = new_item
+        if old_item is not None:
+            old_item["name"] = new_name
+            item = bw_edit_item(old_item, session)
+        bootstrap = parse_bootstrap(session)
+        private, public = key_parts(item)
+        ssh_dir = Path.home() / ".ssh"
+        ssh_dir.mkdir(mode=0o700, exist_ok=True)
+        new_public = ssh_dir / f"dotfiles-{account}-{new}.pub"
+        old_public = ssh_dir / f"dotfiles-{account}-{old}.pub"
+        atomic_text(new_public, public.rstrip() + "\n", 0o644)
+        if profile.get("features", {}).get("materialize_ssh_key"):
+            atomic_text(new_public.with_suffix(""), private.rstrip() + "\n", 0o600)
+        write_identity(profile, bootstrap, new_public)
+        for old_path in (old_public, old_public.with_suffix("")):
+            if old_path.exists() and old_path != new_public:
+                old_path.unlink()
+    finally:
+        if should_lock:
+            run(["bw", "lock"], check=False)
+
+    if state is not None:
+        state["device"] = new
+        atomic_text(state_path, json.dumps(state, indent=2) + "\n", 0o600)
+    atomic_text(
+        device_path,
+        json.dumps({"schema_version": 1, "device_id": new}, indent=2) + "\n",
+        0o600,
+    )
+    write_finalization_handoff(profile["name"], new)
+    print(f"Migrated dotfiles device identity: {old} -> {new}")
+    print(
+        "The existing GitHub authentication and signing keys remain valid; "
+        "their historical web labels do not affect key identity."
+    )
 
 
 def cmd_secrets_initialize(args: argparse.Namespace) -> None:
@@ -8384,6 +8474,13 @@ def build_parser() -> argparse.ArgumentParser:
         finalize_action.add_argument("--profile", required=True)
         finalize_action.add_argument("--device")
         finalize_action.set_defaults(func=cmd_finalize)
+    device = sub.add_parser("device")
+    device_sub = device.add_subparsers(dest="device_action", required=True)
+    device_rename = device_sub.add_parser("rename")
+    device_rename.add_argument("old_device")
+    device_rename.add_argument("new_device")
+    device_rename.add_argument("--profile", required=True)
+    device_rename.set_defaults(func=cmd_device_rename)
     bootstrap_media = sub.add_parser("bootstrap-media")
     bootstrap_media_sub = bootstrap_media.add_subparsers(dest="media_action", required=True)
     media_create = bootstrap_media_sub.add_parser("create")

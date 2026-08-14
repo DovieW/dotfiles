@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bootstrap-media", result.stdout)
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
+        self.assertIn("device", result.stdout)
         self.assertIn("finalize", result.stdout)
         self.assertIn("gestures", result.stdout)
         self.assertIn("nvim", result.stdout)
@@ -276,6 +278,90 @@ class DotCliTests(unittest.TestCase):
         for device in ("../outside", "UPPERCASE", "contains space", ""):
             with self.subTest(device=device), self.assertRaises(module["DotError"]):
                 function(device)
+
+    def test_device_rename_requires_matching_system_hostname(self):
+        module = runpy.run_path(str(DOT))
+        function = module["cmd_device_rename"]
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config"
+            state = Path(directory) / "state"
+            config.mkdir()
+            (config / "device.json").write_text(json.dumps({
+                "schema_version": 1, "device_id": "old-device",
+            }))
+            with mock.patch.dict(
+                function.__globals__, {"CONFIG_DIR": config, "STATE_DIR": state}
+            ), mock.patch("socket.gethostname", return_value="different-device"):
+                with self.assertRaises(module["DotError"]):
+                    function(argparse.Namespace(
+                        profile="kubuntu-laptop",
+                        old_device="old-device",
+                        new_device="new-device",
+                    ))
+
+    def test_device_rename_migrates_state_and_preserves_key_material(self):
+        module = runpy.run_path(str(DOT))
+        function = module["cmd_device_rename"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config"
+            state_dir = root / "state"
+            home = root / "home"
+            bootstrap_dir = state_dir / "bootstrap"
+            config.mkdir()
+            bootstrap_dir.mkdir(parents=True)
+            home.mkdir()
+            (config / "device.json").write_text(json.dumps({
+                "schema_version": 1, "device_id": "old-device",
+            }))
+            state_path = bootstrap_dir / "kubuntu-laptop.json"
+            state_path.write_text(json.dumps({
+                "schema_version": 1,
+                "profile": "kubuntu-laptop",
+                "device": "old-device",
+                "completed": ["identity"],
+            }))
+            item = {"id": "item-id", "name": "dotfiles/ssh/personal/old-device"}
+            get_item = mock.Mock(side_effect=lambda name, *_args, **_kwargs: (
+                dict(item) if name.endswith("/old-device") else None
+            ))
+            edit_item = mock.Mock(side_effect=lambda value, _session: dict(value))
+            with mock.patch.object(Path, "home", return_value=home), \
+                 mock.patch("socket.gethostname", return_value="new-device"), \
+                 mock.patch.dict(function.__globals__, {
+                     "CONFIG_DIR": config,
+                     "STATE_DIR": state_dir,
+                     "bw_session": mock.Mock(return_value=("session", False)),
+                     "bw_get_item": get_item,
+                     "bw_edit_item": edit_item,
+                     "parse_bootstrap": mock.Mock(return_value={
+                         "git_identities": {"personal": {
+                             "name": "Dovie", "email": "dovie@example.com",
+                         }}
+                     }),
+                     "key_parts": mock.Mock(return_value=("PRIVATE", "PUBLIC")),
+                     "write_identity": mock.Mock(),
+                     "write_finalization_handoff": mock.Mock(),
+                     "run": mock.Mock(),
+                 }):
+                function(argparse.Namespace(
+                    profile="kubuntu-laptop",
+                    old_device="old-device",
+                    new_device="new-device",
+                ))
+            self.assertEqual(
+                json.loads((config / "device.json").read_text())["device_id"],
+                "new-device",
+            )
+            self.assertEqual(json.loads(state_path.read_text())["device"], "new-device")
+            self.assertEqual(
+                (home / ".ssh/dotfiles-personal-new-device.pub").read_text(),
+                "PUBLIC\n",
+            )
+            self.assertEqual(
+                edit_item.call_args.args[0]["name"],
+                "dotfiles/ssh/personal/new-device",
+            )
 
     def test_codex_remote_control_tracks_desktop_core(self):
         service = (
@@ -2190,6 +2276,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("QT_QPA_PLATFORM=wayland", copyq_installer)
         self.assertNotIn("export COPYQ_CLIPBOARD_MIME_SIZE_LIMIT", copyq_installer)
         self.assertIn("--appimage-extract", copyq_installer)
+        self.assertIn('mktemp -d "$app_root/.install.XXXXXX"', copyq_installer)
+        self.assertNotIn('work_dir="$(mktemp -d)"', copyq_installer)
         self.assertIn('app_run="$app_dir/AppRun"', copyq_installer)
         self.assertIn('export APPDIR=', copyq_installer)
         self.assertIn(r'exec \"$app_run\"', copyq_installer)

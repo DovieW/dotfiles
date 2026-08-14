@@ -67,6 +67,22 @@ dot finalize apply --profile kubuntu-laptop
 logical device is registered. `apply` requires a valid tracked manifest and may
 perform privileged changes through the approved Ansible tags.
 
+## Rename before finalization
+
+If the operating-system hostname was corrected after identity bootstrap, use
+the managed migration instead of deleting `device.json` or creating a second
+key:
+
+```bash
+dot device rename OLD-ID NEW-ID --profile kubuntu-laptop
+```
+
+The command requires the rebooted system hostname to equal `NEW-ID`. It renames
+the existing Bitwarden per-device SSH item, preserves its key material, updates
+local signing paths and bootstrap state, and regenerates the finalization
+handoff. Existing GitHub key labels may retain the historical name; labels do
+not affect authentication or signing identity.
+
 The manifest is not a replacement for automatic detection. AMD, Intel, and
 NVIDIA graphics should be handled generically where reliable detection is
 possible. Manifests record which deferred subsystems belong on a machine and

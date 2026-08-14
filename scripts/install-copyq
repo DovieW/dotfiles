@@ -82,7 +82,11 @@ if [[ "$mode" == --check ]]; then
   exit 1
 fi
 
-work_dir="$(mktemp -d)"
+# AppImages must execute themselves to perform `--appimage-extract`. Hardened
+# systems commonly mount /tmp with noexec, so stage beside the persistent app
+# tree on the same executable user filesystem that will run CopyQ.
+install -d -m 0755 "$app_root"
+work_dir="$(mktemp -d "$app_root/.install.XXXXXX")"
 trap 'rm -rf -- "$work_dir"' EXIT
 curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
 expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"

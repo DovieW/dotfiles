@@ -33,3 +33,7 @@ blindly apply the entire `kubuntu-laptop` profile.
 An absent device manifest means the computer is new/unfinalized. A finalized
 manifest is the durable recognition record used by future installs and chats.
 The generated handoff is local state and must not be committed.
+
+If the user corrected the OS hostname after identity bootstrap, use
+`bin/dot device rename OLD NEW --profile PROFILE`; do not delete device state or
+create replacement credentials manually.
