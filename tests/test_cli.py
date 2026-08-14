@@ -173,6 +173,37 @@ class DotCliTests(unittest.TestCase):
             _, info = function(str(device))
         self.assertEqual(info["serial"], "SERIAL123")
 
+    def test_bootstrap_media_recovers_partition_metadata_from_udev(self):
+        module = runpy.run_path(str(DOT))
+        device = Path("/dev/disk/by-id/usb-Test_Drive_SERIAL123-0:0")
+        lsblk = mock.Mock(
+            stdout=json.dumps({
+                "blockdevices": [{
+                    "path": "/dev/sdz", "type": "disk", "tran": "usb",
+                    "rm": True, "size": 1024, "model": "Test Drive",
+                    "serial": None, "children": [{
+                        "path": "/dev/sdz1", "type": "part", "fstype": None,
+                        "label": None, "mountpoints": [],
+                    }],
+                }]
+            })
+        )
+        disk_udev = mock.Mock(stdout="ID_SERIAL_SHORT=SERIAL123\n")
+        partition_udev = mock.Mock(
+            stdout="ID_FS_TYPE=vfat\nID_FS_LABEL=DOTBOOT\n"
+        )
+        findmnt = mock.Mock(stdout="/dev/nvme0n1p2\n")
+        ancestry = mock.Mock(stdout="/dev/nvme0n1\n/dev/nvme0n1p2\n")
+        function = module["bootstrap_usb_info"]
+        with mock.patch.object(Path, "resolve", return_value=Path("/dev/sdz")), \
+             mock.patch.dict(function.__globals__, {"run": mock.Mock(side_effect=[
+                 lsblk, disk_udev, partition_udev, findmnt, ancestry,
+             ])}):
+            _, info = function(str(device))
+        partition = module["bootstrap_partition"](info)
+        self.assertEqual(partition["fstype"], "vfat")
+        self.assertEqual(partition["label"], "DOTBOOT")
+
     def test_bootstrap_media_uses_policykit_without_passwordless_sudo(self):
         module = runpy.run_path(str(DOT))
         function = module["bootstrap_media_privilege_prefix"]
