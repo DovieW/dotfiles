@@ -259,6 +259,15 @@ class DotCliTests(unittest.TestCase):
             with self.assertRaises(module["DotError"]) as raised:
                 function(module["load_profile"]("kubuntu-laptop"), "old-device")
         self.assertIn("dot device rename old-device new-device", str(raised.exception))
+        self.assertIn(str(ROOT / "bin/dot"), str(raised.exception))
+
+    def test_bootstrap_offers_to_migrate_hostname_identity_drift(self):
+        cli = DOT.read_text()
+        self.assertIn(
+            "Migrate the existing device identity to the hostname now? [Y/n]: ",
+            cli,
+        )
+        self.assertIn("cmd_device_rename(", cli)
 
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()

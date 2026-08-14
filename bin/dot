@@ -447,7 +447,8 @@ def bootstrap_preflight(profile: dict[str, Any], device: str) -> dict[str, Any]:
     if device != inferred:
         failures.append(
             f"system hostname implies {inferred!r}, but dotfiles identity is {device!r}; "
-            f"run `dot device rename {device} {inferred} --profile {profile['name']}`"
+            f"run `{ROOT / 'bin/dot'} device rename {device} {inferred} "
+            f"--profile {profile['name']}`"
         )
     free_bytes = shutil.disk_usage(Path.home()).free
     if free_bytes < 4 * 1024**3:
@@ -2807,6 +2808,24 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         ["ansible-playbook", "bw", "gh"],
         "Bootstrap prerequisites are incomplete; remove the bootstrap state and retry.",
     )
+    inferred = inferred_device_id()
+    if device != inferred and sys.stdin.isatty():
+        print(
+            f"The system hostname is `{inferred}`, but bootstrap identity is `{device}`."
+        )
+        choice = input("Migrate the existing device identity to the hostname now? [Y/n]: ").strip().lower()
+        if choice in {"", "y", "yes"}:
+            cmd_device_rename(
+                argparse.Namespace(
+                    old_device=device,
+                    new_device=inferred,
+                    profile=profile["name"],
+                )
+            )
+            device = inferred
+            state["device"] = device
+        elif choice not in {"n", "no"}:
+            raise DotError("Identity-migration choice must be yes or no.")
     bootstrap_preflight(profile, device)
     if not args.skip_secrets:
         def authenticate() -> None:
