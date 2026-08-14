@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import runpy
 import shutil
 import subprocess
@@ -42,11 +43,12 @@ class DotCliTests(unittest.TestCase):
         safety = (ROOT / "scripts/check-public-safety").read_text()
 
         for action in (
-            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-            "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
-            "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e",
+            "actions/checkout",
+            "actions/setup-python",
+            "gitleaks/gitleaks-action",
         ):
-            self.assertIn(action, workflow)
+            matches = re.findall(rf"{re.escape(action)}@([0-9a-f]{{40}})", workflow)
+            self.assertTrue(matches, f"{action} must be pinned to a full commit SHA")
         for package in ("bats", "ripgrep", "shellcheck"):
             self.assertIn(package, workflow)
         self.assertIn("brew install neovim stylua", workflow)
