@@ -1,0 +1,10 @@
+[Unit]
+Description=Remove one-time SDDM autologin after Plasma starts
+After=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/dovie/repos/dotfiles/scripts/remove-one-shot-sddm-autologin
+
+[Install]
+WantedBy=multi-user.target

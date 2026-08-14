@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for _attempt in $(seq 1 120); do
+  if pgrep -u 1000 -x plasmashell >/dev/null; then
+    rm -f /etc/sddm.conf.d/99-dotfiles-nomachine-once.conf
+    systemctl disable dotfiles-remove-sddm-autologin.service
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Plasma did not start; preserving one-time autologin for recovery." >&2
+exit 1
