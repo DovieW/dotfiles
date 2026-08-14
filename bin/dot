@@ -2617,8 +2617,36 @@ def apply_direct(
     return changes
 
 
+def inherit_graphical_session_environment() -> None:
+    """Attach SSH maintenance commands to the active Plasma user session."""
+    if os.environ.get("WAYLAND_DISPLAY") or not command_exists("systemctl"):
+        return
+    manager = run(
+        ["systemctl", "--user", "show-environment"],
+        check=False,
+        capture=True,
+    )
+    if manager.returncode:
+        return
+    allowed = {
+        "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_RUNTIME_DIR",
+    }
+    for line in manager.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key in allowed and value:
+            os.environ.setdefault(key, value)
+    if os.environ.get("WAYLAND_DISPLAY"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
+
+
 def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    if profile.get("features", {}).get("kde"):
+        inherit_graphical_session_environment()
     force_kde = getattr(args, "force_kde", False)
     skip_tags = getattr(args, "skip_tags", None)
     if args.direct or not command_exists("ansible-playbook"):

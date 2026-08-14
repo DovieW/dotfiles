@@ -322,6 +322,32 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         self.assertEqual(state[action], [123])
 
+    def test_ssh_apply_inherits_only_safe_plasma_session_environment(self):
+        module = runpy.run_path(str(DOT))
+        function = module["inherit_graphical_session_environment"]
+        manager = mock.Mock(
+            returncode=0,
+            stdout=(
+                "DISPLAY=:0\n"
+                "WAYLAND_DISPLAY=wayland-0\n"
+                "XDG_RUNTIME_DIR=/run/user/1000\n"
+                "SECRET_SHOULD_NOT_CROSS=private\n"
+            ),
+        )
+        environment = {"PATH": os.environ.get("PATH", "")}
+        with mock.patch.dict(os.environ, environment, clear=True), mock.patch.dict(
+            function.__globals__,
+            {
+                "command_exists": lambda command: command == "systemctl",
+                "run": lambda *args, **kwargs: manager,
+            },
+        ):
+            function()
+            self.assertEqual(os.environ["DISPLAY"], ":0")
+            self.assertEqual(os.environ["WAYLAND_DISPLAY"], "wayland-0")
+            self.assertEqual(os.environ["QT_QPA_PLATFORM"], "wayland")
+            self.assertNotIn("SECRET_SHOULD_NOT_CROSS", os.environ)
+
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()
         agents = (ROOT / "AGENTS.md").read_text()
