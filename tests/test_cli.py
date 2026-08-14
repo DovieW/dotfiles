@@ -269,12 +269,13 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("cmd_device_rename(", cli)
 
-    def test_ansible_preserves_authorized_kde_bootstrap_replacement(self):
+    def test_ansible_does_not_repeat_the_authoritative_kde_drift_check(self):
         playbook = (ROOT / "ansible/local.yml").read_text()
-        self.assertIn(
-            "DOTFILES_KDE_PREFLIGHT_OK: \"{{ lookup('env', 'DOTFILES_KDE_PREFLIGHT_OK') }}\"",
-            playbook,
-        )
+        task = playbook.split("- name: Apply portable configuration", 1)[1]
+        task = task.split("- name: Configure native application window frames", 1)[0]
+        self.assertIn("- --direct", task)
+        self.assertIn("- --force-kde", task)
+        self.assertNotIn("DOTFILES_KDE_PREFLIGHT_OK", task)
 
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()
