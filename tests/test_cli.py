@@ -1616,6 +1616,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("vt.global_cursor_default=0", quiet_resume)
         self.assertIn("dest: /etc/default/grub.d/99-dotfiles-quiet-resume.cfg", playbook)
         self.assertIn("argv: [update-grub]", playbook)
+        self.assertIn('selected_tags & {"kde", "power"}', cli)
         self.assertIn("git, kde, lockscreen, power, tmux", playbook)
 
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
