@@ -101,6 +101,9 @@ if [[ ! -f "$source_image" ]] ||
   curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$source_image"
   printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status
 fi
+# curl creates new files without execute bits. Apply the permission only after
+# the official digest succeeds and before asking the AppImage to extract itself.
+chmod 0755 "$source_image"
 
 # CopyQ keeps its server and clipboard monitor alive after the launcher exits.
 # An AppImage FUSE mount can disappear while those processes still use its

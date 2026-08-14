@@ -2302,6 +2302,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("--appimage-extract", copyq_installer)
         self.assertIn('mktemp -d "$app_root/.install.XXXXXX"', copyq_installer)
         self.assertNotIn('work_dir="$(mktemp -d)"', copyq_installer)
+        self.assertIn('chmod 0755 "$source_image"', copyq_installer)
+        self.assertLess(
+            copyq_installer.index('chmod 0755 "$source_image"'),
+            copyq_installer.index('"$source_image" --appimage-extract'),
+        )
         luna_installer = (ROOT / "scripts/install-luna-ocr").read_text()
         self.assertIn('temporary_root="$install_root"', luna_installer)
         self.assertIn('app_run="$app_dir/AppRun"', copyq_installer)
