@@ -72,12 +72,10 @@
     - key: EnableUPnP
       value: none
   register: dot_nomachine_private_config
+  notify: Restart NoMachine after private-network configuration
 
-- name: Restart NoMachine after private-network configuration
-  become: true
-  ansible.builtin.command:
-    argv: [/etc/NX/nxserver, --restart]
-  when: dot_nomachine_private_config.changed
+- name: Apply pending NoMachine configuration before verification
+  ansible.builtin.meta: flush_handlers
 
 - name: Read NoMachine server status
   become: true

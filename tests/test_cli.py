@@ -33,6 +33,46 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("meshcentral", result.stdout)
         self.assertIn("update", result.stdout)
 
+    def test_ci_runs_complete_pinned_validation(self):
+        workflow = (ROOT / ".github/workflows/validate.yml").read_text()
+        requirements = (
+            ROOT / ".github/requirements-validation.txt"
+        ).read_text()
+        runner = (ROOT / "tests/run").read_text()
+        safety = (ROOT / "scripts/check-public-safety").read_text()
+
+        for action in (
+            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+            "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e",
+        ):
+            self.assertIn(action, workflow)
+        for package in ("bats", "ripgrep", "shellcheck"):
+            self.assertIn(package, workflow)
+        self.assertIn("brew install neovim stylua", workflow)
+        self.assertIn("RequiredVersion 6.0.0", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
+        for requirement in (
+            "ansible-core==2.21.3",
+            "ansible-lint==26.8.0",
+            "yamllint==1.38.0",
+        ):
+            self.assertIn(requirement, requirements)
+        self.assertIn('if [[ "${CI:-}" == true ]]', runner)
+        self.assertIn("ripgrep is required", safety)
+
+    def test_ansible_mutating_commands_report_changes(self):
+        nomachine = (ROOT / "ansible/tasks/nomachine.yml").read_text()
+        tailscale = (ROOT / "ansible/tasks/tailscale.yml").read_text()
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn("notify: Restart NoMachine", nomachine)
+        self.assertIn("ansible.builtin.meta: flush_handlers", nomachine)
+        self.assertIn("handlers:", playbook)
+        operator = tailscale.split(
+            "- name: Allow the desktop user to operate Tailscale", 1
+        )[1].split("- name: Read Tailscale connection state", 1)[0]
+        self.assertIn("changed_when: true", operator)
+
     def test_official_repositories_cover_supported_profiles(self):
         manifest = json.loads((ROOT / "repositories/official.yml").read_text())
         repositories = {entry["name"]: entry for entry in manifest["repositories"]}
@@ -689,7 +729,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("sudo tailscale up", role)
         self.assertIn("tailscale, get, operator", role)
         self.assertIn('tailscale, set, "--operator={{ ansible_user_id }}"', role)
-        self.assertRegex(local, r"tags: \[[^\]]*screenshots, tailscale\]")
+        portable_apply = local.split("- name: Apply portable configuration", 1)[1].split(
+            "- name: Configure native application window frames", 1
+        )[0]
+        self.assertIn("- screenshots", portable_apply)
+        self.assertIn("- tailscale", portable_apply)
         self.assertNotIn("auth-key", role)
         self.assertNotIn("tailscale up --authkey", role)
         self.assertIn("Exec=tailscale systray", systray)
@@ -1742,7 +1786,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("dest: /etc/default/grub.d/99-dotfiles-quiet-resume.cfg", playbook)
         self.assertIn("argv: [update-grub]", playbook)
         self.assertIn('selected_tags & {"kde", "power"}', cli)
-        self.assertIn("git, kde, lockscreen, power, tmux", playbook)
+        portable_apply = playbook.split("- name: Apply portable configuration", 1)[1].split(
+            "- name: Configure native application window frames", 1
+        )[0]
+        for tag in ("git", "kde", "lockscreen", "power", "tmux"):
+            self.assertIn(f"- {tag}", portable_apply)
 
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
@@ -1820,8 +1868,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"--mode"', display)
         self.assertIn('"--status"', display)
         self.assertIn('"internal display policy"', cli)
-        self.assertIn("tmux, nvim, display", playbook)
-        self.assertIn("display, vscode", playbook)
+        portable_apply = playbook.split("- name: Apply portable configuration", 1)[1].split(
+            "- name: Configure native application window frames", 1
+        )[0]
+        for tag in ("tmux", "nvim", "display", "vscode"):
+            self.assertIn(f"- {tag}", portable_apply)
 
         chrome_wrapper = (ROOT / "config/chromium/google-chrome-stable").read_text()
         code_wrapper = (ROOT / "config/chromium/code").read_text()

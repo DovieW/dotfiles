@@ -4,6 +4,11 @@ name: validate
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -11,15 +16,23 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: .github/requirements-validation.txt
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats shellcheck
-          python3 -m pip install --user ansible ansible-lint yamllint
+          sudo apt-get install -y bats ripgrep shellcheck
+          python3 -m pip install --requirement .github/requirements-validation.txt
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install neovim stylua
       - name: Validate
         run: ./tests/run
       - name: Ansible lint
@@ -27,15 +40,18 @@ jobs:
       - name: YAML lint
         run: yamllint ansible .github
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   powershell:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
       - name: Install Pester
         shell: pwsh
-        run: Install-Module Pester -Force -Scope CurrentUser
+        run: Install-Module Pester -RequiredVersion 6.0.0 -Force -Scope CurrentUser
       - name: Test Windows adapter
         shell: pwsh
         run: Invoke-Pester tests/windows.Tests.ps1 -CI

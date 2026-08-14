@@ -346,7 +346,21 @@
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
         '0 configuration change(s)' not in dot_direct_apply.stdout
-      tags: [config, shell, git, kde, lockscreen, power, tmux, nvim, display, vscode, rdp, clipboard, screenshots, tailscale]
+      tags:
+        - config
+        - shell
+        - git
+        - kde
+        - lockscreen
+        - power
+        - tmux
+        - nvim
+        - display
+        - vscode
+        - rdp
+        - clipboard
+        - screenshots
+        - tailscale
 
     - name: Configure native application window frames
       ansible.builtin.command:
@@ -658,3 +672,10 @@
         - ansible_facts.system != "Windows"
         - ansible_facts.user_shell != "/usr/bin/zsh"
       tags: [shell]
+
+  handlers:
+    - name: Restart NoMachine after private-network configuration
+      become: true
+      ansible.builtin.command:
+        argv: [/etc/NX/nxserver, --restart]
+      changed_when: true

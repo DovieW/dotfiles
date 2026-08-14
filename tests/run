@@ -4,6 +4,16 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+skip_or_fail() {
+  local tool="$1"
+  local check="$2"
+  if [[ "${CI:-}" == true ]]; then
+    echo "FAIL $check: $tool is required in CI" >&2
+    exit 1
+  fi
+  echo "SKIP $check: $tool is not installed"
+}
+
 python3 tests/validate_profiles.py
 python3 -m unittest tests/test_cli.py
 
@@ -14,13 +24,13 @@ if command -v shellcheck >/dev/null 2>&1; then
     -not -name git-repo-analysis -print)
   shellcheck "${shell_files[@]}"
 else
-  echo "SKIP shellcheck: not installed"
+  skip_or_fail shellcheck shellcheck
 fi
 
 if command -v bats >/dev/null 2>&1; then
   bats tests/shell.bats
 else
-  echo "SKIP bats: not installed"
+  skip_or_fail bats bats
 fi
 
 if command -v ansible-playbook >/dev/null 2>&1; then
@@ -31,7 +41,7 @@ if command -v ansible-playbook >/dev/null 2>&1; then
     -e dot_profile=kubuntu-laptop \
     -e '{"dot_profile_data":{"schema_version":1,"name":"kubuntu-laptop","packages":{},"features":{}}}'
 else
-  echo "SKIP ansible syntax: not installed"
+  skip_or_fail ansible-playbook "ansible syntax"
 fi
 
 if [[ -d /home/linuxbrew/.linuxbrew/bin ]]; then
@@ -45,9 +55,11 @@ if command -v nvim >/dev/null 2>&1; then
     '+qa'
   if command -v stylua >/dev/null 2>&1; then
     stylua --check config/nvim/init.lua config/nvim/lua config/nvim/tests
+  else
+    skip_or_fail stylua "Neovim formatting"
   fi
 else
-  echo "SKIP Neovim smoke test: not installed"
+  skip_or_fail nvim "Neovim smoke test"
 fi
 
 scripts/check-public-safety

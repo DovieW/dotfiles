@@ -5,6 +5,11 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 failed=0
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "ripgrep is required for the public-safety scan." >&2
+  exit 1
+fi
+
 if find . -path ./.git -prune -o -type f \
   \( -iname '*.ttf' -o -iname '*.otf' -o -iname '*.woff' -o -iname '*.woff2' \) \
   -print | grep -q .; then
