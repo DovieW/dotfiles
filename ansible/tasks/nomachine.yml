@@ -82,6 +82,58 @@
     - dot_nomachine_tailscale_ready
     - dot_nomachine_egl_capture.rc == 0
 
+- name: Preserve normal LAN SSH before enabling the host firewall
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  when: dot_nomachine_tailscale_ready
+
+- name: Allow direct Tailscale peer connectivity
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "41641"
+    proto: udp
+  when: dot_nomachine_tailscale_ready
+
+- name: Allow NoMachine only through Tailscale
+  become: true
+  community.general.ufw:
+    rule: allow
+    interface_in: tailscale0
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  loop:
+    - port: "4000"
+      proto: tcp
+    - port: "4000"
+      proto: udp
+    - port: "4011:4999"
+      proto: udp
+  when: dot_nomachine_tailscale_ready
+
+- name: Deny unsolicited inbound traffic by default
+  become: true
+  community.general.ufw:
+    direction: incoming
+    default: deny
+  when: dot_nomachine_tailscale_ready
+
+- name: Allow outbound traffic by default
+  become: true
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+  when: dot_nomachine_tailscale_ready
+
+- name: Enable the managed host firewall
+  become: true
+  community.general.ufw:
+    state: enabled
+  when: dot_nomachine_tailscale_ready
+
 - name: Restrict NoMachine to private direct Tailscale connections
   become: true
   ansible.builtin.lineinfile:
@@ -92,9 +144,11 @@
     - key: NXDListenAddress
       value: '"{{ dot_nomachine_tailscale_ip.stdout | trim }}"'
     - key: NXUDPPort
-      value: "0"
+      value: "4000"
+    - key: UDPPort
+      value: "4011-4999"
     - key: ConnectPolicy
-      value: "autocreate=1,autoconnect=1,automigrate=1,desktop=0,dialog=0,xsessions=0,udp=0"
+      value: "autocreate=1,autoconnect=1,automigrate=1,desktop=0,dialog=0,xsessions=0,udp=1"
     - key: EnableLocalNetworkBroadcast
       value: "0"
     - key: EnableNetwork
@@ -130,5 +184,5 @@
     msg: >-
       NoMachine is running at nx://{{ dot_nomachine_tailscale_ip.stdout | trim }}:4000.
       Connect with the NoMachine client and this workstation's Linux account.
-      UDP transport is disabled so traffic cannot bypass the Tailscale-only TCP bind.
+      TCP and UDP are restricted to Tailscale by the managed host firewall.
   when: dot_nomachine_tailscale_ready

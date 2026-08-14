@@ -9,7 +9,8 @@ access.
 NoMachine is private to the tailnet:
 
 - the NX daemon binds only to the laptop's active Tailscale IPv4 address;
-- the optional UDP transport is disabled so it cannot listen on other interfaces;
+- the host firewall permits NX TCP and UDP only through `tailscale0`;
+- normal LAN SSH remains allowed while unsolicited inbound traffic is denied;
 - LAN discovery, NoMachine Network, and UPnP router mapping are disabled;
 - no NoMachine account or subscription is required; and
 - the connection uses NoMachine's encrypted NX protocol on port 4000.
@@ -39,7 +40,10 @@ username and password. Both computers must be connected to the tailnet.
 Inside a session, open the NoMachine menu and select **Display**. Enable the
 option that changes the remote display resolution to match the client window.
 NoMachine's Wayland support requires an attached, active physical display and
-does not automatically lock Plasma when the remote client disconnects.
+does not automatically lock Plasma when the remote client disconnects. The
+managed setup disables NoMachine EGL capture on Plasma Wayland and uses its
+fallback capture path; reboot once after the first installation so Plasma no
+longer inherits the installer-added EGL preload.
 
 The package version and SHA-256 are pinned in `ansible/tasks/nomachine.yml`.
 Update both only after checking the release and provider-published digest on
