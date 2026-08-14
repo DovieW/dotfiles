@@ -22,6 +22,7 @@ class DotCliTests(unittest.TestCase):
         result = self.run_dot("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bootstrap", result.stdout)
+        self.assertIn("bootstrap-media", result.stdout)
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
         self.assertIn("gestures", result.stdout)
@@ -31,6 +32,96 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("tailscale", result.stdout)
         self.assertIn("meshcentral", result.stdout)
         self.assertIn("update", result.stdout)
+
+    def test_official_repositories_cover_supported_profiles(self):
+        manifest = json.loads((ROOT / "repositories/official.yml").read_text())
+        repositories = {entry["name"]: entry for entry in manifest["repositories"]}
+        expected = {
+            "obsidian-general",
+            "obsidian-bnh",
+            "obsidian-personal",
+            "homelab-infra",
+            "nvim-config",
+            "openclaw-infra",
+            "vscode-workspaces",
+        }
+        self.assertEqual(set(repositories), expected)
+        supported = {"kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"}
+        for name, entry in repositories.items():
+            profiles = set(entry["profiles"])
+            if name == "obsidian-personal":
+                self.assertEqual(profiles, supported - {"wsl-work"})
+            else:
+                self.assertEqual(profiles, supported)
+            self.assertTrue(entry["url"].startswith("git@github.com:DovieW/"))
+
+    def test_repository_manifest_merge_and_https_bootstrap_url(self):
+        module = runpy.run_path(str(DOT))
+        official = json.loads((ROOT / "repositories/official.yml").read_text())
+        duplicate = dict(official["repositories"][0])
+        merged = module["merged_repositories"]({"repositories": [duplicate]})
+        self.assertEqual(len(merged), len(official["repositories"]))
+        self.assertEqual(
+            module["github_https_url"]("git@github.com:DovieW/example.git"),
+            "https://github.com/DovieW/example.git",
+        )
+        conflict = {**duplicate, "url": "git@github.com:DovieW/other.git"}
+        with self.assertRaises(module["DotError"]):
+            module["merged_repositories"]({"repositories": [conflict]})
+
+    def test_bootstrap_media_verifies_checksums_bundle_and_secret_policy(self):
+        module = runpy.run_path(str(DOT))
+        with tempfile.TemporaryDirectory() as directory:
+            media = Path(directory)
+            payload = media / "payload"
+            payload.mkdir()
+            subprocess.run(
+                ["git", "bundle", "create", str(payload / "dotfiles.bundle"), "HEAD"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+            )
+            manifest = {
+                "schema_version": 1,
+                "commit": subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+                    check=True, capture_output=True,
+                ).stdout.strip(),
+                "contains_secrets": False,
+            }
+            (media / "manifest.json").write_text(json.dumps(manifest))
+            paths = [media / "manifest.json", payload / "dotfiles.bundle"]
+            import hashlib
+            (media / "SHA256SUMS").write_text("".join(
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(media).as_posix()}\n"
+                for path in paths
+            ))
+            self.assertEqual(module["verify_bootstrap_media"](media)["commit"], manifest["commit"])
+            (media / "manifest.json").write_text('{"contains_secrets": true}')
+            with self.assertRaises(module["DotError"]):
+                module["verify_bootstrap_media"](media)
+
+    def test_bootstrap_media_rejects_unstable_device_paths(self):
+        module = runpy.run_path(str(DOT))
+        for target in ("/dev/sda", "/dev/disk/by-id/nvme-example", "relative"):
+            with self.subTest(target=target), self.assertRaises(module["DotError"]):
+                module["bootstrap_usb_info"](target)
+
+    def test_bootstrap_prerequisites_and_chrome_are_managed(self):
+        script = (ROOT / "scripts/bootstrap-prerequisites").read_text()
+        role = (ROOT / "ansible/tasks/chrome.yml").read_text()
+        source = (ROOT / "config/apt/google-chrome.sources").read_text()
+        kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())
+        self.assertTrue(kubuntu["features"]["google_chrome"])
+        self.assertIn("EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796", script)
+        self.assertIn("brew install ansible bitwarden-cli gh jq", script)
+        self.assertIn("EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796", role)
+        self.assertIn("Signed-By: /usr/share/keyrings/google-chrome.gpg", source)
+        for package in (
+            "Bitwarden.CLI", "GitHub.cli", "Google.Chrome", "Python.Python.3.13"
+        ):
+            self.assertIn(package, windows["packages"]["winget"])
 
     def test_codex_remote_control_tracks_desktop_core(self):
         service = (

@@ -1,0 +1,14 @@
+DOTFILES BOOTSTRAP
+==================
+
+Kubuntu: open a terminal in this drive and run:
+  bash START-LINUX.sh
+
+WSL: open the USB drive through /mnt/<drive-letter> and run:
+  bash START-LINUX.sh
+
+Windows: double-click START-WINDOWS.cmd.
+
+The drive contains no passwords, tokens, private repositories, or vault export.
+Internet access and interactive administrator, GitHub, Bitwarden, and 2FA prompts
+are required.

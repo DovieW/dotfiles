@@ -6,6 +6,7 @@
   "features": {
     "anydesk": true,
     "chatgpt_desktop": true,
+    "google_chrome": true,
     "codex_remote_control": true,
     "copyq": true,
     "emoji_picker": true,

@@ -136,6 +136,14 @@
         - (dot_profile_data.packages.apt | default([]) | length) > 0
       tags: [packages]
 
+    - name: Install or upgrade Google Chrome from its signed stable repository
+      ansible.builtin.include_tasks:
+        file: tasks/chrome.yml
+        apply:
+          tags: [packages, chrome, app-updates]
+      when: dot_profile_data.features.google_chrome | default(false)
+      tags: [packages, chrome, app-updates]
+
     - name: Configure the direct-insertion Emoji picker
       ansible.builtin.include_tasks:
         file: tasks/emoji-picker.yml

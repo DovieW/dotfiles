@@ -33,9 +33,11 @@ if LINUXBREW_BIN.is_dir():
     if str(LINUXBREW_BIN) not in path_parts:
         os.environ["PATH"] = os.pathsep.join([str(LINUXBREW_BIN), *path_parts])
 PROFILE_DIR = ROOT / "profiles"
+OFFICIAL_REPOSITORIES_FILE = ROOT / "repositories/official.yml"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dotfiles"
 BACKUP_DIR = STATE_DIR / "backups"
+BOOTSTRAP_MEDIA_SOURCE = ROOT / "bootstrap-media"
 NVIM_CONFIG_DIR = ROOT / "config/nvim"
 NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
@@ -286,6 +288,243 @@ def ensure_device(explicit: str | None = None) -> str:
 
 def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def require_clean_pushed_head() -> tuple[str, str]:
+    status = run(["git", "status", "--porcelain"], cwd=ROOT, capture=True).stdout
+    if status.strip():
+        raise DotError("Bootstrap media requires a clean dotfiles worktree.")
+    branch = run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture=True,
+    )
+    if branch.returncode or not branch.stdout.strip():
+        raise DotError("Bootstrap media cannot be built from a detached HEAD.")
+    upstream = run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        cwd=ROOT,
+        check=False,
+        capture=True,
+    )
+    if upstream.returncode:
+        raise DotError("The current branch has no upstream.")
+    run(["git", "fetch", "--quiet", "origin"], cwd=ROOT)
+    head = run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture=True).stdout.strip()
+    remote = run(["git", "rev-parse", "@{upstream}"], cwd=ROOT, capture=True).stdout.strip()
+    if head != remote:
+        raise DotError("Bootstrap media requires HEAD to match its fetched upstream.")
+    return branch.stdout.strip(), head
+
+
+def build_bootstrap_media(destination: Path) -> dict[str, Any]:
+    branch, commit = require_clean_pushed_head()
+    if destination.exists() and any(destination.iterdir()):
+        raise DotError(f"Bootstrap staging destination is not empty: {destination}")
+    destination.mkdir(parents=True, exist_ok=True)
+    payload = destination / "payload"
+    payload.mkdir()
+    for source in BOOTSTRAP_MEDIA_SOURCE.iterdir():
+        if source.is_file():
+            shutil.copy2(source, destination / source.name)
+    bundle = payload / "dotfiles.bundle"
+    run(
+        ["git", "bundle", "create", str(bundle), f"refs/heads/{branch}"],
+        cwd=ROOT,
+    )
+    run(["git", "bundle", "verify", str(bundle)], cwd=ROOT, capture=True)
+    manifest = {
+        "schema_version": 1,
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "branch": branch,
+        "commit": commit,
+        "origin": "git@github.com:DovieW/dotfiles.git",
+        "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"],
+        "contains_secrets": False,
+    }
+    atomic_text(destination / "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    checksum_paths = sorted(
+        path for path in destination.rglob("*")
+        if path.is_file() and path.name != "SHA256SUMS"
+    )
+    checksums = "".join(
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(destination).as_posix()}\n"
+        for path in checksum_paths
+    )
+    atomic_text(destination / "SHA256SUMS", checksums)
+    return manifest
+
+
+def verify_bootstrap_media(path: Path) -> dict[str, Any]:
+    root = path.resolve()
+    checksums = root / "SHA256SUMS"
+    if not checksums.is_file():
+        raise DotError(f"Missing bootstrap checksum file: {checksums}")
+    for line in checksums.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+        if not match:
+            raise DotError(f"Invalid bootstrap checksum line: {line!r}")
+        candidate = (root / match.group(2)).resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            raise DotError(f"Unsafe or missing bootstrap payload path: {match.group(2)}")
+        actual = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        if actual != match.group(1):
+            raise DotError(f"Bootstrap payload checksum mismatch: {match.group(2)}")
+    manifest = load_json(root / "manifest.json")
+    if manifest.get("schema_version") != 1 or manifest.get("contains_secrets") is not False:
+        raise DotError("Invalid or unsafe bootstrap media manifest.")
+    run(["git", "bundle", "verify", str(root / "payload/dotfiles.bundle")], capture=True)
+    return manifest
+
+
+def bootstrap_usb_info(device: str) -> tuple[Path, dict[str, Any]]:
+    requested = Path(device)
+    if not requested.is_absolute() or not requested.name.startswith("usb-"):
+        raise DotError("Use an absolute stable /dev/disk/by-id/usb-* device path.")
+    try:
+        resolved = requested.resolve(strict=True)
+    except OSError as exc:
+        raise DotError(f"Cannot resolve bootstrap-media device {requested}: {exc}") from exc
+    result = run(
+        [
+            "lsblk", "--json", "--bytes", "--output",
+            "PATH,TYPE,TRAN,RM,SIZE,MODEL,SERIAL,FSTYPE,LABEL,MOUNTPOINTS",
+            str(resolved),
+        ],
+        capture=True,
+    )
+    payload = json.loads(result.stdout)
+    devices = payload.get("blockdevices", [])
+    if len(devices) != 1:
+        raise DotError(f"Could not uniquely inspect {requested}")
+    info = devices[0]
+    if info.get("type") != "disk" or info.get("tran") != "usb" or not info.get("rm"):
+        raise DotError(f"Refusing non-removable or non-USB target: {requested}")
+    root_source = run(["findmnt", "-n", "-o", "SOURCE", "/"], capture=True).stdout.strip()
+    root_ancestry = run(
+        ["lsblk", "--inverse", "--noheadings", "--output", "PATH", root_source],
+        check=False,
+        capture=True,
+    )
+    root_devices = {line.strip() for line in root_ancestry.stdout.splitlines()}
+    if str(resolved) in root_devices:
+        raise DotError("Refusing to use the active system disk as bootstrap media.")
+    return resolved, info
+
+
+def bootstrap_partition(info: dict[str, Any]) -> dict[str, Any] | None:
+    children = info.get("children", []) or []
+    partitions = [child for child in children if child.get("type") == "part"]
+    return partitions[0] if len(partitions) == 1 else None
+
+
+def mounted_bootstrap_path(partition: dict[str, Any]) -> Path:
+    mounts = [item for item in (partition.get("mountpoints") or []) if item]
+    if mounts:
+        return Path(mounts[0])
+    run(["udisksctl", "mount", "--block-device", partition["path"]])
+    refreshed = run(
+        ["lsblk", "--json", "--output", "PATH,MOUNTPOINTS", partition["path"]],
+        capture=True,
+    )
+    values = json.loads(refreshed.stdout)["blockdevices"][0].get("mountpoints") or []
+    mounts = [item for item in values if item]
+    if len(mounts) != 1:
+        raise DotError(f"Could not determine mount point for {partition['path']}")
+    return Path(mounts[0])
+
+
+def install_bootstrap_staging(staging: Path, mount: Path) -> None:
+    if not mount.is_dir():
+        raise DotError(f"Bootstrap media mount is unavailable: {mount}")
+    for existing in mount.iterdir():
+        if existing.is_dir() and not existing.is_symlink():
+            shutil.rmtree(existing)
+        else:
+            existing.unlink()
+    for source in staging.iterdir():
+        destination = mount / source.name
+        if source.is_dir():
+            shutil.copytree(source, destination)
+        else:
+            shutil.copy2(source, destination)
+    run(["sync"])
+    verify_bootstrap_media(mount)
+
+
+def confirm_bootstrap_erase(info: dict[str, Any], args: argparse.Namespace) -> None:
+    serial = str(info.get("serial") or "").strip()
+    if not serial:
+        raise DotError("The USB target has no stable serial number; refusing erase.")
+    print(
+        "Bootstrap-media erase target:\n"
+        f"  model: {str(info.get('model') or '').strip()}\n"
+        f"  serial: {serial}\n"
+        f"  size: {int(info.get('size') or 0) / (1024 ** 3):.1f} GiB"
+    )
+    if args.yes:
+        if args.serial != serial:
+            raise DotError("--yes requires the exact current --serial value.")
+        return
+    if not sys.stdin.isatty():
+        raise DotError("Run interactively to confirm media erasure.")
+    if input("Type the USB serial to continue: ").strip() != serial:
+        raise DotError("USB serial confirmation did not match.")
+    if input("Type ERASE to destroy the existing media: ").strip() != "ERASE":
+        raise DotError("Erase confirmation was cancelled.")
+
+
+def cmd_bootstrap_media(args: argparse.Namespace) -> None:
+    if args.media_action == "verify":
+        manifest = verify_bootstrap_media(Path(args.path))
+        print(f"Bootstrap media verified at commit {manifest['commit']}.")
+        return
+    prepared = tempfile.TemporaryDirectory(prefix="dot-bootstrap-media-")
+    staging = Path(prepared.name)
+    manifest = build_bootstrap_media(staging)
+    resolved, info = bootstrap_usb_info(args.device)
+    partition = bootstrap_partition(info)
+    if args.media_action == "refresh":
+        if partition is None or partition.get("label") != "DOTBOOT" or partition.get("fstype") not in {"vfat", "fat32"}:
+            raise DotError("Refresh requires one existing FAT32 partition labeled DOTBOOT.")
+    else:
+        if any(item for child in (info.get("children") or []) for item in (child.get("mountpoints") or []) if item):
+            raise DotError("Unmount every target partition before creating bootstrap media.")
+        confirm_bootstrap_erase(info, args)
+        require_commands(
+            ["lsblk", "findmnt", "sfdisk", "mkfs.vfat", "partprobe", "udisksctl"],
+            "Install util-linux, dosfstools, parted, and udisks2, then retry.",
+        )
+        run(["sudo", "wipefs", "--all", str(resolved)])
+        subprocess.run(
+            ["sudo", "sfdisk", str(resolved)],
+            input="label: dos\n, , c, *\n",
+            text=True,
+            check=True,
+        )
+        run(["sudo", "partprobe", str(resolved)])
+        for _ in range(20):
+            time.sleep(0.25)
+            _, refreshed = bootstrap_usb_info(args.device)
+            partition = bootstrap_partition(refreshed)
+            if partition:
+                break
+        if partition is None:
+            raise DotError("The new USB partition did not appear.")
+        run(["sudo", "mkfs.vfat", "-F", "32", "-n", "DOTBOOT", partition["path"]])
+        _, refreshed = bootstrap_usb_info(args.device)
+        partition = bootstrap_partition(refreshed)
+        if partition is None:
+            raise DotError("The formatted USB partition disappeared.")
+    try:
+        mount = mounted_bootstrap_path(partition)
+        install_bootstrap_staging(staging, mount)
+        run(["udisksctl", "unmount", "--block-device", partition["path"]])
+        run(["udisksctl", "power-off", "--block-device", str(resolved)])
+    finally:
+        prepared.cleanup()
+    print(f"Bootstrap media {args.media_action} complete at commit {manifest['commit']}; the USB is powered off.")
 
 
 def panel_manifest() -> dict[str, Any]:
@@ -2211,17 +2450,77 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         require_commands(["pkg"], "Run: pkg install git openssh python nodejs-lts zsh")
     else:
         require_commands(["git", "python3"], "Install Git and Python 3 with the system package manager.")
-    if not args.skip_secrets:
-        cmd_secrets_sync(argparse.Namespace(profile=args.profile, device=device, no_register=False))
-    cmd_apply(
-        argparse.Namespace(
-            profile=args.profile,
-            tags=None,
-            check=False,
-            direct=False,
-            force_kde=True,
-        )
+    state_path = STATE_DIR / "bootstrap" / f"{profile['name']}.json"
+    state = load_json(state_path) if state_path.exists() else {
+        "schema_version": 1,
+        "profile": profile["name"],
+        "device": device,
+        "completed": [],
+    }
+    if state.get("profile") != profile["name"] or state.get("device") != device:
+        raise DotError(f"Bootstrap state belongs to another profile or device: {state_path}")
+
+    def phase(name: str, action: Callable[[], None]) -> None:
+        if name in state["completed"]:
+            print(f"Bootstrap phase already complete: {name}")
+            return
+        print(f"Bootstrap phase: {name}")
+        action()
+        state["completed"].append(name)
+        atomic_text(state_path, json.dumps(state, indent=2) + "\n", 0o600)
+
+    phase(
+        "prerequisites",
+        lambda: run([str(ROOT / "scripts/bootstrap-prerequisites"), profile["name"]], cwd=ROOT),
     )
+    if LINUXBREW_BIN.is_dir():
+        os.environ["PATH"] = os.pathsep.join(
+            [str(LINUXBREW_BIN), *os.environ.get("PATH", "").split(os.pathsep)]
+        )
+    require_commands(
+        ["ansible-playbook", "bw", "gh"],
+        "Bootstrap prerequisites are incomplete; remove the bootstrap state and retry.",
+    )
+    if not args.skip_secrets:
+        def authenticate() -> None:
+            if profile["name"] == "kubuntu-laptop":
+                for executable in ("google-chrome-stable", "bitwarden"):
+                    path = shutil.which(executable)
+                    if path:
+                        subprocess.Popen(
+                            [path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                print(
+                    "Chrome and Bitwarden are installed and opening. Log in to Bitwarden "
+                    "Desktop and enable its SSH agent before continuing."
+                )
+                if sys.stdin.isatty():
+                    input("Press Enter to continue with GitHub and Bitwarden CLI authorization: ")
+            cmd_secrets_sync(
+                argparse.Namespace(profile=args.profile, device=device, no_register=False)
+            )
+
+        phase("identity", authenticate)
+        phase(
+            "repositories",
+            lambda: cmd_repos_sync(argparse.Namespace(profile=args.profile)),
+        )
+    phase(
+        "profile",
+        lambda: cmd_apply(
+            argparse.Namespace(
+                profile=args.profile,
+                tags=None,
+                check=False,
+                direct=False,
+                force_kde=True,
+            )
+        ),
+    )
+    print(f"Bootstrap completed for {profile['name']}. Run dot doctor --profile {profile['name']}.")
 
 
 def _bw_capture_session(action: str) -> tuple[str | None, int]:
@@ -2629,12 +2928,68 @@ def parse_bootstrap(session: str) -> dict[str, Any]:
         raise DotError(f"{BW_BOOTSTRAP_ITEM} notes are not valid JSON: {exc}") from exc
 
 
+def repository_entries(manifest: dict[str, Any], source: str) -> list[dict[str, Any]]:
+    entries = manifest.get("repositories", [])
+    if not isinstance(entries, list):
+        raise DotError(f"{source} repositories must be a list")
+    normalized: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not all(
+            isinstance(entry.get(key), str) and entry[key]
+            for key in ("name", "url", "path")
+        ) or not isinstance(entry.get("profiles"), list):
+            raise DotError(f"Invalid repository entry in {source}")
+        normalized.append(entry)
+    return normalized
+
+
+def merged_repositories(private_manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    official = load_json(OFFICIAL_REPOSITORIES_FILE)
+    if official.get("schema_version") != 1:
+        raise DotError(f"Invalid official repository manifest: {OFFICIAL_REPOSITORIES_FILE}")
+    merged: list[dict[str, Any]] = []
+    by_name: dict[str, dict[str, Any]] = {}
+    by_path: dict[str, dict[str, Any]] = {}
+    for entry in [
+        *repository_entries(official, str(OFFICIAL_REPOSITORIES_FILE)),
+        *repository_entries(private_manifest, BW_BOOTSTRAP_ITEM),
+    ]:
+        prior = by_name.get(entry["name"]) or by_path.get(entry["path"])
+        if prior:
+            # Official profile ownership wins over a legacy private duplicate.
+            comparable = ("name", "url", "path")
+            if any(prior.get(key) != entry.get(key) for key in comparable):
+                raise DotError(
+                    "Repository manifest conflict for "
+                    f"{entry['name']} at {entry['path']}"
+                )
+            continue
+        copy = dict(entry)
+        merged.append(copy)
+        by_name[copy["name"]] = copy
+        by_path[copy["path"]] = copy
+    return merged
+
+
+def github_https_url(url: str) -> str:
+    match = re.fullmatch(r"git@github\.com:([^/]+)/(.+)", url)
+    if not match:
+        return url
+    repository = match.group(2)
+    if repository.endswith(".git"):
+        repository = repository[:-4]
+    return f"https://github.com/{match.group(1)}/{repository}.git"
+
+
 def cmd_repos_sync(args: argparse.Namespace) -> None:
     profile_name = normalize_profile(args.profile)
     session, should_lock = bw_session()
     try:
         manifest = parse_bootstrap(session)
-        for repo in manifest.get("repositories", []):
+        repositories = merged_repositories(manifest)
+        if command_exists("gh"):
+            run(["gh", "auth", "setup-git"], check=False)
+        for repo in repositories:
             if profile_name not in repo.get("profiles", []):
                 continue
             destination = Path(os.path.expandvars(os.path.expanduser(repo["path"])))
@@ -2646,7 +3001,10 @@ def cmd_repos_sync(args: argparse.Namespace) -> None:
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 print(f"Cloning {repo['name']}")
-                run(["git", "clone", repo["url"], str(destination)])
+                clone_url = github_https_url(repo["url"])
+                run(["git", "clone", clone_url, str(destination)])
+                if clone_url != repo["url"]:
+                    run(["git", "-C", str(destination), "remote", "set-url", "origin", repo["url"]])
     finally:
         if should_lock:
             run(["bw", "lock"], check=False)
@@ -5402,7 +5760,7 @@ def palette_repositories_menu(profile: str) -> None:
                 (
                     "sync",
                     "Sync managed repositories",
-                    "Read the private Bitwarden manifest and clone or fetch repositories",
+                    "Clone official repositories plus optional private Bitwarden entries",
                 ),
                 (
                     "add",
@@ -7726,6 +8084,19 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--device")
     bootstrap.add_argument("--skip-secrets", action="store_true")
     bootstrap.set_defaults(func=cmd_bootstrap)
+    bootstrap_media = sub.add_parser("bootstrap-media")
+    bootstrap_media_sub = bootstrap_media.add_subparsers(dest="media_action", required=True)
+    media_create = bootstrap_media_sub.add_parser("create")
+    media_create.add_argument("--device", required=True)
+    media_create.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
+    media_create.add_argument("--serial", help=argparse.SUPPRESS)
+    media_create.set_defaults(func=cmd_bootstrap_media)
+    media_refresh = bootstrap_media_sub.add_parser("refresh")
+    media_refresh.add_argument("--device", required=True)
+    media_refresh.set_defaults(func=cmd_bootstrap_media)
+    media_verify = bootstrap_media_sub.add_parser("verify")
+    media_verify.add_argument("--path", required=True)
+    media_verify.set_defaults(func=cmd_bootstrap_media)
     apply = sub.add_parser("apply")
     apply.add_argument("--profile", required=True)
     apply.add_argument("--tags")

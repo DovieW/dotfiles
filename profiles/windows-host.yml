@@ -11,10 +11,14 @@
   "packages": {
     "winget": [
       "Bitwarden.Bitwarden",
+      "Bitwarden.CLI",
       "Git.Git",
+      "GitHub.cli",
+      "Google.Chrome",
       "Microsoft.PowerShell",
       "Microsoft.VisualStudioCode",
       "Microsoft.WindowsTerminal",
+      "Python.Python.3.13",
       "Tailscale.Tailscale"
     ],
     "scoop": ["autohotkey", "bat", "fd", "fzf", "jq", "ripgrep", "zoxide"],

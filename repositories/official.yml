@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    {
+      "name": "obsidian-general",
+      "url": "git@github.com:DovieW/obsidian-general.git",
+      "path": "~/repos/Obsidian/General",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    },
+    {
+      "name": "obsidian-bnh",
+      "url": "git@github.com:DovieW/obsidian-bnh.git",
+      "path": "~/repos/Obsidian/BnH",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    },
+    {
+      "name": "obsidian-personal",
+      "url": "git@github.com:DovieW/obsidian-personal.git",
+      "path": "~/repos/Obsidian/Personal",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal"]
+    },
+    {
+      "name": "homelab-infra",
+      "url": "git@github.com:DovieW/homelab-infra.git",
+      "path": "~/repos/homelab-infra",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    },
+    {
+      "name": "nvim-config",
+      "url": "git@github.com:DovieW/nvim-config.git",
+      "path": "~/repos/nvim-config",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    },
+    {
+      "name": "openclaw-infra",
+      "url": "git@github.com:DovieW/openclaw-infra.git",
+      "path": "~/repos/openclaw-infra",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    },
+    {
+      "name": "vscode-workspaces",
+      "url": "git@github.com:DovieW/vscode-workspaces.git",
+      "path": "~/repos/vscode-workspaces",
+      "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"]
+    }
+  ]
+}

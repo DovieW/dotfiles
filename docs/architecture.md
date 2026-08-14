@@ -6,9 +6,12 @@ This repository contains portable configuration, setup logic, schemas, and
 documentation. The private `files` repository continues to contain projects,
 exports, backups, third-party bundles, and private service state.
 
-Secrets and the full repository clone manifest live in Bitwarden. Generated
-identity files live under `~/.config/dotfiles` with mode `0600`. Runtime state
-and rollback data live under `~/.local/state/dotfiles`.
+Secrets and optional private repository entries live in Bitwarden. The
+non-secret baseline clone set lives in `repositories/official.yml`; an exact
+private duplicate is ignored and a conflicting name, URL, or destination is
+rejected. Generated identity files live under `~/.config/dotfiles` with mode
+`0600`. Runtime state and rollback data live under
+`~/.local/state/dotfiles`.
 
 ## Profiles
 

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+profile="${1:-}"
+
+case "$profile" in
+  kubuntu-laptop | wsl-personal | wsl-work) ;;
+  *)
+    echo "Usage: bootstrap-prerequisites PROFILE" >&2
+    exit 2
+    ;;
+esac
+
+if [[ ! -r /etc/os-release ]]; then
+  echo "A Debian/Ubuntu-style Linux environment is required." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source /etc/os-release
+if [[ "${ID:-}" != ubuntu && "${ID_LIKE:-}" != *ubuntu* && "${ID_LIKE:-}" != *debian* ]]; then
+  echo "Unsupported Linux distribution: ${PRETTY_NAME:-unknown}" >&2
+  exit 1
+fi
+
+sudo apt-get update
+sudo apt-get install -y build-essential ca-certificates curl file git gnupg procps python3
+
+if [[ "$profile" == kubuntu-laptop ]]; then
+  key_tmp="$(mktemp)"
+  keyring_tmp="$(mktemp)"
+  trap 'rm -f "$key_tmp" "$keyring_tmp"' EXIT
+  curl --fail --silent --show-error --location \
+    https://dl.google.com/linux/linux_signing_key.pub --output "$key_tmp"
+  fingerprint="$(gpg --show-keys --with-colons "$key_tmp" | awk -F: '$1 == "fpr" { print $10; exit }')"
+  if [[ "$fingerprint" != EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796 ]]; then
+    echo "Google Linux signing-key fingerprint did not match the managed value." >&2
+    exit 1
+  fi
+  gpg --batch --yes --dearmor --output "$keyring_tmp" "$key_tmp"
+  sudo install -m 0644 "$keyring_tmp" /usr/share/keyrings/google-chrome.gpg
+  printf '%s\n' \
+    'deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main' \
+    | sudo tee /etc/apt/sources.list.d/google-chrome.list >/dev/null
+  sudo apt-get update
+  sudo apt-get install -y google-chrome-stable
+
+fi
+
+brew_bin=/home/linuxbrew/.linuxbrew/bin/brew
+if [[ ! -x "$brew_bin" ]]; then
+  installer="$(mktemp)"
+  trap 'rm -f "${key_tmp:-}" "${keyring_tmp:-}" "$installer"' EXIT
+  curl --fail --silent --show-error --location \
+    https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+    --output "$installer"
+  if [[ "$(sed -n '1p' "$installer")" != '#!/bin/bash' ]] ||
+    ! grep -Fq 'HOMEBREW_BREW_DEFAULT_GIT_REMOTE="https://github.com/Homebrew/brew"' "$installer"; then
+    echo "Downloaded Homebrew installer did not have the expected structure." >&2
+    exit 1
+  fi
+  NONINTERACTIVE=1 /bin/bash "$installer"
+fi
+
+eval "$("$brew_bin" shellenv)"
+brew update
+brew install ansible bitwarden-cli gh jq
+
+if [[ "$profile" == kubuntu-laptop ]]; then
+  bitwarden_deb="$($root/scripts/fetch-external-deb bitwarden)"
+  sudo apt-get install -y "$bitwarden_deb"
+fi
+
+echo "Bootstrap prerequisites are ready for $profile."

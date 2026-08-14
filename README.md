@@ -69,6 +69,27 @@ flowchart LR
 
 ## Quick start
 
+### Bootstrap USB
+
+Build a cross-platform first-login USB only from a clean commit that has been
+pushed to its upstream:
+
+```bash
+dot bootstrap-media create --device /dev/disk/by-id/usb-VENDOR_MODEL_SERIAL-0:0
+```
+
+The command re-identifies the removable USB, rejects system disks and mounted
+targets, and requires the current serial plus `ERASE` before formatting one
+portable FAT32 partition. The drive contains a checksummed Git bundle and
+Kubuntu, WSL, and Windows launchers. It deliberately contains no credentials,
+vault export, private repository history, or uncommitted files.
+
+Use `dot bootstrap-media refresh --device ...` to update an existing `DOTBOOT`
+drive, or `dot bootstrap-media verify --path /run/media/$USER/DOTBOOT` to verify
+one without changing it. On a new machine, follow `START-HERE.txt`; the guided
+flow installs Chrome and Bitwarden before requesting GitHub and Bitwarden CLI
+authentication.
+
 ### Kubuntu or WSL
 
 ```bash
@@ -300,8 +321,9 @@ them.
 
 ## Credentials without secret sprawl
 
-Bitwarden stores the private repository manifest and one deterministically
-named Ed25519 key per physical device and account. Kubuntu and Windows use
+Dotfiles stores the non-secret official repository manifest; Bitwarden stores
+optional private entries and one deterministically named Ed25519 key per
+physical device and account. Kubuntu and Windows use
 Bitwarden’s SSH agent; WSL and Termux receive permission-locked key files during
 explicit setup.
 
@@ -317,6 +339,15 @@ logout/login recovery.
 
 Private keys, tokens, environment files, Bitwarden data, and proprietary
 Microsoft font files are never committed.
+
+The bootstrap USB follows the same boundary. Recovery codes and emergency vault
+material belong on a separate recovery artifact, not on convenient setup media.
+
+The official baseline repository set lives in `repositories/official.yml` and
+is cloned after GitHub authentication. All supported computer profiles receive
+the General and BnH vaults plus homelab-infra, nvim-config, openclaw-infra, and
+vscode-workspaces. The Personal vault is also cloned everywhere except
+`wsl-work`. Optional private manifest entries can still live in Bitwarden.
 
 To create the private bootstrap note on a new vault:
 

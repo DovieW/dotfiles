@@ -21,6 +21,7 @@
     "fzf": {"provider": "brew"},
     "fzf-tab": {"provider": "brew"},
     "git": {"provider": "apt"},
+    "google-chrome-stable": {"provider": "apt"},
     "glow": {"provider": "brew"},
     "jq": {"provider": "brew"},
     "kdialog": {"provider": "apt"},

@@ -1,0 +1,70 @@
+---
+- name: Require a supported Chrome host
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+      - ansible_facts.architecture == "x86_64"
+    fail_msg: Google Chrome is managed only on amd64 Debian/Ubuntu hosts.
+
+- name: Install Chrome repository prerequisites
+  become: true
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, gnupg]
+    state: present
+    update_cache: true
+
+- name: Download Google's active Linux signing key
+  ansible.builtin.get_url:
+    url: https://dl.google.com/linux/linux_signing_key.pub
+    dest: /tmp/dotfiles-google-linux-signing-key.pub
+    mode: "0644"
+  register: dot_google_key
+
+- name: Read Google's primary signing-key fingerprint
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --show-keys
+      - --with-colons
+      - /tmp/dotfiles-google-linux-signing-key.pub
+  register: dot_google_key_details
+  changed_when: false
+
+- name: Verify Google's primary signing key
+  ansible.builtin.assert:
+    that:
+      - "'fpr:::::::::EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796:' in dot_google_key_details.stdout"
+    fail_msg: Google's Linux signing-key fingerprint did not match the managed value.
+
+- name: Check the Chrome APT keyring
+  ansible.builtin.stat:
+    path: /usr/share/keyrings/google-chrome.gpg
+  register: dot_google_keyring
+
+- name: Install Google's Chrome APT keyring
+  become: true
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --batch
+      - --yes
+      - --dearmor
+      - --output
+      - /usr/share/keyrings/google-chrome.gpg
+      - /tmp/dotfiles-google-linux-signing-key.pub
+  when: dot_google_key.changed or not dot_google_keyring.stat.exists
+  changed_when: true
+
+- name: Install the managed Chrome APT source
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/google-chrome.sources"
+    dest: /etc/apt/sources.list.d/google-chrome.sources
+    mode: "0644"
+
+- name: Install the latest Google Chrome stable package  # noqa package-latest
+  become: true
+  ansible.builtin.apt:
+    name: google-chrome-stable
+    state: latest
+    update_cache: true
