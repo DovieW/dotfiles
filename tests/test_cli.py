@@ -269,6 +269,13 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("cmd_device_rename(", cli)
 
+    def test_ansible_preserves_authorized_kde_bootstrap_replacement(self):
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertIn(
+            "DOTFILES_KDE_PREFLIGHT_OK: \"{{ lookup('env', 'DOTFILES_KDE_PREFLIGHT_OK') }}\"",
+            playbook,
+        )
+
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()
         agents = (ROOT / "AGENTS.md").read_text()

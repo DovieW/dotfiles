@@ -342,6 +342,11 @@
           - --direct
           - --tags
           - "{{ ansible_run_tags | join(',') }}"
+      environment:
+        # The controller performs the authoritative KDE drift check before it
+        # starts this play. Preserve an intentional bootstrap --force-kde
+        # decision across Ansible's local module-process boundary.
+        DOTFILES_KDE_PREFLIGHT_OK: "{{ lookup('env', 'DOTFILES_KDE_PREFLIGHT_OK') }}"
       register: dot_direct_apply
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and
