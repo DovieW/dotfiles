@@ -13,19 +13,28 @@
     argv: [tailscale, ip, -4]
   register: dot_nomachine_tailscale_ip
   changed_when: false
+  failed_when: false
   check_mode: false
 
-- name: Require one active Tailscale IPv4 address
-  ansible.builtin.assert:
-    that:
-      - dot_nomachine_tailscale_ip.rc == 0
-      - dot_nomachine_tailscale_ip.stdout_lines | length == 1
-      - >-
-        (dot_nomachine_tailscale_ip.stdout | trim) is
-        match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$')
-    fail_msg: >-
-      NoMachine is intentionally Tailscale-only. Connect this laptop to its
-      tailnet before applying the nomachine tag.
+- name: Record whether the private NoMachine endpoint can be configured
+  ansible.builtin.set_fact:
+    dot_nomachine_tailscale_ready: >-
+      {{
+        dot_nomachine_tailscale_ip.rc == 0
+        and dot_nomachine_tailscale_ip.stdout_lines | length == 1
+        and (dot_nomachine_tailscale_ip.stdout | trim)
+          is match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$')
+      }}
+
+- name: Explain deferred NoMachine enrollment
+  ansible.builtin.debug:
+    msg: >-
+      NoMachine was not installed because this workstation does not yet have
+      an active Tailscale IPv4 address. Finish with `sudo tailscale up`, then
+      run `dot apply --profile kubuntu-laptop --tags nomachine`. Deferring the
+      package prevents its default listener from starting before it can be
+      bound safely to Tailscale.
+  when: not dot_nomachine_tailscale_ready
 
 - name: Create the managed package cache
   become: true
@@ -35,6 +44,7 @@
     owner: root
     group: root
     mode: "0755"
+  when: dot_nomachine_tailscale_ready
 
 - name: Download the official NoMachine free-edition package
   become: true
@@ -47,12 +57,14 @@
     owner: root
     group: root
     mode: "0644"
+  when: dot_nomachine_tailscale_ready
 
 - name: Install NoMachine
   become: true
   ansible.builtin.apt:
     deb: /var/cache/dotfiles/nomachine_9.8.2_1_amd64.deb
     state: present
+  when: dot_nomachine_tailscale_ready
 
 - name: Restrict NoMachine to private direct Tailscale connections
   become: true
@@ -73,9 +85,11 @@
       value: none
   register: dot_nomachine_private_config
   notify: Restart NoMachine after private-network configuration
+  when: dot_nomachine_tailscale_ready
 
 - name: Apply pending NoMachine configuration before verification
   ansible.builtin.meta: flush_handlers
+  when: dot_nomachine_tailscale_ready
 
 - name: Read NoMachine server status
   become: true
@@ -83,6 +97,7 @@
     argv: [/etc/NX/nxserver, --status]
   register: dot_nomachine_status
   changed_when: false
+  when: dot_nomachine_tailscale_ready
 
 - name: Verify the NoMachine NX listener
   ansible.builtin.wait_for:
@@ -90,6 +105,7 @@
     port: 4000
     state: started
     timeout: 15
+  when: dot_nomachine_tailscale_ready
 
 - name: Report the private NoMachine endpoint
   ansible.builtin.debug:
@@ -97,3 +113,4 @@
       NoMachine is running at nx://{{ dot_nomachine_tailscale_ip.stdout | trim }}:4000.
       Connect with the NoMachine client and this workstation's Linux account.
       UDP transport is disabled so traffic cannot bypass the Tailscale-only TCP bind.
+  when: dot_nomachine_tailscale_ready

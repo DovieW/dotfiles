@@ -20,6 +20,18 @@ Install or repair it with:
 dot apply --profile kubuntu-laptop --tags nomachine
 ```
 
+On a new workstation, the main bootstrap safely defers NoMachine when Tailscale
+has not been enrolled yet. Complete the one-time browser flow first, then apply
+the deferred component:
+
+```bash
+sudo tailscale up
+dot apply --profile kubuntu-laptop --tags nomachine
+```
+
+NoMachine is not installed before enrollment because its listener cannot be
+restricted to a Tailscale address until that address exists.
+
 Install the NoMachine client on the connecting computer and connect to the IP
 shown by `tailscale ip -4`, port `4000`, using this laptop's normal Linux
 username and password. Both computers must be connected to the tailnet.

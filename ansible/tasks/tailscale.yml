@@ -122,11 +122,11 @@
 - name: Allow the desktop user to operate Tailscale
   become: true
   ansible.builtin.command:
-    argv: [tailscale, set, "--operator={{ ansible_user_id }}"]
+    argv: [tailscale, set, "--operator={{ ansible_facts['user_id'] }}"]
   changed_when: true
   when:
     - not ansible_check_mode
-    - dot_tailscale_operator.stdout | trim != ansible_user_id
+    - dot_tailscale_operator.stdout | trim != ansible_facts['user_id']
 
 - name: Read Tailscale connection state
   ansible.builtin.command:

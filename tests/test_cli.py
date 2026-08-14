@@ -69,6 +69,9 @@ class DotCliTests(unittest.TestCase):
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("notify: Restart NoMachine", nomachine)
         self.assertIn("ansible.builtin.meta: flush_handlers", nomachine)
+        self.assertIn("failed_when: false", nomachine)
+        self.assertIn("when: not dot_nomachine_tailscale_ready", nomachine)
+        self.assertIn("when: dot_nomachine_tailscale_ready", nomachine)
         self.assertIn("handlers:", playbook)
         operator = tailscale.split(
             "- name: Allow the desktop user to operate Tailscale", 1
@@ -730,7 +733,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("name: tailscaled", role)
         self.assertIn("sudo tailscale up", role)
         self.assertIn("tailscale, get, operator", role)
-        self.assertIn('tailscale, set, "--operator={{ ansible_user_id }}"', role)
+        self.assertIn(
+            'tailscale, set, "--operator={{ ansible_facts[\'user_id\'] }}"', role
+        )
         portable_apply = local.split("- name: Apply portable configuration", 1)[1].split(
             "- name: Configure native application window frames", 1
         )[0]
@@ -759,6 +764,8 @@ class DotCliTests(unittest.TestCase):
         self.assertTrue(kubuntu["features"]["nomachine"])
         self.assertIn("tasks/nomachine.yml", local)
         self.assertIn("tailscale, ip, -4", task)
+        self.assertIn("NoMachine was not installed", task)
+        self.assertIn("failed_when: false", task)
         self.assertIn("NXDListenAddress", task)
         self.assertIn("NXUDPPort", task)
         self.assertIn("EnableLocalNetworkBroadcast", task)
