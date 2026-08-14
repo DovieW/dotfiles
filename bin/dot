@@ -401,6 +401,23 @@ def bootstrap_usb_info(device: str) -> tuple[Path, dict[str, Any]]:
     info = devices[0]
     if info.get("type") != "disk" or info.get("tran") != "usb" or not info.get("rm"):
         raise DotError(f"Refusing non-removable or non-USB target: {requested}")
+    properties = run(
+        ["udevadm", "info", "--query=property", f"--name={resolved}"],
+        check=False,
+        capture=True,
+    )
+    udev = dict(
+        line.split("=", 1)
+        for line in properties.stdout.splitlines()
+        if "=" in line
+    )
+    if not info.get("serial"):
+        info["serial"] = udev.get("ID_SERIAL_SHORT")
+    if not info.get("model"):
+        info["model"] = udev.get("ID_MODEL", "").replace("_", " ")
+    stable_serial = udev.get("ID_SERIAL_SHORT")
+    if not stable_serial or stable_serial not in requested.name:
+        raise DotError("The stable USB path does not contain the device's current udev serial.")
     root_source = run(["findmnt", "-n", "-o", "SOURCE", "/"], capture=True).stdout.strip()
     root_ancestry = run(
         ["lsblk", "--inverse", "--noheadings", "--output", "PATH", root_source],

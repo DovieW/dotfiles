@@ -107,6 +107,27 @@ class DotCliTests(unittest.TestCase):
             with self.subTest(target=target), self.assertRaises(module["DotError"]):
                 module["bootstrap_usb_info"](target)
 
+    def test_bootstrap_media_recovers_usb_serial_from_udev(self):
+        module = runpy.run_path(str(DOT))
+        device = Path("/dev/disk/by-id/usb-Test_Drive_SERIAL123-0:0")
+        lsblk = mock.Mock(
+            stdout=json.dumps({
+                "blockdevices": [{
+                    "path": "/dev/sdz", "type": "disk", "tran": "usb",
+                    "rm": True, "size": 1024, "model": "Test Drive",
+                    "serial": None, "children": [],
+                }]
+            })
+        )
+        udev = mock.Mock(stdout="ID_SERIAL_SHORT=SERIAL123\n")
+        findmnt = mock.Mock(stdout="/dev/nvme0n1p2\n")
+        ancestry = mock.Mock(stdout="/dev/nvme0n1\n/dev/nvme0n1p2\n")
+        function = module["bootstrap_usb_info"]
+        with mock.patch.object(Path, "resolve", return_value=Path("/dev/sdz")), \
+             mock.patch.dict(function.__globals__, {"run": mock.Mock(side_effect=[lsblk, udev, findmnt, ancestry])}):
+            _, info = function(str(device))
+        self.assertEqual(info["serial"], "SERIAL123")
+
     def test_bootstrap_prerequisites_and_chrome_are_managed(self):
         script = (ROOT / "scripts/bootstrap-prerequisites").read_text()
         role = (ROOT / "ansible/tasks/chrome.yml").read_text()
