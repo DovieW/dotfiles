@@ -53,6 +53,8 @@ FINALIZATION_DEFERRED_TAGS = (
 )
 FINALIZATION_HANDOFF = STATE_DIR / "finalization-handoff.md"
 FINALIZATION_INVENTORY = STATE_DIR / "finalization-inventory.json"
+BOOTSTRAP_PREFLIGHT = STATE_DIR / "bootstrap-preflight.json"
+BOOTSTRAP_SUPPORT = STATE_DIR / "bootstrap-support.txt"
 MESH_AGENT_CONFIG_PATHS = (
     Path("/usr/local/mesh_services/meshagent/meshagent.msh"),
     Path("/usr/local/mesh/meshagent.msh"),
@@ -427,6 +429,101 @@ vault exports, or private keys in the repository or this handoff.
 """
     atomic_text(FINALIZATION_HANDOFF, handoff, 0o600)
     return FINALIZATION_HANDOFF
+
+
+def bootstrap_preflight(profile: dict[str, Any], device: str) -> dict[str, Any]:
+    expected_platform = {
+        "kubuntu-laptop": "linux",
+        "wsl-personal": "wsl",
+        "wsl-work": "wsl",
+        "termux": "termux",
+    }.get(profile["name"])
+    actual_platform = infer_platform()
+    failures = []
+    warnings = []
+    if expected_platform and actual_platform != expected_platform:
+        failures.append(f"platform is {actual_platform}; expected {expected_platform}")
+    inferred = inferred_device_id()
+    if device != inferred:
+        failures.append(
+            f"system hostname implies {inferred!r}, but dotfiles identity is {device!r}; "
+            f"run `dot device rename {device} {inferred} --profile {profile['name']}`"
+        )
+    free_bytes = shutil.disk_usage(Path.home()).free
+    if free_bytes < 4 * 1024**3:
+        failures.append(f"home filesystem has only {free_bytes / 1024**3:.1f} GiB free")
+    tmp_options = capture_inventory_command(["findmnt", "-n", "-o", "OPTIONS", "/tmp"])
+    if "noexec" in tmp_options.split(","):
+        warnings.append("/tmp is noexec; managed installers will use executable app storage")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="exec-probe-", dir=STATE_DIR) as directory:
+        probe = Path(directory) / "probe.sh"
+        probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        probe.chmod(0o700)
+        executable_home = run([str(probe)], check=False).returncode == 0
+    if not executable_home:
+        failures.append(f"managed executable storage under {STATE_DIR} is mounted noexec")
+    dpkg_audit = (
+        capture_inventory_command(["dpkg", "--audit"])
+        if command_exists("dpkg")
+        else "unavailable"
+    )
+    if dpkg_audit not in {"exit 0; no output", "unavailable"}:
+        failures.append("dpkg reports interrupted or incomplete package configuration")
+    result = {
+        "schema_version": 1,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "profile": profile["name"],
+        "device_id": device,
+        "platform": actual_platform,
+        "inferred_device_id": inferred,
+        "free_gib": round(free_bytes / 1024**3, 1),
+        "tmp_mount_options": tmp_options,
+        "executable_managed_storage": executable_home,
+        "dpkg_audit": dpkg_audit,
+        "warnings": warnings,
+        "failures": failures,
+    }
+    atomic_text(BOOTSTRAP_PREFLIGHT, json.dumps(result, indent=2) + "\n", 0o600)
+    for warning in warnings:
+        print(f"Bootstrap preflight warning: {warning}")
+    if failures:
+        raise DotError(
+            "Bootstrap preflight failed:\n- " + "\n- ".join(failures)
+            + f"\nDetails: {BOOTSTRAP_PREFLIGHT}"
+        )
+    print(
+        f"Bootstrap preflight passed for {device}: {result['free_gib']} GiB free; "
+        "package state and executable storage are healthy."
+    )
+    return result
+
+
+def write_bootstrap_support_report(
+    profile: str, device: str, phase: str, error: BaseException
+) -> Path:
+    state_path = STATE_DIR / "bootstrap" / f"{profile}.json"
+    state = load_json(state_path) if state_path.exists() else {}
+    report = f"""DOTFILES BOOTSTRAP SUPPORT REPORT
+generated_at: {dt.datetime.now(dt.timezone.utc).isoformat()}
+profile: {profile}
+device: {device}
+hostname: {socket.gethostname()}
+platform: {infer_platform()}
+repository: {ROOT}
+commit: {capture_inventory_command(['git', 'rev-parse', 'HEAD'])}
+failed_phase: {phase}
+error_type: {type(error).__name__}
+error: {error}
+bootstrap_state: {json.dumps(state, sort_keys=True)}
+preflight: {BOOTSTRAP_PREFLIGHT}
+finalization_handoff: {FINALIZATION_HANDOFF}
+
+This report intentionally excludes passwords, tokens, vault data, network
+addresses, hardware serials, product UUIDs, and raw Ansible logs.
+"""
+    atomic_text(BOOTSTRAP_SUPPORT, report, 0o600)
+    return BOOTSTRAP_SUPPORT
 
 
 def command_exists(name: str) -> bool:
@@ -2684,7 +2781,17 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
             print(f"Bootstrap phase already complete: {name}")
             return
         print(f"Bootstrap phase: {name}")
-        action()
+        try:
+            action()
+        except (DotError, subprocess.CalledProcessError, OSError) as exc:
+            report = write_bootstrap_support_report(
+                profile["name"], device, name, exc
+            )
+            print(
+                f"Bootstrap stopped in phase {name}. Sanitized support report: {report}",
+                file=sys.stderr,
+            )
+            raise
         state["completed"].append(name)
         atomic_text(state_path, json.dumps(state, indent=2) + "\n", 0o600)
 
@@ -2700,6 +2807,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         ["ansible-playbook", "bw", "gh"],
         "Bootstrap prerequisites are incomplete; remove the bootstrap state and retry.",
     )
+    bootstrap_preflight(profile, device)
     if not args.skip_secrets:
         def authenticate() -> None:
             if profile["name"] == "kubuntu-laptop":
@@ -2813,6 +2921,12 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     atomic_text(path, json.dumps(completion, indent=2) + "\n", 0o600)
     write_finalization_handoff(profile["name"], device)
     print(f"Finalization policy applied for {device}; completion recorded at {path}")
+
+
+def cmd_preflight(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    device = ensure_device(getattr(args, "device", None))
+    bootstrap_preflight(profile, device)
 
 
 def _bw_capture_session(action: str) -> tuple[str | None, int]:
@@ -8467,6 +8581,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="auto-detect a finalized device or force new/existing behavior",
     )
     bootstrap.set_defaults(func=cmd_bootstrap)
+    preflight = sub.add_parser("preflight")
+    preflight.add_argument("--profile", required=True)
+    preflight.add_argument("--device")
+    preflight.set_defaults(func=cmd_preflight)
     finalize = sub.add_parser("finalize")
     finalize_sub = finalize.add_subparsers(dest="finalize_action", required=True)
     for action in ("prepare", "status", "apply"):

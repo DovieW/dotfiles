@@ -40,7 +40,8 @@ healthy() { [[ -x "$current" ]] && [[ "$($current version 2>/dev/null)" == "luna
 if [[ "$mode" == "--check" ]]; then healthy && { echo "luna-ocr $version public release is current"; exit 0; }; echo "luna-ocr is missing or stale; run dot luna-ocr install" >&2; exit 1; fi
 if [[ "$mode" == "--ensure" ]] && healthy; then echo "luna-ocr $version public release is current"; exit 0; fi
 
-temporary_root="${TMPDIR:-/tmp}"
+install -d -m 0755 "$install_root"
+temporary_root="$install_root"
 temporary_dir="$(mktemp -d "$temporary_root/dotfiles-luna-ocr.XXXXXX")"
 cleanup() { case "$temporary_dir" in "$temporary_root"/dotfiles-luna-ocr.*) rm -rf -- "$temporary_dir" ;; esac; }
 trap cleanup EXIT INT TERM

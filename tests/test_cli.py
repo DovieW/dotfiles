@@ -32,6 +32,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("gestures", result.stdout)
         self.assertIn("nvim", result.stdout)
         self.assertIn("panel", result.stdout)
+        self.assertIn("preflight", result.stdout)
         self.assertIn("save", result.stdout)
         self.assertIn("tailscale", result.stdout)
         self.assertIn("meshcentral", result.stdout)
@@ -222,6 +223,7 @@ class DotCliTests(unittest.TestCase):
 
     def test_bootstrap_prerequisites_and_chrome_are_managed(self):
         script = (ROOT / "scripts/bootstrap-prerequisites").read_text()
+        launcher = (ROOT / "bootstrap-media/START-LINUX.sh").read_text()
         role = (ROOT / "ansible/tasks/chrome.yml").read_text()
         source = (ROOT / "config/apt/google-chrome.sources").read_text()
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
@@ -235,6 +237,28 @@ class DotCliTests(unittest.TestCase):
             "Bitwarden.CLI", "GitHub.cli", "Google.Chrome", "Python.Python.3.13"
         ):
             self.assertIn(package, windows["packages"]["winget"])
+        self.assertIn("https://github.com/DovieW/dotfiles.git", launcher)
+        self.assertIn("verified USB bundle", launcher)
+
+    def test_bootstrap_preflight_rejects_identity_drift(self):
+        module = runpy.run_path(str(DOT))
+        function = module["bootstrap_preflight"]
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.dict(function.__globals__, {
+                 "STATE_DIR": Path(directory),
+                 "BOOTSTRAP_PREFLIGHT": Path(directory) / "preflight.json",
+                 "inferred_device_id": mock.Mock(return_value="new-device"),
+                 "capture_inventory_command": mock.Mock(
+                     side_effect=lambda command: (
+                         "rw,nosuid,nodev" if command[0] == "findmnt"
+                         else "exit 0; no output"
+                     )
+                 ),
+                 "run": mock.Mock(return_value=mock.Mock(returncode=0)),
+             }):
+            with self.assertRaises(module["DotError"]) as raised:
+                function(module["load_profile"]("kubuntu-laptop"), "old-device")
+        self.assertIn("dot device rename old-device new-device", str(raised.exception))
 
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()
@@ -2278,6 +2302,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("--appimage-extract", copyq_installer)
         self.assertIn('mktemp -d "$app_root/.install.XXXXXX"', copyq_installer)
         self.assertNotIn('work_dir="$(mktemp -d)"', copyq_installer)
+        luna_installer = (ROOT / "scripts/install-luna-ocr").read_text()
+        self.assertIn('temporary_root="$install_root"', luna_installer)
         self.assertIn('app_run="$app_dir/AppRun"', copyq_installer)
         self.assertIn('export APPDIR=', copyq_installer)
         self.assertIn(r'exec \"$app_run\"', copyq_installer)

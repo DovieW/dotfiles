@@ -90,6 +90,12 @@ one without changing it. On a new machine, follow `START-HERE.txt`; the guided
 flow installs Chrome and Bitwarden before requesting GitHub and Bitwarden CLI
 authentication.
 
+The USB seeds and verifies the repository, then `START-LINUX.sh` automatically
+fast-forwards from the public GitHub `master` when online. A bootstrap fix no
+longer requires moving the USB back to its builder; rerunning the same launcher
+on the target computer picks up pushed fixes and falls back to the verified USB
+bundle when offline.
+
 ### Kubuntu or WSL
 
 ```bash
@@ -112,6 +118,12 @@ repository and say **“Finalize this computer.”** The durable protocol is in
 `AGENTS.md`, with operator details in `docs/finalize-computer.md`. A tracked
 `devices/<device-id>.yml` lets later installs recognize and restore a finalized
 computer automatically.
+
+Every resumed bootstrap runs `dot preflight --profile ...` checks for hostname
+and logical-device drift, free space, interrupted package state, and executable
+application storage. A failed phase writes the sanitized report
+`~/.local/state/dotfiles/bootstrap-support.txt` so diagnostics can be shared
+without copying raw credentials, network identity, or Ansible logs.
 
 ### Windows
 

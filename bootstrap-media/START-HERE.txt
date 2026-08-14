@@ -12,3 +12,8 @@ Windows: double-click START-WINDOWS.cmd.
 The drive contains no passwords, tokens, private repositories, or vault export.
 Internet access and interactive administrator, GitHub, Bitwarden, and 2FA prompts
 are required.
+
+On Linux, rerun the same START-LINUX.sh after a recoverable failure. It refreshes
+the clean checkout from current public GitHub master when online and otherwise
+uses this verified USB bundle. A sanitized failure summary is written to:
+  ~/.local/state/dotfiles/bootstrap-support.txt

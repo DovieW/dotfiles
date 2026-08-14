@@ -39,4 +39,15 @@ else
   git -C "$destination" remote add origin git@github.com:DovieW/dotfiles.git
 fi
 
+# The USB is the offline trust anchor, not a reason to physically shuttle every
+# bootstrap fix. Prefer the current public master when GitHub is reachable and
+# retain the verified bundle revision as an automatic offline fallback.
+if git -C "$destination" fetch \
+  https://github.com/DovieW/dotfiles.git master; then
+  git -C "$destination" merge --ff-only FETCH_HEAD
+  echo "Dotfiles updated from current GitHub master."
+else
+  echo "GitHub was unreachable; continuing from the verified USB bundle." >&2
+fi
+
 exec "$destination/bin/dot" bootstrap --profile "$profile"

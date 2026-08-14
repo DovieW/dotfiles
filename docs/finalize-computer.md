@@ -2,6 +2,11 @@
 
 Bootstrap and finalization are deliberately separate.
 
+The Linux USB launcher uses its checksummed Git bundle as an offline baseline,
+then fast-forwards from the public GitHub repository when networking is
+available. Once a fix is pushed, rerun the same `START-LINUX.sh` on the target;
+do not shuttle the USB back and forth merely to obtain repository updates.
+
 Bootstrap establishes identity, repositories, browser/password-manager access,
 the agent runtime, portable configuration, and the safe operating-system
 baseline. On an unregistered computer it defers machine-sensitive tags:
