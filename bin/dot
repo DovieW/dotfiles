@@ -388,7 +388,7 @@ def bootstrap_usb_info(device: str) -> tuple[Path, dict[str, Any]]:
         raise DotError(f"Cannot resolve bootstrap-media device {requested}: {exc}") from exc
     result = run(
         [
-            "lsblk", "--json", "--bytes", "--output",
+            "lsblk", "--json", "--tree", "--bytes", "--output",
             "PATH,TYPE,TRAN,RM,SIZE,MODEL,SERIAL,FSTYPE,LABEL,MOUNTPOINTS",
             str(resolved),
         ],
