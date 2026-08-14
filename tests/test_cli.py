@@ -277,6 +277,32 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("- --force-kde", task)
         self.assertNotIn("DOTFILES_KDE_PREFLIGHT_OK", task)
 
+    def test_live_kde_shortcuts_retry_asynchronous_action_registration(self):
+        module = runpy.run_path(str(DOT))
+        function = module["activate_kglobal_shortcuts"]
+        action = ("kwin", "managed-action", "KWin", "Managed Action")
+        desired = {action: [123]}
+        state = {action: []}
+        attempts = 0
+
+        def set_shortcut(action_id, keys):
+            nonlocal attempts
+            attempts += 1
+            if attempts >= 2:
+                state[action_id] = keys
+
+        with mock.patch.dict(
+            function.__globals__,
+            {
+                "kglobal_shortcut": lambda action_id: state[action_id],
+                "set_kglobal_shortcut": set_shortcut,
+            },
+        ), mock.patch("time.sleep"):
+            function(desired)
+
+        self.assertEqual(attempts, 2)
+        self.assertEqual(state[action], [123])
+
     def test_new_computer_finalization_is_a_repository_protocol(self):
         cli = DOT.read_text()
         agents = (ROOT / "AGENTS.md").read_text()

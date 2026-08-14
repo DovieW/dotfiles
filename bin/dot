@@ -1421,6 +1421,45 @@ def set_kglobal_shortcut(
         )
 
 
+def activate_kglobal_shortcuts(
+    desired: dict[tuple[str, str, str, str], list[int]],
+    *,
+    label: str = "shortcut",
+    timeout: float = 5.0,
+) -> None:
+    """Apply live shortcuts after asynchronous KWin action registration."""
+    original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
+    deadline = time.monotonic() + timeout
+    pending = list(desired)
+    try:
+        while pending:
+            # Apply the full ordered mapping on every pass. Releasing stock
+            # bindings before assigning managed ones avoids transient conflicts.
+            for action_id, keys in desired.items():
+                set_kglobal_shortcut(action_id, keys)
+            pending = [
+                action_id
+                for action_id, keys in desired.items()
+                if kglobal_shortcut(action_id) != keys
+            ]
+            if not pending:
+                return
+            if time.monotonic() >= deadline:
+                action_id = pending[0]
+                raise DotError(
+                    f"KDE did not activate {label} "
+                    f"{action_id[0]!r} / {action_id[1]!r} within {timeout:g} seconds."
+                )
+            time.sleep(0.1)
+    except Exception:
+        for action_id, keys in original.items():
+            try:
+                set_kglobal_shortcut(action_id, keys)
+            except DotError:
+                pass
+        raise
+
+
 def sync_managed_kglobal_shortcuts() -> None:
     """Apply shortcuts that KWin otherwise keeps cached until the next login."""
     if not command_exists("gdbus"):
@@ -1511,23 +1550,7 @@ def sync_managed_kglobal_shortcuts() -> None:
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
     }
-    original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
-    try:
-        for action_id, keys in desired.items():
-            set_kglobal_shortcut(action_id, keys)
-        for action_id, keys in desired.items():
-            if kglobal_shortcut(action_id) != keys:
-                raise DotError(
-                    "KDE did not activate shortcut "
-                    f"{action_id[0]!r} / {action_id[1]!r}."
-                )
-    except Exception:
-        for action_id, keys in original.items():
-            try:
-                set_kglobal_shortcut(action_id, keys)
-            except DotError:
-                pass
-        raise
+    activate_kglobal_shortcuts(desired)
 
 
 def sync_managed_screenshot_shortcuts() -> None:
@@ -1607,23 +1630,7 @@ def sync_managed_screenshot_shortcuts() -> None:
         luna_assist_region: [301989964],  # Meta+Shift+L
         callback_probe: [0],
     }
-    original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
-    try:
-        for action_id, keys in desired.items():
-            set_kglobal_shortcut(action_id, keys)
-        for action_id, keys in desired.items():
-            if kglobal_shortcut(action_id) != keys:
-                raise DotError(
-                    "KDE did not activate screenshot shortcut "
-                    f"{action_id[0]!r} / {action_id[1]!r}."
-                )
-    except Exception:
-        for action_id, keys in original.items():
-            try:
-                set_kglobal_shortcut(action_id, keys)
-            except DotError:
-                pass
-        raise
+    activate_kglobal_shortcuts(desired, label="screenshot shortcut")
 
 
 def managed_screenshot_callback_ok() -> bool:
