@@ -106,6 +106,13 @@ credentials, and applies the selected profile. It links the canonical CLI to
 dot
 ```
 
+Unknown computers receive a safe baseline rather than every machine-sensitive
+setting. Bootstrap writes a local agent handoff; open a coding agent in the
+repository and say **“Finalize this computer.”** The durable protocol is in
+`AGENTS.md`, with operator details in `docs/finalize-computer.md`. A tracked
+`devices/<device-id>.yml` lets later installs recognize and restore a finalized
+computer automatically.
+
 ### Windows
 
 Use the matching PowerShell entry point:

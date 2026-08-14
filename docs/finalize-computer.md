@@ -1,0 +1,73 @@
+# Finalize a computer
+
+Bootstrap and finalization are deliberately separate.
+
+Bootstrap establishes identity, repositories, browser/password-manager access,
+the agent runtime, portable configuration, and the safe operating-system
+baseline. On an unregistered computer it defers machine-sensitive tags:
+
+- `anydesk`
+- `gpu`
+- `meshcentral`
+- `nomachine`
+- `touchpad`
+
+This prevents a generic profile from applying assumptions learned from a
+different laptop. Bootstrap generates these local, mode `0600` artifacts:
+
+```text
+~/.local/state/dotfiles/finalization-handoff.md
+~/.local/state/dotfiles/finalization-inventory.json
+```
+
+The inventory intentionally excludes DMI serials, product UUIDs, credentials,
+tokens, private keys, vault data, Tailscale addresses, and raw EDID data.
+
+## New computer
+
+If no tracked `devices/<device-id>.yml` exists, bootstrap offers new-computer
+baseline mode. It can also be selected explicitly:
+
+```bash
+dot bootstrap --profile kubuntu-laptop --device-state new
+```
+
+After baseline completion, open a coding agent in the repository and say:
+
+```text
+Finalize this computer.
+```
+
+`AGENTS.md` defines that phrase as an executable repository workflow. The agent
+refreshes the inventory, reviews live hardware, improves shared detection when
+appropriate, writes the device manifest, validates it, and applies only the
+approved deferred tags.
+
+## Existing computer
+
+A tracked finalized device manifest is the recognition record. Automatic mode
+uses it when the logical device ID matches. Explicit restore is available with:
+
+```bash
+dot bootstrap --profile kubuntu-laptop --device-state existing
+```
+
+Existing mode refuses to continue without the manifest. It applies the same
+safe baseline and then only that device's reviewed `approved_tags`.
+
+## Commands
+
+```bash
+dot finalize prepare --profile kubuntu-laptop
+dot finalize status --profile kubuntu-laptop
+dot finalize apply --profile kubuntu-laptop
+```
+
+`prepare` is read-only apart from local state. `status` reports whether the
+logical device is registered. `apply` requires a valid tracked manifest and may
+perform privileged changes through the approved Ansible tags.
+
+The manifest is not a replacement for automatic detection. AMD, Intel, and
+NVIDIA graphics should be handled generically where reliable detection is
+possible. Manifests record which deferred subsystems belong on a machine and
+document only genuine exceptions.

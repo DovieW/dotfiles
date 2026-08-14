@@ -26,6 +26,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bootstrap-media", result.stdout)
         self.assertIn("codex", result.stdout)
         self.assertIn("doctor", result.stdout)
+        self.assertIn("finalize", result.stdout)
         self.assertIn("gestures", result.stdout)
         self.assertIn("nvim", result.stdout)
         self.assertIn("panel", result.stdout)
@@ -232,6 +233,49 @@ class DotCliTests(unittest.TestCase):
             "Bitwarden.CLI", "GitHub.cli", "Google.Chrome", "Python.Python.3.13"
         ):
             self.assertIn(package, windows["packages"]["winget"])
+
+    def test_new_computer_finalization_is_a_repository_protocol(self):
+        cli = DOT.read_text()
+        agents = (ROOT / "AGENTS.md").read_text()
+        docs = (ROOT / "docs/finalize-computer.md").read_text()
+        example = json.loads((ROOT / "devices/example-device.yml").read_text())
+
+        self.assertIn('choices=["auto", "new", "existing"]', cli)
+        self.assertIn("FINALIZATION_DEFERRED_TAGS", cli)
+        self.assertIn('command.extend(["--skip-tags", skip_tags])', cli)
+        self.assertIn("write_finalization_handoff", cli)
+        self.assertIn("finalize prepare", agents)
+        self.assertIn("Finalize this computer", docs)
+        self.assertEqual(example["schema_version"], 1)
+        self.assertTrue(example["finalized"])
+        self.assertFalse(any("serial" in key.lower() for key in example))
+
+    def test_device_manifest_validation_is_strict(self):
+        module = runpy.run_path(str(DOT))
+        function = module["load_device_manifest"]
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
+            function.__globals__, {"DEVICE_DIR": Path(directory)}
+        ):
+            manifest = {
+                "schema_version": 1,
+                "device_id": "test-device",
+                "profile": "kubuntu-laptop",
+                "finalized": True,
+                "approved_tags": ["gpu"],
+            }
+            (Path(directory) / "test-device.yml").write_text(json.dumps(manifest))
+            self.assertEqual(function("test-device"), manifest)
+            manifest["approved_tags"] = ["unknown-tag"]
+            (Path(directory) / "test-device.yml").write_text(json.dumps(manifest))
+            with self.assertRaises(module["DotError"]):
+                function("test-device")
+
+    def test_device_identity_rejects_path_traversal(self):
+        module = runpy.run_path(str(DOT))
+        function = module["ensure_device"]
+        for device in ("../outside", "UPPERCASE", "contains space", ""):
+            with self.subTest(device=device), self.assertRaises(module["DotError"]):
+                function(device)
 
     def test_codex_remote_control_tracks_desktop_core(self):
         service = (

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "device_id": "example-device",
+  "profile": "kubuntu-laptop",
+  "finalized": true,
+  "approved_tags": ["gpu", "touchpad"],
+  "notes": [
+    "Example only. Record reviewed policy, never hardware serials or secrets."
+  ]
+}

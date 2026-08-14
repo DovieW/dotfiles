@@ -34,6 +34,7 @@ if LINUXBREW_BIN.is_dir():
         os.environ["PATH"] = os.pathsep.join([str(LINUXBREW_BIN), *path_parts])
 PROFILE_DIR = ROOT / "profiles"
 OFFICIAL_REPOSITORIES_FILE = ROOT / "repositories/official.yml"
+DEVICE_DIR = ROOT / "devices"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dotfiles"
 BACKUP_DIR = STATE_DIR / "backups"
@@ -43,6 +44,15 @@ NVIM_LOCK_FILE = NVIM_CONFIG_DIR / "lazy-lock.json"
 NVIM_UPDATE_DIR = STATE_DIR / "nvim-updates"
 BW_BOOTSTRAP_ITEM = "dotfiles/bootstrap-v1"
 BW_MESHCENTRAL_ITEM = "dotfiles/meshcentral-agent"
+FINALIZATION_DEFERRED_TAGS = (
+    "anydesk",
+    "gpu",
+    "meshcentral",
+    "nomachine",
+    "touchpad",
+)
+FINALIZATION_HANDOFF = STATE_DIR / "finalization-handoff.md"
+FINALIZATION_INVENTORY = STATE_DIR / "finalization-inventory.json"
 MESH_AGENT_CONFIG_PATHS = (
     Path("/usr/local/mesh_services/meshagent/meshagent.msh"),
     Path("/usr/local/mesh/meshagent.msh"),
@@ -280,10 +290,138 @@ def inferred_device_id() -> str:
 def ensure_device(explicit: str | None = None) -> str:
     path = CONFIG_DIR / "device.json"
     existing = load_json(path) if path.exists() else {}
-    device = explicit or existing.get("device_id") or inferred_device_id()
+    device = explicit if explicit is not None else (existing.get("device_id") or inferred_device_id())
+    if not isinstance(device, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,62})", device):
+        raise DotError(
+            "Device ID must be 1-63 lowercase letters, numbers, or hyphens, "
+            "starting with a letter or number."
+        )
     payload = {"schema_version": 1, "device_id": device}
     atomic_text(path, json.dumps(payload, indent=2) + "\n", 0o600)
     return device
+
+
+def device_manifest_path(device: str) -> Path:
+    return DEVICE_DIR / f"{device}.yml"
+
+
+def load_device_manifest(device: str, required: bool = False) -> dict[str, Any] | None:
+    path = device_manifest_path(device)
+    if not path.exists():
+        if required:
+            raise DotError(
+                f"No finalized device manifest exists at {path}. "
+                "Treat this as a new computer and run `dot finalize prepare`."
+            )
+        return None
+    manifest = load_json(path)
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("device_id") != device
+        or not isinstance(manifest.get("profile"), str)
+        or manifest.get("finalized") is not True
+        or not isinstance(manifest.get("approved_tags"), list)
+        or not all(isinstance(tag, str) for tag in manifest.get("approved_tags", []))
+        or len(set(manifest.get("approved_tags", []))) != len(manifest.get("approved_tags", []))
+    ):
+        raise DotError(f"Invalid finalized device manifest: {path}")
+    unknown = set(manifest["approved_tags"]) - set(FINALIZATION_DEFERRED_TAGS)
+    if unknown:
+        raise DotError(
+            f"Device manifest contains unsupported finalization tags: {', '.join(sorted(unknown))}"
+        )
+    return manifest
+
+
+def capture_inventory_command(command: list[str]) -> str:
+    if not command_exists(command[0]):
+        return "unavailable"
+    proc = run(command, check=False, capture=True)
+    output = (proc.stdout or proc.stderr).strip()
+    return output if output else f"exit {proc.returncode}; no output"
+
+
+def machine_inventory(profile: str, device: str) -> dict[str, Any]:
+    dmi = {}
+    for name in ("sys_vendor", "product_name", "product_version"):
+        path = Path("/sys/class/dmi/id") / name
+        try:
+            dmi[name] = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            dmi[name] = "unavailable"
+    os_release = {}
+    try:
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                os_release[key] = value.strip().strip('"')
+    except OSError:
+        pass
+    bootstrap_state = STATE_DIR / "bootstrap" / f"{profile}.json"
+    return {
+        "schema_version": 1,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "device_id": device,
+        "profile": profile,
+        "repository": {"path": str(ROOT), "commit": capture_inventory_command(["git", "rev-parse", "HEAD"])},
+        "platform": infer_platform(),
+        "hostname": socket.gethostname(),
+        "kernel": platform.release(),
+        "architecture": platform.machine(),
+        "os_release": {key: os_release.get(key, "") for key in ("ID", "VERSION_ID", "PRETTY_NAME")},
+        "dmi": dmi,
+        "cpu": capture_inventory_command(["lscpu"]),
+        "pci": capture_inventory_command(["lspci", "-nnk"]),
+        "usb": capture_inventory_command(["lsusb"]),
+        "graphics_recommendation": capture_inventory_command(["ubuntu-drivers", "devices"]),
+        "bootstrap_state": load_json(bootstrap_state) if bootstrap_state.exists() else {},
+        "deferred_tags": list(FINALIZATION_DEFERRED_TAGS),
+    }
+
+
+def write_finalization_handoff(profile: str, device: str) -> Path:
+    inventory = machine_inventory(profile, device)
+    atomic_text(FINALIZATION_INVENTORY, json.dumps(inventory, indent=2) + "\n", 0o600)
+    manifest = device_manifest_path(device)
+    handoff = f"""# Finalize this computer
+
+This file was generated by `dot finalize prepare`. A fresh coding agent must
+read `{ROOT / 'AGENTS.md'}` and `{ROOT / 'docs/finalize-computer.md'}` before
+changing or applying this machine.
+
+## Objective
+
+Finalize logical device `{device}` for profile `{profile}` without turning
+machine-specific hardware assumptions into global profile policy.
+
+## Current state
+
+- Repository: `{ROOT}`
+- Commit: `{inventory['repository']['commit']}`
+- Inventory: `{FINALIZATION_INVENTORY}`
+- Expected device manifest: `{manifest}`
+- Baseline bootstrap deliberately deferred: {', '.join(FINALIZATION_DEFERRED_TAGS)}
+
+## Required completion
+
+1. Inspect the inventory and live machine with read-only commands.
+2. Decide which deferred tags apply and whether generic hardware detection
+   should be improved instead of adding a device exception.
+3. Create the versioned device manifest using
+   `devices/example-device.yml` as the schema reference.
+4. Run the repository tests and relevant check-mode or targeted validation.
+5. Run `dot finalize apply --profile {profile}` only after reviewing the
+   resulting device policy.
+6. Re-run `dot doctor --profile {profile}`, documenting expected enrollment or
+   reboot boundaries separately from failures.
+7. Commit and push the durable repository changes. Refresh DOTBOOT only when a
+   currently attached removable device has been freshly identified by serial.
+
+Do not store passwords, tokens, raw hardware serial numbers, product UUIDs,
+vault exports, or private keys in the repository or this handoff.
+"""
+    atomic_text(FINALIZATION_HANDOFF, handoff, 0o600)
+    return FINALIZATION_HANDOFF
 
 
 def command_exists(name: str) -> bool:
@@ -2334,6 +2472,7 @@ def apply_direct(
 def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     force_kde = getattr(args, "force_kde", False)
+    skip_tags = getattr(args, "skip_tags", None)
     if args.direct or not command_exists("ansible-playbook"):
         direct_tags = set((args.tags or "").replace(",", " ").split())
         direct_kde_selected = (
@@ -2466,6 +2605,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
     ]
     if args.tags:
         command.extend(["--tags", args.tags])
+    if skip_tags:
+        command.extend(["--skip-tags", skip_tags])
     if args.check:
         command.append("--check")
     command.extend(become_arguments)
@@ -2505,6 +2646,33 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     }
     if state.get("profile") != profile["name"] or state.get("device") != device:
         raise DotError(f"Bootstrap state belongs to another profile or device: {state_path}")
+
+    device_manifest = load_device_manifest(device)
+    requested_state = getattr(args, "device_state", "auto")
+    if requested_state == "auto":
+        if device_manifest is not None:
+            device_state = "existing"
+            print(f"Recognized finalized computer: {device}")
+        elif sys.stdin.isatty():
+            print(
+                f"No finalized device manifest exists for `{device}`.\n"
+                "  1) New computer: install the safe baseline and create an agent handoff\n"
+                "  2) Existing computer: require its tracked device manifest"
+            )
+            choice = input("Choice [1]: ").strip() or "1"
+            if choice not in {"1", "2"}:
+                raise DotError("Device-state choice must be 1 or 2.")
+            device_state = "new" if choice == "1" else "existing"
+        else:
+            device_state = "new"
+    else:
+        device_state = requested_state
+    if device_state == "existing" and device_manifest is None:
+        raise DotError(
+            f"This computer is not registered in {device_manifest_path(device)}. "
+            "Choose new-computer baseline mode instead."
+        )
+    state["device_state"] = device_state
 
     def phase(name: str, action: Callable[[], None]) -> None:
         if name in state["completed"]:
@@ -2554,19 +2722,92 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
             "repositories",
             lambda: cmd_repos_sync(argparse.Namespace(profile=args.profile)),
         )
-    phase(
-        "profile",
-        lambda: cmd_apply(
+    def apply_bootstrap_profile() -> None:
+        cmd_apply(
             argparse.Namespace(
                 profile=args.profile,
                 tags=None,
+                skip_tags=",".join(FINALIZATION_DEFERRED_TAGS),
                 check=False,
                 direct=False,
                 force_kde=True,
             )
-        ),
-    )
-    print(f"Bootstrap completed for {profile['name']}. Run dot doctor --profile {profile['name']}.")
+        )
+        if device_state == "existing" and device_manifest:
+            approved = device_manifest["approved_tags"]
+            if approved:
+                cmd_apply(
+                    argparse.Namespace(
+                        profile=args.profile,
+                        tags=",".join(approved),
+                        skip_tags=None,
+                        check=False,
+                        direct=False,
+                        force_kde=True,
+                    )
+                )
+
+    phase("profile", apply_bootstrap_profile)
+    if device_state == "new":
+        handoff = write_finalization_handoff(profile["name"], device)
+        print(
+            f"Baseline bootstrap completed for new computer {device}.\n"
+            f"Open a fresh agent in {ROOT} and say: Finalize this computer.\n"
+            f"Agent handoff: {handoff}"
+        )
+    else:
+        print(
+            f"Restored finalized computer {device}. "
+            f"Run dot doctor --profile {profile['name']}."
+        )
+
+
+def cmd_finalize(args: argparse.Namespace) -> None:
+    profile = load_profile(args.profile)
+    device = ensure_device(getattr(args, "device", None))
+    if args.finalize_action == "prepare":
+        handoff = write_finalization_handoff(profile["name"], device)
+        print(f"Finalization handoff written to {handoff}")
+        print(f"Inventory written to {FINALIZATION_INVENTORY}")
+        return
+    manifest = load_device_manifest(device, required=args.finalize_action == "apply")
+    if args.finalize_action == "status":
+        if manifest:
+            print(f"Finalized device: {device}; profile: {manifest['profile']}")
+            print(f"Approved deferred tags: {', '.join(manifest['approved_tags']) or 'none'}")
+        else:
+            print(f"Unfinalized device: {device}")
+            print(f"Run: dot finalize prepare --profile {profile['name']}")
+        print(f"Handoff: {FINALIZATION_HANDOFF}")
+        return
+    if manifest["profile"] != profile["name"]:
+        raise DotError(
+            f"Device manifest profile {manifest['profile']} does not match {profile['name']}"
+        )
+    approved = manifest["approved_tags"]
+    if approved:
+        cmd_apply(
+            argparse.Namespace(
+                profile=profile["name"],
+                tags=",".join(approved),
+                skip_tags=None,
+                check=False,
+                direct=False,
+                force_kde=True,
+            )
+        )
+    completion = {
+        "schema_version": 1,
+        "device_id": device,
+        "profile": profile["name"],
+        "manifest": str(device_manifest_path(device)),
+        "commit": capture_inventory_command(["git", "rev-parse", "HEAD"]),
+        "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+    path = STATE_DIR / "finalization" / f"{device}.json"
+    atomic_text(path, json.dumps(completion, indent=2) + "\n", 0o600)
+    write_finalization_handoff(profile["name"], device)
+    print(f"Finalization policy applied for {device}; completion recorded at {path}")
 
 
 def _bw_capture_session(action: str) -> tuple[str | None, int]:
@@ -8129,7 +8370,20 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--profile", required=True)
     bootstrap.add_argument("--device")
     bootstrap.add_argument("--skip-secrets", action="store_true")
+    bootstrap.add_argument(
+        "--device-state",
+        choices=["auto", "new", "existing"],
+        default="auto",
+        help="auto-detect a finalized device or force new/existing behavior",
+    )
     bootstrap.set_defaults(func=cmd_bootstrap)
+    finalize = sub.add_parser("finalize")
+    finalize_sub = finalize.add_subparsers(dest="finalize_action", required=True)
+    for action in ("prepare", "status", "apply"):
+        finalize_action = finalize_sub.add_parser(action)
+        finalize_action.add_argument("--profile", required=True)
+        finalize_action.add_argument("--device")
+        finalize_action.set_defaults(func=cmd_finalize)
     bootstrap_media = sub.add_parser("bootstrap-media")
     bootstrap_media_sub = bootstrap_media.add_subparsers(dest="media_action", required=True)
     media_create = bootstrap_media_sub.add_parser("create")

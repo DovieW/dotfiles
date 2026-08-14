@@ -239,6 +239,12 @@ The first bootstrap writes a stable logical device ID to
 `~/.config/dotfiles/device.json`. WSL derives its default from the Windows host
 so Windows and WSL share one physical-device identity.
 
+New native computers receive a safe baseline before machine-sensitive
+configuration. A privacy-bounded local inventory and finalization handoff let a
+fresh coding-agent session complete the machine without relying on prior chat
+history. Finalized recognition is durable in `devices/<device-id>.yml`; these
+manifests contain reviewed policy but no raw hardware serials or secrets.
+
 Bitwarden item names are deterministic:
 
 ```text
