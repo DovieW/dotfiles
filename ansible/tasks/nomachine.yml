@@ -68,16 +68,16 @@
 
 - name: Read NoMachine EGL capture state
   ansible.builtin.command:
-    argv: [grep, -E, '^EnableEGLCapture[[:space:]]+1$', /usr/NX/etc/node.cfg]
+    argv: [grep, -E, '^EnableEGLCapture[[:space:]]+0$', /usr/NX/etc/node.cfg]
   register: dot_nomachine_egl_capture
   changed_when: false
   failed_when: false
   when: dot_nomachine_tailscale_ready
 
-- name: Disable NoMachine EGL capture for Plasma Wayland compatibility
+- name: Enable NoMachine EGL capture for Plasma Wayland
   become: true
   ansible.builtin.command:
-    argv: [/etc/NX/nxserver, --eglcapture, "no"]
+    argv: [/etc/NX/nxserver, --eglcapture, "yes"]
   when:
     - dot_nomachine_tailscale_ready
     - dot_nomachine_egl_capture.rc == 0

@@ -41,9 +41,9 @@ Inside a session, open the NoMachine menu and select **Display**. Enable the
 option that changes the remote display resolution to match the client window.
 NoMachine's Wayland support requires an attached, active physical display and
 does not automatically lock Plasma when the remote client disconnects. The
-managed setup disables NoMachine EGL capture on Plasma Wayland and uses its
-fallback capture path; reboot once after the first installation so Plasma no
-longer inherits the installer-added EGL preload.
+managed setup enables NoMachine EGL capture because its DRM and compositor
+fallbacks do not capture Plasma Wayland reliably. Reboot once after the first
+installation so Plasma starts with NoMachine's EGL interposer available.
 
 The package version and SHA-256 are pinned in `ansible/tasks/nomachine.yml`.
 Update both only after checking the release and provider-published digest on
