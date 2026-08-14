@@ -3485,6 +3485,30 @@ def cmd_secrets_sync(args: argparse.Namespace) -> None:
             run(["bw", "lock"], check=False)
 
 
+def clear_stale_chrome_hostname_lock(old_hostname: str) -> bool:
+    """Remove Chrome singleton metadata invalidated by an operating-system rename."""
+    chrome_dir = Path.home() / ".config/google-chrome"
+    lock_path = chrome_dir / "SingletonLock"
+    if not lock_path.is_symlink():
+        return False
+    try:
+        lock_target = os.readlink(lock_path)
+    except OSError:
+        return False
+    if not lock_target.startswith(f"{old_hostname}-"):
+        return False
+    chrome_running = run(
+        ["pgrep", "-x", "chrome"], check=False, capture=True
+    ).returncode == 0
+    if chrome_running:
+        return False
+    for name in ("SingletonCookie", "SingletonLock", "SingletonSocket"):
+        path = chrome_dir / name
+        if path.is_symlink():
+            path.unlink()
+    return True
+
+
 def cmd_device_rename(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     old = validate_device_id(args.old_device)
@@ -3558,8 +3582,11 @@ def cmd_device_rename(args: argparse.Namespace) -> None:
         json.dumps({"schema_version": 1, "device_id": new}, indent=2) + "\n",
         0o600,
     )
+    chrome_lock_cleared = clear_stale_chrome_hostname_lock(old)
     write_finalization_handoff(profile["name"], new)
     print(f"Migrated dotfiles device identity: {old} -> {new}")
+    if chrome_lock_cleared:
+        print("Removed Chrome's stale single-instance lock from the old hostname.")
     print(
         "The existing GitHub authentication and signing keys remain valid; "
         "their historical web labels do not affect key identity."

@@ -411,6 +411,39 @@ class DotCliTests(unittest.TestCase):
                         new_device="new-device",
                     ))
 
+    def test_chrome_hostname_lock_cleanup_is_guarded(self):
+        module = runpy.run_path(str(DOT))
+        function = module["clear_stale_chrome_hostname_lock"]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            chrome = home / ".config/google-chrome"
+            chrome.mkdir(parents=True)
+            (chrome / "SingletonLock").symlink_to("old-device-1234")
+            (chrome / "SingletonCookie").symlink_to("cookie")
+            (chrome / "SingletonSocket").symlink_to("/tmp/chrome/socket")
+            stopped = mock.Mock(returncode=1)
+            with mock.patch.object(Path, "home", return_value=home), \
+                 mock.patch.dict(function.__globals__, {"run": mock.Mock(return_value=stopped)}):
+                self.assertTrue(function("old-device"))
+            self.assertFalse((chrome / "SingletonLock").exists())
+            self.assertFalse((chrome / "SingletonCookie").exists())
+            self.assertFalse((chrome / "SingletonSocket").exists())
+
+    def test_chrome_hostname_lock_cleanup_preserves_active_chrome(self):
+        module = runpy.run_path(str(DOT))
+        function = module["clear_stale_chrome_hostname_lock"]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            chrome = home / ".config/google-chrome"
+            chrome.mkdir(parents=True)
+            lock = chrome / "SingletonLock"
+            lock.symlink_to("old-device-1234")
+            running = mock.Mock(returncode=0)
+            with mock.patch.object(Path, "home", return_value=home), \
+                 mock.patch.dict(function.__globals__, {"run": mock.Mock(return_value=running)}):
+                self.assertFalse(function("old-device"))
+            self.assertTrue(lock.is_symlink())
+
     def test_device_rename_migrates_state_and_preserves_key_material(self):
         module = runpy.run_path(str(DOT))
         function = module["cmd_device_rename"]
