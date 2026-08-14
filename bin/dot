@@ -61,6 +61,7 @@ MESH_AGENT_CONFIG_PATHS = (
 )
 GITHUB_REQUIRED_SCOPES = {"admin:public_key", "admin:ssh_signing_key"}
 REMOTE_SUPPORT_GITHUB_USER = "DovieW"
+REMOTE_SUPPORT_TAILSCALE_TAG = "tag:personal"
 LOCKSCREEN_PACKAGE_ID = "io.github.doview.dotfiles.lockscreen"
 LOCKSCREEN_PACKAGE_SOURCE = (
     ROOT / "config/plasma/shells" / LOCKSCREEN_PACKAGE_ID
@@ -1619,7 +1620,16 @@ def sync_managed_screenshot_shortcuts() -> None:
         "Spectacle",
         "Capture Active Window",
     )
+    spectacle_launch = (
+        "org.kde.spectacle.desktop",
+        "_launch",
+        "Spectacle",
+        "Launch Spectacle",
+    )
     desired = {
+        # Fresh Plasma also assigns Print and Meta+Shift+S to Spectacle's
+        # generic launcher. Release it before assigning the managed actions.
+        spectacle_launch: [0],
         spectacle_full: [0],
         spectacle_region: [0],
         spectacle_window: [0],
@@ -2861,10 +2871,30 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
                     "Tailscale enrollment is required before the long setup so this "
                     "computer can be supported remotely. Complete the browser flow now."
                 )
-                run(["sudo", "tailscale", "up"])
+                run(
+                    [
+                        "sudo",
+                        "tailscale",
+                        "up",
+                        f"--advertise-tags={REMOTE_SUPPORT_TAILSCALE_TAG}",
+                    ]
+                )
             ip = run(["tailscale", "ip", "-4"], capture=True).stdout.strip()
             if not ip or "\n" in ip:
                 raise DotError("Tailscale did not report one stable IPv4 address after enrollment.")
+            enrolled = run(
+                ["tailscale", "status", "--json"],
+                capture=True,
+            )
+            try:
+                active_tags = json.loads(enrolled.stdout).get("Self", {}).get("Tags", [])
+            except json.JSONDecodeError:
+                active_tags = []
+            if REMOTE_SUPPORT_TAILSCALE_TAG not in active_tags:
+                raise DotError(
+                    f"Tailscale enrollment is missing {REMOTE_SUPPORT_TAILSCALE_TAG}; "
+                    "approve the requested device tag in the tailnet policy or admin console."
+                )
             run(
                 [
                     str(ROOT / "scripts/bootstrap-remote-support"),

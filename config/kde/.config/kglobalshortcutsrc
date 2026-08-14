@@ -295,6 +295,7 @@ switch to previous activity=,,Switch to Previous Activity
 toggle do not disturb=,,Toggle do not disturb
 
 [services][org.kde.spectacle.desktop]
+_launch=
 ActiveWindowScreenShot=
 CurrentMonitorScreenShot=
 FullScreenScreenShot=

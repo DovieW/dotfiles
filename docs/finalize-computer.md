@@ -16,8 +16,9 @@ one-time browser enrollment, and configures key-only normal OpenSSH using the
 public workstation keys published by the managed GitHub account. It prints the
 stable Tailscale SSH target for remote troubleshooting. This is ordinary SSH
 over Tailscale, not Tailscale SSH; no reusable private key or Tailscale auth key
-is stored on DOTBOOT. Finalization refuses to complete if either endpoint is
-not securely active.
+is stored on DOTBOOT. Enrollment requests the managed `tag:personal` device tag
+so existing ACL visibility applies immediately. Finalization refuses to
+complete if either endpoint is not securely active.
 
 - `anydesk`
 - `gpu`

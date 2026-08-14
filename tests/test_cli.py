@@ -247,7 +247,9 @@ class DotCliTests(unittest.TestCase):
             cli.index('phase("remote-support", configure_remote_support)'),
             cli.index('phase("identity", authenticate)'),
         )
-        self.assertIn('["sudo", "tailscale", "up"]', cli)
+        self.assertIn('f"--advertise-tags={REMOTE_SUPPORT_TAILSCALE_TAG}"', cli)
+        self.assertIn('REMOTE_SUPPORT_TAILSCALE_TAG = "tag:personal"', cli)
+        self.assertIn("active_tags", cli)
         self.assertIn('Remote support ready: ssh ', cli)
         self.assertIn("PasswordAuthentication no", support)
         self.assertIn("KbdInteractiveAuthentication no", support)
@@ -2458,6 +2460,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ActiveWindowScreenShot=\n", shortcuts)
         self.assertIn("FullScreenScreenShot=\n", shortcuts)
         self.assertIn("RectangularRegionScreenShot=\n", shortcuts)
+        self.assertIn("[services][org.kde.spectacle.desktop]\n_launch=", shortcuts)
+        self.assertIn('"_launch",\n        "Spectacle",\n        "Launch Spectacle"', cli)
         self.assertIn('"RestartUnit"', script)
         self.assertIn('"dot-flameshot-region-clipboard.service"', script)
         self.assertIn('"dot-screenshots-probe.service"', script)
