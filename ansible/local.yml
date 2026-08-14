@@ -554,6 +554,36 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, kde]
 
+    - name: Create the GRUB defaults drop-in directory
+      become: true
+      ansible.builtin.file:
+        path: /etc/default/grub.d
+        state: directory
+        mode: "0755"
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde, power]
+
+    - name: Keep suspend diagnostics off the unscaled console
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/grub/99-dotfiles-quiet-resume.cfg"
+        dest: /etc/default/grub.d/99-dotfiles-quiet-resume.cfg
+        mode: "0644"
+      register: dot_quiet_resume_grub
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde, power]
+
+    - name: Rebuild GRUB after changing the quiet-resume policy
+      become: true
+      ansible.builtin.command:
+        argv: [update-grub]
+      when:
+        - dot_profile_data.features.kde | default(false)
+        - dot_quiet_resume_grub.changed
+        - not ansible_check_mode
+      changed_when: true
+      tags: [config, kde, power]
+
     - name: Make the IdeaPad screenshot key emit Print
       become: true
       ansible.builtin.copy:

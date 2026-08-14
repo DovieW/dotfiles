@@ -1607,6 +1607,15 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"lid-aware power profile"', cli)
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
+        quiet_resume = (
+            ROOT / "config/grub/99-dotfiles-quiet-resume.cfg"
+        ).read_text()
+        self.assertIn("quiet splash loglevel=3", quiet_resume)
+        self.assertIn("systemd.show_status=false", quiet_resume)
+        self.assertIn("rd.systemd.show_status=false", quiet_resume)
+        self.assertIn("vt.global_cursor_default=0", quiet_resume)
+        self.assertIn("dest: /etc/default/grub.d/99-dotfiles-quiet-resume.cfg", playbook)
+        self.assertIn("argv: [update-grub]", playbook)
         self.assertIn("git, kde, lockscreen, power, tmux", playbook)
 
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
