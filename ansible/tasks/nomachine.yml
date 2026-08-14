@@ -77,6 +77,8 @@
       value: '"{{ dot_nomachine_tailscale_ip.stdout | trim }}"'
     - key: NXUDPPort
       value: "0"
+    - key: ConnectPolicy
+      value: "autocreate=1,autoconnect=1,automigrate=1,desktop=0,dialog=0,xsessions=0,udp=0"
     - key: EnableLocalNetworkBroadcast
       value: "0"
     - key: EnableNetwork
