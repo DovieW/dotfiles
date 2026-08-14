@@ -492,6 +492,17 @@ def confirm_bootstrap_erase(info: dict[str, Any], args: argparse.Namespace) -> N
         raise DotError("Erase confirmation was cancelled.")
 
 
+def bootstrap_media_privilege_prefix() -> list[str]:
+    passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
+    if passwordless.returncode == 0:
+        return ["sudo", "-n"]
+    if command_exists("pkexec"):
+        return ["pkexec"]
+    if sys.stdin.isatty():
+        return ["sudo"]
+    raise DotError("Administrator authorization requires an interactive terminal or PolicyKit agent.")
+
+
 def cmd_bootstrap_media(args: argparse.Namespace) -> None:
     if args.media_action == "verify":
         manifest = verify_bootstrap_media(Path(args.path))
@@ -513,14 +524,15 @@ def cmd_bootstrap_media(args: argparse.Namespace) -> None:
             ["lsblk", "findmnt", "sfdisk", "mkfs.vfat", "partprobe", "udisksctl"],
             "Install util-linux, dosfstools, parted, and udisks2, then retry.",
         )
-        run(["sudo", "wipefs", "--all", str(resolved)])
+        privilege = bootstrap_media_privilege_prefix()
+        run([*privilege, "wipefs", "--all", str(resolved)])
         subprocess.run(
-            ["sudo", "sfdisk", str(resolved)],
+            [*privilege, "sfdisk", str(resolved)],
             input="label: dos\n, , c, *\n",
             text=True,
             check=True,
         )
-        run(["sudo", "partprobe", str(resolved)])
+        run([*privilege, "partprobe", str(resolved)])
         for _ in range(20):
             time.sleep(0.25)
             _, refreshed = bootstrap_usb_info(args.device)
@@ -529,7 +541,7 @@ def cmd_bootstrap_media(args: argparse.Namespace) -> None:
                 break
         if partition is None:
             raise DotError("The new USB partition did not appear.")
-        run(["sudo", "mkfs.vfat", "-F", "32", "-n", "DOTBOOT", partition["path"]])
+        run([*privilege, "mkfs.vfat", "-F", "32", "-n", "DOTBOOT", partition["path"]])
         _, refreshed = bootstrap_usb_info(args.device)
         partition = bootstrap_partition(refreshed)
         if partition is None:

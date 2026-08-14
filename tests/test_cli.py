@@ -128,6 +128,19 @@ class DotCliTests(unittest.TestCase):
             _, info = function(str(device))
         self.assertEqual(info["serial"], "SERIAL123")
 
+    def test_bootstrap_media_uses_policykit_without_passwordless_sudo(self):
+        module = runpy.run_path(str(DOT))
+        function = module["bootstrap_media_privilege_prefix"]
+        denied = mock.Mock(returncode=1)
+        with mock.patch.dict(
+            function.__globals__,
+            {
+                "run": mock.Mock(return_value=denied),
+                "command_exists": mock.Mock(return_value=True),
+            },
+        ):
+            self.assertEqual(function(), ["pkexec"])
+
     def test_bootstrap_prerequisites_and_chrome_are_managed(self):
         script = (ROOT / "scripts/bootstrap-prerequisites").read_text()
         role = (ROOT / "ansible/tasks/chrome.yml").read_text()
