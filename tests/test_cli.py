@@ -1630,6 +1630,12 @@ class DotCliTests(unittest.TestCase):
             metadata["X-Plasma-FallbackPackage"],
             "org.kde.plasma.desktop",
         )
+        self.assertIn(
+            'stock_shell = Path("/usr/share/plasma/shells/org.kde.plasma.desktop")',
+            cli,
+        )
+        self.assertIn('if stock_entry.name == "lockscreen"', cli)
+        self.assertIn('changes += provision_lockscreen_assets()\n        powerdevil_changed', cli)
         self.assertNotIn("MediaControls", lock_qml)
         self.assertIn("Segoe UI Variable", lock_qml)
         self.assertIn('displayName: "Dovie Weinstock"', lock_qml)
