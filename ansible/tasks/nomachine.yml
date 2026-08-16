@@ -66,6 +66,13 @@
     state: present
   when: dot_nomachine_tailscale_ready
 
+- name: Configure the NoMachine client for HiDPI Plasma displays
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/configure-nomachine-client"]
+  register: dot_nomachine_client_hidpi
+  changed_when: "'fonts updated' in dot_nomachine_client_hidpi.stdout"
+  when: dot_nomachine_tailscale_ready
+
 - name: Read NoMachine EGL capture state
   ansible.builtin.command:
     argv: [grep, -E, '^EnableEGLCapture[[:space:]]+0$', /usr/NX/etc/node.cfg]
@@ -121,6 +128,29 @@
       script: /usr/local/libexec/nomachine-display-disconnect
     - key: UserScriptAfterRemoteResize
       script: /usr/local/libexec/nomachine-display-resize
+  when: dot_nomachine_tailscale_ready
+
+- name: Protect the physical display during NoMachine access
+  become: true
+  ansible.builtin.lineinfile:
+    path: /usr/NX/etc/node.cfg
+    regexp: "(?i)^#?{{ item.key }}\\s+"
+    line: "{{ item.key }} {{ item.value }}"
+  loop:
+    - key: EnableScreenBlanking
+      value: "1"
+    - key: EnableScreenBlankingEffect
+      value: "0"
+  notify: Restart NoMachine after private-network configuration
+  when: dot_nomachine_tailscale_ready
+
+- name: Lock the physical desktop after NoMachine disconnects
+  become: true
+  ansible.builtin.lineinfile:
+    path: /usr/NX/etc/server.cfg
+    regexp: "(?i)^#?EnableLockScreen\\s+"
+    line: "EnableLockScreen 1"
+  notify: Restart NoMachine after private-network configuration
   when: dot_nomachine_tailscale_ready
 
 - name: Preserve normal LAN SSH before enabling the host firewall
@@ -228,4 +258,6 @@
       TCP and UDP are restricted to Tailscale by the managed host firewall.
       A physical Plasma desktop switches to 1920x1200 at 115% while a remote
       session is connected and restores its prior mode after disconnection.
+      The physical monitor is blanked during access and Plasma locks after the
+      final disconnect.
   when: dot_nomachine_tailscale_ready
