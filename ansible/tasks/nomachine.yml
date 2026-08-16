@@ -152,7 +152,7 @@
       script: /usr/local/libexec/nomachine-display-resize
   when: dot_nomachine_tailscale_ready
 
-- name: Protect the physical display during NoMachine access
+- name: Keep local input available during NoMachine access
   become: true
   ansible.builtin.lineinfile:
     path: /usr/NX/etc/node.cfg
@@ -160,7 +160,7 @@
     line: "{{ item.key }} {{ item.value }}"
   loop:
     - key: EnableScreenBlanking
-      value: "1"
+      value: "0"
     - key: EnableScreenBlankingEffect
       value: "0"
   notify: Restart NoMachine after private-network configuration
@@ -280,8 +280,8 @@
       TCP and UDP are restricted to Tailscale by the managed host firewall.
       A physical Plasma desktop switches to 1920x1200 at 115% while a remote
       session is connected and restores its prior mode after disconnection.
-      The physical monitor is blanked during access and Plasma locks after the
-      final disconnect.
+      The physical monitor is dimmed without blocking its keyboard or mouse,
+      and Plasma locks after the final disconnect.
       HiDPI clients launch through Gamescope so the complete legacy interface,
       including icons and controls, scales with the local display.
       Client microphone capture is muted without disabling remote audio output.

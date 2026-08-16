@@ -20,6 +20,7 @@ LOG_FILE = STATE_DIR / "nomachine-display.log"
 REMOTE_WIDTH = 1920
 REMOTE_HEIGHT = 1200
 REMOTE_SCALE = 1.15
+REMOTE_BRIGHTNESS = 0.05
 
 
 def log(message: str) -> None:
@@ -140,6 +141,17 @@ def set_display(connector: str, mode_id: str, scale: float) -> None:
         )
 
 
+def set_brightness(connector: str, brightness: float) -> None:
+    # KScreen reports normalized 0..1 values but its CLI accepts percent.
+    result = doctor(f"output.{connector}.brightness.{brightness * 100:g}")
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"KScreen rejected the brightness change: {detail}")
+    verified = active_output(configuration())
+    if abs(float(verified.get("brightness", 1)) - brightness) > 0.001:
+        raise RuntimeError("the display driver did not apply the requested brightness")
+
+
 def panel_states() -> list[dict[str, Any]]:
     result = plasma_script(
         'var ids = panelIds; for (var i = 0; i < ids.length; ++i) {'
@@ -202,6 +214,7 @@ def connect(session_id: str) -> None:
             "mode_id": str(original["id"]),
             "mode": original["name"],
             "scale": float(output.get("scale", 1)),
+            "brightness": float(output.get("brightness", 1)),
         }
     if "panels" not in state:
         state["panels"] = panel_states()
@@ -209,6 +222,7 @@ def connect(session_id: str) -> None:
     save_state(state)
     remote = mode_for(output, REMOTE_WIDTH, REMOTE_HEIGHT)
     set_display(output["name"], str(remote["id"]), REMOTE_SCALE)
+    set_brightness(output["name"], REMOTE_BRIGHTNESS)
     set_panels(
         [
             {"id": panel["id"], "hiding": "none"}
@@ -220,6 +234,7 @@ def connect(session_id: str) -> None:
         "mode_id": str(remote["id"]),
         "mode": remote["name"],
         "scale": REMOTE_SCALE,
+        "brightness": REMOTE_BRIGHTNESS,
     }
     save_state(state)
     log(
@@ -246,6 +261,10 @@ def disconnect(session_id: str) -> None:
                 str(original["mode_id"]),
                 float(original["scale"]),
             )
+            set_brightness(
+                str(original["connector"]),
+                float(original.get("brightness", 1)),
+            )
         except RuntimeError as error:
             errors.append(str(error))
     if state.get("panels"):
@@ -258,7 +277,8 @@ def disconnect(session_id: str) -> None:
     if original:
         log(
             f"disconnected {session_id}: restored {original['mode']} at "
-            f"{original['scale']:g}x on {original['connector']} and panel visibility"
+            f"{original['scale']:g}x on {original['connector']}, brightness, "
+            "and panel visibility"
         )
     STATE_FILE.unlink(missing_ok=True)
 
