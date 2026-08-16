@@ -1069,6 +1069,10 @@ class DotCliTests(unittest.TestCase):
         display = (ROOT / "scripts/nomachine-display").read_text()
         client = (ROOT / "scripts/nomachine-client").read_text()
         microphone = (ROOT / "scripts/nomachine-microphone-guard").read_text()
+        desktop = (ROOT / "config/nomachine/NoMachine-base.desktop").read_text()
+        session_desktop = (
+            ROOT / "config/nomachine/NoMachine-nxs.desktop"
+        ).read_text()
 
         self.assertTrue(kubuntu["features"]["nomachine"])
         self.assertIn("tasks/nomachine.yml", local)
@@ -1110,6 +1114,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("application.process.binary", microphone)
         self.assertIn("set-source-output-mute", microphone)
         self.assertIn("MICROPHONE_GUARD", client)
+        self.assertIn(r'\$HOME/.local/bin/nomachine-client', desktop)
+        self.assertIn(r'\$HOME/.local/bin/nomachine-client', session_desktop)
+        self.assertNotIn("Exec=nomachine-client", desktop)
         self.assertIn("STATE_FILE.unlink(missing_ok=True)", display)
         self.assertIn("Hooks must never prevent a remote login", display)
         self.assertIn("restored after the last session", docs)
