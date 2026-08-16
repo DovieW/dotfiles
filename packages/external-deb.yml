@@ -10,11 +10,6 @@
       "channel": "stable",
       "source": "obsidianmd/obsidian-releases",
       "asset_regex": "^obsidian_[0-9.]+_amd64\\.deb$"
-    },
-    "rustdesk": {
-      "channel": "stable",
-      "source": "rustdesk/rustdesk",
-      "asset_regex": "^rustdesk-[0-9.]+-x86_64\\.deb$"
     }
   }
 }

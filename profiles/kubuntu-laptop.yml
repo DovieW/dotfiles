@@ -63,7 +63,7 @@
       "ydotool"
     ],
     "brew": ["bun", "lazydocker", "lazygit"],
-    "deb": ["bitwarden", "obsidian", "rustdesk"],
+    "deb": ["bitwarden", "obsidian"],
     "snap": []
   }
 }

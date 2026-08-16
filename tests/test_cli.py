@@ -1284,20 +1284,17 @@ class DotCliTests(unittest.TestCase):
             self.assertTrue(package["asset_regex"].endswith(r"\.deb$"))
             self.assertNotIn("version", package)
 
-    def test_kubuntu_manages_rustdesk_from_official_stable_releases(self):
+    def test_kubuntu_removes_retired_rustdesk_remote_access(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         manifest = json.loads((ROOT / "packages/external-deb.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
 
-        self.assertIn("rustdesk", profile["packages"]["deb"])
-        self.assertEqual(
-            manifest["packages"]["rustdesk"]["source"],
-            "rustdesk/rustdesk",
-        )
-        self.assertEqual(manifest["packages"]["rustdesk"]["channel"], "stable")
-        self.assertEqual(
-            manifest["packages"]["rustdesk"]["asset_regex"],
-            r"^rustdesk-[0-9.]+-x86_64\.deb$",
-        )
+        self.assertNotIn("rustdesk", profile["packages"]["deb"])
+        self.assertNotIn("rustdesk", manifest["packages"])
+        self.assertIn("Remove retired RustDesk remote access", playbook)
+        self.assertIn("name: rustdesk", playbook)
+        self.assertIn("state: absent", playbook)
+        self.assertIn("purge: true", playbook)
 
     def test_kde_apply_refuses_uncaptured_local_drift(self):
         with tempfile.TemporaryDirectory() as directory:

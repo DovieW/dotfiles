@@ -197,6 +197,15 @@
       when: not item.skipped | default(false)
       tags: [packages, app-updates]
 
+    - name: Remove retired RustDesk remote access
+      become: true
+      ansible.builtin.apt:
+        name: rustdesk
+        state: absent
+        purge: true
+      when: ansible_facts.os_family == "Debian"
+      tags: [packages, remote-access]
+
     - name: Check Homebrew availability
       ansible.builtin.command: brew --version
       register: dot_brew
