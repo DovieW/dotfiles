@@ -2,7 +2,7 @@
 Type=Application
 Name=NoMachine
 Comment=Connect to a remote NoMachine desktop
-Exec=/bin/sh -lc "exec \"\\$HOME/.local/bin/nomachine-client\""
+Exec=/bin/sh -lc "exec ~/.local/bin/nomachine-client"
 Icon=NoMachine-icon
 Terminal=false
 Categories=Network;RemoteAccess;

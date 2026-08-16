@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=NoMachine Connection
-Exec=/bin/sh -lc "exec \"\\$HOME/.local/bin/nomachine-client\" --session \"\\$1\"" sh %f
+Exec=/bin/sh -lc "exec ~/.local/bin/nomachine-client --session %f"
 Icon=NoMachine-desktop
 Terminal=false
 NoDisplay=true
