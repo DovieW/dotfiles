@@ -67,6 +67,10 @@ the managed 2880x1800 laptop this is a 1920x1200 inner surface, which also
 matches the desktop's remote mode. Lower-density clients launch NoMachine
 directly without Gamescope.
 
+The client launcher also starts a microphone guard. It mutes PipeWire capture
+streams created by `nxplayer.bin`, preventing accidental room-audio forwarding
+and feedback, while leaving the remote computer's playback stream enabled.
+
 The hook deliberately exits successfully even when KScreen is unavailable so
 a display problem can never prevent remote login. Its state and diagnostic log
 are in `~/.local/state/dotfiles/nomachine-display.json` and

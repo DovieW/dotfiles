@@ -1068,6 +1068,7 @@ class DotCliTests(unittest.TestCase):
         docs = (ROOT / "docs/nomachine.md").read_text()
         display = (ROOT / "scripts/nomachine-display").read_text()
         client = (ROOT / "scripts/nomachine-client").read_text()
+        microphone = (ROOT / "scripts/nomachine-microphone-guard").read_text()
 
         self.assertTrue(kubuntu["features"]["nomachine"])
         self.assertIn("tasks/nomachine.yml", local)
@@ -1105,6 +1106,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"kscreen-doctor", "--json"', client)
         self.assertIn('"-W"', client)
         self.assertIn("including icons and controls", task)
+        self.assertIn("nomachine-microphone-guard", task)
+        self.assertIn("application.process.binary", microphone)
+        self.assertIn("set-source-output-mute", microphone)
+        self.assertIn("MICROPHONE_GUARD", client)
         self.assertIn("STATE_FILE.unlink(missing_ok=True)", display)
         self.assertIn("Hooks must never prevent a remote login", display)
         self.assertIn("restored after the last session", docs)

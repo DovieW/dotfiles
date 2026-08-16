@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,9 @@ import sys
 
 PLAYER = "/usr/NX/bin/nxplayer"
 GAMESCOPE_SCALE = 1.5
+MICROPHONE_GUARD = (
+    Path.home() / ".local/libexec/nomachine-microphone-guard"
+)
 
 
 def hidpi_geometry() -> tuple[int, int, int, int] | None:
@@ -54,6 +58,14 @@ def hidpi_geometry() -> tuple[int, int, int, int] | None:
 
 
 def main() -> None:
+    if MICROPHONE_GUARD.is_file():
+        subprocess.Popen(
+            [str(MICROPHONE_GUARD)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     geometry = hidpi_geometry()
     if geometry:
         inner_width, inner_height, outer_width, outer_height = geometry

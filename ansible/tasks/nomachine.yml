@@ -80,6 +80,13 @@
     mode: "0755"
   when: dot_nomachine_tailscale_ready
 
+- name: Install the NoMachine microphone guard
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/nomachine-microphone-guard"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/nomachine-microphone-guard"
+    mode: "0755"
+  when: dot_nomachine_tailscale_ready
+
 - name: Install NoMachine client desktop overrides
   ansible.builtin.copy:
     src: "{{ dot_repo }}/config/nomachine/{{ item }}"
@@ -277,4 +284,5 @@
       final disconnect.
       HiDPI clients launch through Gamescope so the complete legacy interface,
       including icons and controls, scales with the local display.
+      Client microphone capture is muted without disabling remote audio output.
   when: dot_nomachine_tailscale_ready
