@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NoMachine Connection
+Exec=nomachine-client --session %f
+Icon=NoMachine-desktop
+Terminal=false
+NoDisplay=true
+MimeType=application/x-nx-session;

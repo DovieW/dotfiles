@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NoMachine
+Comment=Connect to a remote NoMachine desktop
+Exec=nomachine-client
+Icon=NoMachine-icon
+Terminal=false
+Categories=Network;RemoteAccess;

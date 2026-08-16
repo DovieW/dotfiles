@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Launch NoMachine through Gamescope on HiDPI Plasma displays."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+
+PLAYER = "/usr/NX/bin/nxplayer"
+GAMESCOPE_SCALE = 1.5
+
+
+def hidpi_geometry() -> tuple[int, int, int, int] | None:
+    if not shutil.which("gamescope") or not shutil.which("kscreen-doctor"):
+        return None
+    result = subprocess.run(
+        ["kscreen-doctor", "--json"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        return None
+    payload = json.loads(result.stdout)
+    outputs = [
+        output
+        for output in payload.get("outputs", [])
+        if output.get("enabled") and output.get("connected")
+    ]
+    if len(outputs) != 1 or float(outputs[0].get("scale", 1)) < 1.5:
+        return None
+    current = str(outputs[0].get("currentModeId"))
+    mode = next(
+        (
+            mode
+            for mode in outputs[0].get("modes", [])
+            if str(mode.get("id")) == current
+        ),
+        None,
+    )
+    if not mode:
+        return None
+    outer_width = int(mode["size"]["width"])
+    outer_height = int(mode["size"]["height"])
+    inner_width = round(outer_width / GAMESCOPE_SCALE)
+    inner_height = round(outer_height / GAMESCOPE_SCALE)
+    return inner_width, inner_height, outer_width, outer_height
+
+
+def main() -> None:
+    geometry = hidpi_geometry()
+    if geometry:
+        inner_width, inner_height, outer_width, outer_height = geometry
+        os.execvp(
+            "gamescope",
+            [
+                "gamescope",
+                "-w",
+                str(inner_width),
+                "-h",
+                str(inner_height),
+                "-W",
+                str(outer_width),
+                "-H",
+                str(outer_height),
+                "-f",
+                "--",
+                PLAYER,
+                *sys.argv[1:],
+            ],
+        )
+    os.execv(PLAYER, [PLAYER, *sys.argv[1:]])
+
+
+if __name__ == "__main__":
+    main()

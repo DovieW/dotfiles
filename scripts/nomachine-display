@@ -193,10 +193,9 @@ def save_state(state: dict[str, Any]) -> None:
 
 def connect(session_id: str) -> None:
     state = load_state()
-    sessions = set(state.get("sessions", []))
     payload = configuration()
     output = active_output(payload)
-    if not sessions:
+    if not state.get("original"):
         original = current_mode(output)
         state["original"] = {
             "connector": output["name"],
@@ -206,8 +205,7 @@ def connect(session_id: str) -> None:
         }
     if "panels" not in state:
         state["panels"] = panel_states()
-    sessions.add(session_id)
-    state["sessions"] = sorted(sessions)
+    state["active_session"] = session_id
     save_state(state)
     remote = mode_for(output, REMOTE_WIDTH, REMOTE_HEIGHT)
     set_display(output["name"], str(remote["id"]), REMOTE_SCALE)
@@ -232,12 +230,12 @@ def connect(session_id: str) -> None:
 
 def disconnect(session_id: str) -> None:
     state = load_state()
-    sessions = set(state.get("sessions", []))
-    sessions.discard(session_id)
-    state["sessions"] = sorted(sessions)
-    if sessions:
-        save_state(state)
-        log(f"disconnected {session_id}: {len(sessions)} session(s) remain")
+    active_session = state.get("active_session")
+    if active_session and active_session != session_id:
+        log(
+            f"ignored stale disconnect {session_id}: active session is "
+            f"{active_session}"
+        )
         return
     original = state.get("original")
     errors = []
@@ -274,7 +272,7 @@ def status() -> None:
     )
     print(
         f"{output['name']}: {mode['name']}, scale {output.get('scale', 1):g}; "
-        f"panels: {panels}; managed sessions: {len(state.get('sessions', []))}"
+        f"panels: {panels}; active session: {state.get('active_session', 'none')}"
     )
 
 

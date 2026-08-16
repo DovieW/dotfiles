@@ -60,10 +60,12 @@ varied across releases; SSH remains the recovery path if a NoMachine update
 regresses it.
 
 On a Plasma client whose active display scale is at least 150%, the managed
-setup increases NoMachine's default font to 16 points and its fixed font to 14
-points. NoMachine's bundled Linux interface is not fully DPI-aware, so this
-improves its text and controls but cannot make every bundled icon behave like a
-native Plasma icon. Restart the NoMachine client after the setting changes.
+launcher runs NoMachine inside Gamescope. It renders the complete legacy client
+at two-thirds of the panel's native dimensions and scales the result by 1.5,
+covering fonts, icons, buttons, menus, and the remote canvas consistently. On
+the managed 2880x1800 laptop this is a 1920x1200 inner surface, which also
+matches the desktop's remote mode. Lower-density clients launch NoMachine
+directly without Gamescope.
 
 The hook deliberately exits successfully even when KScreen is unavailable so
 a display problem can never prevent remote login. Its state and diagnostic log

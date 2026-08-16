@@ -66,11 +66,26 @@
     state: present
   when: dot_nomachine_tailscale_ready
 
-- name: Configure the NoMachine client for HiDPI Plasma displays
-  ansible.builtin.command:
-    argv: ["{{ dot_repo }}/scripts/configure-nomachine-client"]
-  register: dot_nomachine_client_hidpi
-  changed_when: "'fonts updated' in dot_nomachine_client_hidpi.stdout"
+- name: Install the HiDPI NoMachine client compositor
+  become: true
+  ansible.builtin.apt:
+    name: gamescope
+    state: latest
+  when: dot_nomachine_tailscale_ready
+
+- name: Install the adaptive NoMachine client launcher
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/nomachine-client"
+    dest: "{{ ansible_facts.env.HOME }}/.local/bin/nomachine-client"
+    mode: "0755"
+  when: dot_nomachine_tailscale_ready
+
+- name: Install NoMachine client desktop overrides
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/nomachine/{{ item }}"
+    dest: "{{ ansible_facts.env.HOME }}/.local/share/applications/{{ item }}"
+    mode: "0644"
+  loop: [NoMachine-base.desktop, NoMachine-nxs.desktop]
   when: dot_nomachine_tailscale_ready
 
 - name: Read NoMachine EGL capture state
@@ -260,4 +275,6 @@
       session is connected and restores its prior mode after disconnection.
       The physical monitor is blanked during access and Plasma locks after the
       final disconnect.
+      HiDPI clients launch through Gamescope so the complete legacy interface,
+      including icons and controls, scales with the local display.
   when: dot_nomachine_tailscale_ready
