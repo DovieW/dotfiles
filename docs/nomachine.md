@@ -51,13 +51,11 @@ Plasma panels are also changed from auto-hide to always visible while a remote
 session is active, so the task manager remains accessible at the remote screen
 edge. Each panel's previous hiding mode is restored with the display state.
 
-The server dims the physical monitor to 5% while a remote session is connected,
-then restores its exact previous brightness and locks Plasma when the last
-remote session disconnects. The KDE output hook provides privacy without
-NoMachine's native blanking, which is disabled because it also blocks local
-keyboard and mouse input and is unreliable on Plasma Wayland. Mouse or keyboard
-activity does not undo the managed dimming. `EnableLockScreen` still protects
-the workstation after disconnect.
+The physical monitor and its local keyboard and mouse remain active while a
+remote session is connected. NoMachine's native blanking is disabled because
+it blocks local input and is unreliable on Plasma Wayland. KDE brightness
+dimming is also intentionally avoided because it darkens the remotely captured
+image. `EnableLockScreen` still protects the workstation after disconnect.
 
 On a Plasma client whose active display scale is at least 150%, the managed
 launcher runs NoMachine inside Gamescope. It renders the complete legacy client

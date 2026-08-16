@@ -280,7 +280,7 @@
       TCP and UDP are restricted to Tailscale by the managed host firewall.
       A physical Plasma desktop switches to 1920x1200 at 115% while a remote
       session is connected and restores its prior mode after disconnection.
-      The physical monitor is dimmed without blocking its keyboard or mouse,
+      The physical monitor and its local input remain active during access,
       and Plasma locks after the final disconnect.
       HiDPI clients launch through Gamescope so the complete legacy interface,
       including icons and controls, scales with the local display.
