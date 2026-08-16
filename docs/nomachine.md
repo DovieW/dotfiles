@@ -47,6 +47,10 @@ and scale are saved and restored after the last session
 disconnects or closes. Resize events reassert the remote mode, avoiding
 Wayland's unreliable physical-desktop resizing behavior.
 
+Plasma panels are also changed from auto-hide to always visible while a remote
+session is active, so the task manager remains accessible at the remote screen
+edge. Each panel's previous hiding mode is restored with the display state.
+
 The hook deliberately exits successfully even when KScreen is unavailable so
 a display problem can never prevent remote login. Its state and diagnostic log
 are in `~/.local/state/dotfiles/nomachine-display.json` and
