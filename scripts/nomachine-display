@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Adapt a Plasma Wayland physical desktop for NoMachine connections."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Any
+
+
+STATE_DIR = Path.home() / ".local/state/dotfiles"
+STATE_FILE = STATE_DIR / "nomachine-display.json"
+LOCK_FILE = STATE_DIR / "nomachine-display.lock"
+LOG_FILE = STATE_DIR / "nomachine-display.log"
+REMOTE_WIDTH = 1920
+REMOTE_HEIGHT = 1200
+REMOTE_SCALE = 1.15
+
+
+def log(message: str) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as stream:
+        stream.write(message.rstrip() + "\n")
+
+
+def graphical_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    runtime = Path(f"/run/user/{os.getuid()}")
+    environment.setdefault("XDG_RUNTIME_DIR", str(runtime))
+    environment.setdefault(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus"
+    )
+    if not environment.get("WAYLAND_DISPLAY"):
+        sockets = sorted(
+            path.name
+            for path in runtime.glob("wayland-*")
+            if re.fullmatch(r"wayland-\d+", path.name)
+        )
+        if sockets:
+            environment["WAYLAND_DISPLAY"] = sockets[0]
+    environment["QT_QPA_PLATFORM"] = "wayland"
+    return environment
+
+
+def doctor(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["kscreen-doctor", *arguments],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=15,
+    )
+
+
+def configuration() -> dict[str, Any]:
+    result = doctor("--json")
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot read KScreen state: {detail}")
+    return json.loads(result.stdout)
+
+
+def active_output(payload: dict[str, Any]) -> dict[str, Any]:
+    outputs = [
+        output
+        for output in payload.get("outputs", [])
+        if output.get("connected") and output.get("enabled")
+    ]
+    if len(outputs) != 1:
+        raise RuntimeError(
+            f"expected one active physical output, found {len(outputs)}"
+        )
+    return outputs[0]
+
+
+def mode_for(output: dict[str, Any], width: int, height: int) -> dict[str, Any]:
+    matches = [
+        mode
+        for mode in output.get("modes", [])
+        if mode.get("size") == {"width": width, "height": height}
+    ]
+    if not matches:
+        raise RuntimeError(
+            f"{output.get('name')} does not support {width}x{height}"
+        )
+    return max(matches, key=lambda mode: float(mode.get("refreshRate", 0)))
+
+
+def current_mode(output: dict[str, Any]) -> dict[str, Any]:
+    identifier = str(output.get("currentModeId"))
+    for mode in output.get("modes", []):
+        if str(mode.get("id")) == identifier:
+            return mode
+    raise RuntimeError(f"current mode {identifier} is unavailable")
+
+
+def set_display(connector: str, mode_id: str, scale: float) -> None:
+    result = doctor(
+        f"output.{connector}.mode.{mode_id}",
+        f"output.{connector}.scale.{scale:g}",
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"KScreen rejected the display change: {detail}")
+    verified = active_output(configuration())
+    if (
+        verified.get("name") != connector
+        or str(verified.get("currentModeId")) != mode_id
+        or abs(float(verified.get("scale", 1)) - scale) > 0.001
+    ):
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(
+            "the display driver did not apply the requested mode and scale"
+            + (f": {detail}" if detail else "")
+        )
+
+
+def load_state() -> dict[str, Any]:
+    if not STATE_FILE.is_file():
+        return {"sessions": []}
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"sessions": []}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    temporary = STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(STATE_FILE)
+
+
+def connect(session_id: str) -> None:
+    state = load_state()
+    sessions = set(state.get("sessions", []))
+    payload = configuration()
+    output = active_output(payload)
+    if not sessions:
+        original = current_mode(output)
+        state["original"] = {
+            "connector": output["name"],
+            "mode_id": str(original["id"]),
+            "mode": original["name"],
+            "scale": float(output.get("scale", 1)),
+        }
+    sessions.add(session_id)
+    state["sessions"] = sorted(sessions)
+    remote = mode_for(output, REMOTE_WIDTH, REMOTE_HEIGHT)
+    set_display(output["name"], str(remote["id"]), REMOTE_SCALE)
+    state["remote"] = {
+        "connector": output["name"],
+        "mode_id": str(remote["id"]),
+        "mode": remote["name"],
+        "scale": REMOTE_SCALE,
+    }
+    save_state(state)
+    log(
+        f"connected {session_id}: {remote['name']} at {REMOTE_SCALE:g}x "
+        f"on {output['name']}"
+    )
+
+
+def disconnect(session_id: str) -> None:
+    state = load_state()
+    sessions = set(state.get("sessions", []))
+    sessions.discard(session_id)
+    state["sessions"] = sorted(sessions)
+    if sessions:
+        save_state(state)
+        log(f"disconnected {session_id}: {len(sessions)} session(s) remain")
+        return
+    original = state.get("original")
+    if original:
+        set_display(
+            str(original["connector"]),
+            str(original["mode_id"]),
+            float(original["scale"]),
+        )
+        log(
+            f"disconnected {session_id}: restored {original['mode']} at "
+            f"{original['scale']:g}x on {original['connector']}"
+        )
+    STATE_FILE.unlink(missing_ok=True)
+
+
+def status() -> None:
+    state = load_state()
+    output = active_output(configuration())
+    mode = current_mode(output)
+    print(
+        f"{output['name']}: {mode['name']}, scale {output.get('scale', 1):g}; "
+        f"managed sessions: {len(state.get('sessions', []))}"
+    )
+
+
+def event_from_name() -> str:
+    name = Path(sys.argv[0]).name
+    if name.endswith("-connect"):
+        return "connect"
+    if name.endswith("-disconnect"):
+        return "disconnect"
+    if name.endswith("-resize"):
+        return "resize"
+    return sys.argv[1] if len(sys.argv) > 1 else "status"
+
+
+def main() -> int:
+    event = event_from_name()
+    offset = 1 if Path(sys.argv[0]).name == "nomachine-display" else 0
+    arguments = sys.argv[1 + offset :]
+    session_id = arguments[0] if arguments else "manual"
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with LOCK_FILE.open("w", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if event in {"connect", "resize"}:
+                connect(session_id)
+            elif event == "disconnect":
+                disconnect(session_id)
+            elif event == "status":
+                status()
+            else:
+                raise RuntimeError(f"unknown event {event!r}")
+    except Exception as error:  # Hooks must never prevent a remote login.
+        log(f"{event} {session_id} failed: {error}")
+        if Path(sys.argv[0]).name == "nomachine-display":
+            print(f"NoMachine display {event} failed: {error}", file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

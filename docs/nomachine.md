@@ -37,8 +37,25 @@ Install the NoMachine client on the connecting computer and connect to the IP
 shown by `tailscale ip -4`, port `4000`, using this laptop's normal Linux
 username and password. Both computers must be connected to the tailnet.
 
-Inside a session, open the NoMachine menu and select **Display**. Enable the
-option that changes the remote display resolution to match the client window.
+The managed node hooks adapt the physical Plasma desktop automatically. When a
+NoMachine session starts or reconnects, the single attached display switches to
+1920x1200 at 115% scaling. That produces a 16:10, approximately 1670x1043
+logical workspace closely matching the managed laptop's 1646x1029 workspace.
+The lower 16:10 mode is intentional: the attached 4K display and AMD driver
+advertise but reject the higher 2560x1600 mode. The exact pre-connection mode
+and scale are saved and restored after the last session
+disconnects or closes. Resize events reassert the remote mode, avoiding
+Wayland's unreliable physical-desktop resizing behavior.
+
+The hook deliberately exits successfully even when KScreen is unavailable so
+a display problem can never prevent remote login. Its state and diagnostic log
+are in `~/.local/state/dotfiles/nomachine-display.json` and
+`~/.local/state/dotfiles/nomachine-display.log`. Check the live state with:
+
+```bash
+/usr/local/libexec/nomachine-display status
+```
+
 NoMachine's Wayland support requires an attached, active physical display and
 does not automatically lock Plasma when the remote client disconnects. The
 managed setup enables NoMachine EGL capture because its DRM and compositor

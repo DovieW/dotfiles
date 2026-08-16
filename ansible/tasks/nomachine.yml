@@ -82,6 +82,47 @@
     - dot_nomachine_tailscale_ready
     - dot_nomachine_egl_capture.rc == 0
 
+- name: Install the managed NoMachine display adapter
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/nomachine-display"
+    dest: /usr/local/libexec/nomachine-display
+    owner: root
+    group: root
+    mode: "0755"
+  when: dot_nomachine_tailscale_ready
+
+- name: Install NoMachine display-event entry points
+  become: true
+  ansible.builtin.file:
+    src: /usr/local/libexec/nomachine-display
+    dest: "/usr/local/libexec/nomachine-display-{{ item }}"
+    state: link
+    force: true
+  loop: [connect, disconnect, resize]
+  when: dot_nomachine_tailscale_ready
+
+- name: Adapt Plasma display geometry to NoMachine sessions
+  become: true
+  ansible.builtin.lineinfile:
+    path: /usr/NX/etc/node.cfg
+    regexp: "(?i)^#?{{ item.key }}\\s+"
+    line: '{{ item.key }} "{{ item.script }}"'
+  loop:
+    - key: UserScriptAfterSessionStart
+      script: /usr/local/libexec/nomachine-display-connect
+    - key: UserScriptAfterSessionReconnect
+      script: /usr/local/libexec/nomachine-display-connect
+    - key: UserScriptAfterSessionDisconnect
+      script: /usr/local/libexec/nomachine-display-disconnect
+    - key: UserScriptAfterSessionClose
+      script: /usr/local/libexec/nomachine-display-disconnect
+    - key: UserScriptAfterSessionFailure
+      script: /usr/local/libexec/nomachine-display-disconnect
+    - key: UserScriptAfterRemoteResize
+      script: /usr/local/libexec/nomachine-display-resize
+  when: dot_nomachine_tailscale_ready
+
 - name: Preserve normal LAN SSH before enabling the host firewall
   become: true
   community.general.ufw:
@@ -185,4 +226,6 @@
       NoMachine is running at nx://{{ dot_nomachine_tailscale_ip.stdout | trim }}:4000.
       Connect with the NoMachine client and this workstation's Linux account.
       TCP and UDP are restricted to Tailscale by the managed host firewall.
+      A physical Plasma desktop switches to 1920x1200 at 115% while a remote
+      session is connected and restores its prior mode after disconnection.
   when: dot_nomachine_tailscale_ready
