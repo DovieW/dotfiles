@@ -34,4 +34,6 @@ printf '%s\n' "$password" | "$client" \
   +clipboard \
   /cert:tofu \
   /network:auto \
-  /gfx
+  /gfx \
+  /scale:180 \
+  /scale-desktop:175

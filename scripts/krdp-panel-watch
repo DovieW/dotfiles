@@ -3,19 +3,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import re
 import signal
 import subprocess
 import time
 
 
 REMOTE_PANEL = "/usr/local/libexec/remote-panel"
-KRDP_DISPLAY = str(Path.home() / ".local/libexec/krdp-display")
 SOURCE = "krdp"
 SESSION = "listener"
 running = True
-MIN_STREAM_BYTES = 65536
 
 
 def connected() -> bool:
@@ -30,34 +26,9 @@ def connected() -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
-def streaming() -> bool:
-    result = subprocess.run(
-        ["ss", "-Htin", "state", "established", "sport", "=", ":3389"],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-    )
-    if result.returncode != 0:
-        return False
-    sent = [int(value) for value in re.findall(r"bytes_sent:(\d+)", result.stdout)]
-    return any(value >= MIN_STREAM_BYTES for value in sent)
-
-
 def panel(action: str) -> None:
     subprocess.run(
         [REMOTE_PANEL, action, SOURCE, SESSION],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=20,
-    )
-
-
-def display(action: str) -> None:
-    subprocess.run(
-        [KRDP_DISPLAY, action],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -74,7 +45,6 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     active = False
-    initialized = False
     while running:
         current = connected()
         # Reconcile every connected poll. Plasma can replace a panel and its
@@ -82,22 +52,12 @@ def main() -> int:
         # idempotent and lets the shared manager protect the replacement.
         if current:
             panel("activate")
-            # A scale change made during TCP/PAM setup is too early: KRdp
-            # creates its portal capture afterward and misses the resize.
-            # Reset on the new socket, then apply only once video bytes flow.
-            if not active:
-                display("deactivate")
-            elif streaming():
-                display("activate")
-        elif active or not initialized:
+        elif active:
             panel("deactivate")
-            display("deactivate")
         active = current
-        initialized = True
         time.sleep(1)
     if active:
         panel("deactivate")
-        display("deactivate")
     return 0
 
 
