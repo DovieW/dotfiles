@@ -19,6 +19,7 @@
     dest: /tmp/dotfiles-google-linux-signing-key.pub
     mode: "0644"
   register: dot_google_key
+  check_mode: false
 
 - name: Read Google's primary signing-key fingerprint
   ansible.builtin.command:
