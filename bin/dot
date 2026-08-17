@@ -6883,6 +6883,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     failures = 0
     expected_platform = {
         "kubuntu-laptop": "linux",
+        "kubuntu-desktop": "linux",
         "wsl-personal": "wsl",
         "wsl-work": "wsl",
         "windows-host": "windows",
