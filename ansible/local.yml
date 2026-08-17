@@ -274,6 +274,7 @@
       when:
         - dot_brew.rc | default(1) == 0
         - item in dot_brew_outdated.stdout_lines
+        - item not in ['ansible', 'ansible-lint']
       tags: [packages]
 
     - name: Upgrade all installed Homebrew formulae

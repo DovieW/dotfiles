@@ -14,6 +14,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 DOT = ROOT / "bin/dot"
+os.environ["DOTFILES_TESTING"] = "1"
 
 
 class DotCliTests(unittest.TestCase):
@@ -1410,6 +1411,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("upgrade: dist", playbook)
         self.assertIn("Refresh every installed Snap", playbook)
         self.assertIn("Upgrade all installed Homebrew formulae", playbook)
+        self.assertIn("upgrade_ansible_controller", cli)
+        self.assertIn("item not in ['ansible', 'ansible-lint']", playbook)
         self.assertIn("tags: [packages, app-updates]", playbook)
         self.assertIn("active_package_transactions", cli)
         self.assertIn('return manifest["profile"] if manifest else "kubuntu-laptop"', cli)

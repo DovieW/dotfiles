@@ -2644,8 +2644,36 @@ def inherit_graphical_session_environment() -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
 
 
+def upgrade_ansible_controller(
+    profile: dict[str, Any], selected_tags: set[str], *, check: bool
+) -> None:
+    """Update Ansible before launching it, never from inside its own play."""
+    if check or os.environ.get("DOTFILES_TESTING") == "1" or not command_exists("brew"):
+        return
+    packages = set(profile.get("packages", {}).get("brew", []))
+    controllers = sorted(packages & {"ansible", "ansible-lint"})
+    package_selected = not selected_tags or bool(
+        selected_tags & {"all", "packages", "app-updates"}
+    )
+    if not controllers or not package_selected:
+        return
+    outdated = run(
+        ["brew", "outdated", "--formula"], check=False, capture=True
+    )
+    outdated_formulae = set((outdated.stdout or "").splitlines())
+    pending = [name for name in controllers if name in outdated_formulae]
+    if pending:
+        print(
+            "Updating the Ansible controller before the managed play: "
+            + ", ".join(pending)
+        )
+        run(["brew", "upgrade", *pending])
+
+
 def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    selected_tags = set((args.tags or "").replace(",", " ").split())
+    upgrade_ansible_controller(profile, selected_tags, check=args.check)
     if profile.get("features", {}).get("kde"):
         inherit_graphical_session_environment()
     force_kde = getattr(args, "force_kde", False)
@@ -2707,7 +2735,6 @@ def cmd_apply(args: argparse.Namespace) -> None:
             selected_tags=direct_tags,
         )
         return
-    selected_tags = set((args.tags or "").replace(",", " ").split())
     package_apply_selected = not selected_tags or bool(
         selected_tags
         & {
