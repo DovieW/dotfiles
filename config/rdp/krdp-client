@@ -11,11 +11,31 @@ fi
 state_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dotfiles"
 install -d -m 0700 "$state_dir"
 exec 9>"$state_dir/krdp-client.lock"
-if ! flock -n 9; then
+already_connected() {
   kdialog --sorry \
     "Desktop (KRdp) is already connected. Close its existing window before reconnecting."
+}
+
+if ! flock -n 9; then
+  already_connected
   exit 1
 fi
+
+# The lock protects all launches made by the current managed wrapper. Also
+# reject an older unmanaged XFreeRDP process that predates this lock, since two
+# clients redirecting the same Wayland clipboard can destabilize both FreeRDP
+# and clipboard managers such as CopyQ.
+while read -r existing_pid; do
+  [[ -r "/proc/$existing_pid/cmdline" ]] || continue
+  mapfile -d '' -t existing_argv <"/proc/$existing_pid/cmdline" || true
+  [[ "${existing_argv[0]##*/}" == "xfreerdp" ]] || continue
+  for existing_arg in "${existing_argv[@]:1}"; do
+    if [[ "$existing_arg" == "/v:${host}:3389" ]]; then
+      already_connected
+      exit 1
+    fi
+  done
+done < <(pgrep -x xfreerdp || true)
 
 client=""
 for candidate in \
