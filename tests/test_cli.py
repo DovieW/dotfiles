@@ -2011,7 +2011,14 @@ class DotCliTests(unittest.TestCase):
             'stock_shell = Path("/usr/share/plasma/shells/org.kde.plasma.desktop")',
             cli,
         )
-        self.assertIn('if stock_entry.name == "lockscreen"', cli)
+        self.assertIn(
+            "link_file(LOCKSCREEN_PACKAGE_SOURCE, LOCKSCREEN_PACKAGE_DESTINATION)",
+            cli,
+        )
+        self.assertNotIn(
+            "LOCKSCREEN_PACKAGE_SOURCE / \"contents/lockscreen\"",
+            cli,
+        )
         self.assertIn('changes += provision_lockscreen_assets()\n        powerdevil_changed', cli)
         self.assertNotIn("MediaControls", lock_qml)
         self.assertIn("Segoe UI Variable", lock_qml)

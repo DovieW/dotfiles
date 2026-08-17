@@ -1057,30 +1057,16 @@ def lockscreen_greeter_path() -> Path | None:
 def provision_lockscreen_assets() -> int:
     """Install the public shell package and the private wallpaper separately."""
     stock_shell = Path("/usr/share/plasma/shells/org.kde.plasma.desktop")
-    stock_contents = stock_shell / "contents"
-    stock_main = stock_contents / "main.js"
+    stock_main = stock_shell / "contents/main.js"
     if not stock_main.is_file():
         raise DotError(f"The stock Plasma desktop shell is incomplete: {stock_main}")
-    if LOCKSCREEN_PACKAGE_DESTINATION.is_symlink():
-        LOCKSCREEN_PACKAGE_DESTINATION.unlink()
-    LOCKSCREEN_PACKAGE_DESTINATION.mkdir(parents=True, exist_ok=True)
-    overlay_contents = LOCKSCREEN_PACKAGE_DESTINATION / "contents"
-    overlay_contents.mkdir(exist_ok=True)
+    # Link the package root as one unit. KPackage accepts a package whose root
+    # resolves to the repository, but rejects nested links that escape an
+    # otherwise real package directory as path traversal. The fallback package
+    # declared in metadata.json supplies the stock shell contents we do not
+    # override.
     changes = int(
-        link_file(
-            LOCKSCREEN_PACKAGE_SOURCE / "metadata.json",
-            LOCKSCREEN_PACKAGE_DESTINATION / "metadata.json",
-        )
-    )
-    for stock_entry in stock_contents.iterdir():
-        if stock_entry.name == "lockscreen":
-            continue
-        changes += int(link_file(stock_entry, overlay_contents / stock_entry.name))
-    changes += int(
-        link_file(
-            LOCKSCREEN_PACKAGE_SOURCE / "contents/lockscreen",
-            overlay_contents / "lockscreen",
-        )
+        link_file(LOCKSCREEN_PACKAGE_SOURCE, LOCKSCREEN_PACKAGE_DESTINATION)
     )
     lock_wallpaper_source = Path.home() / "repos/files/leaves_wallpaper.jpg"
     lock_wallpaper = (
@@ -8208,13 +8194,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             LOCKSCREEN_PACKAGE_SOURCE / "metadata.json"
         )
         lock_package_installed = (
-            LOCKSCREEN_PACKAGE_DESTINATION.is_dir()
-            and (LOCKSCREEN_PACKAGE_DESTINATION / "metadata.json").is_symlink()
-            and (LOCKSCREEN_PACKAGE_DESTINATION / "metadata.json").resolve()
-            == (LOCKSCREEN_PACKAGE_SOURCE / "metadata.json").resolve()
-            and (LOCKSCREEN_PACKAGE_DESTINATION / "contents/lockscreen").is_symlink()
-            and (LOCKSCREEN_PACKAGE_DESTINATION / "contents/lockscreen").resolve()
-            == (LOCKSCREEN_PACKAGE_SOURCE / "contents/lockscreen").resolve()
+            LOCKSCREEN_PACKAGE_DESTINATION.is_symlink()
+            and LOCKSCREEN_PACKAGE_DESTINATION.resolve()
+            == LOCKSCREEN_PACKAGE_SOURCE.resolve()
         )
         lock_package_active = (
             f"ShellPackage={LOCKSCREEN_PACKAGE_ID}" in panel_geometry
