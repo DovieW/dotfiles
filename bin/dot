@@ -2699,7 +2699,11 @@ def apply_direct(
         unit_name = "codex-remote-control.service"
         source = ROOT / "config/systemd/user" / unit_name
         destination = systemd_user / unit_name
-        changes += int(link_file(source, destination))
+        if remote_mode == "headless":
+            changes += int(link_file(source, destination))
+        elif destination.is_symlink():
+            destination.unlink()
+            changes += 1
         managed_codex = (
             Path.home() / ".codex/packages/standalone/current/codex"
         )
