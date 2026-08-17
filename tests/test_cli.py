@@ -2070,6 +2070,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('".config/plasmaparc"', cli)
         self.assertIn('"Updates", "PlasmaViews][Panel 2][Defaults"', cli)
         self.assertIn("plasma_evaluate(panel_profile_script(selected_panel))", cli)
+        self.assertIn(
+            '"restart",\n                    "plasma-plasmashell.service"',
+            cli,
+        )
+        self.assertIn("Plasma Shell did not return after applying the panel", cli)
         self.assertIn('"systemctl", "--user", "restart", "plasma-krunner.service"', cli)
         self.assertIn('"qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"', cli)
         self.assertIn('"org.kde.kwin.Effects.unloadEffect"', cli)

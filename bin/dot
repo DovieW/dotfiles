@@ -2303,6 +2303,35 @@ def apply_direct(
         ):
             selected_panel = active_panel_profile()
             plasma_evaluate(panel_profile_script(selected_panel))
+            # Plasma's Icon Tasks model does not reliably consume a newly
+            # scripted launcher list until plasmashell reloads the persisted
+            # applet configuration. Without this restart, fresh machines show
+            # only currently running windows even though qdbus reads the
+            # intended pins back from the applet.
+            run(
+                [
+                    "systemctl",
+                    "--user",
+                    "restart",
+                    "plasma-plasmashell.service",
+                ]
+            )
+            for _attempt in range(40):
+                shell_ready = run(
+                    [
+                        "qdbus6",
+                        "org.kde.plasmashell",
+                        "/PlasmaShell",
+                        "org.kde.PlasmaShell.shell",
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                if shell_ready.returncode == 0 and shell_ready.stdout.strip():
+                    break
+                time.sleep(0.25)
+            else:
+                raise DotError("Plasma Shell did not return after applying the panel.")
             matches, detail = panel_profile_matches(selected_panel)
             if not matches:
                 raise DotError(f"Managed panel did not validate: {detail}")
