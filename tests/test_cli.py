@@ -660,41 +660,28 @@ class DotCliTests(unittest.TestCase):
         module = runpy.run_path(str(DOT))
         bw_session = module["bw_session"]
         globals_ = bw_session.__globals__
-        regular_commands = []
-        session_commands = []
+        unlock = mock.Mock(return_value=("recovered-session", 0))
 
         def fake_run(command, **_kwargs):
-            regular_commands.append(command)
-            if command == ["bw", "status"]:
-                return subprocess.CompletedProcess(
-                    command, 0, stdout='{"status":"locked"}\n', stderr=""
-                )
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        def fake_subprocess_run(command, **_kwargs):
-            session_commands.append(command)
-            if command[1] == "unlock":
-                return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
             return subprocess.CompletedProcess(
-                command, 0, stdout="recovered-session\n", stderr=""
+                command,
+                0,
+                stdout=(
+                    '{"status":"locked",'
+                    '"userEmail":"person@example.test"}\n'
+                ),
+                stderr="",
             )
 
-        fake_stdin = mock.Mock()
-        fake_stdin.isatty.return_value = True
         with (
             mock.patch.dict(
                 globals_,
                 {
                     "run": fake_run,
                     "require_commands": lambda *_args, **_kwargs: None,
-                    "_bw_unlock_session": lambda: (None, 1),
+                    "_bw_unlock_session": unlock,
                 },
             ),
-            mock.patch.object(
-                globals_["subprocess"], "run", side_effect=fake_subprocess_run
-            ),
-            mock.patch.object(globals_["sys"], "stdin", fake_stdin),
-            mock.patch("builtins.input", return_value="yes"),
             mock.patch.dict(
                 os.environ,
                 {"BW_SESSION": "", "DOTFILES_BW_LOCK_AFTER_USE": ""},
@@ -702,11 +689,7 @@ class DotCliTests(unittest.TestCase):
         ):
             self.assertEqual(bw_session(), ("recovered-session", False))
 
-        self.assertEqual(
-            session_commands,
-            [["bw", "login", "--raw"]],
-        )
-        self.assertIn(["bw", "logout"], regular_commands)
+        unlock.assert_called_once_with("person@example.test")
 
     def test_bw_unlock_uses_an_anonymous_password_pipe(self):
         module = runpy.run_path(str(DOT))
@@ -741,6 +724,35 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertEqual(process_run.call_args.kwargs["pass_fds"], (50,))
         self.assertNotIn("private", repr(process_run.call_args))
+
+    def test_bw_unlock_reuses_password_for_stale_login_recovery(self):
+        module = runpy.run_path(str(DOT))
+        unlock = module["_bw_unlock_session"]
+        globals_ = unlock.__globals__
+        password_session = mock.Mock(
+            side_effect=[(None, 1), ("recovered-session", 0)]
+        )
+        run = mock.Mock()
+        with (
+            mock.patch.object(globals_["getpass"], "getpass", return_value="private"),
+            mock.patch.dict(
+                globals_,
+                {"_bw_password_session": password_session, "run": run},
+            ),
+        ):
+            self.assertEqual(
+                unlock("person@example.test"),
+                ("recovered-session", 0),
+            )
+
+        self.assertEqual(
+            password_session.call_args_list,
+            [
+                mock.call("unlock", "private"),
+                mock.call("login", "private", email="person@example.test"),
+            ],
+        )
+        run.assert_called_once_with(["bw", "logout"], check=False, capture=True)
 
     def test_bw_session_reuses_existing_in_process_session(self):
         module = runpy.run_path(str(DOT))

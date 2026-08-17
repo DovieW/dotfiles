@@ -3210,24 +3210,27 @@ def _bw_capture_session(action: str) -> tuple[str | None, int]:
     return (token if proc.returncode == 0 else None), proc.returncode
 
 
-def _bw_unlock_session() -> tuple[str | None, int]:
-    """Unlock without Bitwarden's fragile interactive Node prompt."""
-    password = getpass.getpass("Bitwarden master password: ")
+def _bw_password_session(
+    action: str,
+    password: str,
+    *,
+    email: str | None = None,
+) -> tuple[str | None, int]:
+    """Pass a password to Bitwarden through an inherited anonymous pipe."""
     read_fd, write_fd = os.pipe()
     try:
         os.write(write_fd, password.encode() + b"\n")
     finally:
         os.close(write_fd)
-        password = ""
+    command = ["bw", action]
+    if action == "login" and email:
+        command.append(email)
+    command.extend(
+        ["--passwordfile", f"/proc/self/fd/{read_fd}", "--raw"]
+    )
     try:
         proc = subprocess.run(
-            [
-                "bw",
-                "unlock",
-                "--passwordfile",
-                f"/proc/self/fd/{read_fd}",
-                "--raw",
-            ],
+            command,
             check=False,
             text=True,
             stdout=subprocess.PIPE,
@@ -3237,8 +3240,26 @@ def _bw_unlock_session() -> tuple[str | None, int]:
         os.close(read_fd)
     token = proc.stdout.strip()
     if proc.returncode == 0 and not token:
-        raise DotError("Bitwarden unlock succeeded without returning a session token.")
+        raise DotError(
+            f"Bitwarden {action} succeeded without returning a session token."
+        )
     return (token if proc.returncode == 0 else None), proc.returncode
+
+
+def _bw_unlock_session(email: str | None = None) -> tuple[str | None, int]:
+    """Unlock, repairing stale CLI crypto state with the same password."""
+    password = getpass.getpass("Bitwarden master password: ")
+    try:
+        session, returncode = _bw_password_session("unlock", password)
+        if returncode == 0:
+            return session, returncode
+        if not email:
+            return None, returncode
+        print("Bitwarden CLI crypto state is stale; refreshing its login now.")
+        run(["bw", "logout"], check=False, capture=True)
+        return _bw_password_session("login", password, email=email)
+    finally:
+        password = ""
 
 
 def _bw_should_lock_after_use() -> bool:
@@ -3264,7 +3285,8 @@ def bw_session() -> tuple[str, bool]:
     if status.returncode:
         raise DotError("Could not read Bitwarden CLI status.")
     try:
-        state = json.loads(status.stdout).get("status")
+        status_data = json.loads(status.stdout)
+        state = status_data.get("status")
     except json.JSONDecodeError as exc:
         raise DotError("Bitwarden CLI returned invalid status data.") from exc
 
@@ -3276,27 +3298,15 @@ def bw_session() -> tuple[str, bool]:
     if state not in {"locked", "unlocked"}:
         raise DotError(f"Unsupported Bitwarden CLI status: {state or 'missing'}")
 
-    session, returncode = _bw_unlock_session()
+    email = status_data.get("userEmail")
+    session, returncode = _bw_unlock_session(
+        str(email) if isinstance(email, str) and email else None
+    )
     if returncode == 0 and session is not None:
         return session, _bw_should_lock_after_use()
-
-    if not sys.stdin.isatty():
-        raise DotError(
-            "Bitwarden unlock failed. Run `bw logout`, then retry so dot can perform a fresh login."
-        )
-    answer = input(
-        "Bitwarden unlock failed. Refresh the CLI login now? [y/N] "
-    ).strip().lower()
-    if answer not in {"y", "yes"}:
-        raise DotError(
-            "Bitwarden unlock failed. Run `bw logout`, then retry when ready."
-        )
-
-    # A successful login can return an immediately usable session even when a
-    # later standalone unlock fails because the CLI's cached crypto state is
-    # stale. Replace that state and retain the new session only in this process.
-    run(["bw", "logout"], check=False, capture=True)
-    return _bw_login_session()
+    raise DotError(
+        "Bitwarden unlock and automatic stale-login recovery both failed."
+    )
 
 
 def bw_get_item(name: str, session: str, *, required: bool = True) -> dict[str, Any] | None:
