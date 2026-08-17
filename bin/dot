@@ -9231,11 +9231,27 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 path_aligned = Path(reported_path).resolve() == managed_codex.resolve()
             except OSError:
                 pass
+        desktop_server_running = run(
+            [
+                "pgrep",
+                "-u",
+                str(os.getuid()),
+                "-f",
+                r"^/usr/lib/chatgpt/resources/codex .*app-server",
+            ],
+            check=False,
+            capture=True,
+        ).returncode == 0
+        remote_owner_healthy = (running and path_aligned) or desktop_server_running
         failures += not doctor_check(
             "Codex native Remote Control daemon",
-            running and path_aligned,
-            "running from the managed standalone channel"
-            if running and path_aligned
+            remote_owner_healthy,
+            (
+                "ChatGPT Desktop currently owns Remote Control"
+                if desktop_server_running
+                else "running from the managed standalone channel"
+            )
+            if remote_owner_healthy
             else (
                 (daemon_version.stdout or daemon_version.stderr).strip()
                 if daemon_version

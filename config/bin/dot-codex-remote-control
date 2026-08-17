@@ -23,12 +23,19 @@ shutdown() {
 trap shutdown EXIT
 trap 'exit 0' INT TERM
 
+desktop_was_running=false
 while true; do
   if pgrep -u "$(id -u)" -x ChatGPT >/dev/null 2>&1; then
-    stop_native_daemon
+    if [[ "$desktop_was_running" == false ]]; then
+      stop_native_daemon
+      desktop_was_running=true
+    fi
   elif ! "$codex" app-server daemon version 2>/dev/null \
     | grep -q '"status":"running"'; then
+    desktop_was_running=false
     start_native_daemon || true
+  else
+    desktop_was_running=false
   fi
   sleep "$interval_seconds" &
   wait $!
