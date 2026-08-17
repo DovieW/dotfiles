@@ -3,15 +3,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import re
 import signal
 import subprocess
 import time
 
 
 REMOTE_PANEL = "/usr/local/libexec/remote-panel"
+KRDP_SCALE = str(Path.home() / ".local/libexec/krdp-scale")
 SOURCE = "krdp"
 SESSION = "listener"
 running = True
+MIN_STREAM_BYTES = 65536
 
 
 def connected() -> bool:
@@ -26,9 +30,34 @@ def connected() -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
+def streaming() -> bool:
+    result = subprocess.run(
+        ["ss", "-Htin", "state", "established", "sport", "=", ":3389"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        return False
+    sent = [int(value) for value in re.findall(r"bytes_sent:(\d+)", result.stdout)]
+    return any(value >= MIN_STREAM_BYTES for value in sent)
+
+
 def panel(action: str) -> None:
     subprocess.run(
         [REMOTE_PANEL, action, SOURCE, SESSION],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=20,
+    )
+
+
+def scale(action: str) -> None:
+    subprocess.run(
+        [KRDP_SCALE, action],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -45,6 +74,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     active = False
+    initialized = False
     while running:
         current = connected()
         # Reconcile every connected poll. Plasma can replace a panel and its
@@ -52,12 +82,19 @@ def main() -> int:
         # idempotent and lets the shared manager protect the replacement.
         if current:
             panel("activate")
-        elif active:
+            if not active:
+                scale("deactivate")
+            elif streaming():
+                scale("activate")
+        elif active or not initialized:
             panel("deactivate")
+            scale("deactivate")
         active = current
+        initialized = True
         time.sleep(1)
     if active:
         panel("deactivate")
+        scale("deactivate")
     return 0
 
 

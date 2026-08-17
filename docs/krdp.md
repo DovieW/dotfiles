@@ -19,7 +19,7 @@ the RDP client and is never stored in this repository or passed in a process
 argument by the managed launcher.
 
 Each connection streams the desktop's existing primary Plasma output. The
-managed client fits that 16:10 workspace to the laptop's 16:10 screen. KRdp's
+managed client fits that 16:9 workspace inside the laptop's 16:10 screen. KRdp's
 virtual-monitor mode is deliberately not used: it creates an empty auxiliary
 output rather than a complete interactive Plasma workspace. Because this is a
 physical-session stream, activity can also be visible on the attached monitor.
@@ -30,6 +30,13 @@ A managed connection watcher changes every current Plasma panel from auto-hide
 to always visible while KRdp is connected. It shares state with NoMachine,
 survives Plasma panel ID changes, and restores the previous hiding modes only
 after the final managed remote session disconnects.
+
+After video traffic begins, the watcher changes only the output's Plasma scale
+from its physical 145% setting to 235%. It never changes resolution or mode:
+doing that after KRdp's Wayland portal opens invalidates the portal's input
+coordinate map. The original scale is restored on disconnect. FreeRDP's own
+DPI negotiation flags are omitted because KRdp ignores them for the existing
+physical output and they can distort pointer mapping.
 
 On the managed laptop, launch **Desktop (KRdp)** from the application menu or
 run:

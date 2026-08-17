@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Temporarily enlarge Plasma UI while the physical desktop is streamed."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Any
+
+
+STATE_DIR = Path.home() / ".local/state/dotfiles"
+STATE_FILE = STATE_DIR / "krdp-scale.json"
+LOCK_FILE = STATE_DIR / "krdp-scale.lock"
+LOG_FILE = STATE_DIR / "krdp-scale.log"
+TARGET_SCALE = 2.35
+
+
+def log(message: str) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as stream:
+        stream.write(message.rstrip() + "\n")
+
+
+def graphical_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    runtime = Path(f"/run/user/{os.getuid()}")
+    environment.setdefault("XDG_RUNTIME_DIR", str(runtime))
+    environment.setdefault(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus"
+    )
+    if not environment.get("WAYLAND_DISPLAY"):
+        sockets = sorted(
+            path.name
+            for path in runtime.glob("wayland-*")
+            if re.fullmatch(r"wayland-\d+", path.name)
+        )
+        if sockets:
+            environment["WAYLAND_DISPLAY"] = sockets[0]
+    environment["QT_QPA_PLATFORM"] = "wayland"
+    return environment
+
+
+def enabled_outputs() -> list[dict[str, Any]]:
+    result = subprocess.run(
+        ["kscreen-doctor", "-j"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=15,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot read Plasma output state: {detail}")
+    payload = json.loads(result.stdout)
+    return [
+        output
+        for output in payload.get("outputs", [])
+        if output.get("connected") and output.get("enabled")
+    ]
+
+
+def set_scale(name: str, scale: float) -> None:
+    result = subprocess.run(
+        ["kscreen-doctor", f"output.{name}.scale.{scale:g}"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=20,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot set {name} to {scale:g}: {detail}")
+
+
+def load_state() -> dict[str, float]:
+    if not STATE_FILE.is_file():
+        return {}
+    try:
+        payload = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    outputs = payload.get("outputs", {})
+    if not isinstance(outputs, dict):
+        return {}
+    return {
+        str(name): float(scale)
+        for name, scale in outputs.items()
+        if isinstance(scale, (int, float))
+    }
+
+
+def save_state(outputs: dict[str, float]) -> None:
+    temporary = STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps({"outputs": outputs}, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(STATE_FILE)
+
+
+def activate() -> None:
+    current = enabled_outputs()
+    original = load_state()
+    changed = False
+    if not original:
+        original = {
+            str(output["name"]): float(output["scale"]) for output in current
+        }
+        save_state(original)
+        changed = True
+    for output in current:
+        if abs(float(output["scale"]) - TARGET_SCALE) > 0.01:
+            set_scale(str(output["name"]), TARGET_SCALE)
+            changed = True
+    if changed:
+        log(f"activated KRDP scale {TARGET_SCALE:g}")
+
+
+def deactivate() -> None:
+    original = load_state()
+    if not original:
+        return
+    current_names = {str(output["name"]) for output in enabled_outputs()}
+    for name, scale in original.items():
+        if name in current_names:
+            set_scale(name, scale)
+    STATE_FILE.unlink(missing_ok=True)
+    log("restored physical display scale")
+
+
+def status() -> None:
+    outputs = ", ".join(
+        f"{output['name']}={float(output['scale']):g}"
+        for output in enabled_outputs()
+    )
+    original = load_state()
+    print(f"outputs: {outputs}; saved: {original or 'none'}")
+
+
+def main() -> int:
+    if len(sys.argv) != 2 or sys.argv[1] not in {
+        "activate",
+        "deactivate",
+        "status",
+    }:
+        print("usage: krdp-scale activate|deactivate|status", file=sys.stderr)
+        return 2
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with LOCK_FILE.open("w", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if sys.argv[1] == "activate":
+                activate()
+            elif sys.argv[1] == "deactivate":
+                deactivate()
+            else:
+                status()
+    except Exception as error:
+        log(f"{sys.argv[1]} failed: {error}")
+        print(f"krdp-scale {sys.argv[1]} failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

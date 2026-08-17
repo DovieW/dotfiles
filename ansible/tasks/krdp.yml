@@ -157,6 +157,14 @@
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
 
+- name: Install the KRdp scale-only session manager
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/krdp-scale"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-scale"
+    mode: "0755"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
 - name: Remove the retired KRdp physical-display manager
   ansible.builtin.file:
     path: "{{ item }}"
