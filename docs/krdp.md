@@ -37,7 +37,9 @@ physical 145% scale to 235% while KRdp is connected. After FreeRDP reduces the
 the laptop's native 175% apparent size. The original physical scale is recorded
 before the first adjustment and restored when the connection closes. This is
 done through `kscreen-doctor` because KRdp does not apply FreeRDP's requested
-desktop-scale capability to the existing Wayland output.
+desktop-scale capability to the existing Wayland output. The watcher waits for
+actual video traffic before changing the scale; applying it during TCP or PAM
+setup is too early for KRdp's portal capture to observe the resize.
 
 On the managed laptop, launch **Desktop (KRdp)** from the application menu or
 run:
