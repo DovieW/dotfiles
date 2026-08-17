@@ -1529,6 +1529,42 @@ def sync_managed_kglobal_shortcuts() -> None:
         "System Monitor",
         "System Monitor",
     )
+    stock_dolphin = (
+        "org_kde_dolphin_desktop",
+        "_launch",
+        "Dolphin",
+        "Dolphin",
+    )
+    dolphin = (
+        "kwin",
+        "dot-dolphin",
+        "KWin",
+        "Open or Focus Dolphin",
+    )
+    stock_switch_window_left = (
+        "kwin",
+        "Switch Window Left",
+        "KWin",
+        "Switch to Window to the Left",
+    )
+    stock_switch_window_right = (
+        "kwin",
+        "Switch Window Right",
+        "KWin",
+        "Switch to Window to the Right",
+    )
+    window_desktop_left = (
+        "kwin",
+        "dot-window-desktop-left",
+        "KWin",
+        "Move Window and Follow Left",
+    )
+    window_desktop_right = (
+        "kwin",
+        "dot-window-desktop-right",
+        "KWin",
+        "Move Window and Follow Right",
+    )
     stock_emoji_picker = (
         "org.kde.plasma.emojier.desktop",
         "_launch",
@@ -1574,6 +1610,14 @@ def sync_managed_kglobal_shortcuts() -> None:
         overview: [285212673, 268435543],
         # Windows-style Task Manager / Resource Monitor shortcut.
         system_monitor: [117440512],
+        # KWin scripts register after the static shortcut file is loaded. Move
+        # their bindings from the stock actions into the live script actions.
+        stock_dolphin: [0],
+        stock_switch_window_left: [0],
+        stock_switch_window_right: [0],
+        dolphin: [268435525],
+        window_desktop_left: [419430418],
+        window_desktop_right: [419430420],
         # CopyQ replaces Klipper; the dedicated picker inserts emoji directly.
         klipper_popup: [0],
         stock_emoji_picker: [0],
@@ -2371,6 +2415,11 @@ def apply_direct(
                             "org.kde.kwin.Script.run",
                         ]
                     )
+            # registerShortcut() happens when the scripts run, after the
+            # static kglobalshortcutsrc synchronization above. Reconcile once
+            # more now that every managed KWin action exists.
+            if command_exists("gdbus"):
+                sync_managed_kglobal_shortcuts()
     if features.get("kde") and selected("kde", "display", "vscode", "config"):
         bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
         os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
@@ -5613,7 +5662,7 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="", taskSorting="", taskCurrentDesktop="";
+ const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="", taskSorting="", taskCurrentDesktop="", taskCurrentScreen="", taskMiddleClick="", taskSeparate="", taskOnlyGroupWhenFull="";
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) {
    types.push(w.type);
@@ -5631,6 +5680,10 @@ else {
    taskLaunchers=w.readConfig("launchers","");
    taskSorting=w.readConfig("sortingStrategy","");
    taskCurrentDesktop=w.readConfig("showOnlyCurrentDesktop","");
+   taskCurrentScreen=w.readConfig("showOnlyCurrentScreen","");
+   taskMiddleClick=w.readConfig("middleClickAction","");
+   taskSeparate=w.readConfig("separateLaunchers","");
+   taskOnlyGroupWhenFull=w.readConfig("onlyGroupWhenFull","");
    }
   }
  }
@@ -5647,7 +5700,8 @@ else {
  print([
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
   p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
-  trayShown,trayHidden,launcherIcon,taskLaunchers,taskSorting,taskCurrentDesktop
+  trayShown,trayHidden,launcherIcon,taskLaunchers,taskSorting,taskCurrentDesktop,
+  taskCurrentScreen,taskMiddleClick,taskSeparate,taskOnlyGroupWhenFull
  ].join("|"));
 }
 """
@@ -5655,7 +5709,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 16:
+    if len(parts) != 20:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -5674,6 +5728,10 @@ else {
         task_launchers,
         task_sorting,
         task_current_desktop,
+        task_current_screen,
+        task_middle_click,
+        task_separate,
+        task_only_group_when_full,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -5711,6 +5769,12 @@ else {
         return False, "taskbar is not in manual drag-reordering mode"
     if task_current_desktop != "true":
         return False, "taskbar is showing windows from other virtual desktops"
+    if task_current_screen != "false":
+        return False, "taskbar is hiding windows from other screens"
+    if task_middle_click != "Close":
+        return False, "taskbar middle-click does not close windows"
+    if task_separate != "true" or task_only_group_when_full != "false":
+        return False, "taskbar launcher and grouping behavior does not match"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":
@@ -7719,30 +7783,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         panel_layout = panel_layout_path.read_text(encoding="utf-8") if panel_layout_path.exists() else ""
         selected_panel_profile = active_panel_profile()
         selected_panel = panel_profiles()[selected_panel_profile]
-        required_panel_state = (
-            "plugin=org.kde.plasma.kickoff",
-            "middleClickAction=Close",
-            "sortingStrategy=1",
-            "showOnlyCurrentDesktop=true",
-            "showOnlyCurrentScreen=false",
-            "shownItems=org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.battery",
-            "hiddenItems=org.kde.plasma.notifications",
-        )
-        forbidden_panel_state = (
-            "plugin=org.kde.plasma.pager",
-            "plugin=org.kde.plasma.showdesktop",
-        )
         profile_matches, profile_detail = panel_profile_matches(
             selected_panel_profile
         )
-        panel_layout_ok = all(
-            value in panel_layout for value in required_panel_state
-        ) and all(value not in panel_layout for value in forbidden_panel_state)
         failures += not doctor_check(
             "Plasma panel layout",
-            panel_layout_ok and profile_matches,
+            profile_matches,
             f"{selected_panel['label']}: {profile_detail}"
-            if panel_layout_ok and profile_matches
+            if profile_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         panel_geometry_path = Path.home() / ".config/plasmashellrc"
@@ -7847,8 +7895,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         lock_package_installed = (
             LOCKSCREEN_PACKAGE_DESTINATION.is_dir()
-            and LOCKSCREEN_PACKAGE_DESTINATION.resolve()
-            == LOCKSCREEN_PACKAGE_SOURCE.resolve()
+            and (LOCKSCREEN_PACKAGE_DESTINATION / "metadata.json").is_symlink()
+            and (LOCKSCREEN_PACKAGE_DESTINATION / "metadata.json").resolve()
+            == (LOCKSCREEN_PACKAGE_SOURCE / "metadata.json").resolve()
+            and (LOCKSCREEN_PACKAGE_DESTINATION / "contents/lockscreen").is_symlink()
+            and (LOCKSCREEN_PACKAGE_DESTINATION / "contents/lockscreen").resolve()
+            == (LOCKSCREEN_PACKAGE_SOURCE / "contents/lockscreen").resolve()
         )
         lock_package_active = (
             f"ShellPackage={LOCKSCREEN_PACKAGE_ID}" in panel_geometry
@@ -8129,9 +8181,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 dolphin_script.returncode == 0
                 and dolphin_script.stdout.strip() == "true"
             )
+        try:
+            dolphin_shortcuts_ok = (
+                kglobal_shortcut(
+                    ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin")
+                )
+                == [268435525]
+                and kglobal_shortcut(
+                    ("org_kde_dolphin_desktop", "_launch", "Dolphin", "Dolphin")
+                )
+                == [0]
+            )
+        except DotError:
+            dolphin_shortcuts_ok = False
         dolphin_singleton_ok = (
-            "dot-dolphin=Meta+E" in shortcuts
-            and "_launch=none,Meta+E,Dolphin" in shortcuts
+            dolphin_shortcuts_ok
             and "dot-dolphinEnabled=true" in kwin
             and dolphin_script_loaded
         )
@@ -8201,13 +8265,41 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 window_desktop_script.returncode == 0
                 and window_desktop_script.stdout.strip() == "true"
             )
+        try:
+            window_desktop_live_shortcuts_ok = (
+                kglobal_shortcut(
+                    (
+                        "kwin",
+                        "dot-window-desktop-left",
+                        "KWin",
+                        "Move Window and Follow Left",
+                    )
+                )
+                == [419430418]
+                and kglobal_shortcut(
+                    (
+                        "kwin",
+                        "dot-window-desktop-right",
+                        "KWin",
+                        "Move Window and Follow Right",
+                    )
+                )
+                == [419430420]
+                and kglobal_shortcut(
+                    ("kwin", "Switch Window Left", "KWin", "Switch to Window to the Left")
+                )
+                == [0]
+                and kglobal_shortcut(
+                    ("kwin", "Switch Window Right", "KWin", "Switch to Window to the Right")
+                )
+                == [0]
+            )
+        except DotError:
+            window_desktop_live_shortcuts_ok = False
         window_desktop_shortcuts_ok = (
             "dot-window-desktopEnabled=true" in kwin
             and window_desktop_script_loaded
-            and "dot-window-desktop-left=Meta+Alt+Left" in shortcuts
-            and "dot-window-desktop-right=Meta+Alt+Right" in shortcuts
-            and "Switch Window Left=,Meta+Alt+Left" in shortcuts
-            and "Switch Window Right=,Meta+Alt+Right" in shortcuts
+            and window_desktop_live_shortcuts_ok
         )
         failures += not doctor_check(
             "move window and follow shortcuts",

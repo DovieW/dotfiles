@@ -16,7 +16,8 @@ JsonObject = dict[str, Any]
 
 
 def write_json(path: Path, data: JsonObject) -> None:
-    current_mode = stat.S_IMODE(path.stat().st_mode)
+    current_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -37,14 +38,18 @@ def configure(
     mutate: Callable[[JsonObject], bool],
     *,
     check: bool,
+    create: bool = False,
 ) -> tuple[bool, bool]:
     if not path.is_file():
-        print(f"SKIP {label}: preferences do not exist yet")
-        return False, False
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise SystemExit(f"{label}: cannot read {path}: {error}") from error
+        if not create:
+            print(f"SKIP {label}: preferences do not exist yet")
+            return False, False
+        data = {}
+    else:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise SystemExit(f"{label}: cannot read {path}: {error}") from error
     if not isinstance(data, dict):
         raise SystemExit(f"{label}: expected a JSON object in {path}")
     if not mutate(data):
@@ -110,6 +115,7 @@ def main() -> int:
         "Obsidian",
         use_obsidian_native_frame,
         check=args.check,
+        create=True,
     )
     found = found or exists
     drift = drift or changed

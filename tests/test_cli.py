@@ -7,6 +7,7 @@ import pty
 import re
 import runpy
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -1273,6 +1274,35 @@ class DotCliTests(unittest.TestCase):
                 "/private/vault",
             )
 
+    def test_native_frame_updater_initializes_obsidian_preferences(self):
+        updater = ROOT / "scripts/configure-native-frames"
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            environment = os.environ | {"HOME": str(home)}
+
+            check = subprocess.run(
+                [str(updater), "--check"],
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+            self.assertEqual(check.returncode, 1)
+            self.assertIn("DRIFT Obsidian", check.stdout)
+
+            subprocess.run(
+                [str(updater), "--ensure"],
+                check=True,
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+            obsidian = home / ".config/obsidian/obsidian.json"
+            self.assertEqual(
+                json.loads(obsidian.read_text()),
+                {"frame": "native", "cli": True},
+            )
+            self.assertEqual(stat.S_IMODE(obsidian.stat().st_mode), 0o600)
+
     def test_docker_role_uses_official_native_engine_and_guards_wsl(self):
         role = (ROOT / "ansible/tasks/docker.yml").read_text()
         self.assertIn("https://download.docker.com/linux/ubuntu", role)
@@ -1641,6 +1671,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Walk Through Windows"', cli)
         self.assertIn('"org_kde_plasma-systemmonitor_desktop"', cli)
         self.assertIn("117440512", cli)
+        self.assertIn('"org_kde_dolphin_desktop"', cli)
+        self.assertIn('"dot-window-desktop-left"', cli)
+        self.assertIn('"dot-window-desktop-right"', cli)
+        self.assertIn("268435525", cli)
+        self.assertIn("419430418", cli)
+        self.assertIn("419430420", cli)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
         self.assertIn("hidecursorEnabled=true", kwin)
