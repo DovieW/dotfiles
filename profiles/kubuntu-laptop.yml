@@ -62,7 +62,7 @@
       "xclip",
       "ydotool"
     ],
-    "brew": ["bun", "lazydocker", "lazygit"],
+    "brew": ["bun", "freerdp", "lazydocker", "lazygit"],
     "deb": ["bitwarden", "obsidian"],
     "snap": []
   }

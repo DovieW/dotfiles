@@ -3,9 +3,18 @@ set -euo pipefail
 
 host="${1:-dovie-desktop-linux}"
 user="${DOT_KRDP_USER:-dovie}"
-client="$(command -v sdl-freerdp || command -v sdl-freerdp3 || true)"
+client=""
+for candidate in \
+  "${HOMEBREW_PREFIX:-/home/linuxbrew/.linuxbrew}/bin/sdl-freerdp" \
+  /home/linuxbrew/.linuxbrew/bin/sdl-freerdp; do
+  if [[ -x "$candidate" ]] && "$candidate" /buildconfig 2>&1 | grep -q 'WITH_GFX_H264=ON'; then
+    client="$candidate"
+    break
+  fi
+done
 if [[ -z "$client" ]]; then
-  echo "FreeRDP's SDL client is not installed." >&2
+  echo "KRdp requires the H.264-capable Homebrew FreeRDP client." >&2
+  echo "Run dot apply --profile kubuntu-laptop to install it." >&2
   exit 1
 fi
 

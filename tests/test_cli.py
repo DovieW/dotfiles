@@ -1289,6 +1289,8 @@ class DotCliTests(unittest.TestCase):
         client = (ROOT / "config/rdp/krdp-client").read_text()
         self.assertIn("/gfx", client)
         self.assertNotIn("AVC444", client)
+        self.assertIn("WITH_GFX_H264=ON", client)
+        self.assertIn("freerdp", laptop["packages"]["brew"])
         service = (
             ROOT
             / "config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"

@@ -30,6 +30,10 @@ run:
 krdp-client
 ```
 
+The launcher deliberately uses Homebrew's FreeRDP build because Ubuntu's
+FreeRDP package is built without the H.264 graphics support required by KRdp.
+The managed Kubuntu package profile installs that client automatically.
+
 The FreeRDP SDL client opens fullscreen, enables clipboard redirection, and
 uses trust-on-first-use for the private self-signed certificate. The first
 connection asks for the desktop's Linux username and password and may ask to
