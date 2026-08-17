@@ -5,24 +5,32 @@ host="${1:-dovie-desktop-linux}"
 user="${DOT_KRDP_USER:-dovie}"
 client=""
 for candidate in \
-  "${HOMEBREW_PREFIX:-/home/linuxbrew/.linuxbrew}/bin/sdl-freerdp" \
-  /home/linuxbrew/.linuxbrew/bin/sdl-freerdp; do
+  "${HOMEBREW_PREFIX:-/home/linuxbrew/.linuxbrew}/bin/xfreerdp" \
+  /home/linuxbrew/.linuxbrew/bin/xfreerdp; do
   if [[ -x "$candidate" ]] && "$candidate" /buildconfig 2>&1 | grep -q 'WITH_GFX_H264=ON'; then
     client="$candidate"
     break
   fi
 done
 if [[ -z "$client" ]]; then
-  echo "KRdp requires the H.264-capable Homebrew FreeRDP client." >&2
+  echo "KRdp requires Homebrew's H.264-capable XFreeRDP client." >&2
   echo "Run dot apply --profile kubuntu-laptop to install it." >&2
   exit 1
 fi
 
-exec "$client" \
+if ! command -v kdialog >/dev/null 2>&1; then
+  echo "KRdp requires kdialog for its private password prompt." >&2
+  exit 1
+fi
+
+password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
+printf '%s\n' "$password" | "$client" \
   "/v:${host}:3389" \
   "/u:${user}" \
+  /from-stdin:force \
   /f \
-  +dynamic-resolution \
+  /size:2880x1800 \
+  /smart-sizing:2880x1800 \
   +clipboard \
   /cert:tofu \
   /network:auto \

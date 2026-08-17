@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Keep Plasma panels visible while any managed remote session is active."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Any
+
+
+STATE_DIR = Path.home() / ".local/state/dotfiles"
+STATE_FILE = STATE_DIR / "remote-panel.json"
+LOCK_FILE = STATE_DIR / "remote-panel.lock"
+LOG_FILE = STATE_DIR / "remote-panel.log"
+
+
+def log(message: str) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as stream:
+        stream.write(message.rstrip() + "\n")
+
+
+def graphical_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    runtime = Path(f"/run/user/{os.getuid()}")
+    environment.setdefault("XDG_RUNTIME_DIR", str(runtime))
+    environment.setdefault(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus"
+    )
+    if not environment.get("WAYLAND_DISPLAY"):
+        sockets = sorted(
+            path.name
+            for path in runtime.glob("wayland-*")
+            if re.fullmatch(r"wayland-\d+", path.name)
+        )
+        if sockets:
+            environment["WAYLAND_DISPLAY"] = sockets[0]
+    environment["QT_QPA_PLATFORM"] = "wayland"
+    return environment
+
+
+def plasma_script(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "qdbus6",
+            "org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell.evaluateScript",
+            script,
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=15,
+    )
+
+
+def panel_states() -> list[dict[str, Any]]:
+    result = plasma_script(
+        "var ids = panelIds; for (var i = 0; i < ids.length; ++i) {"
+        " print(ids[i] + '=' + panelById(ids[i]).hiding); }"
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot read Plasma panel state: {detail}")
+    states = []
+    for line in result.stdout.splitlines():
+        identifier, separator, hiding = line.partition("=")
+        if separator and identifier.isdigit() and hiding:
+            states.append({"id": int(identifier), "hiding": hiding})
+    if not states:
+        raise RuntimeError("Plasma reported no panels")
+    return states
+
+
+def set_panels(states: list[dict[str, Any]]) -> None:
+    commands = []
+    for state in states:
+        identifier = int(state["id"])
+        hiding = json.dumps(str(state["hiding"]))
+        commands.append(
+            f"var panel = panelById({identifier}); "
+            f"if (panel) {{ panel.hiding = {hiding}; }}"
+        )
+    result = plasma_script(" ".join(commands))
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"cannot update Plasma panel state: {detail}")
+
+
+def load_state() -> dict[str, Any]:
+    if not STATE_FILE.is_file():
+        return {"sessions": {}, "original": []}
+    try:
+        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"sessions": {}, "original": []}
+    if not isinstance(state.get("sessions"), dict):
+        state["sessions"] = {}
+    if not isinstance(state.get("original"), list):
+        state["original"] = []
+    return state
+
+
+def save_state(state: dict[str, Any]) -> None:
+    temporary = STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(STATE_FILE)
+
+
+def visible_states(current: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"id": panel["id"], "hiding": "none"} for panel in current]
+
+
+def restore_states(
+    current: list[dict[str, Any]], original: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    by_id = {int(panel["id"]): str(panel["hiding"]) for panel in original}
+    original_modes = [str(panel["hiding"]) for panel in original]
+    fallback = (
+        original_modes[0]
+        if original_modes and len(set(original_modes)) == 1
+        else "autohide"
+    )
+    return [
+        {
+            "id": panel["id"],
+            "hiding": by_id.get(int(panel["id"]), fallback),
+        }
+        for panel in current
+    ]
+
+
+def activate(source: str, session_id: str) -> None:
+    state = load_state()
+    current = panel_states()
+    if not state["sessions"]:
+        state["original"] = current
+    key = f"{source}:{session_id}"
+    state["sessions"][key] = {"source": source, "session": session_id}
+    save_state(state)
+    set_panels(visible_states(current))
+    actual = panel_states()
+    if any(panel["hiding"] != "none" for panel in actual):
+        raise RuntimeError("Plasma did not keep every current panel visible")
+    log(f"activated {key}; sessions={len(state['sessions'])}")
+
+
+def deactivate(source: str, session_id: str) -> None:
+    state = load_state()
+    key = f"{source}:{session_id}"
+    state["sessions"].pop(key, None)
+    current = panel_states()
+    if state["sessions"]:
+        save_state(state)
+        set_panels(visible_states(current))
+        log(f"deactivated {key}; sessions={len(state['sessions'])}")
+        return
+    set_panels(restore_states(current, state["original"]))
+    STATE_FILE.unlink(missing_ok=True)
+    log(f"deactivated {key}; restored panel visibility")
+
+
+def status() -> None:
+    state = load_state()
+    panels = ", ".join(
+        f"{panel['id']}={panel['hiding']}" for panel in panel_states()
+    )
+    sessions = ", ".join(sorted(state["sessions"])) or "none"
+    print(f"panels: {panels}; remote sessions: {sessions}")
+
+
+def main() -> int:
+    if len(sys.argv) < 2 or sys.argv[1] not in {"activate", "deactivate", "status"}:
+        print(
+            "usage: remote-panel activate|deactivate SOURCE SESSION | status",
+            file=sys.stderr,
+        )
+        return 2
+    action = sys.argv[1]
+    if action != "status" and len(sys.argv) != 4:
+        print(f"remote-panel {action} requires SOURCE and SESSION", file=sys.stderr)
+        return 2
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with LOCK_FILE.open("w", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if action == "activate":
+                activate(sys.argv[2], sys.argv[3])
+            elif action == "deactivate":
+                deactivate(sys.argv[2], sys.argv[3])
+            else:
+                status()
+    except Exception as error:
+        log(f"{action} failed: {error}")
+        print(f"remote-panel {action} failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

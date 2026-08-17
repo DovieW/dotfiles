@@ -1219,6 +1219,7 @@ class DotCliTests(unittest.TestCase):
         task = (ROOT / "ansible/tasks/nomachine.yml").read_text()
         docs = (ROOT / "docs/nomachine.md").read_text()
         display = (ROOT / "scripts/nomachine-display").read_text()
+        remote_panel = (ROOT / "scripts/remote-panel").read_text()
         client = (ROOT / "scripts/nomachine-client").read_text()
         microphone = (ROOT / "scripts/nomachine-microphone-guard").read_text()
         desktop = (ROOT / "config/nomachine/NoMachine-base.desktop").read_text()
@@ -1253,8 +1254,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("REMOTE_HEIGHT = 1200", display)
         self.assertIn("REMOTE_SCALE = 1.15", display)
         self.assertIn("display driver did not apply", display)
-        self.assertIn("org.kde.PlasmaShell.evaluateScript", display)
-        self.assertIn('"hiding": "none"', display)
+        self.assertIn("/usr/local/libexec/remote-panel", display)
+        self.assertIn("org.kde.PlasmaShell.evaluateScript", remote_panel)
+        self.assertIn('"hiding": "none"', remote_panel)
+        self.assertIn("state[\"sessions\"]", remote_panel)
         self.assertIn("restored", display)
         self.assertIn("previous hiding mode", docs)
         self.assertIn("physical monitor", docs)
@@ -1287,13 +1290,24 @@ class DotCliTests(unittest.TestCase):
         task = (ROOT / "ansible/tasks/krdp.yml").read_text()
         server = (ROOT / "scripts/krdp-server").read_text()
         client = (ROOT / "config/rdp/krdp-client").read_text()
+        panel_watch = (ROOT / "scripts/krdp-panel-watch").read_text()
         self.assertIn("/gfx", client)
         self.assertNotIn("AVC444", client)
         self.assertIn("WITH_GFX_H264=ON", client)
         self.assertIn("freerdp", laptop["packages"]["brew"])
+        self.assertIn("bin/xfreerdp", client)
+        self.assertNotIn("bin/sdl-freerdp", client)
+        self.assertIn("kdialog --password", client)
+        self.assertIn("/from-stdin:force", client)
+        self.assertNotIn("--plasma", server)
+        self.assertIn("/size:2880x1800", client)
+        self.assertIn("/smart-sizing:2880x1800", client)
         service = (
             ROOT
             / "config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"
+        ).read_text()
+        panel_service = (
+            ROOT / "config/systemd/user/dot-krdp-panel-watch.service"
         ).read_text()
         architecture = (ROOT / "docs/architecture.md").read_text()
         manifest = json.loads(
@@ -1310,12 +1324,17 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("interface_in: tailscale0", task)
         self.assertIn('port: "3389"', task)
         self.assertIn("app-org.kde.krdpserver.service", task)
-        self.assertIn("2880x1800@1.75", server)
         self.assertIn('--address "$tailscale_ip"', server)
-        self.assertIn("--virtual-monitor", server)
+        self.assertIn("--monitor 0", server)
+        self.assertNotIn("--virtual-monitor", server)
         self.assertNotIn("--plasma", server)
         self.assertIn("ExecStart=%h/.local/libexec/krdp-server", service)
-        self.assertIn("+dynamic-resolution", client)
+        self.assertIn("Wants=dot-krdp-panel-watch.service", service)
+        self.assertIn("PartOf=app-org.kde.krdpserver.service", panel_service)
+        self.assertIn("sport", panel_watch)
+        self.assertIn(":3389", panel_watch)
+        self.assertIn("/usr/local/libexec/remote-panel", panel_watch)
+        self.assertNotIn("+dynamic-resolution", client)
         self.assertIn("+clipboard", client)
         self.assertIn("/cert:tofu", client)
         self.assertIn("/scale-desktop:175", client)
@@ -1324,6 +1343,15 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("krdp", manifest["approved_tags"])
         self.assertIn('"KRdp service"', DOT.read_text())
         self.assertIn('"KRdp private listener"', DOT.read_text())
+        self.assertIn('"KRdp panel watcher"', DOT.read_text())
+
+    def test_remote_panel_restores_recreated_plasma_panel_ids(self):
+        module = runpy.run_path(str(ROOT / "scripts/remote-panel"))
+        restored = module["restore_states"](
+            [{"id": 149, "hiding": "none"}],
+            [{"id": 74, "hiding": "autohide"}],
+        )
+        self.assertEqual(restored, [{"id": 149, "hiding": "autohide"}])
 
     def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

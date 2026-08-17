@@ -49,7 +49,10 @@ Wayland's unreliable physical-desktop resizing behavior.
 
 Plasma panels are also changed from auto-hide to always visible while a remote
 session is active, so the task manager remains accessible at the remote screen
-edge. Each panel's previous hiding mode is restored with the display state.
+edge. A shared remote-session manager discovers the current Plasma panel IDs
+on every activation, so panel recreation cannot leave it targeting a stale ID.
+Each panel's previous hiding mode is restored only after both NoMachine and
+KRdp have no active sessions.
 
 The physical monitor and its local keyboard and mouse remain active while a
 remote session is connected. NoMachine's native blanking is disabled because

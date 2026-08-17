@@ -7492,6 +7492,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ],
             check=False,
         ).returncode == 0
+        krdp_panel_watcher_active = run(
+            [
+                "systemctl",
+                "--user",
+                "is-active",
+                "--quiet",
+                "dot-krdp-panel-watch.service",
+            ],
+            check=False,
+        ).returncode == 0
         krdp_listener = run(
             ["ss", "-H", "-ltn"],
             check=False,
@@ -7528,9 +7538,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "KRdp private listener",
             private_listener,
-            f"Tailscale-only {tailscale_ip}:3389 with a private virtual monitor"
+            f"Tailscale-only {tailscale_ip}:3389 streaming the physical Plasma session"
             if private_listener
             else "KRdp is not listening on the active Tailscale address",
+        )
+        failures += not doctor_check(
+            "KRdp panel watcher",
+            krdp_panel_watcher_active
+            and Path("/usr/local/libexec/remote-panel").is_file(),
+            "active with the shared remote-session panel manager"
+            if krdp_panel_watcher_active
+            else f"run dot apply --profile {profile['name']} --tags krdp",
         )
     if profile.get("features", {}).get("nomachine"):
         nomachine_server = Path("/etc/NX/nxserver")
@@ -7900,7 +7918,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Remote Desktop files",
             rdp_ok,
-            "FreeRDP SDL with KRdp launcher plus ephemeral Remmina F5 flow; .rdp/.rdpw open fullscreen"
+            "managed FreeRDP launchers plus ephemeral Remmina F5 flow; .rdp/.rdpw open fullscreen"
             if rdp_ok
             else f"run dot apply --profile {profile['name']} --tags rdp",
         )

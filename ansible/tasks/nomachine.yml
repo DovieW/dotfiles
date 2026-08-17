@@ -112,6 +112,16 @@
     - dot_nomachine_tailscale_ready
     - dot_nomachine_egl_capture.rc == 0
 
+- name: Install the shared remote-session panel manager
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/remote-panel"
+    dest: /usr/local/libexec/remote-panel
+    owner: root
+    group: root
+    mode: "0755"
+  when: dot_nomachine_tailscale_ready
+
 - name: Install the managed NoMachine display adapter
   become: true
   ansible.builtin.copy:

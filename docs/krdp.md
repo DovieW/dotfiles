@@ -18,10 +18,18 @@ case-sensitive Linux username through PAM. The system password is entered into
 the RDP client and is never stored in this repository or passed in a process
 argument by the managed launcher.
 
-Each connection creates a 2880×1800 virtual Plasma output at 175% scaling. This
-matches the managed laptop's native panel and keeps the remote workspace off
-the desktop's physical monitor. The implementation intentionally uses KRdp's
-portal session rather than the more experimental `--plasma` path.
+Each connection streams the desktop's existing primary Plasma output. The
+managed client fits that 16:10 workspace to the laptop's 16:10 screen. KRdp's
+virtual-monitor mode is deliberately not used: it creates an empty auxiliary
+output rather than a complete interactive Plasma workspace. Because this is a
+physical-session stream, activity can also be visible on the attached monitor.
+The implementation uses the supported desktop-portal session path for remote
+pointer and keyboard input.
+
+A managed connection watcher changes every current Plasma panel from auto-hide
+to always visible while KRdp is connected. It shares state with NoMachine,
+survives Plasma panel ID changes, and restores the previous hiding modes only
+after the final managed remote session disconnects.
 
 On the managed laptop, launch **Desktop (KRdp)** from the application menu or
 run:
@@ -34,7 +42,7 @@ The launcher deliberately uses Homebrew's FreeRDP build because Ubuntu's
 FreeRDP package is built without the H.264 graphics support required by KRdp.
 The managed Kubuntu package profile installs that client automatically.
 
-The FreeRDP SDL client opens fullscreen, enables clipboard redirection, and
+The XFreeRDP client opens fullscreen, enables clipboard redirection, and
 uses trust-on-first-use for the private self-signed certificate. The first
 connection asks for the desktop's Linux username and password and may ask to
 trust the certificate. NoMachine remains installed during initial acceptance

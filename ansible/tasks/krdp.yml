@@ -131,10 +131,28 @@
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
 
-- name: Install the private virtual-monitor KRdp launcher
+- name: Install the private physical-session KRdp launcher
   ansible.builtin.copy:
     src: "{{ dot_repo }}/scripts/krdp-server"
     dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-server"
+    mode: "0755"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Install the shared remote-session panel manager for KRdp
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/remote-panel"
+    dest: /usr/local/libexec/remote-panel
+    owner: root
+    group: root
+    mode: "0755"
+  when: dot_krdp_tailscale_ready
+
+- name: Install the KRdp panel session watcher
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/krdp-panel-watch"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-panel-watch"
     mode: "0755"
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
@@ -147,11 +165,19 @@
     mode: "0755"
   when: dot_krdp_tailscale_ready
 
-- name: Bind KRdp to Tailscale and a private laptop-sized output
+- name: Bind KRdp to Tailscale and manage remote panel visibility
   ansible.builtin.copy:
     src: "{{ dot_repo }}/config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"
     dest: >-
       {{ ansible_facts.env.HOME }}/.config/systemd/user/app-org.kde.krdpserver.service.d/override.conf
+    mode: "0644"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Install the KRdp panel watcher user service
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/dot-krdp-panel-watch.service"
+    dest: "{{ ansible_facts.env.HOME }}/.config/systemd/user/dot-krdp-panel-watch.service"
     mode: "0644"
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
@@ -278,7 +304,6 @@
     msg: >-
       KRdp is running at rdp://{{ dot_krdp_tailscale_ip.stdout | trim }}:3389.
       It accepts this workstation's case-sensitive Linux username and system
-      password, only through Tailscale. Each connection receives a private
-      2880x1800 virtual output at 175% scaling instead of mirroring the
-      physical monitor.
+      password, only through Tailscale. It streams the existing physical
+      Plasma session, and its taskbar remains visible while connected.
   when: dot_krdp_tailscale_ready

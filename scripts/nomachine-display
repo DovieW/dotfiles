@@ -17,6 +17,7 @@ STATE_DIR = Path.home() / ".local/state/dotfiles"
 STATE_FILE = STATE_DIR / "nomachine-display.json"
 LOCK_FILE = STATE_DIR / "nomachine-display.lock"
 LOG_FILE = STATE_DIR / "nomachine-display.log"
+REMOTE_PANEL = Path("/usr/local/libexec/remote-panel")
 REMOTE_WIDTH = 1920
 REMOTE_HEIGHT = 1200
 REMOTE_SCALE = 1.15
@@ -50,24 +51,6 @@ def graphical_environment() -> dict[str, str]:
 def doctor(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["kscreen-doctor", *arguments],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=graphical_environment(),
-        timeout=15,
-    )
-
-
-def plasma_script(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            "qdbus6",
-            "org.kde.plasmashell",
-            "/PlasmaShell",
-            "org.kde.PlasmaShell.evaluateScript",
-            script,
-        ],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -140,40 +123,19 @@ def set_display(connector: str, mode_id: str, scale: float) -> None:
         )
 
 
-def panel_states() -> list[dict[str, Any]]:
-    result = plasma_script(
-        'var ids = panelIds; for (var i = 0; i < ids.length; ++i) {'
-        ' print(ids[i] + "=" + panelById(ids[i]).hiding); }'
+def remote_panel(action: str, session_id: str) -> None:
+    result = subprocess.run(
+        [str(REMOTE_PANEL), action, "nomachine", session_id],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=20,
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"cannot read Plasma panel state: {detail}")
-    states = []
-    for line in result.stdout.splitlines():
-        identifier, separator, hiding = line.partition("=")
-        if separator and identifier.isdigit() and hiding:
-            states.append({"id": int(identifier), "hiding": hiding})
-    if not states:
-        raise RuntimeError("Plasma reported no panels")
-    return states
-
-
-def set_panels(states: list[dict[str, Any]]) -> None:
-    commands = []
-    for state in states:
-        identifier = int(state["id"])
-        hiding = json.dumps(str(state["hiding"]))
-        commands.append(
-            f"var panel = panelById({identifier}); if (panel) {{ panel.hiding = {hiding}; }}"
-        )
-    result = plasma_script(" ".join(commands))
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"cannot update Plasma panel state: {detail}")
-    actual = {state["id"]: state["hiding"] for state in panel_states()}
-    expected = {int(state["id"]): str(state["hiding"]) for state in states}
-    if any(actual.get(identifier) != hiding for identifier, hiding in expected.items()):
-        raise RuntimeError("Plasma did not apply the requested panel visibility")
+        raise RuntimeError(f"cannot update shared remote panel state: {detail}")
 
 
 def load_state() -> dict[str, Any]:
@@ -203,18 +165,11 @@ def connect(session_id: str) -> None:
             "mode": original["name"],
             "scale": float(output.get("scale", 1)),
         }
-    if "panels" not in state:
-        state["panels"] = panel_states()
     state["active_session"] = session_id
     save_state(state)
     remote = mode_for(output, REMOTE_WIDTH, REMOTE_HEIGHT)
     set_display(output["name"], str(remote["id"]), REMOTE_SCALE)
-    set_panels(
-        [
-            {"id": panel["id"], "hiding": "none"}
-            for panel in state.get("panels", [])
-        ]
-    )
+    remote_panel("activate", session_id)
     state["remote"] = {
         "connector": output["name"],
         "mode_id": str(remote["id"]),
@@ -248,11 +203,10 @@ def disconnect(session_id: str) -> None:
             )
         except RuntimeError as error:
             errors.append(str(error))
-    if state.get("panels"):
-        try:
-            set_panels(state["panels"])
-        except RuntimeError as error:
-            errors.append(str(error))
+    try:
+        remote_panel("deactivate", session_id)
+    except RuntimeError as error:
+        errors.append(str(error))
     if errors:
         raise RuntimeError("; ".join(errors))
     if original:
@@ -267,12 +221,19 @@ def status() -> None:
     state = load_state()
     output = active_output(configuration())
     mode = current_mode(output)
-    panels = ", ".join(
-        f"{panel['id']}={panel['hiding']}" for panel in panel_states()
+    panel_result = subprocess.run(
+        [str(REMOTE_PANEL), "status"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=graphical_environment(),
+        timeout=20,
     )
+    panels = panel_result.stdout.strip() or panel_result.stderr.strip()
     print(
         f"{output['name']}: {mode['name']}, scale {output.get('scale', 1):g}; "
-        f"panels: {panels}; active session: {state.get('active_session', 'none')}"
+        f"{panels}; active NoMachine session: {state.get('active_session', 'none')}"
     )
 
 

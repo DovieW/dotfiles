@@ -95,11 +95,16 @@ traffic, which can break connectivity.
 The `kubuntu-desktop` profile uses Plasma's native KRdp server as its preferred
 interactive remote desktop. The managed user service binds TCP 3389 only to the
 active Tailscale IPv4 address, authenticates the current case-sensitive Linux
-username through PAM, and presents a 2880×1800 virtual output at 175% scaling.
-The virtual output matches the managed laptop panel without mirroring work onto
-the desktop's physical monitor. Its TLS private key is mode `0600` local state;
-neither it nor an account password is committed. The client uses FreeRDP SDL in
-fullscreen mode with certificate trust-on-first-use and no password argument.
+username through PAM, and streams the existing primary Plasma output through
+the desktop portal. Its TLS private key is mode `0600` local state; neither it
+nor an account password is committed. The laptop uses Homebrew's H.264-capable
+XFreeRDP client in fullscreen smart-sizing mode. A KDE password dialog feeds
+the password over an anonymous pipe, never a process argument or file.
+
+NoMachine and KRdp share one reference-counted panel manager. It discovers
+current Plasma panel IDs on every connection, keeps all panels visible while
+either transport is active, and restores the original hiding modes only after
+the final remote session ends.
 
 KRdp exposes an existing logged-in Plasma session rather than the SDDM login
 screen. Ordinary key-only SSH therefore remains the recovery path after a

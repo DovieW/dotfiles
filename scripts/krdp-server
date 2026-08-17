@@ -21,4 +21,4 @@ exec /usr/bin/krdpserver \
   --certificate "$certificate" \
   --certificate-key "$certificate_key" \
   --quality 80 \
-  --virtual-monitor 2880x1800@1.75
+  --monitor 0

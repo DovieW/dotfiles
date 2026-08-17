@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep Plasma panels visible during KRdp sessions
+PartOf=app-org.kde.krdpserver.service
+After=app-org.kde.krdpserver.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/libexec/krdp-panel-watch
+Restart=on-failure
+RestartSec=3s
