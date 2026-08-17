@@ -1530,7 +1530,7 @@ def sync_managed_kglobal_shortcuts() -> None:
         "System Monitor",
     )
     stock_dolphin = (
-        "org_kde_dolphin_desktop",
+        "org.kde.dolphin.desktop",
         "_launch",
         "Dolphin",
         "Dolphin",
@@ -8188,7 +8188,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 )
                 == [268435525]
                 and kglobal_shortcut(
-                    ("org_kde_dolphin_desktop", "_launch", "Dolphin", "Dolphin")
+                    ("org.kde.dolphin.desktop", "_launch", "Dolphin", "Dolphin")
                 )
                 == [0]
             )

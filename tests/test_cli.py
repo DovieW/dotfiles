@@ -1671,7 +1671,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Walk Through Windows"', cli)
         self.assertIn('"org_kde_plasma-systemmonitor_desktop"', cli)
         self.assertIn("117440512", cli)
-        self.assertIn('"org_kde_dolphin_desktop"', cli)
+        self.assertIn('"org.kde.dolphin.desktop"', cli)
         self.assertIn('"dot-window-desktop-left"', cli)
         self.assertIn('"dot-window-desktop-right"', cli)
         self.assertIn("268435525", cli)
