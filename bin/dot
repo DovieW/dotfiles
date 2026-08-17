@@ -1567,13 +1567,13 @@ def sync_managed_kglobal_shortcuts() -> None:
     )
     clipboard_history_meta = (
         "kwin",
-        "dot-copyq-history-meta-v2",
+        "dot-copyq-history-meta",
         "KWin",
         "Open Clipboard History (Meta+V)",
     )
     clipboard_history_ctrl = (
         "kwin",
-        "dot-copyq-history-ctrl-v2",
+        "dot-copyq-history-ctrl",
         "KWin",
         "Open Clipboard History (Ctrl+Grave)",
     )
@@ -1582,12 +1582,6 @@ def sync_managed_kglobal_shortcuts() -> None:
         "show-on-mouse-pos",
         "plasmashell",
         "Show Clipboard Items at Mouse Position",
-    )
-    callback_probe = (
-        "kwin",
-        "dot-clipboard-probe-v2",
-        "KWin",
-        "Verify Clipboard Shortcuts",
     )
     desired = {
         activity_switcher: [0],
@@ -1615,12 +1609,9 @@ def sync_managed_kglobal_shortcuts() -> None:
         # CopyQ replaces Klipper; the dedicated picker inserts emoji directly.
         klipper_popup: [0],
         stock_emoji_picker: [0],
-        ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [0],
-        ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [0],
         clipboard_history_meta: [268435542],
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
-        callback_probe: [0],
     }
     activate_kglobal_shortcuts(desired)
 
@@ -1630,7 +1621,7 @@ def managed_clipboard_callback_ok() -> bool:
     if not command_exists("qdbus6") or not command_exists("systemctl"):
         return False
 
-    service = "dot-clipboard-probe.service"
+    service = "dot-copyq-history.service"
     run(["systemctl", "--user", "stop", service], check=False, capture=True)
     try:
         invoked = run(
@@ -1639,7 +1630,7 @@ def managed_clipboard_callback_ok() -> bool:
                 "org.kde.kglobalaccel",
                 "/component/kwin",
                 "org.kde.kglobalaccel.Component.invokeShortcut",
-                "dot-clipboard-probe-v2",
+                "dot-copyq-history-meta",
             ],
             check=False,
             capture=True,
@@ -1876,7 +1867,6 @@ def apply_direct(
             ROOT / "config/kwin/dot-clipboard/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js",
             ROOT / "config/systemd/user/dot-copyq-history.service": Path.home() / ".config/systemd/user/dot-copyq-history.service",
             ROOT / "config/systemd/user/dot-copyq.service": Path.home() / ".config/systemd/user/dot-copyq.service",
-            ROOT / "config/systemd/user/dot-clipboard-probe.service": Path.home() / ".config/systemd/user/dot-clipboard-probe.service",
             ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
         }
         for source, destination in copyq_mappings.items():
@@ -4450,10 +4440,9 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
             loaded_ok = True
             break
     expected = {
-        ("kwin", "dot-copyq-history-meta-v2", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
-        ("kwin", "dot-copyq-history-ctrl-v2", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
+        ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
+        ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
         ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],
-        ("kwin", "dot-clipboard-probe-v2", "KWin", "Verify Clipboard Shortcuts"): [0],
         ("org.kde.plasma.emojier.desktop", "_launch", "Emoji Selector", "Emoji Selector"): [0],
         ("plasmashell", "show-on-mouse-pos", "plasmashell", "Show Clipboard Items at Mouse Position"): [0],
     }

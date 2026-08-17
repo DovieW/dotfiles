@@ -2814,8 +2814,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("config('tabs', ['Clipboard'])", copyq)
         self.assertIn("config('clipboard_mime_size_limit', '.*:100M')", copyq)
         self.assertNotIn("Emoji", copyq)
-        self.assertIn("dot-copyq-history-meta-v2=Meta+V", shortcuts)
-        self.assertIn("dot-copyq-history-ctrl-v2=Ctrl+`", shortcuts)
+        self.assertIn("dot-copyq-history-meta=Meta+V", shortcuts)
+        self.assertIn("dot-copyq-history-ctrl=Ctrl+`", shortcuts)
         self.assertIn("dot-emoji-picker=Meta+.", shortcuts)
         self.assertIn("stock_emoji_picker: [0]", cli)
         self.assertIn("clipboard_history_meta: [268435542]", cli)
@@ -2828,8 +2828,8 @@ class DotCliTests(unittest.TestCase):
         copyq_service = (
             ROOT / "config/systemd/user/dot-copyq.service"
         ).read_text()
-        clipboard_probe_service = (
-            ROOT / "config/systemd/user/dot-clipboard-probe.service"
+        copyq_history_service = (
+            ROOT / "config/systemd/user/dot-copyq-history.service"
         ).read_text()
         copyq_desktop = (
             ROOT / "config/copyq/com.github.hluk.copyq.desktop"
@@ -2839,7 +2839,6 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Meta+."', clipboard_script)
         self.assertIn("dot-copyq-history.service", clipboard_script)
         self.assertIn("dot-emoji-picker.service", clipboard_script)
-        self.assertIn("dot-clipboard-probe.service", clipboard_script)
         self.assertIn('"RestartUnit"', clipboard_script)
         self.assertNotIn('"StartUnit"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
@@ -2851,7 +2850,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Restart=on-failure", copyq_service)
         self.assertIn("ExecStartPre=-%h/.local/bin/copyq exit", copyq_service)
         self.assertIn("ExecStart=%h/.local/bin/copyq --start-server", copyq_service)
-        self.assertIn("RemainAfterExit=yes", clipboard_probe_service)
+        self.assertIn("RemainAfterExit=yes", copyq_history_service)
         self.assertIn("def managed_clipboard_callback_ok", cli)
         self.assertIn("kwin-dot-clipboard-runtime", cli)
         self.assertFalse((ROOT / "config/copyq/copyq.desktop").exists())

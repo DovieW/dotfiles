@@ -46,14 +46,14 @@ workspace.windowAdded.connect((window) => {
 });
 
 registerShortcut(
-    "dot-copyq-history-meta-v2",
+    "dot-copyq-history-meta",
     "Open Clipboard History (Meta+V)",
     "Meta+V",
     openCopyQ
 );
 
 registerShortcut(
-    "dot-copyq-history-ctrl-v2",
+    "dot-copyq-history-ctrl",
     "Open Clipboard History (Ctrl+Grave)",
     "Ctrl+`",
     openCopyQ
@@ -64,11 +64,4 @@ registerShortcut(
     "Open Dotfiles Emoji Picker",
     "Meta+.",
     () => reopenUserUnit("dot-emoji-picker.service")
-);
-
-registerShortcut(
-    "dot-clipboard-probe-v2",
-    "Verify Clipboard Shortcuts",
-    "",
-    () => reopenUserUnit("dot-clipboard-probe.service")
 );

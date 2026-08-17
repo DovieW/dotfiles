@@ -1,7 +1,0 @@
-[Unit]
-Description=Verify the managed clipboard shortcut callback
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/true
-RemainAfterExit=yes
