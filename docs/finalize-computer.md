@@ -26,6 +26,11 @@ complete if either endpoint is not securely active.
 - `nomachine`
 - `touchpad`
 
+Kubuntu desktops use the `kubuntu-desktop` profile. It inherits the shared
+Kubuntu workstation experience while disabling laptop-only display, lid,
+touchpad, gesture, and NVIDIA policies. AnyDesk is retired and actively removed;
+normal key-only OpenSSH, NoMachine, and MeshCentral are the managed remote paths.
+
 This prevents a generic profile from applying assumptions learned from a
 different laptop. Bootstrap generates these local, mode `0600` artifacts:
 

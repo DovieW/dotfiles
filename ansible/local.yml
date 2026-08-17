@@ -197,14 +197,27 @@
       when: not item.skipped | default(false)
       tags: [packages, app-updates]
 
-    - name: Remove retired RustDesk remote access
+    - name: Remove retired remote-access packages
       become: true
       ansible.builtin.apt:
-        name: rustdesk
+        name:
+          - anydesk
+          - rustdesk
         state: absent
         purge: true
       when: ansible_facts.os_family == "Debian"
-      tags: [packages, remote-access]
+      tags: [packages, remote-access, anydesk]
+
+    - name: Remove retired AnyDesk repository configuration
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/anydesk.sources
+        - /etc/apt/sources.list.d/anydesk-stable.list
+        - /etc/apt/keyrings/keys.anydesk.com.asc
+      tags: [packages, remote-access, anydesk]
 
     - name: Check Homebrew availability
       ansible.builtin.command: brew --version
@@ -576,7 +589,7 @@
         path: /etc/systemd/logind.conf.d
         state: directory
         mode: "0755"
-      when: dot_profile_data.features.kde | default(false)
+      when: dot_profile_data.features.lid_power_saver | default(false)
       tags: [config, kde]
 
     - name: Install the system lid and manual-sleep fallback policy
@@ -585,7 +598,7 @@
         src: "{{ dot_repo }}/config/systemd/logind/60-dotfiles-lid.conf"
         dest: /etc/systemd/logind.conf.d/60-dotfiles-lid.conf
         mode: "0644"
-      when: dot_profile_data.features.kde | default(false)
+      when: dot_profile_data.features.lid_power_saver | default(false)
       tags: [config, kde]
 
     - name: Create the GRUB defaults drop-in directory
@@ -625,7 +638,7 @@
         dest: /etc/udev/rules.d/90-dotfiles-ideapad-fn-lock.rules
         mode: "0644"
       register: dot_ideapad_fn_lock_rule
-      when: dot_profile_data.features.kde | default(false)
+      when: dot_profile_data.features.ideapad_fn_lock | default(false)
       tags: [config, kde, screenshots]
 
     - name: Apply the IdeaPad Print-key mode
@@ -638,7 +651,7 @@
           - --subsystem-match=platform
           - --sysname-match=VPC2004:00
       when:
-        - dot_profile_data.features.kde | default(false)
+        - dot_profile_data.features.ideapad_fn_lock | default(false)
         - dot_ideapad_fn_lock_rule.changed
         - not ansible_check_mode
       changed_when: true
@@ -650,8 +663,31 @@
           The systemd-logind lid fallback is installed and will be guaranteed
           after the next reboot. PowerDevil's matching live policy is active
           immediately.
-      when: dot_profile_data.features.kde | default(false)
+      when: dot_profile_data.features.lid_power_saver | default(false)
       tags: [config, kde]
+
+    - name: Disable the laptop lid controller on non-laptop workstations
+      ansible.builtin.command:
+        argv: [systemctl, --user, disable, --now, dot-lid-power.service]
+      register: dot_retired_lid_service
+      changed_when: dot_retired_lid_service.rc == 0
+      failed_when: false
+      when: not dot_profile_data.features.lid_power_saver | default(false)
+      tags: [config, kde, power]
+
+    - name: Remove laptop-only system policy from non-laptop workstations
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/logind.conf.d/60-dotfiles-lid.conf
+        - /etc/udev/rules.d/90-dotfiles-ideapad-fn-lock.rules
+        - /etc/libinput/local-overrides.quirks
+      when:
+        - not dot_profile_data.features.lid_power_saver | default(false)
+        - not dot_profile_data.features.touchpad_jump_workaround | default(false)
+      tags: [config, kde, power, touchpad, screenshots]
 
     - name: Provision Segoe UI Variable from Windows
       ansible.builtin.command:

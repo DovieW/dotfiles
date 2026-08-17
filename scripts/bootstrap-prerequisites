@@ -5,7 +5,7 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 profile="${1:-}"
 
 case "$profile" in
-  kubuntu-laptop | wsl-personal | wsl-work) ;;
+  kubuntu-laptop | kubuntu-desktop | wsl-personal | wsl-work) ;;
   *)
     echo "Usage: bootstrap-prerequisites PROFILE" >&2
     exit 2
@@ -26,7 +26,7 @@ fi
 sudo apt-get update
 sudo apt-get install -y build-essential ca-certificates curl file git gnupg procps python3
 
-if [[ "$profile" == kubuntu-laptop ]]; then
+if [[ "$profile" == kubuntu-laptop || "$profile" == kubuntu-desktop ]]; then
   key_tmp="$(mktemp)"
   keyring_tmp="$(mktemp)"
   trap 'rm -f "$key_tmp" "$keyring_tmp"' EXIT
@@ -66,8 +66,8 @@ eval "$("$brew_bin" shellenv)"
 brew update
 brew install ansible bitwarden-cli gh jq
 
-if [[ "$profile" == kubuntu-laptop ]]; then
-  bitwarden_deb="$($root/scripts/fetch-external-deb bitwarden)"
+if [[ "$profile" == kubuntu-laptop || "$profile" == kubuntu-desktop ]]; then
+  bitwarden_deb="$("$root/scripts/fetch-external-deb" bitwarden)"
   sudo apt-get install -y "$bitwarden_deb"
 fi
 

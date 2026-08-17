@@ -11,7 +11,7 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     *) echo 'Invalid profile choice.' >&2; exit 2 ;;
   esac
 else
-  profile=kubuntu-laptop
+  profile=
 fi
 
 cd "$media"
@@ -48,6 +48,23 @@ if git -C "$destination" fetch \
   echo "Dotfiles updated from current GitHub master."
 else
   echo "GitHub was unreachable; continuing from the verified USB bundle." >&2
+fi
+
+if [[ -z "$profile" ]]; then
+  device="$(hostname | tr '[:upper:]_' '[:lower:]-' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
+  manifest="$destination/devices/$device.yml"
+  if [[ -f "$manifest" ]]; then
+    profile="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["profile"])' "$manifest")"
+    echo "Recognized $device as profile $profile."
+  else
+    printf '%s\n' 'Select this Kubuntu computer type:' '  1) Laptop' '  2) Desktop'
+    read -r -p 'Choice [1]: ' choice
+    case "${choice:-1}" in
+      1) profile=kubuntu-laptop ;;
+      2) profile=kubuntu-desktop ;;
+      *) echo 'Invalid profile choice.' >&2; exit 2 ;;
+    esac
+  fi
 fi
 
 exec "$destination/bin/dot" bootstrap --profile "$profile"

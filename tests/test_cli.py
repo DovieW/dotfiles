@@ -95,7 +95,13 @@ class DotCliTests(unittest.TestCase):
             "vscode-workspaces",
         }
         self.assertEqual(set(repositories), expected)
-        supported = {"kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"}
+        supported = {
+            "kubuntu-desktop",
+            "kubuntu-laptop",
+            "windows-host",
+            "wsl-personal",
+            "wsl-work",
+        }
         for name, entry in repositories.items():
             profiles = set(entry["profiles"])
             if name == "obsidian-personal":
@@ -1301,8 +1307,8 @@ class DotCliTests(unittest.TestCase):
 
         self.assertNotIn("rustdesk", profile["packages"]["deb"])
         self.assertNotIn("rustdesk", manifest["packages"])
-        self.assertIn("Remove retired RustDesk remote access", playbook)
-        self.assertIn("name: rustdesk", playbook)
+        self.assertIn("Remove retired remote-access packages", playbook)
+        self.assertIn("- rustdesk", playbook)
         self.assertIn("state: absent", playbook)
         self.assertIn("purge: true", playbook)
 
@@ -1404,7 +1410,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Upgrade all installed Homebrew formulae", playbook)
         self.assertIn("tags: [packages, app-updates]", playbook)
         self.assertIn("active_package_transactions", cli)
-        self.assertIn('"linux": "kubuntu-laptop"', cli)
+        self.assertIn('return manifest["profile"] if manifest else "kubuntu-laptop"', cli)
         self.assertIn('"Update everything"', cli)
         self.assertIn('"Check for pending updates"', cli)
         self.assertIn("update_nvim_tools()", cli)
@@ -2354,22 +2360,38 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(catalog["tools"]["adb"]["provider"], "apt")
         self.assertEqual(catalog["tools"]["scrcpy"]["provider"], "apt")
 
-    def test_kubuntu_manages_anydesk_from_official_repository(self):
+    def test_kubuntu_retires_anydesk_in_favor_of_ssh_and_nomachine(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
-        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
-        role = (ROOT / "ansible/tasks/anydesk.yml").read_text()
         playbook = (ROOT / "ansible/local.yml").read_text()
-        key = ROOT / "config/apt/anydesk-archive-keyring.asc"
 
-        self.assertTrue(profile["features"]["anydesk"])
-        self.assertIn("anydesk", profile["packages"]["apt"])
-        self.assertEqual(catalog["tools"]["anydesk"]["provider"], "apt")
-        self.assertIn("tasks/anydesk.yml", playbook)
-        self.assertIn("https://deb.anydesk.com", role)
-        self.assertIn("06B5EA2FAE208E7CDA9761DCA2FB21D5A8772835", role)
-        self.assertIn("state: latest", role)
-        self.assertTrue(key.is_file())
-        self.assertIn("BEGIN PGP PUBLIC KEY BLOCK", key.read_text())
+        self.assertFalse(profile["features"]["anydesk"])
+        self.assertNotIn("anydesk", profile["packages"]["apt"])
+        self.assertIn("Remove retired remote-access packages", playbook)
+        self.assertIn("Remove retired AnyDesk repository configuration", playbook)
+        self.assertIn("- anydesk", playbook)
+
+    def test_kubuntu_desktop_inherits_workstation_policy_without_laptop_hardware(self):
+        module = runpy.run_path(str(DOT))
+        profile = module["load_profile"]("kubuntu-desktop")
+        manifest = json.loads(
+            (ROOT / "devices/dovie-desktop-linux.yml").read_text()
+        )
+
+        self.assertTrue(profile["features"]["kde"])
+        self.assertTrue(profile["features"]["tailscale"])
+        self.assertTrue(profile["features"]["nomachine"])
+        self.assertTrue(profile["features"]["meshcentral_agent"])
+        self.assertFalse(profile["features"]["anydesk"])
+        self.assertFalse(profile["features"]["factory_display_profile"])
+        self.assertTrue(profile["features"]["inputactions"])
+        self.assertFalse(profile["features"]["ideapad_fn_lock"])
+        self.assertFalse(profile["features"]["lid_power_saver"])
+        self.assertFalse(profile["features"]["nvidia_driver"])
+        self.assertFalse(profile["features"]["touchpad_jump_workaround"])
+        self.assertIn("openssh-server", profile["packages"]["apt"])
+        self.assertNotIn("anydesk", profile["packages"]["apt"])
+        self.assertEqual(manifest["profile"], "kubuntu-desktop")
+        self.assertEqual(manifest["approved_tags"], ["meshcentral", "nomachine"])
 
     def test_kubuntu_manages_openssh_server(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

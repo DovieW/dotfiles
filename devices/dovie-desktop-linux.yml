@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "device_id": "dovie-desktop-linux",
-  "profile": "kubuntu-laptop",
+  "profile": "kubuntu-desktop",
   "finalized": true,
-  "approved_tags": ["anydesk", "nomachine"],
+  "approved_tags": ["meshcentral", "nomachine"],
   "notes": [
     "Custom MSI MS-7B86 desktop with an AMD Ryzen 5 3600 and AMD Navi 21 graphics.",
     "Use the in-kernel amdgpu driver; NVIDIA and touchpad tasks are intentionally excluded.",
-    "MeshCentral enrollment remains deferred because it requires separate credentials."
+    "MeshCentral inventory, terminal, and file access are managed; Wayland display control is not expected.",
+    "AnyDesk is intentionally removed; ordinary key-only SSH and NoMachine are the interactive recovery paths."
   ]
 }

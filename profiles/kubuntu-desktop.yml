@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "kubuntu-desktop",
+  "inherits": ["kubuntu-laptop"],
+  "account": "personal",
+  "features": {
+    "anydesk": false,
+    "factory_display_profile": false,
+    "ideapad_fn_lock": false,
+    "lid_power_saver": false,
+    "nvidia_driver": false,
+    "nvidia_dynamic_boost": false,
+    "touchpad_jump_workaround": false
+  },
+  "packages": {
+    "apt": [],
+    "brew": [],
+    "deb": [],
+    "snap": []
+  }
+}

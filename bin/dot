@@ -436,6 +436,7 @@ vault exports, or private keys in the repository or this handoff.
 def bootstrap_preflight(profile: dict[str, Any], device: str) -> dict[str, Any]:
     expected_platform = {
         "kubuntu-laptop": "linux",
+        "kubuntu-desktop": "linux",
         "wsl-personal": "wsl",
         "wsl-work": "wsl",
         "termux": "termux",
@@ -583,7 +584,7 @@ def build_bootstrap_media(destination: Path) -> dict[str, Any]:
         "branch": branch,
         "commit": commit,
         "origin": "git@github.com:DovieW/dotfiles.git",
-        "profiles": ["kubuntu-laptop", "windows-host", "wsl-personal", "wsl-work"],
+        "profiles": ["kubuntu-laptop", "kubuntu-desktop", "windows-host", "wsl-personal", "wsl-work"],
         "contains_secrets": False,
     }
     atomic_text(destination / "manifest.json", json.dumps(manifest, indent=2) + "\n")
@@ -2963,7 +2964,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         phase("remote-support", configure_remote_support)
     if not args.skip_secrets:
         def authenticate() -> None:
-            if profile["name"] == "kubuntu-laptop":
+            if profile["name"] in {"kubuntu-laptop", "kubuntu-desktop"}:
                 for executable in ("google-chrome-stable", "bitwarden"):
                     path = shutil.which(executable)
                     if path:
@@ -4549,8 +4550,11 @@ def update_profile(explicit: str | None) -> str:
     if explicit:
         return explicit
     detected = infer_platform()
+    if detected == "linux":
+        device = ensure_device()
+        manifest = load_device_manifest(device)
+        return manifest["profile"] if manifest else "kubuntu-laptop"
     defaults = {
-        "linux": "kubuntu-laptop",
         "termux": "termux",
         "windows": "windows-host",
     }
@@ -5050,6 +5054,7 @@ def palette_execute(action: Any, *, pause: bool = True) -> bool:
 
 PROFILE_DESCRIPTIONS = {
     "kubuntu-laptop": "Native Kubuntu laptop with KDE and hardware integration",
+    "kubuntu-desktop": "Native Kubuntu desktop with shared KDE workstation policy",
     "wsl-personal": "Personal Ubuntu environment inside Windows",
     "wsl-work": "Work Ubuntu environment inside Windows",
     "windows-host": "Inventory-only native Windows host",
@@ -7395,7 +7400,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if gh_authenticated and not missing_scopes
             else f"missing {', '.join(sorted(missing_scopes)) or 'authentication'}",
         )
-        if profile["name"] == "kubuntu-laptop":
+        if profile["name"] in {"kubuntu-laptop", "kubuntu-desktop"}:
             agent_sockets = [
                 Path.home() / ".bitwarden-ssh-agent.sock",
                 Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
@@ -8545,7 +8550,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     if dynamic_boost.stdout.strip() in {"disabled", "masked"}
                     else "run dot apply --profile kubuntu-laptop --tags gpu",
                 )
-        if command_exists("busctl"):
+        if profile.get("features", {}).get("lid_power_saver") and command_exists("busctl"):
             live_lid = run(
                 [
                     "busctl",
@@ -8566,20 +8571,20 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if live_lid.returncode == 0 and live_lid.stdout.strip() == "i 0"
                 else "restart plasma-powerdevil.service or reapply the KDE profile",
             )
-        logind_source = ROOT / "config/systemd/logind/60-dotfiles-lid.conf"
-        logind_live = Path("/etc/systemd/logind.conf.d/60-dotfiles-lid.conf")
-        logind_matches = (
-            logind_live.exists()
-            and logind_live.read_bytes() == logind_source.read_bytes()
-        )
-        failures += not doctor_check(
-            "system lid fallback",
-            logind_matches,
-            "installed; guaranteed after reboot"
-            if logind_matches
-            else "run dot apply --profile kubuntu-laptop --tags kde",
-        )
         if profile.get("features", {}).get("lid_power_saver"):
+            logind_source = ROOT / "config/systemd/logind/60-dotfiles-lid.conf"
+            logind_live = Path("/etc/systemd/logind.conf.d/60-dotfiles-lid.conf")
+            logind_matches = (
+                logind_live.exists()
+                and logind_live.read_bytes() == logind_source.read_bytes()
+            )
+            failures += not doctor_check(
+                "system lid fallback",
+                logind_matches,
+                "installed; guaranteed after reboot"
+                if logind_matches
+                else "run dot apply --profile kubuntu-laptop --tags kde",
+            )
             lid_unit = "dot-lid-power.service"
             lid_enabled = run(
                 ["systemctl", "--user", "is-enabled", "--quiet", lid_unit],

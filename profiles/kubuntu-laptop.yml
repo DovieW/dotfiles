@@ -4,7 +4,7 @@
   "inherits": ["common-linux"],
   "account": "personal",
   "features": {
-    "anydesk": true,
+    "anydesk": false,
     "chatgpt_desktop": true,
     "google_chrome": true,
     "codex_remote_control": true,
@@ -14,6 +14,7 @@
     "factory_display_profile": true,
     "firacode_nerd_font": true,
     "inputactions": true,
+    "ideapad_fn_lock": true,
     "kde": true,
     "lid_power_saver": true,
     "luna_ocr": true,
@@ -30,7 +31,6 @@
   "packages": {
     "apt": [
       "adb",
-      "anydesk",
       "chatgpt",
       "code",
       "flameshot",
