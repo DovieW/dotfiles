@@ -1,0 +1,17 @@
+[Unit]
+Description=Managed CopyQ clipboard server
+Documentation=https://hluk.github.io/CopyQ/
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=forking
+ExecStart=%h/.local/bin/copyq --start-server
+ExecStop=%h/.local/bin/copyq exit
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=15s
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=default.target

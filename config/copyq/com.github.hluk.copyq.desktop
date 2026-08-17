@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CopyQ
+GenericName=Clipboard Manager
+Comment=Open the managed clipboard history
+Exec=systemctl --user start dot-copyq-history.service
+Icon=copyq
+Terminal=false
+StartupNotify=false
+Categories=Qt;KDE;Utility;

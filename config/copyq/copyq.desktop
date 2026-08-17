@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=CopyQ Clipboard Manager
-Comment=Start the managed clipboard history
-Exec=copyq --start-server
-Icon=copyq
-Terminal=false
-OnlyShowIn=KDE;
-X-KDE-autostart-after=panel

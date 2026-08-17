@@ -2822,6 +2822,12 @@ class DotCliTests(unittest.TestCase):
             ROOT / "config/kwin/dot-clipboard/contents/code/main.js"
         ).read_text()
         history_script = (ROOT / "config/copyq/dot-copyq-history").read_text()
+        copyq_service = (
+            ROOT / "config/systemd/user/dot-copyq.service"
+        ).read_text()
+        copyq_desktop = (
+            ROOT / "config/copyq/com.github.hluk.copyq.desktop"
+        ).read_text()
         self.assertIn('"Meta+V"', clipboard_script)
         self.assertIn('"Ctrl+`"', clipboard_script)
         self.assertIn('"Meta+."', clipboard_script)
@@ -2830,6 +2836,16 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"RestartUnit"', clipboard_script)
         self.assertNotIn('"StartUnit"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
+        self.assertIn("systemctl --user start dot-copyq.service", history_script)
+        self.assertNotIn("--start-server", history_script)
+        self.assertIn("Type=forking", copyq_service)
+        self.assertIn("Restart=on-failure", copyq_service)
+        self.assertIn("ExecStart=%h/.local/bin/copyq --start-server", copyq_service)
+        self.assertFalse((ROOT / "config/copyq/copyq.desktop").exists())
+        self.assertIn(
+            "Exec=systemctl --user start dot-copyq-history.service",
+            copyq_desktop,
+        )
         self.assertIn("jockel09/emoji-picker", installer)
         self.assertIn("releases/latest", installer)
         self.assertNotIn("cmake", installer.lower())

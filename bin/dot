@@ -1825,15 +1825,37 @@ def apply_direct(
         copyq_mappings = {
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",
             ROOT / "config/copyq/dot-copyq-history": Path.home() / ".local/bin/dot-copyq-history",
-            ROOT / "config/copyq/copyq.desktop": Path.home() / ".config/autostart/copyq.desktop",
             ROOT / "config/copyq/io.github.doview.copyq-history.desktop": Path.home() / ".local/share/applications/io.github.doview.copyq-history.desktop",
+            ROOT / "config/copyq/com.github.hluk.copyq.desktop": Path.home() / ".local/share/applications/com.github.hluk.copyq.desktop",
             ROOT / "config/kwin/dot-clipboard/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-clipboard/metadata.json",
             ROOT / "config/kwin/dot-clipboard/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js",
             ROOT / "config/systemd/user/dot-copyq-history.service": Path.home() / ".config/systemd/user/dot-copyq-history.service",
+            ROOT / "config/systemd/user/dot-copyq.service": Path.home() / ".config/systemd/user/dot-copyq.service",
             ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
         }
         for source, destination in copyq_mappings.items():
             changes += int(link_file(source, destination))
+        obsolete_autostart = Path.home() / ".config/autostart/copyq.desktop"
+        if obsolete_autostart.is_symlink():
+            obsolete_autostart.unlink()
+            changes += 1
+        if command_exists("systemctl"):
+            run(["systemctl", "--user", "daemon-reload"])
+            copyq_unit = "dot-copyq.service"
+            enabled = run(
+                ["systemctl", "--user", "is-enabled", "--quiet", copyq_unit],
+                check=False,
+            ).returncode == 0
+            active = run(
+                ["systemctl", "--user", "is-active", "--quiet", copyq_unit],
+                check=False,
+            ).returncode == 0
+            if not enabled:
+                run(["systemctl", "--user", "enable", copyq_unit])
+                changes += 1
+            if not active:
+                run(["systemctl", "--user", "start", copyq_unit])
+                changes += 1
         if command_exists("update-desktop-database"):
             run(
                 ["update-desktop-database", str(Path.home() / ".local/share/applications")],
@@ -8056,15 +8078,28 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             check=False,
             capture=True,
         )
+        copyq_service_ok = (
+            run(
+                ["systemctl", "--user", "is-enabled", "--quiet", "dot-copyq.service"],
+                check=False,
+            ).returncode
+            == 0
+            and run(
+                ["systemctl", "--user", "is-active", "--quiet", "dot-copyq.service"],
+                check=False,
+            ).returncode
+            == 0
+        )
         copyq_ok = (
             copyq_install.returncode == 0
             and copyq_config.returncode == 0
+            and copyq_service_ok
             and clipboard_shortcuts_ok
         )
         failures += not doctor_check(
             "CopyQ clipboard history",
             copyq_ok,
-            "latest stable release; Meta+V, Ctrl+`, and Wayland paste configured"
+            "persistent server; latest stable release; Meta+V, Ctrl+`, and Wayland paste configured"
             if copyq_ok
             else f"{clipboard_shortcuts_detail}; run dot apply --profile "
             f"{profile['name']} --tags clipboard",
