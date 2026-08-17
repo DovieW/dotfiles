@@ -4,6 +4,14 @@ set -euo pipefail
 # Chromium's explicit Wayland color descriptions keep SDR content constrained
 # to sRGB. Lenovo's Windows Native mode instead expands SDR into the OLED's
 # native gamut, which is the preferred perceptual match on this laptop.
+resolved_launcher="$(readlink -f -- "${BASH_SOURCE[0]}")"
+repo_root="$(cd -- "$(dirname -- "$resolved_launcher")/../.." && pwd)"
+frame_tool="$repo_root/scripts/configure-native-frames"
+if [[ -x "$frame_tool" ]]; then
+  # Chrome can rewrite Preferences from its in-memory state on shutdown. Heal
+  # every known profile immediately before the next browser session starts.
+  "$frame_tool" --ensure >/dev/null 2>&1 || true
+fi
 exec /usr/bin/google-chrome-stable \
   --disable-features=WaylandWpColorManagerV1 \
   "$@"

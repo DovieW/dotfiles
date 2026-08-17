@@ -387,8 +387,10 @@ KWin removes the entire system frame from maximized windows while retaining
 Windows-style minimize, maximize, and close controls on floating windows.
 Chrome and Obsidian are surgically configured to use native system frames, so
 their maximized windows do not retain application-drawn controls or acquire a
-second permanent title bar. Their profiles, vault lists, histories, and account
-data remain untracked. KWin's native Hide Cursor effect removes the
+second permanent title bar. The managed Chrome launcher repairs this preference
+before each browser session because Chrome can rewrite profile Preferences from
+memory when it exits. Profiles, vault lists, histories, and account data remain
+untracked. KWin's native Hide Cursor effect removes the
 pointer after one second without pointer motion, including after Meta+D, and
 while typing ordinary text. Pointer movement restores it immediately.
 The lock screen uses the public, user-local

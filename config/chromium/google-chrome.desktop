@@ -3,7 +3,7 @@ Version=1.0
 Name=Google Chrome
 GenericName=Web Browser
 Comment=Access the Internet
-Exec=/usr/bin/google-chrome-stable --disable-features=WaylandWpColorManagerV1 %U
+Exec=/home/dovie/.local/bin/google-chrome-stable %U
 Terminal=false
 Icon=google-chrome
 Type=Application
@@ -15,8 +15,8 @@ Actions=new-window;new-private-window;
 
 [Desktop Action new-window]
 Name=New Window
-Exec=/usr/bin/google-chrome-stable --disable-features=WaylandWpColorManagerV1
+Exec=/home/dovie/.local/bin/google-chrome-stable
 
 [Desktop Action new-private-window]
 Name=New Incognito Window
-Exec=/usr/bin/google-chrome-stable --disable-features=WaylandWpColorManagerV1 --incognito
+Exec=/home/dovie/.local/bin/google-chrome-stable --incognito

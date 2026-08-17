@@ -2518,7 +2518,6 @@ class DotCliTests(unittest.TestCase):
             chrome_wrapper,
             code_wrapper,
             obsidian_wrapper,
-            chrome_desktop,
             code_desktop,
         ):
             self.assertIn("--disable-features=WaylandWpColorManagerV1", managed)
@@ -2528,6 +2527,12 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("config/chromium/google-chrome-stable", cli)
         self.assertIn(".local/bin/google-chrome-stable", cli)
+        self.assertIn("scripts/configure-native-frames", chrome_wrapper)
+        self.assertIn('"$frame_tool" --ensure', chrome_wrapper)
+        self.assertIn(
+            "Exec=/home/dovie/.local/bin/google-chrome-stable %U",
+            chrome_desktop,
+        )
         self.assertIn("config/chromium/code", cli)
         self.assertIn(".local/bin/code", cli)
         self.assertIn("config/obsidian/obsidian", cli)
