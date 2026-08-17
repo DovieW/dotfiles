@@ -1348,6 +1348,11 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("/p:", client)
         self.assertIn("~/.local/bin/krdp-client", client_desktop)
         self.assertNotIn("Exec=krdp-client", client_desktop)
+        self.assertIn(
+            '"try-restart",\n                    "plasma-krunner.service"',
+            DOT.read_text(),
+        )
+        self.assertIn('key in {"LANG", "LANGUAGE"}', DOT.read_text())
         self.assertIn("Physical autologin is deliberately", architecture)
         self.assertIn("krdp", manifest["approved_tags"])
         self.assertIn('"KRdp service"', DOT.read_text())

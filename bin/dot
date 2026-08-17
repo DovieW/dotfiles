@@ -2581,6 +2581,16 @@ def apply_direct(
             )
         if command_exists("kbuildsycoca6"):
             run(["kbuildsycoca6", "--noincremental"], check=False)
+        if command_exists("systemctl"):
+            run(
+                [
+                    "systemctl",
+                    "--user",
+                    "try-restart",
+                    "plasma-krunner.service",
+                ],
+                check=False,
+            )
         if command_exists("xdg-mime"):
             for rdp_mime_type in (
                 "application/x-rdp",
@@ -2706,14 +2716,19 @@ def inherit_graphical_session_environment() -> None:
     allowed = {
         "DBUS_SESSION_BUS_ADDRESS",
         "DISPLAY",
+        "LANG",
+        "LANGUAGE",
         "WAYLAND_DISPLAY",
         "XDG_CURRENT_DESKTOP",
         "XDG_RUNTIME_DIR",
     }
     for line in manager.stdout.splitlines():
         key, separator, value = line.partition("=")
-        if separator and key in allowed and value:
-            os.environ.setdefault(key, value)
+        if separator and (key in allowed or key.startswith("LC_")) and value:
+            if key in {"LANG", "LANGUAGE"} or key.startswith("LC_"):
+                os.environ[key] = value
+            else:
+                os.environ.setdefault(key, value)
     if os.environ.get("WAYLAND_DISPLAY"):
         os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
 
