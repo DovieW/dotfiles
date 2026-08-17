@@ -87,20 +87,24 @@ if [[ -z "$asset" ]]; then
     echo "No stable matching release tag found for $source." >&2
     exit 1
   }
-  release="$(
-    curl \
-      --proto '=https' \
-      --tlsv1.2 \
-      --fail \
-      --location \
-      --retry 3 \
-      --connect-timeout 15 \
-      --silent \
-      --show-error \
-      -H 'Accept: application/vnd.github+json' \
-      -H 'User-Agent: DovieW-dotfiles' \
-      "https://api.github.com/repos/$source/releases/tags/$latest_tag"
-  )"
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    release="$(gh api "repos/$source/releases/tags/$latest_tag")"
+  else
+    release="$(
+      curl \
+        --proto '=https' \
+        --tlsv1.2 \
+        --fail \
+        --location \
+        --retry 3 \
+        --connect-timeout 15 \
+        --silent \
+        --show-error \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'User-Agent: DovieW-dotfiles' \
+        "https://api.github.com/repos/$source/releases/tags/$latest_tag"
+    )"
+  fi
   asset="$(resolve_asset <<<"[$release]")"
 fi
 asset_name="$(jq -r '.name' <<<"$asset")"
