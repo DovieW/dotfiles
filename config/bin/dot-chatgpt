@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly remote_unit="codex-remote-control.service"
+readonly chatgpt_binary="/usr/bin/chatgpt"
+
+if [[ ! -x "$chatgpt_binary" ]]; then
+  printf 'ChatGPT launcher is missing: %s\n' "$chatgpt_binary" >&2
+  exit 127
+fi
+
+# The Linux beta starts its own app-server while the graphical application is
+# open. Leave an already-running instance under the ownership of its original
+# launcher; the first launcher is responsible for restoring the background
+# daemon when that instance exits.
+if pgrep -u "$(id -u)" -x ChatGPT >/dev/null 2>&1; then
+  exec "$chatgpt_binary" "$@"
+fi
+
+# Only one app-server may own Remote Control for an installation. Pause the
+# headless daemon while Desktop owns it, then restore headless availability no
+# matter how Desktop exits.
+systemctl --user stop "$remote_unit" >/dev/null 2>&1 || true
+
+restore_remote_control() {
+  systemctl --user start "$remote_unit" >/dev/null 2>&1 || true
+}
+trap restore_remote_control EXIT
+
+"$chatgpt_binary" "$@"

@@ -554,6 +554,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Type=oneshot", service)
         self.assertIn("RemainAfterExit=yes", service)
         self.assertNotIn(" app-server --remote-control --listen ", service)
+        launcher = (ROOT / "config/bin/dot-chatgpt").read_text()
+        desktop = (ROOT / "config/applications/chatgpt.desktop").read_text()
+        self.assertIn('systemctl --user stop "$remote_unit"', launcher)
+        self.assertIn('systemctl --user start "$remote_unit"', launcher)
+        self.assertIn("trap restore_remote_control EXIT", launcher)
+        self.assertIn("Exec=dot-chatgpt %U", desktop)
         self.assertFalse(
             (ROOT / "config/systemd/user/codex-remote-control-refresh.path").exists()
         )

@@ -2654,6 +2654,14 @@ def apply_direct(
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
     if features.get("codex_remote_control") and selected("codex", "config"):
         run([str(ROOT / "scripts/configure-codex")], cwd=ROOT)
+        codex_desktop_mappings = {
+            ROOT / "config/bin/dot-chatgpt": Path.home()
+            / ".local/bin/dot-chatgpt",
+            ROOT / "config/applications/chatgpt.desktop": Path.home()
+            / ".local/share/applications/chatgpt.desktop",
+        }
+        for source, destination in codex_desktop_mappings.items():
+            changes += int(link_file(source, destination))
         legacy_unit_names = (
             "codex-remote-control-refresh.service",
             "codex-remote-control-refresh.path",
