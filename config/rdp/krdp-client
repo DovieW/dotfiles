@@ -17,6 +17,6 @@ exec "$client" \
   +clipboard \
   /cert:tofu \
   /network:auto \
-  /gfx:AVC444:on \
+  /gfx \
   /scale:180 \
   /scale-desktop:175

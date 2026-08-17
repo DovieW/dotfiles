@@ -1287,6 +1287,8 @@ class DotCliTests(unittest.TestCase):
         task = (ROOT / "ansible/tasks/krdp.yml").read_text()
         server = (ROOT / "scripts/krdp-server").read_text()
         client = (ROOT / "config/rdp/krdp-client").read_text()
+        self.assertIn("/gfx", client)
+        self.assertNotIn("AVC444", client)
         service = (
             ROOT
             / "config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"
