@@ -26,6 +26,7 @@
     status_code: 200
   register: dot_tailscale_repository
   changed_when: false
+  check_mode: false
 
 - name: Require an official Tailscale repository
   ansible.builtin.assert:

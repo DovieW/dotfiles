@@ -81,6 +81,7 @@ class DotCliTests(unittest.TestCase):
             "- name: Allow the desktop user to operate Tailscale", 1
         )[1].split("- name: Read Tailscale connection state", 1)[0]
         self.assertIn("changed_when: true", operator)
+        self.assertIn("check_mode: false", tailscale)
 
     def test_official_repositories_cover_supported_profiles(self):
         manifest = json.loads((ROOT / "repositories/official.yml").read_text())
