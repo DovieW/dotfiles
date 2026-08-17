@@ -2840,6 +2840,7 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("--start-server", history_script)
         self.assertIn("Type=forking", copyq_service)
         self.assertIn("Restart=on-failure", copyq_service)
+        self.assertIn("ExecStartPre=-%h/.local/bin/copyq exit", copyq_service)
         self.assertIn("ExecStart=%h/.local/bin/copyq --start-server", copyq_service)
         self.assertFalse((ROOT / "config/copyq/copyq.desktop").exists())
         self.assertIn(

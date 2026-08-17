@@ -6,6 +6,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=forking
+ExecStartPre=-%h/.local/bin/copyq exit
 ExecStart=%h/.local/bin/copyq --start-server
 ExecStop=%h/.local/bin/copyq exit
 Restart=on-failure
