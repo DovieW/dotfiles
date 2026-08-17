@@ -30,6 +30,7 @@
       - /tmp/dotfiles-google-linux-signing-key.pub
   register: dot_google_key_details
   changed_when: false
+  check_mode: false
 
 - name: Verify Google's primary signing key
   ansible.builtin.assert:

@@ -239,7 +239,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796", script)
         self.assertIn("brew install ansible bitwarden-cli gh jq", script)
         self.assertIn("EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796", role)
-        self.assertIn("check_mode: false", role)
+        self.assertGreaterEqual(role.count("check_mode: false"), 2)
         self.assertIn("Signed-By: /usr/share/keyrings/google-chrome.gpg", source)
         for package in (
             "Bitwarden.CLI", "GitHub.cli", "Google.Chrome", "Python.Python.3.13"
