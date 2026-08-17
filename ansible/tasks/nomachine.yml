@@ -70,7 +70,7 @@
   become: true
   ansible.builtin.apt:
     name: gamescope
-    state: latest
+    state: latest  # noqa package-latest
   when: dot_nomachine_tailscale_ready
 
 - name: Install the adaptive NoMachine client launcher
@@ -107,6 +107,7 @@
   become: true
   ansible.builtin.command:
     argv: [/etc/NX/nxserver, --eglcapture, "yes"]
+  changed_when: true
   when:
     - dot_nomachine_tailscale_ready
     - dot_nomachine_egl_capture.rc == 0

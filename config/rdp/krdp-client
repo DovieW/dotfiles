@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+host="${1:-dovie-desktop-linux}"
+user="${DOT_KRDP_USER:-dovie}"
+client="$(command -v sdl-freerdp || command -v sdl-freerdp3 || true)"
+if [[ -z "$client" ]]; then
+  echo "FreeRDP's SDL client is not installed." >&2
+  exit 1
+fi
+
+exec "$client" \
+  "/v:${host}:3389" \
+  "/u:${user}" \
+  /f \
+  +dynamic-resolution \
+  +clipboard \
+  /cert:tofu \
+  /network:auto \
+  /gfx:AVC444:on \
+  /scale:180 \
+  /scale-desktop:175

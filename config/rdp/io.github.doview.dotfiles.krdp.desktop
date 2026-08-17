@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop (KRdp)
+Comment=Open the private Plasma desktop over Tailscale RDP
+Exec=krdp-client
+Icon=preferences-system-network-remote
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupNotify=true

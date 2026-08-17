@@ -1,0 +1,284 @@
+---
+- name: Validate KRdp host platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture == "x86_64"
+      - dot_profile_data.features.kde | default(false)
+    fail_msg: >-
+      The managed KRdp server requires native amd64 Kubuntu with Plasma.
+
+- name: Read the active Tailscale IPv4 address for KRdp
+  ansible.builtin.command:
+    argv: [tailscale, ip, -4]
+  register: dot_krdp_tailscale_ip
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Record whether the private KRdp endpoint can be configured
+  ansible.builtin.set_fact:
+    dot_krdp_tailscale_ready: >-
+      {{
+        dot_krdp_tailscale_ip.rc == 0
+        and dot_krdp_tailscale_ip.stdout_lines | length == 1
+        and (dot_krdp_tailscale_ip.stdout | trim)
+          is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+      }}
+
+- name: Explain deferred KRdp configuration
+  ansible.builtin.debug:
+    msg: >-
+      KRdp was not installed because this workstation does not yet have an
+      active Tailscale IPv4 address. Finish Tailscale enrollment, then run
+      `dot apply --profile kubuntu-desktop --tags krdp`.
+  when: not dot_krdp_tailscale_ready
+
+- name: Install Plasma's native RDP server and authorization tooling
+  become: true
+  ansible.builtin.apt:
+    name:
+      - flatpak
+      - krdp
+      - openssl
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+  when: dot_krdp_tailscale_ready
+
+- name: Create the private KRdp data directory
+  ansible.builtin.file:
+    path: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver"
+    state: directory
+    mode: "0700"
+  when: dot_krdp_tailscale_ready
+
+- name: Read the managed KRdp certificate
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.crt"
+  register: dot_krdp_certificate
+  when: dot_krdp_tailscale_ready
+
+- name: Read the managed KRdp certificate key
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.key"
+  register: dot_krdp_certificate_key
+  when: dot_krdp_tailscale_ready
+
+- name: Generate the private KRdp TLS identity
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -nodes
+      - -new
+      - -x509
+      - -newkey
+      - rsa:3072
+      - -sha256
+      - -days
+      - "825"
+      - -subj
+      - "/CN={{ ansible_facts.hostname }}"
+      - -keyout
+      - "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.key"
+      - -out
+      - "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.crt"
+  changed_when: true
+  no_log: true
+  notify: Restart KRdp after private-network configuration
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+    - >-
+      not (dot_krdp_certificate.stat.exists | default(false))
+      or not (dot_krdp_certificate_key.stat.exists | default(false))
+
+- name: Protect the KRdp TLS identity
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.crt"
+      mode: "0644"
+    - path: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.key"
+      mode: "0600"
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
+- name: Configure KRdp authentication and encoding
+  community.general.ini_file:
+    path: "{{ ansible_facts.env.HOME }}/.config/krdpserverrc"
+    section: General
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: "0600"
+    no_extra_spaces: true
+  loop:
+    - option: AutogenerateCertificates
+      value: "false"
+    - option: Certificate
+      value: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.crt"
+    - option: CertificateKey
+      value: "{{ ansible_facts.env.HOME }}/.local/share/krdpserver/krdp.key"
+    - option: ListenPort
+      value: "3389"
+    - option: Quality
+      value: "80"
+    - option: SystemUserEnabled
+      value: "true"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Install the private virtual-monitor KRdp launcher
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/krdp-server"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-server"
+    mode: "0755"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Create the KRdp service override directory
+  ansible.builtin.file:
+    path: >-
+      {{ ansible_facts.env.HOME }}/.config/systemd/user/app-org.kde.krdpserver.service.d
+    state: directory
+    mode: "0755"
+  when: dot_krdp_tailscale_ready
+
+- name: Bind KRdp to Tailscale and a private laptop-sized output
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"
+    dest: >-
+      {{ ansible_facts.env.HOME }}/.config/systemd/user/app-org.kde.krdpserver.service.d/override.conf
+    mode: "0644"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Read KRdp authorization in Plasma's remote-desktop portal
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - permission-show
+      - kde-authorized
+      - remote-desktop
+  register: dot_krdp_portal_permission
+  changed_when: false
+  failed_when: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
+- name: Authorize KRdp in Plasma's remote-desktop portal
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - permission-set
+      - kde-authorized
+      - remote-desktop
+      - org.kde.krdpserver
+      - "yes"
+  changed_when: true
+  notify: Restart KRdp after private-network configuration
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+    - >-
+      dot_krdp_portal_permission.rc != 0
+      or 'org.kde.krdpserver' not in dot_krdp_portal_permission.stdout
+      or 'yes' not in dot_krdp_portal_permission.stdout
+
+- name: Preserve normal LAN SSH before enabling the KRdp firewall
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  when: dot_krdp_tailscale_ready
+
+- name: Allow direct Tailscale peer connectivity for KRdp
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "41641"
+    proto: udp
+  when: dot_krdp_tailscale_ready
+
+- name: Allow KRdp only through Tailscale
+  become: true
+  community.general.ufw:
+    rule: allow
+    interface_in: tailscale0
+    port: "3389"
+    proto: tcp
+  when: dot_krdp_tailscale_ready
+
+- name: Deny unsolicited inbound traffic for KRdp
+  become: true
+  community.general.ufw:
+    direction: incoming
+    default: deny
+  when: dot_krdp_tailscale_ready
+
+- name: Allow outbound traffic for KRdp
+  become: true
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+  when: dot_krdp_tailscale_ready
+
+- name: Enable the managed KRdp firewall
+  become: true
+  community.general.ufw:
+    state: enabled
+  when: dot_krdp_tailscale_ready
+
+- name: Enable and start the managed KRdp service
+  ansible.builtin.systemd_service:
+    name: app-org.kde.krdpserver.service
+    daemon_reload: true
+    enabled: true
+    state: started
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
+- name: Apply pending KRdp configuration before verification
+  ansible.builtin.meta: flush_handlers
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
+- name: Verify the private KRdp listener
+  ansible.builtin.wait_for:
+    host: "{{ dot_krdp_tailscale_ip.stdout | trim }}"
+    port: 3389
+    state: started
+    timeout: 20
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
+- name: Report the private KRdp endpoint
+  ansible.builtin.debug:
+    msg: >-
+      KRdp is running at rdp://{{ dot_krdp_tailscale_ip.stdout | trim }}:3389.
+      It accepts this workstation's case-sensitive Linux username and system
+      password, only through Tailscale. Each connection receives a private
+      2880x1800 virtual output at 175% scaling instead of mirroring the
+      physical monitor.
+  when: dot_krdp_tailscale_ready

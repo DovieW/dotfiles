@@ -90,13 +90,31 @@ Neither WSL profile installs Tailscale. This follows Tailscale's guidance to use
 the Windows host client instead of nesting Tailscale traffic inside Tailscale
 traffic, which can break connectivity.
 
-## NoMachine
+## KRdp and NoMachine
 
-The native Kubuntu profile uses NoMachine's free edition to mirror the existing
+The `kubuntu-desktop` profile uses Plasma's native KRdp server as its preferred
+interactive remote desktop. The managed user service binds TCP 3389 only to the
+active Tailscale IPv4 address, authenticates the current case-sensitive Linux
+username through PAM, and presents a 2880×1800 virtual output at 175% scaling.
+The virtual output matches the managed laptop panel without mirroring work onto
+the desktop's physical monitor. Its TLS private key is mode `0600` local state;
+neither it nor an account password is committed. The client uses FreeRDP SDL in
+fullscreen mode with certificate trust-on-first-use and no password argument.
+
+KRdp exposes an existing logged-in Plasma session rather than the SDDM login
+screen. Ordinary key-only SSH therefore remains the recovery path after a
+reboot when nobody has logged into Plasma. Physical autologin is deliberately
+not enabled.
+
+The native Kubuntu profile can use NoMachine's free edition to mirror the existing
 Plasma Wayland session with client-aware display resizing. The NX listener is
 bound to the current Tailscale IPv4 address; LAN discovery, NoMachine Network,
 and UPnP mapping are disabled. This keeps remote desktop private without making
 the NoMachine relay service or a public router port part of the design.
+
+NoMachine remains installed only while KRdp receives live acceptance on the
+desktop. It is not the preferred launcher and can be retired after KRdp video,
+input, clipboard, scaling, and reconnect behavior are verified.
 
 MeshCentral remains a separate management channel. It continues to provide
 inventory, terminal, and file access even though its desktop viewer does not

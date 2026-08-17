@@ -48,6 +48,7 @@ BW_MESHCENTRAL_ITEM = "dotfiles/meshcentral-agent"
 FINALIZATION_DEFERRED_TAGS = (
     "anydesk",
     "gpu",
+    "krdp",
     "meshcentral",
     "nomachine",
     "touchpad",
@@ -2518,12 +2519,15 @@ def apply_direct(
             changes += 1
         rdp_mappings = {
             ROOT / "config/rdp/dot-rdp": Path.home() / ".local/bin/dot-rdp",
+            ROOT / "config/rdp/krdp-client": Path.home() / ".local/bin/krdp-client",
             ROOT / "config/rdp/dot-remmina-f5": Path.home()
             / ".local/bin/dot-remmina-f5",
             ROOT / "config/rdp/configure-remmina": Path.home()
             / ".local/libexec/dotfiles/configure-remmina",
             ROOT / "config/rdp/io.github.doview.dotfiles.rdp.desktop": Path.home()
             / ".local/share/applications/io.github.doview.dotfiles.rdp.desktop",
+            ROOT / "config/rdp/io.github.doview.dotfiles.krdp.desktop": Path.home()
+            / ".local/share/applications/io.github.doview.dotfiles.krdp.desktop",
             ROOT / "config/rdp/rdp-mime.xml": Path.home()
             / ".local/share/mime/packages/dot-rdp.xml",
         }
@@ -2801,6 +2805,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "chatgpt",
             "emoji",
             "rdp",
+            "krdp",
             "meshcentral",
             "nomachine",
             "tailscale",
@@ -2822,6 +2827,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
         "features", {}
     ).get("nvidia_driver", False) or profile.get("features", {}).get(
         "tailscale", False
+    ) or profile.get("features", {}).get(
+        "krdp_server", False
     ) or (
         package_apply_selected
         and profile.get("features", {}).get("inputactions", False)
@@ -7459,6 +7466,72 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if mesh_config is not None
             else "enrollment configuration not found",
         )
+    if profile.get("features", {}).get("krdp_server"):
+        krdp_package = run(
+            ["dpkg-query", "-W", "-f=${db:Status-Status}", "krdp"],
+            check=False,
+            capture=True,
+        )
+        krdp_enabled = run(
+            [
+                "systemctl",
+                "--user",
+                "is-enabled",
+                "--quiet",
+                "app-org.kde.krdpserver.service",
+            ],
+            check=False,
+        ).returncode == 0
+        krdp_active = run(
+            [
+                "systemctl",
+                "--user",
+                "is-active",
+                "--quiet",
+                "app-org.kde.krdpserver.service",
+            ],
+            check=False,
+        ).returncode == 0
+        krdp_listener = run(
+            ["ss", "-H", "-ltn"],
+            check=False,
+            capture=True,
+        )
+        tailscale_ip = run(
+            ["tailscale", "ip", "-4"],
+            check=False,
+            capture=True,
+        ).stdout.strip()
+        private_listener = bool(
+            tailscale_ip
+            and any(
+                tailscale_ip in line and line.split()[3].endswith(":3389")
+                for line in krdp_listener.stdout.splitlines()
+            )
+        )
+        failures += not doctor_check(
+            "KRdp package",
+            krdp_package.returncode == 0
+            and krdp_package.stdout.strip() == "installed",
+            "Plasma native RDP server installed"
+            if krdp_package.returncode == 0
+            and krdp_package.stdout.strip() == "installed"
+            else f"run dot apply --profile {profile['name']} --tags krdp",
+        )
+        failures += not doctor_check(
+            "KRdp service",
+            krdp_enabled and krdp_active,
+            "enabled and active in the Plasma session"
+            if krdp_enabled and krdp_active
+            else f"run dot apply --profile {profile['name']} --tags krdp",
+        )
+        failures += not doctor_check(
+            "KRdp private listener",
+            private_listener,
+            f"Tailscale-only {tailscale_ip}:3389 with a private virtual monitor"
+            if private_listener
+            else "KRdp is not listening on the active Tailscale address",
+        )
     if profile.get("features", {}).get("nomachine"):
         nomachine_server = Path("/etc/NX/nxserver")
         nomachine_status = (
@@ -7767,6 +7840,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         remmina_client = shutil.which("remmina")
         rdp_launcher = Path.home() / ".local/bin/dot-rdp"
+        krdp_launcher = Path.home() / ".local/bin/krdp-client"
         remmina_launcher = Path.home() / ".local/bin/dot-remmina-f5"
         remmina_preferences = Path.home() / (
             ".local/libexec/dotfiles/configure-remmina"
@@ -7783,6 +7857,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         rdp_desktop = (
             Path.home()
             / ".local/share/applications/io.github.doview.dotfiles.rdp.desktop"
+        )
+        krdp_desktop = (
+            Path.home()
+            / ".local/share/applications/io.github.doview.dotfiles.krdp.desktop"
         )
         rdp_mime = (
             Path.home() / ".local/share/mime/packages/dot-rdp.xml"
@@ -7806,10 +7884,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             rdp_client
             and remmina_client
             and rdp_launcher.exists()
+            and krdp_launcher.exists()
             and remmina_launcher.exists()
             and remmina_preferences_check is not None
             and remmina_preferences_check.returncode == 0
             and rdp_desktop.exists()
+            and krdp_desktop.exists()
             and rdp_mime.exists()
             and all(
                 handler == "io.github.doview.dotfiles.rdp.desktop"
@@ -7820,7 +7900,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Remote Desktop files",
             rdp_ok,
-            "FreeRDP SDL plus ephemeral Remmina F5 flow; .rdp/.rdpw open fullscreen"
+            "FreeRDP SDL with KRdp launcher plus ephemeral Remmina F5 flow; .rdp/.rdpw open fullscreen"
             if rdp_ok
             else f"run dot apply --profile {profile['name']} --tags rdp",
         )

@@ -1279,6 +1279,48 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("nx://", task)
         self.assertIn("dot apply --profile kubuntu-laptop --tags nomachine", docs)
 
+    def test_kubuntu_desktop_manages_private_native_krdp(self):
+        module = runpy.run_path(str(DOT))
+        desktop = module["load_profile"]("kubuntu-desktop")
+        laptop = module["load_profile"]("kubuntu-laptop")
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/krdp.yml").read_text()
+        server = (ROOT / "scripts/krdp-server").read_text()
+        client = (ROOT / "config/rdp/krdp-client").read_text()
+        service = (
+            ROOT
+            / "config/systemd/user/app-org.kde.krdpserver.service.d/override.conf"
+        ).read_text()
+        architecture = (ROOT / "docs/architecture.md").read_text()
+        manifest = json.loads(
+            (ROOT / "devices/dovie-desktop-linux.yml").read_text()
+        )
+
+        self.assertTrue(desktop["features"]["krdp_server"])
+        self.assertFalse(laptop["features"].get("krdp_server", False))
+        self.assertIn("tasks/krdp.yml", playbook)
+        self.assertIn("tailscale, ip, -4", task)
+        self.assertIn("SystemUserEnabled", task)
+        self.assertIn("flatpak", task)
+        self.assertIn("permission-set", task)
+        self.assertIn("interface_in: tailscale0", task)
+        self.assertIn('port: "3389"', task)
+        self.assertIn("app-org.kde.krdpserver.service", task)
+        self.assertIn("2880x1800@1.75", server)
+        self.assertIn('--address "$tailscale_ip"', server)
+        self.assertIn("--virtual-monitor", server)
+        self.assertNotIn("--plasma", server)
+        self.assertIn("ExecStart=%h/.local/libexec/krdp-server", service)
+        self.assertIn("+dynamic-resolution", client)
+        self.assertIn("+clipboard", client)
+        self.assertIn("/cert:tofu", client)
+        self.assertIn("/scale-desktop:175", client)
+        self.assertNotIn("/p:", client)
+        self.assertIn("Physical autologin is deliberately", architecture)
+        self.assertIn("krdp", manifest["approved_tags"])
+        self.assertIn('"KRdp service"', DOT.read_text())
+        self.assertIn('"KRdp private listener"', DOT.read_text())
+
     def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         config = (ROOT / "config/ghostty/config").read_text()
@@ -2563,6 +2605,7 @@ class DotCliTests(unittest.TestCase):
         self.assertTrue(profile["features"]["kde"])
         self.assertTrue(profile["features"]["tailscale"])
         self.assertTrue(profile["features"]["nomachine"])
+        self.assertTrue(profile["features"]["krdp_server"])
         self.assertTrue(profile["features"]["meshcentral_agent"])
         self.assertFalse(profile["features"]["anydesk"])
         self.assertFalse(profile["features"]["factory_display_profile"])
@@ -2574,7 +2617,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("openssh-server", profile["packages"]["apt"])
         self.assertNotIn("anydesk", profile["packages"]["apt"])
         self.assertEqual(manifest["profile"], "kubuntu-desktop")
-        self.assertEqual(manifest["approved_tags"], ["meshcentral", "nomachine"])
+        self.assertEqual(
+            manifest["approved_tags"], ["krdp", "meshcentral", "nomachine"]
+        )
 
     def test_kubuntu_manages_openssh_server(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

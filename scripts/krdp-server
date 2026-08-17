@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tailscale_ip="$(tailscale ip -4)"
+if [[ ! "$tailscale_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "KRdp requires one active Tailscale IPv4 address." >&2
+  exit 1
+fi
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/krdpserver"
+certificate="$data_dir/krdp.crt"
+certificate_key="$data_dir/krdp.key"
+if [[ ! -r "$certificate" || ! -r "$certificate_key" ]]; then
+  echo "KRdp TLS identity is missing; run dot apply --profile kubuntu-desktop --tags krdp." >&2
+  exit 1
+fi
+
+exec /usr/bin/krdpserver \
+  --address "$tailscale_ip" \
+  --port 3389 \
+  --certificate "$certificate" \
+  --certificate-key "$certificate_key" \
+  --quality 80 \
+  --virtual-monitor 2880x1800@1.75

@@ -22,14 +22,17 @@ complete if either endpoint is not securely active.
 
 - `anydesk`
 - `gpu`
+- `krdp`
 - `meshcentral`
 - `nomachine`
 - `touchpad`
 
 Kubuntu desktops use the `kubuntu-desktop` profile. It inherits the shared
 Kubuntu workstation experience while disabling laptop-only display, lid,
-touchpad, gesture, and NVIDIA policies. AnyDesk is retired and actively removed;
-normal key-only OpenSSH, NoMachine, and MeshCentral are the managed remote paths.
+touchpad, gesture, and NVIDIA policies. AnyDesk is retired and actively removed.
+Normal key-only OpenSSH is the recovery path, KRdp is the preferred private
+Plasma remote desktop, and MeshCentral provides management inventory, terminal,
+and files. NoMachine can remain temporarily during KRdp acceptance testing.
 
 This prevents a generic profile from applying assumptions learned from a
 different laptop. Bootstrap generates these local, mode `0600` artifacts:

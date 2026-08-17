@@ -67,6 +67,14 @@
       when: dot_profile_data.features.tailscale | default(false)
       tags: [packages, tailscale, app-updates]
 
+    - name: Configure Plasma's native KRdp server
+      ansible.builtin.include_tasks:
+        file: tasks/krdp.yml
+        apply:
+          tags: [packages, krdp, remote-access]
+      when: dot_profile_data.features.krdp_server | default(false)
+      tags: [packages, krdp, remote-access]
+
     - name: Configure MeshCentral agent
       ansible.builtin.include_tasks:
         file: tasks/meshcentral.yml
@@ -723,6 +731,17 @@
       tags: [shell]
 
   handlers:
+    - name: Restart KRdp after private-network configuration
+      ansible.builtin.systemd_service:
+        name: app-org.kde.krdpserver.service
+        daemon_reload: true
+        state: restarted
+        scope: user
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+        DBUS_SESSION_BUS_ADDRESS: >-
+          unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+
     - name: Restart NoMachine after private-network configuration
       become: true
       ansible.builtin.command:
