@@ -9,18 +9,54 @@ function reopenUserUnit(unit) {
     );
 }
 
+let requestedCopyQDesktop = null;
+
+function isCopyQ(window) {
+    return window.resourceClass === "com.github.hluk.copyq" ||
+        window.desktopFileName === "com.github.hluk.copyq";
+}
+
+function focusCopyQ(window) {
+    if (requestedCopyQDesktop !== null) {
+        window.desktops = [requestedCopyQDesktop];
+        workspace.currentDesktop = requestedCopyQDesktop;
+        requestedCopyQDesktop = null;
+    }
+    window.minimized = false;
+    workspace.raiseWindow(window);
+    workspace.activeWindow = window;
+}
+
+function openCopyQ() {
+    requestedCopyQDesktop = workspace.currentDesktop;
+    reopenUserUnit("dot-copyq-history.service");
+    const windows = workspace.stackingOrder;
+    for (let index = windows.length - 1; index >= 0; index -= 1) {
+        if (isCopyQ(windows[index])) {
+            focusCopyQ(windows[index]);
+            return;
+        }
+    }
+}
+
+workspace.windowAdded.connect((window) => {
+    if (requestedCopyQDesktop !== null && isCopyQ(window)) {
+        focusCopyQ(window);
+    }
+});
+
 registerShortcut(
-    "dot-copyq-history-meta",
+    "dot-copyq-history-meta-v2",
     "Open Clipboard History (Meta+V)",
     "Meta+V",
-    () => reopenUserUnit("dot-copyq-history.service")
+    openCopyQ
 );
 
 registerShortcut(
-    "dot-copyq-history-ctrl",
+    "dot-copyq-history-ctrl-v2",
     "Open Clipboard History (Ctrl+Grave)",
     "Ctrl+`",
-    () => reopenUserUnit("dot-copyq-history.service")
+    openCopyQ
 );
 
 registerShortcut(
@@ -28,4 +64,11 @@ registerShortcut(
     "Open Dotfiles Emoji Picker",
     "Meta+.",
     () => reopenUserUnit("dot-emoji-picker.service")
+);
+
+registerShortcut(
+    "dot-clipboard-probe-v2",
+    "Verify Clipboard Shortcuts",
+    "",
+    () => reopenUserUnit("dot-clipboard-probe.service")
 );

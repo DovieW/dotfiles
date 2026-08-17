@@ -1567,13 +1567,13 @@ def sync_managed_kglobal_shortcuts() -> None:
     )
     clipboard_history_meta = (
         "kwin",
-        "dot-copyq-history-meta",
+        "dot-copyq-history-meta-v2",
         "KWin",
         "Open Clipboard History (Meta+V)",
     )
     clipboard_history_ctrl = (
         "kwin",
-        "dot-copyq-history-ctrl",
+        "dot-copyq-history-ctrl-v2",
         "KWin",
         "Open Clipboard History (Ctrl+Grave)",
     )
@@ -1582,6 +1582,12 @@ def sync_managed_kglobal_shortcuts() -> None:
         "show-on-mouse-pos",
         "plasmashell",
         "Show Clipboard Items at Mouse Position",
+    )
+    callback_probe = (
+        "kwin",
+        "dot-clipboard-probe-v2",
+        "KWin",
+        "Verify Clipboard Shortcuts",
     )
     desired = {
         activity_switcher: [0],
@@ -1609,11 +1615,50 @@ def sync_managed_kglobal_shortcuts() -> None:
         # CopyQ replaces Klipper; the dedicated picker inserts emoji directly.
         klipper_popup: [0],
         stock_emoji_picker: [0],
+        ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [0],
+        ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [0],
         clipboard_history_meta: [268435542],
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
+        callback_probe: [0],
     }
     activate_kglobal_shortcuts(desired)
+
+
+def managed_clipboard_callback_ok() -> bool:
+    """Prove the registered clipboard KWin action still has a live callback."""
+    if not command_exists("qdbus6") or not command_exists("systemctl"):
+        return False
+
+    service = "dot-clipboard-probe.service"
+    run(["systemctl", "--user", "stop", service], check=False, capture=True)
+    try:
+        invoked = run(
+            [
+                "qdbus6",
+                "org.kde.kglobalaccel",
+                "/component/kwin",
+                "org.kde.kglobalaccel.Component.invokeShortcut",
+                "dot-clipboard-probe-v2",
+            ],
+            check=False,
+            capture=True,
+        )
+        if invoked.returncode:
+            return False
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            active = run(
+                ["systemctl", "--user", "is-active", service],
+                check=False,
+                capture=True,
+            )
+            if active.stdout.strip() == "active":
+                return True
+            time.sleep(0.05)
+        return False
+    finally:
+        run(["systemctl", "--user", "stop", service], check=False, capture=True)
 
 
 def sync_managed_screenshot_shortcuts() -> None:
@@ -1831,6 +1876,7 @@ def apply_direct(
             ROOT / "config/kwin/dot-clipboard/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js",
             ROOT / "config/systemd/user/dot-copyq-history.service": Path.home() / ".config/systemd/user/dot-copyq-history.service",
             ROOT / "config/systemd/user/dot-copyq.service": Path.home() / ".config/systemd/user/dot-copyq.service",
+            ROOT / "config/systemd/user/dot-clipboard-probe.service": Path.home() / ".config/systemd/user/dot-clipboard-probe.service",
             ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
         }
         for source, destination in copyq_mappings.items():
@@ -2077,17 +2123,31 @@ def apply_direct(
                 Path.home()
                 / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js"
             )
-            run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Scripting",
-                    "org.kde.kwin.Scripting.unloadScript",
-                    script_name,
-                ],
-                check=False,
-                capture=True,
+            runtime_state = STATE_DIR / "kwin-dot-clipboard-runtime"
+            previous_runtime = (
+                runtime_state.read_text(encoding="utf-8").strip()
+                if runtime_state.exists()
+                else ""
             )
+            runtime_name = (
+                f"{script_name}-"
+                f"{hashlib.sha256(script_path.read_bytes()).hexdigest()[:12]}-"
+                f"{time.time_ns():x}"
+            )
+            for loaded_name in dict.fromkeys(
+                name for name in (script_name, previous_runtime, runtime_name) if name
+            ):
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.unloadScript",
+                        loaded_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
             script_id = run(
                 [
                     "qdbus6",
@@ -2095,19 +2155,49 @@ def apply_direct(
                     "/Scripting",
                     "org.kde.kwin.Scripting.loadScript",
                     str(script_path),
-                    script_name,
+                    runtime_name,
                 ],
                 capture=True,
             ).stdout.strip()
-            run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    f"/Scripting/Script{script_id}",
-                    "org.kde.kwin.Script.run",
-                ]
-            )
-        sync_managed_kglobal_shortcuts()
+            try:
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        f"/Scripting/Script{script_id}",
+                        "org.kde.kwin.Script.run",
+                    ]
+                )
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        f"/Scripting/Script{script_id}",
+                        "org.freedesktop.DBus.Peer.Ping",
+                    ]
+                )
+                sync_managed_kglobal_shortcuts()
+                if not managed_clipboard_callback_ok():
+                    raise DotError(
+                        "KWin registered clipboard action names without live callbacks."
+                    )
+            except Exception:
+                run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.unloadScript",
+                        runtime_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                raise
+            runtime_state.parent.mkdir(parents=True, exist_ok=True)
+            runtime_state.write_text(runtime_name + "\n", encoding="utf-8")
+        else:
+            sync_managed_kglobal_shortcuts()
     if lockscreen_only:
         for relative in sorted(lockscreen_files):
             changes += int(
@@ -4337,21 +4427,33 @@ def emoji_picker_runtime() -> tuple[bool, str]:
 def clipboard_shortcuts_runtime() -> tuple[bool, str]:
     if not command_exists("gdbus") or not command_exists("qdbus6"):
         return False, "KDE shortcut services are unavailable"
-    loaded = run(
-        [
-            "qdbus6",
-            "org.kde.KWin",
-            "/Scripting",
-            "org.kde.kwin.Scripting.isScriptLoaded",
-            "dot-clipboard",
-        ],
-        check=False,
-        capture=True,
-    )
+    script_names = ["dot-clipboard"]
+    runtime_state = STATE_DIR / "kwin-dot-clipboard-runtime"
+    if runtime_state.exists():
+        runtime_name = runtime_state.read_text(encoding="utf-8").strip()
+        if runtime_name:
+            script_names.append(runtime_name)
+    loaded_ok = False
+    for script_name in script_names:
+        loaded = run(
+            [
+                "qdbus6",
+                "org.kde.KWin",
+                "/Scripting",
+                "org.kde.kwin.Scripting.isScriptLoaded",
+                script_name,
+            ],
+            check=False,
+            capture=True,
+        )
+        if loaded.returncode == 0 and loaded.stdout.strip() == "true":
+            loaded_ok = True
+            break
     expected = {
-        ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
-        ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
+        ("kwin", "dot-copyq-history-meta-v2", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
+        ("kwin", "dot-copyq-history-ctrl-v2", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
         ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],
+        ("kwin", "dot-clipboard-probe-v2", "KWin", "Verify Clipboard Shortcuts"): [0],
         ("org.kde.plasma.emojier.desktop", "_launch", "Emoji Selector", "Emoji Selector"): [0],
         ("plasmashell", "show-on-mouse-pos", "plasmashell", "Show Clipboard Items at Mouse Position"): [0],
     }
@@ -4362,9 +4464,10 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         )
     except DotError as error:
         return False, str(error)
-    if loaded.returncode == 0 and loaded.stdout.strip() == "true" and assignments_ok:
+    callback_ok = managed_clipboard_callback_ok() if loaded_ok and assignments_ok else False
+    if loaded_ok and assignments_ok and callback_ok:
         return True, "KWin owns Meta+V, Ctrl+`, and Meta+.; stock actions disabled"
-    return False, "KWin clipboard script or live key assignments drifted"
+    return False, "KWin clipboard script, callback, or live key assignments drifted"
 
 
 def cmd_clipboard(args: argparse.Namespace) -> None:
@@ -8776,8 +8879,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             for value in (
                 "[emoji-picker-ephemeral]",
                 "wmclass=emoji-picker",
-                "[copyq-ephemeral]",
-                "wmclass=com.github.hluk.copyq",
                 "[flameshot-ephemeral]",
                 "wmclass=flameshot",
                 "skippager=true",

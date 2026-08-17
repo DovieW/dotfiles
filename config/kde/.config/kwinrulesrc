@@ -1,6 +1,6 @@
 [General]
-count=9
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,copyq-ephemeral,flameshot-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
+count=8
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
 
 [bitwarden-ephemeral]
 Description=Keep Bitwarden out of persistent window lists
@@ -11,17 +11,6 @@ skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
 wmclass=bitwarden
-wmclassmatch=1
-
-[copyq-ephemeral]
-Description=Keep CopyQ out of persistent window lists
-skippager=true
-skippagerrule=2
-skipswitcher=true
-skipswitcherrule=2
-skiptaskbar=true
-skiptaskbarrule=2
-wmclass=com.github.hluk.copyq
 wmclassmatch=1
 
 [dolphin-skip-taskbar]
