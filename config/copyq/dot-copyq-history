@@ -2,5 +2,4 @@
 set -euo pipefail
 copyq_bin="${XDG_BIN_HOME:-$HOME/.local/bin}/copyq"
 systemctl --user start dot-copyq.service
-"$copyq_bin" hide
 "$copyq_bin" show Clipboard

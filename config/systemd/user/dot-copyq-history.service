@@ -2,6 +2,5 @@
 Description=Open managed CopyQ clipboard history
 
 [Service]
-Type=oneshot
+Type=exec
 ExecStart=%h/.local/bin/dot-copyq-history
-RemainAfterExit=yes

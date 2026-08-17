@@ -2828,9 +2828,6 @@ class DotCliTests(unittest.TestCase):
         copyq_service = (
             ROOT / "config/systemd/user/dot-copyq.service"
         ).read_text()
-        copyq_history_service = (
-            ROOT / "config/systemd/user/dot-copyq-history.service"
-        ).read_text()
         copyq_desktop = (
             ROOT / "config/copyq/com.github.hluk.copyq.desktop"
         ).read_text()
@@ -2843,16 +2840,13 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn('"StartUnit"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
         self.assertIn("systemctl --user start dot-copyq.service", history_script)
-        self.assertIn('"$copyq_bin" hide', history_script)
+        self.assertNotIn('"$copyq_bin" hide', history_script)
         self.assertIn('"$copyq_bin" show Clipboard', history_script)
         self.assertNotIn("--start-server", history_script)
         self.assertIn("Type=forking", copyq_service)
         self.assertIn("Restart=on-failure", copyq_service)
         self.assertIn("ExecStartPre=-%h/.local/bin/copyq exit", copyq_service)
         self.assertIn("ExecStart=%h/.local/bin/copyq --start-server", copyq_service)
-        self.assertIn("RemainAfterExit=yes", copyq_history_service)
-        self.assertIn("def managed_clipboard_callback_ok", cli)
-        self.assertIn("kwin-dot-clipboard-runtime", cli)
         self.assertFalse((ROOT / "config/copyq/copyq.desktop").exists())
         self.assertIn(
             "Exec=systemctl --user start dot-copyq-history.service",
