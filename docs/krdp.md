@@ -19,7 +19,8 @@ the RDP client and is never stored in this repository or passed in a process
 argument by the managed launcher.
 
 Each connection streams the desktop's existing primary Plasma output. The
-managed client fits that 16:9 workspace inside the laptop's 16:10 screen. KRdp's
+managed watcher changes it to a laptop-matched 16:10 mode before the client
+fits it to the 16:10 screen. KRdp's
 virtual-monitor mode is deliberately not used: it creates an empty auxiliary
 output rather than a complete interactive Plasma workspace. Because this is a
 physical-session stream, activity can also be visible on the attached monitor.
@@ -31,15 +32,17 @@ to always visible while KRdp is connected. It shares state with NoMachine,
 survives Plasma panel ID changes, and restores the previous hiding modes only
 after the final managed remote session disconnects.
 
-The same watcher temporarily changes the desktop's 4K Plasma output from its
-physical 145% scale to 235% while KRdp is connected. After FreeRDP reduces the
-3840x2160 stream to fit the laptop, controls and text therefore have roughly
-the laptop's native 175% apparent size. The original physical scale is recorded
-before the first adjustment and restored when the connection closes. This is
-done through `kscreen-doctor` because KRdp does not apply FreeRDP's requested
-desktop-scale capability to the existing Wayland output. The watcher waits for
-actual video traffic before changing the scale; applying it during TCP or PAM
-setup is too early for KRdp's portal capture to observe the resize.
+The same watcher temporarily changes the desktop output from its physical
+3840x2160/145% state to 2560x1600/155% while KRdp is connected. That mode has
+the laptop's exact 16:10 aspect ratio, scales cleanly into its 2880x1800 panel,
+and keeps pointer coordinates aligned. Controls and text have roughly the
+laptop's native 175% apparent size after the 1.125 client-side fit. The original
+physical mode and scale are recorded before the first adjustment and restored
+when the connection closes. This is done through `kscreen-doctor` because KRdp
+does not apply FreeRDP's requested desktop-scale capability to the existing
+Wayland output. The watcher waits for actual video traffic before changing the
+mode and scale; applying them during TCP or PAM setup is too early for KRdp's
+portal capture to observe the resize.
 
 On the managed laptop, launch **Desktop (KRdp)** from the application menu or
 run:

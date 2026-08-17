@@ -17,7 +17,10 @@ STATE_DIR = Path.home() / ".local/state/dotfiles"
 STATE_FILE = STATE_DIR / "krdp-display.json"
 LOCK_FILE = STATE_DIR / "krdp-display.lock"
 LOG_FILE = STATE_DIR / "krdp-display.log"
-TARGET_SCALE = 2.35
+TARGET_WIDTH = 2560
+TARGET_HEIGHT = 1600
+TARGET_REFRESH = 60.0
+TARGET_SCALE = 1.55
 
 
 def log(message: str) -> None:
@@ -66,9 +69,31 @@ def enabled_outputs() -> list[dict[str, Any]]:
     ]
 
 
-def set_scale(name: str, scale: float) -> None:
+def target_mode(output: dict[str, Any]) -> str:
+    candidates = [
+        mode
+        for mode in output.get("modes", [])
+        if mode.get("size") == {"width": TARGET_WIDTH, "height": TARGET_HEIGHT}
+    ]
+    if not candidates:
+        raise RuntimeError(
+            f"{output.get('name', 'output')} has no "
+            f"{TARGET_WIDTH}x{TARGET_HEIGHT} mode"
+        )
+    selected = min(
+        candidates,
+        key=lambda mode: abs(float(mode.get("refreshRate", 0)) - TARGET_REFRESH),
+    )
+    return str(selected["id"])
+
+
+def set_output(name: str, mode: str, scale: float) -> None:
     result = subprocess.run(
-        ["kscreen-doctor", f"output.{name}.scale.{scale:g}"],
+        [
+            "kscreen-doctor",
+            f"output.{name}.mode.{mode}",
+            f"output.{name}.scale.{scale:g}",
+        ],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -78,10 +103,12 @@ def set_scale(name: str, scale: float) -> None:
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"cannot set {name} to {scale:g}: {detail}")
+        raise RuntimeError(
+            f"cannot set {name} to mode {mode} at {scale:g}: {detail}"
+        )
 
 
-def load_state() -> dict[str, float]:
+def load_state() -> dict[str, dict[str, Any]]:
     if not STATE_FILE.is_file():
         return {}
     try:
@@ -92,13 +119,18 @@ def load_state() -> dict[str, float]:
     if not isinstance(outputs, dict):
         return {}
     return {
-        str(name): float(scale)
-        for name, scale in outputs.items()
-        if isinstance(scale, (int, float))
+        str(name): {
+            "mode": str(settings["mode"]),
+            "scale": float(settings["scale"]),
+        }
+        for name, settings in outputs.items()
+        if isinstance(settings, dict)
+        and "mode" in settings
+        and isinstance(settings.get("scale"), (int, float))
     }
 
 
-def save_state(outputs: dict[str, float]) -> None:
+def save_state(outputs: dict[str, dict[str, Any]]) -> None:
     temporary = STATE_FILE.with_suffix(".tmp")
     temporary.write_text(
         json.dumps({"outputs": outputs}, indent=2) + "\n", encoding="utf-8"
@@ -112,16 +144,27 @@ def activate() -> None:
     changed = False
     if not original:
         original = {
-            str(output["name"]): float(output["scale"]) for output in current
+            str(output["name"]): {
+                "mode": str(output["currentModeId"]),
+                "scale": float(output["scale"]),
+            }
+            for output in current
         }
         save_state(original)
         changed = True
     for output in current:
-        if abs(float(output["scale"]) - TARGET_SCALE) > 0.01:
-            set_scale(str(output["name"]), TARGET_SCALE)
+        mode = target_mode(output)
+        if (
+            str(output["currentModeId"]) != mode
+            or abs(float(output["scale"]) - TARGET_SCALE) > 0.01
+        ):
+            set_output(str(output["name"]), mode, TARGET_SCALE)
             changed = True
     if changed:
-        log(f"activated KRDP display scale {TARGET_SCALE:g}")
+        log(
+            f"activated KRDP display {TARGET_WIDTH}x{TARGET_HEIGHT} "
+            f"at scale {TARGET_SCALE:g}"
+        )
 
 
 def deactivate() -> None:
@@ -129,16 +172,17 @@ def deactivate() -> None:
     if not original:
         return
     current_names = {str(output["name"]) for output in enabled_outputs()}
-    for name, scale in original.items():
+    for name, settings in original.items():
         if name in current_names:
-            set_scale(name, scale)
+            set_output(name, str(settings["mode"]), float(settings["scale"]))
     STATE_FILE.unlink(missing_ok=True)
     log("restored physical display scale")
 
 
 def status() -> None:
     outputs = ", ".join(
-        f"{output['name']}={float(output['scale']):g}"
+        f"{output['name']}=mode {output['currentModeId']} "
+        f"at {float(output['scale']):g}"
         for output in enabled_outputs()
     )
     original = load_state()
