@@ -3,6 +3,7 @@ set -uo pipefail
 
 readonly remote_unit="codex-remote-control.service"
 readonly chatgpt_binary="/usr/bin/chatgpt"
+readonly codex="$HOME/.codex/packages/standalone/current/codex"
 
 if [[ ! -x "$chatgpt_binary" ]]; then
   printf 'ChatGPT launcher is missing: %s\n' "$chatgpt_binary" >&2
@@ -17,14 +18,8 @@ if pgrep -u "$(id -u)" -x ChatGPT >/dev/null 2>&1; then
   exec "$chatgpt_binary" "$@"
 fi
 
-# Only one app-server may own Remote Control for an installation. Pause the
-# headless daemon while Desktop owns it, then restore headless availability no
-# matter how Desktop exits.
-systemctl --user stop "$remote_unit" >/dev/null 2>&1 || true
-
-restore_remote_control() {
-  systemctl --user start "$remote_unit" >/dev/null 2>&1 || true
-}
-trap restore_remote_control EXIT
-
-"$chatgpt_binary" "$@"
+# Hand ownership to Desktop immediately. The always-running manager restores
+# the native headless daemon after Desktop closes or crashes.
+"$codex" app-server daemon stop >/dev/null 2>&1 || true
+systemctl --user start "$remote_unit" >/dev/null 2>&1 || true
+exec "$chatgpt_binary" "$@"

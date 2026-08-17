@@ -363,10 +363,10 @@ systemctl --user status codex-remote-control.service
 codex app-server daemon version
 ```
 
-The managed `dot-chatgpt` desktop launcher coordinates ownership with the
-Linux Desktop beta. It pauses the headless daemon while ChatGPT is open and
-restores it when ChatGPT exits, preventing both app-servers from receiving an
-HTTP 409 for the same installation.
+The managed `dot-chatgpt` desktop launcher hands ownership to the Linux Desktop
+beta. The always-running service restores the headless daemon after ChatGPT
+exits or crashes, preventing both app-servers from receiving an HTTP 409 for
+the same installation.
 
 The unit runs `codex app-server daemon bootstrap --remote-control`. Codex owns
 the control socket, daemon settings, pidfiles, and detached updater; systemd

@@ -543,22 +543,19 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn(f"ConditionFileIsExecutable={managed}", service)
         self.assertIn(
-            f"ExecStart={managed} app-server daemon bootstrap --remote-control",
+            "ExecStart=%h/.local/libexec/dotfiles/dot-codex-remote-control",
             service,
         )
-        self.assertIn(
-            f"ExecReload={managed} app-server daemon enable-remote-control",
-            service,
-        )
-        self.assertIn(f"ExecStop={managed} app-server daemon stop", service)
-        self.assertIn("Type=oneshot", service)
-        self.assertIn("RemainAfterExit=yes", service)
+        self.assertIn("Type=simple", service)
+        self.assertIn("Restart=on-failure", service)
         self.assertNotIn(" app-server --remote-control --listen ", service)
         launcher = (ROOT / "config/bin/dot-chatgpt").read_text()
+        manager = (ROOT / "config/bin/dot-codex-remote-control").read_text()
         desktop = (ROOT / "config/applications/chatgpt.desktop").read_text()
-        self.assertIn('systemctl --user stop "$remote_unit"', launcher)
         self.assertIn('systemctl --user start "$remote_unit"', launcher)
-        self.assertIn("trap restore_remote_control EXIT", launcher)
+        self.assertIn("app-server daemon stop", launcher)
+        self.assertIn('pgrep -u "$(id -u)" -x ChatGPT', manager)
+        self.assertIn("app-server daemon bootstrap --remote-control", manager)
         self.assertIn("Exec=dot-chatgpt %U", desktop)
         self.assertFalse(
             (ROOT / "config/systemd/user/codex-remote-control-refresh.path").exists()

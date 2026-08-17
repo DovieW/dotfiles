@@ -6,15 +6,12 @@ After=network-online.target
 ConditionFileIsExecutable=%h/.codex/packages/standalone/current/codex
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-# Let Codex own its control socket, persisted remote-control preference,
-# pidfiles, and updater. The systemd unit only restores that native daemon after
-# boot; running a second raw app-server makes Desktop fail with HTTP 409.
-ExecStart=%h/.codex/packages/standalone/current/codex app-server daemon bootstrap --remote-control
-ExecReload=%h/.codex/packages/standalone/current/codex app-server daemon enable-remote-control
-ExecStop=%h/.codex/packages/standalone/current/codex app-server daemon stop
-TimeoutStartSec=120s
+Type=simple
+# Keep one owner online: the native headless daemon while Desktop is closed,
+# and Desktop's foreground app-server while the graphical application is open.
+ExecStart=%h/.local/libexec/dotfiles/dot-codex-remote-control
+Restart=on-failure
+RestartSec=2s
 TimeoutStopSec=30s
 
 [Install]

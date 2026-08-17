@@ -2657,6 +2657,8 @@ def apply_direct(
         codex_desktop_mappings = {
             ROOT / "config/bin/dot-chatgpt": Path.home()
             / ".local/bin/dot-chatgpt",
+            ROOT / "config/bin/dot-codex-remote-control": Path.home()
+            / ".local/libexec/dotfiles/dot-codex-remote-control",
             ROOT / "config/applications/chatgpt.desktop": Path.home()
             / ".local/share/applications/chatgpt.desktop",
         }
@@ -2699,6 +2701,19 @@ def apply_direct(
                 ["systemctl", "--user", "is-active", "--quiet", unit_name],
                 check=False,
             ).returncode == 0
+            substate = run(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    "-p",
+                    "SubState",
+                    "--value",
+                    unit_name,
+                ],
+                check=False,
+                capture=True,
+            ).stdout.strip()
             daemon_settings = Path.home() / ".codex/app-server-daemon/settings.json"
             daemon_state = run(
                 [str(managed_codex), "app-server", "daemon", "version"],
@@ -2716,7 +2731,11 @@ def apply_direct(
             if not enabled:
                 run(["systemctl", "--user", "enable", unit_name])
                 changes += 1
-            if not active or not daemon_running or not daemon_settings.is_file():
+            if (
+                not active
+                or substate != "running"
+                or not daemon_settings.is_file()
+            ):
                 run(["systemctl", "--user", "restart", unit_name])
                 changes += 1
             if command_exists("loginctl"):
