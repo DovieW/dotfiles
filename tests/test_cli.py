@@ -1334,6 +1334,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("sport", panel_watch)
         self.assertIn(":3389", panel_watch)
         self.assertIn("/usr/local/libexec/remote-panel", panel_watch)
+        self.assertIn('if current:\n            panel("activate")', panel_watch)
+        self.assertNotIn("if current != active", panel_watch)
         self.assertNotIn("+dynamic-resolution", client)
         self.assertIn("+clipboard", client)
         self.assertIn("/cert:tofu", client)
@@ -1344,6 +1346,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"KRdp service"', DOT.read_text())
         self.assertIn('"KRdp private listener"', DOT.read_text())
         self.assertIn('"KRdp panel watcher"', DOT.read_text())
+        self.assertIn(
+            'expected_hiding = {"autohide", "none"}', DOT.read_text()
+        )
 
     def test_remote_panel_restores_recreated_plasma_panel_ids(self):
         module = runpy.run_path(str(ROOT / "scripts/remote-panel"))

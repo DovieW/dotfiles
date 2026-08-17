@@ -5921,7 +5921,17 @@ else {
         return False, "length mode does not match"
     if int(float(height)) != profile["height"]:
         return False, "height does not match"
-    if hiding != "autohide" or alignment != "center":
+    remote_panel_state = STATE_DIR / "remote-panel.json"
+    remote_sessions_active = False
+    if remote_panel_state.is_file():
+        try:
+            remote_sessions_active = bool(
+                load_json(remote_panel_state).get("sessions", {})
+            )
+        except DotError:
+            remote_sessions_active = False
+    expected_hiding = {"autohide", "none"} if remote_sessions_active else {"autohide"}
+    if hiding not in expected_hiding or alignment != "center":
         return False, "placement or hiding does not match"
     if (floating == "true") != bool(profile["floating"]):
         return False, "floating mode does not match"
@@ -8066,7 +8076,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             profile_matches,
             f"{selected_panel['label']}: {profile_detail}"
             if profile_matches
-            else "run dot apply --profile kubuntu-laptop --tags kde",
+            else f"run dot apply --profile {profile['name']} --tags kde",
         )
         panel_geometry_path = Path.home() / ".config/plasmashellrc"
         panel_geometry = panel_geometry_path.read_text(encoding="utf-8") if panel_geometry_path.exists() else ""
@@ -8078,7 +8088,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 f"{selected_panel['length_mode']} panel with auto-hide"
             )
             if profile_matches
-            else "run dot apply --profile kubuntu-laptop --tags kde",
+            else f"run dot apply --profile {profile['name']} --tags kde",
         )
         kwin_path = Path.home() / ".config/kwinrc"
         kwin = kwin_path.read_text(encoding="utf-8") if kwin_path.exists() else ""

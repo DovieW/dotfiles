@@ -47,9 +47,14 @@ def main() -> int:
     active = False
     while running:
         current = connected()
-        if current != active:
-            panel("activate" if current else "deactivate")
-            active = current
+        # Reconcile every connected poll. Plasma can replace a panel and its
+        # numeric ID while the RDP socket remains established; activating is
+        # idempotent and lets the shared manager protect the replacement.
+        if current:
+            panel("activate")
+        elif active:
+            panel("deactivate")
+        active = current
         time.sleep(1)
     if active:
         panel("deactivate")
