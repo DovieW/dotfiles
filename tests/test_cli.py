@@ -2837,6 +2837,8 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn('"StartUnit"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
         self.assertIn("systemctl --user start dot-copyq.service", history_script)
+        self.assertIn('"$copyq_bin" hide', history_script)
+        self.assertIn('"$copyq_bin" show Clipboard', history_script)
         self.assertNotIn("--start-server", history_script)
         self.assertIn("Type=forking", copyq_service)
         self.assertIn("Restart=on-failure", copyq_service)
