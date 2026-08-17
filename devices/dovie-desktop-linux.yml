@@ -8,6 +8,7 @@
     "Custom MSI MS-7B86 desktop with an AMD Ryzen 5 3600 and AMD Navi 21 graphics.",
     "Use the in-kernel amdgpu driver; NVIDIA and touchpad tasks are intentionally excluded.",
     "MeshCentral inventory, terminal, and file access are managed; Wayland display control is not expected.",
+    "Codex Remote Control is headless-only so one persistent app-server owns active work; ChatGPT Desktop is intentionally hidden on this host.",
     "KRdp is the preferred private Plasma remote desktop; NoMachine remains only during KRdp acceptance testing, with ordinary key-only SSH as the recovery path."
   ]
 }

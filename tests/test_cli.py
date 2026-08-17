@@ -543,20 +543,30 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn(f"ConditionFileIsExecutable={managed}", service)
         self.assertIn(
-            "ExecStart=%h/.local/libexec/dotfiles/dot-codex-remote-control",
+            f"ExecStart={managed} app-server daemon bootstrap --remote-control",
             service,
         )
-        self.assertIn("Type=simple", service)
-        self.assertIn("Restart=on-failure", service)
+        self.assertIn(f"ExecStop={managed} app-server daemon stop", service)
+        self.assertIn("Type=oneshot", service)
+        self.assertIn("RemainAfterExit=yes", service)
         self.assertNotIn(" app-server --remote-control --listen ", service)
-        launcher = (ROOT / "config/bin/dot-chatgpt").read_text()
-        manager = (ROOT / "config/bin/dot-codex-remote-control").read_text()
-        desktop = (ROOT / "config/applications/chatgpt.desktop").read_text()
-        self.assertIn('systemctl --user start "$remote_unit"', launcher)
-        self.assertIn("app-server daemon stop", launcher)
-        self.assertIn('pgrep -u "$(id -u)" -x ChatGPT', manager)
-        self.assertIn("app-server daemon bootstrap --remote-control", manager)
-        self.assertIn("Exec=dot-chatgpt %U", desktop)
+        headless_desktop = (
+            ROOT / "config/applications/chatgpt-headless.desktop"
+        ).read_text()
+        self.assertIn("Hidden=true", headless_desktop)
+        self.assertFalse((ROOT / "config/bin/dot-chatgpt").exists())
+        self.assertFalse(
+            (ROOT / "config/bin/dot-codex-remote-control").exists()
+        )
+        laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        desktop = json.loads((ROOT / "profiles/kubuntu-desktop.yml").read_text())
+        self.assertEqual(
+            laptop["features"]["codex_remote_control_mode"], "desktop"
+        )
+        self.assertEqual(
+            desktop["features"]["codex_remote_control_mode"], "headless"
+        )
+        self.assertFalse(desktop["features"]["chatgpt_desktop"])
         self.assertFalse(
             (ROOT / "config/systemd/user/codex-remote-control-refresh.path").exists()
         )
@@ -1167,7 +1177,7 @@ class DotCliTests(unittest.TestCase):
         source = ROOT / "config/apt/chatgpt.sources"
 
         self.assertTrue(profile["features"]["chatgpt_desktop"])
-        self.assertIn("chatgpt", profile["packages"]["apt"])
+        self.assertNotIn("chatgpt", profile["packages"]["apt"])
         self.assertEqual(catalog["tools"]["chatgpt"]["provider"], "apt")
         self.assertIn("tasks/chatgpt.yml", playbook)
         self.assertIn(

@@ -6,12 +6,12 @@ After=network-online.target
 ConditionFileIsExecutable=%h/.codex/packages/standalone/current/codex
 
 [Service]
-Type=simple
-# Keep one owner online: the native headless daemon while Desktop is closed,
-# and Desktop's foreground app-server while the graphical application is open.
-ExecStart=%h/.local/libexec/dotfiles/dot-codex-remote-control
-Restart=on-failure
-RestartSec=2s
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/.codex/packages/standalone/current/codex app-server daemon bootstrap --remote-control
+ExecReload=%h/.codex/packages/standalone/current/codex app-server daemon enable-remote-control
+ExecStop=%h/.codex/packages/standalone/current/codex app-server daemon stop
+TimeoutStartSec=120s
 TimeoutStopSec=30s
 
 [Install]

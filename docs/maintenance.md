@@ -355,7 +355,7 @@ The second apply must report zero configuration changes.
 
 ## Codex Remote Control
 
-The Kubuntu profile starts Codex's native app-server daemon from the
+The Kubuntu desktop profile starts Codex's native app-server daemon from the
 `codex-remote-control.service` systemd user unit. Inspect both layers with:
 
 ```bash
@@ -363,15 +363,15 @@ systemctl --user status codex-remote-control.service
 codex app-server daemon version
 ```
 
-The managed `dot-chatgpt` desktop launcher hands ownership to the Linux Desktop
-beta. The always-running service restores the headless daemon after ChatGPT
-exits or crashes, preventing both app-servers from receiving an HTTP 409 for
-the same installation.
+Remote Control has one durable owner per profile. `kubuntu-desktop` is
+headless-only and hides ChatGPT Desktop, so opening a window cannot interrupt
+active remote work. `kubuntu-laptop` uses the normal ChatGPT Desktop and keeps
+the headless unit disabled. There is no routine owner handoff.
 
 The unit runs `codex app-server daemon bootstrap --remote-control`. Codex owns
 the control socket, daemon settings, pidfiles, and detached updater; systemd
-only restores that native lifecycle after boot. The profile enables user
-lingering so the boot unit and daemon remain available after logout.
+only restores that native lifecycle after boot. The desktop profile enables
+user lingering so the unit and daemon remain available after logout.
 
 Do not add a second raw `codex app-server --remote-control` process. Desktop
 then sees no native persisted preference, attempts to connect itself, and the

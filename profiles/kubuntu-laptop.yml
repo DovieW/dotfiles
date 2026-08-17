@@ -8,6 +8,7 @@
     "chatgpt_desktop": true,
     "google_chrome": true,
     "codex_remote_control": true,
+    "codex_remote_control_mode": "desktop",
     "copyq": true,
     "copilot_right_control": true,
     "emoji_picker": true,
@@ -32,7 +33,6 @@
   "packages": {
     "apt": [
       "adb",
-      "chatgpt",
       "code",
       "flameshot",
       "fonts-cascadia-code",

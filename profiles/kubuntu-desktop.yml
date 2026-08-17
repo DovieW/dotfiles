@@ -5,6 +5,8 @@
   "account": "personal",
   "features": {
     "anydesk": false,
+    "chatgpt_desktop": false,
+    "codex_remote_control_mode": "headless",
     "factory_display_profile": false,
     "ideapad_fn_lock": false,
     "krdp_server": true,

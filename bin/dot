@@ -2654,16 +2654,28 @@ def apply_direct(
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
     if features.get("codex_remote_control") and selected("codex", "config"):
         run([str(ROOT / "scripts/configure-codex")], cwd=ROOT)
-        codex_desktop_mappings = {
-            ROOT / "config/bin/dot-chatgpt": Path.home()
-            / ".local/bin/dot-chatgpt",
-            ROOT / "config/bin/dot-codex-remote-control": Path.home()
-            / ".local/libexec/dotfiles/dot-codex-remote-control",
-            ROOT / "config/applications/chatgpt.desktop": Path.home()
-            / ".local/share/applications/chatgpt.desktop",
-        }
-        for source, destination in codex_desktop_mappings.items():
-            changes += int(link_file(source, destination))
+        remote_mode = features.get("codex_remote_control_mode", "headless")
+        if remote_mode not in {"desktop", "headless"}:
+            raise DotError(f"Unsupported Codex Remote Control mode: {remote_mode}")
+        obsolete_destinations = (
+            Path.home() / ".local/bin/dot-chatgpt",
+            Path.home() / ".local/libexec/dotfiles/dot-codex-remote-control",
+        )
+        for destination in obsolete_destinations:
+            if destination.is_symlink():
+                destination.unlink()
+                changes += 1
+        desktop_override = Path.home() / ".local/share/applications/chatgpt.desktop"
+        if remote_mode == "headless":
+            changes += int(
+                link_file(
+                    ROOT / "config/applications/chatgpt-headless.desktop",
+                    desktop_override,
+                )
+            )
+        elif desktop_override.is_symlink():
+            desktop_override.unlink()
+            changes += 1
         legacy_unit_names = (
             "codex-remote-control-refresh.service",
             "codex-remote-control-refresh.path",
@@ -2701,19 +2713,23 @@ def apply_direct(
                 ["systemctl", "--user", "is-active", "--quiet", unit_name],
                 check=False,
             ).returncode == 0
-            substate = run(
-                [
-                    "systemctl",
-                    "--user",
-                    "show",
-                    "-p",
-                    "SubState",
-                    "--value",
-                    unit_name,
-                ],
+            if remote_mode == "desktop":
+                if enabled or active:
+                    run(
+                        ["systemctl", "--user", "disable", "--now", unit_name],
+                        check=False,
+                    )
+                    changes += 1
+            desktop_running = remote_mode == "headless" and run(
+                ["pgrep", "-u", str(os.getuid()), "-x", "ChatGPT"],
                 check=False,
                 capture=True,
-            ).stdout.strip()
+            ).returncode == 0
+            if desktop_running:
+                raise DotError(
+                    "ChatGPT Desktop is running on a headless Remote Control host. "
+                    "Close it before applying the codex configuration."
+                )
             daemon_settings = Path.home() / ".codex/app-server-daemon/settings.json"
             daemon_state = run(
                 [str(managed_codex), "app-server", "daemon", "version"],
@@ -2728,17 +2744,17 @@ def apply_direct(
                     )
                 except json.JSONDecodeError:
                     pass
-            if not enabled:
+            if remote_mode == "headless" and not enabled:
                 run(["systemctl", "--user", "enable", unit_name])
                 changes += 1
-            if (
+            if remote_mode == "headless" and (
                 not active
-                or substate != "running"
+                or not daemon_running
                 or not daemon_settings.is_file()
             ):
                 run(["systemctl", "--user", "restart", unit_name])
                 changes += 1
-            if command_exists("loginctl"):
+            if remote_mode == "headless" and command_exists("loginctl"):
                 linger = run(
                     ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
                     check=False,
@@ -9169,6 +9185,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             vite_plus_detail or "managed Vite+ check failed",
         )
     if profile.get("features", {}).get("codex_remote_control"):
+        remote_mode = profile.get("features", {}).get(
+            "codex_remote_control_mode", "headless"
+        )
         codex_config_check = run(
             [str(ROOT / "scripts/configure-codex"), "--check"],
             check=False,
@@ -9202,12 +9221,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ["systemctl", "--user", "is-active", "--quiet", unit_name],
             check=False,
         ).returncode == 0
+        service_ok = (
+            enabled and active
+            if remote_mode == "headless"
+            else not enabled and not active
+        )
         failures += not doctor_check(
             "Codex Remote Control",
-            enabled and active,
-            "enabled and active"
-            if enabled and active
-            else f"{unit_name} is not {'enabled' if not enabled else 'active'}",
+            service_ok,
+            (
+                "headless service enabled and active"
+                if remote_mode == "headless"
+                else "headless service disabled for ChatGPT Desktop ownership"
+            )
+            if service_ok
+            else f"unexpected {unit_name} state for {remote_mode} mode",
         )
         managed_codex = (
             Path.home() / ".codex/packages/standalone/current/codex"
@@ -9242,14 +9270,22 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             check=False,
             capture=True,
         ).returncode == 0
-        remote_owner_healthy = (running and path_aligned) or desktop_server_running
+        remote_owner_healthy = (
+            (running and path_aligned)
+            if remote_mode == "headless"
+            else not running or desktop_server_running
+        )
         failures += not doctor_check(
             "Codex native Remote Control daemon",
             remote_owner_healthy,
             (
                 "ChatGPT Desktop currently owns Remote Control"
                 if desktop_server_running
-                else "running from the managed standalone channel"
+                else (
+                    "running from the managed standalone channel"
+                    if remote_mode == "headless"
+                    else "headless daemon is inactive in desktop mode"
+                )
             )
             if remote_owner_healthy
             else (
@@ -9271,9 +9307,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 pass
         failures += not doctor_check(
             "Codex Remote Control preference",
-            remote_enabled,
+            remote_enabled if remote_mode == "headless" else True,
             "persisted in the native daemon settings"
-            if remote_enabled
+            if remote_enabled and remote_mode == "headless"
+            else "owned by ChatGPT Desktop settings"
+            if remote_mode == "desktop"
             else f"not enabled in {daemon_settings}",
         )
         linger = run(
@@ -9283,9 +9321,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         failures += not doctor_check(
             "Codex boot persistence",
-            linger.returncode == 0 and linger.stdout.strip() == "yes",
+            remote_mode == "desktop"
+            or (linger.returncode == 0 and linger.stdout.strip() == "yes"),
             "systemd user lingering enabled"
-            if linger.returncode == 0 and linger.stdout.strip() == "yes"
+            if remote_mode == "headless"
+            and linger.returncode == 0
+            and linger.stdout.strip() == "yes"
+            else "not required for desktop-owned Remote Control"
+            if remote_mode == "desktop"
             else "enable with loginctl enable-linger",
         )
     if failures:
