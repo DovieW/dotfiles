@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import signal
 import subprocess
 import time
 
 
 REMOTE_PANEL = "/usr/local/libexec/remote-panel"
+KRDP_DISPLAY = str(Path.home() / ".local/libexec/krdp-display")
 SOURCE = "krdp"
 SESSION = "listener"
 running = True
@@ -36,6 +38,16 @@ def panel(action: str) -> None:
     )
 
 
+def display(action: str) -> None:
+    subprocess.run(
+        [KRDP_DISPLAY, action],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=20,
+    )
+
+
 def stop(_signum: int, _frame: object) -> None:
     global running
     running = False
@@ -45,6 +57,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     active = False
+    initialized = False
     while running:
         current = connected()
         # Reconcile every connected poll. Plasma can replace a panel and its
@@ -52,12 +65,16 @@ def main() -> int:
         # idempotent and lets the shared manager protect the replacement.
         if current:
             panel("activate")
-        elif active:
+            display("activate")
+        elif active or not initialized:
             panel("deactivate")
+            display("deactivate")
         active = current
+        initialized = True
         time.sleep(1)
     if active:
         panel("deactivate")
+        display("deactivate")
     return 0
 
 

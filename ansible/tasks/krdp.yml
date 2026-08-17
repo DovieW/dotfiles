@@ -157,6 +157,14 @@
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
 
+- name: Install the KRdp physical-display scale manager
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/krdp-display"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-display"
+    mode: "0755"
+  notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
 - name: Create the KRdp service override directory
   ansible.builtin.file:
     path: >-
