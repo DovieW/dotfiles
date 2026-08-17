@@ -39,6 +39,17 @@ dot meshcentral enroll-stored
 
 The default enrollment path deliberately does not depend on Bitwarden.
 
+If a stored invitation was created by the legacy parser that truncated IDs at
+`$` or `@`, replace it and enroll the current computer in one pass:
+
+```bash
+dot meshcentral enroll-and-store
+```
+
+Paste the current Linux install command when prompted. The validated values
+replace the Bitwarden note before the installer runs; neither the command nor
+the device-group identifier is written to dotfiles.
+
 ## Maintenance
 
 ```bash

@@ -605,12 +605,18 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("never evaluated by a shell", docs)
         self.assertIn("does not depend on Bitwarden", docs)
         cli = DOT.read_text()
-        direct_enrollment = cli.split(
-            'if action == "enroll":', 1
-        )[1].split("else:", 1)[0]
-        self.assertIn("getpass.getpass", direct_enrollment)
-        self.assertNotIn("bw_session", direct_enrollment)
-        self.assertIn('choices=["status", "enroll", "enroll-stored"]', cli)
+        enrollment_branch = cli.split(
+            'if action in {"enroll", "enroll-and-store"}:', 1
+        )[1].split("    else:", 1)[0]
+        self.assertIn("getpass.getpass", enrollment_branch)
+        self.assertIn('if action == "enroll-and-store":', enrollment_branch)
+        self.assertIn("bw_session", enrollment_branch)
+        self.assertIn(
+            'choices=["status", "enroll", "enroll-stored", "enroll-and-store"]',
+            cli,
+        )
+        self.assertIn('if action in {"enroll", "enroll-and-store"}:', cli)
+        self.assertIn("install_meshcentral_enrollment(enrollment)", cli)
 
     def test_bw_session_logs_in_when_cli_is_unauthenticated(self):
         module = runpy.run_path(str(DOT))
