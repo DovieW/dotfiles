@@ -3210,6 +3210,37 @@ def _bw_capture_session(action: str) -> tuple[str | None, int]:
     return (token if proc.returncode == 0 else None), proc.returncode
 
 
+def _bw_unlock_session() -> tuple[str | None, int]:
+    """Unlock without Bitwarden's fragile interactive Node prompt."""
+    password = getpass.getpass("Bitwarden master password: ")
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, password.encode() + b"\n")
+    finally:
+        os.close(write_fd)
+        password = ""
+    try:
+        proc = subprocess.run(
+            [
+                "bw",
+                "unlock",
+                "--passwordfile",
+                f"/proc/self/fd/{read_fd}",
+                "--raw",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            pass_fds=(read_fd,),
+        )
+    finally:
+        os.close(read_fd)
+    token = proc.stdout.strip()
+    if proc.returncode == 0 and not token:
+        raise DotError("Bitwarden unlock succeeded without returning a session token.")
+    return (token if proc.returncode == 0 else None), proc.returncode
+
+
 def _bw_should_lock_after_use() -> bool:
     return os.environ.get("DOTFILES_BW_LOCK_AFTER_USE", "").strip().lower() in {
         "1",
@@ -3245,7 +3276,7 @@ def bw_session() -> tuple[str, bool]:
     if state not in {"locked", "unlocked"}:
         raise DotError(f"Unsupported Bitwarden CLI status: {state or 'missing'}")
 
-    session, returncode = _bw_capture_session("unlock")
+    session, returncode = _bw_unlock_session()
     if returncode == 0 and session is not None:
         return session, _bw_should_lock_after_use()
 

@@ -687,6 +687,7 @@ class DotCliTests(unittest.TestCase):
                 {
                     "run": fake_run,
                     "require_commands": lambda *_args, **_kwargs: None,
+                    "_bw_unlock_session": lambda: (None, 1),
                 },
             ),
             mock.patch.object(
@@ -703,9 +704,43 @@ class DotCliTests(unittest.TestCase):
 
         self.assertEqual(
             session_commands,
-            [["bw", "unlock", "--raw"], ["bw", "login", "--raw"]],
+            [["bw", "login", "--raw"]],
         )
         self.assertIn(["bw", "logout"], regular_commands)
+
+    def test_bw_unlock_uses_an_anonymous_password_pipe(self):
+        module = runpy.run_path(str(DOT))
+        unlock = module["_bw_unlock_session"]
+        globals_ = unlock.__globals__
+        completed = subprocess.CompletedProcess(
+            ["bw", "unlock"], 0, stdout="safe-session\n", stderr=""
+        )
+        with (
+            mock.patch.object(globals_["getpass"], "getpass", return_value="private"),
+            mock.patch.object(globals_["os"], "pipe", return_value=(50, 51)),
+            mock.patch.object(globals_["os"], "write") as write,
+            mock.patch.object(globals_["os"], "close") as close,
+            mock.patch.object(
+                globals_["subprocess"], "run", return_value=completed
+            ) as process_run,
+        ):
+            self.assertEqual(unlock(), ("safe-session", 0))
+
+        write.assert_called_once_with(51, b"private\n")
+        self.assertEqual(close.call_args_list, [mock.call(51), mock.call(50)])
+        command = process_run.call_args.args[0]
+        self.assertEqual(
+            command,
+            [
+                "bw",
+                "unlock",
+                "--passwordfile",
+                "/proc/self/fd/50",
+                "--raw",
+            ],
+        )
+        self.assertEqual(process_run.call_args.kwargs["pass_fds"], (50,))
+        self.assertNotIn("private", repr(process_run.call_args))
 
     def test_bw_session_reuses_existing_in_process_session(self):
         module = runpy.run_path(str(DOT))
