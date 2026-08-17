@@ -3,6 +3,20 @@ set -euo pipefail
 
 host="${1:-dovie-desktop-linux}"
 user="${DOT_KRDP_USER:-dovie}"
+if ! command -v kdialog >/dev/null 2>&1; then
+  echo "KRdp requires kdialog for its private password prompt." >&2
+  exit 1
+fi
+
+state_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dotfiles"
+install -d -m 0700 "$state_dir"
+exec 9>"$state_dir/krdp-client.lock"
+if ! flock -n 9; then
+  kdialog --sorry \
+    "Desktop (KRdp) is already connected. Close its existing window before reconnecting."
+  exit 1
+fi
+
 client=""
 for candidate in \
   "${HOMEBREW_PREFIX:-/home/linuxbrew/.linuxbrew}/bin/xfreerdp" \
@@ -15,11 +29,6 @@ done
 if [[ -z "$client" ]]; then
   echo "KRdp requires Homebrew's H.264-capable XFreeRDP client." >&2
   echo "Run dot apply --profile kubuntu-laptop to install it." >&2
-  exit 1
-fi
-
-if ! command -v kdialog >/dev/null 2>&1; then
-  echo "KRdp requires kdialog for its private password prompt." >&2
   exit 1
 fi
 

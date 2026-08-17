@@ -56,6 +56,11 @@ trust the certificate. NoMachine remains installed during initial acceptance
 testing and can be retired after KRdp video, pointer, keyboard, clipboard,
 scaling, reconnect, and post-reboot behavior are accepted.
 
+The launcher permits only one KRdp client at a time. Two simultaneous clients
+compete for the same Wayland clipboard, which can trigger repeated FreeRDP
+format-conversion failures and crash CopyQ's clipboard monitor. A second launch
+therefore explains that the existing KRdp window must be closed first.
+
 KRdp is an existing-session server. It is not a replacement for SDDM and does
 not create a separate Windows-style login session. KDE's upstream Plasma 6.6
 documentation describes the same limitation:
