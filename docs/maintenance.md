@@ -355,26 +355,22 @@ The second apply must report zero configuration changes.
 
 ## Codex Remote Control
 
-The Kubuntu profile manages `codex-remote-control.service` as a systemd user
-service. Inspect it with:
+The Kubuntu profile starts Codex's native app-server daemon from the
+`codex-remote-control.service` systemd user unit. Inspect both layers with:
 
 ```bash
 systemctl --user status codex-remote-control.service
-journalctl --user -u codex-remote-control.service
+codex app-server daemon version
 ```
 
-The service starts during boot and systemd restarts it after a failure. The
-profile enables user lingering so it also remains available after logout. It
-uses the Codex core bundled with Desktop at `/usr/lib/chatgpt/resources/codex`.
-This is intentional: Desktop and Remote Control share `~/.codex` state and must
-use the same storage and protocol version.
+The unit runs `codex app-server daemon bootstrap --remote-control`. Codex owns
+the control socket, daemon settings, pidfiles, and detached updater; systemd
+only restores that native lifecycle after boot. The profile enables user
+lingering so the boot unit and daemon remain available after logout.
 
-`codex-remote-control-refresh.path` watches the bundled core. After the Desktop
-package replaces it, systemd restarts Remote Control onto the new app version.
-That restart disconnects active remote sessions, but prevents an older daemon
-from continuing to write shared state after an app upgrade. The watcher queues
-the restart without blocking, and the service limits graceful shutdown to 15
-seconds because an active old core may otherwise wait indefinitely.
+Do not add a second raw `codex app-server --remote-control` process. Desktop
+then sees no native persisted preference, attempts to connect itself, and the
+OpenAI endpoint rejects it with `409 Remote app server already online`.
 
 The official installer and stable-channel policy are stored in
 `packages/codex.yml`. A normal apply installs Codex only when the managed
@@ -387,10 +383,9 @@ To update the standalone terminal CLI:
 dot codex update
 ```
 
-This does not change Remote Control. Update Desktop through its package manager;
-the path unit then restarts Remote Control with the newly bundled core. Run
-`dot doctor --profile kubuntu-laptop` to verify the active service executable
-matches the Desktop core.
+The native daemon bootstrap also runs its own detached stable-channel updater.
+Run `dot doctor --profile kubuntu-laptop` to verify the boot unit, daemon,
+managed executable, and persisted Remote Control preference together.
 
 ## Vite+
 

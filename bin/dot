@@ -2654,35 +2654,63 @@ def apply_direct(
                 changes += int(link_file(source, Path.home() / ".local/bin" / tool))
     if features.get("codex_remote_control") and selected("codex", "config"):
         run([str(ROOT / "scripts/configure-codex")], cwd=ROOT)
-        unit_names = (
-            "codex-remote-control.service",
+        legacy_unit_names = (
             "codex-remote-control-refresh.service",
             "codex-remote-control-refresh.path",
         )
-        for unit_name in unit_names:
-            source = ROOT / "config/systemd/user" / unit_name
-            destination = Path.home() / ".config/systemd/user" / unit_name
-            changes += int(link_file(source, destination))
-        app_codex = Path("/usr/lib/chatgpt/resources/codex")
-        if command_exists("systemctl") and app_codex.exists():
-            # The unit is linked into place, so its contents can change even
-            # when the destination symlink itself is already correct.
+        systemd_user = Path.home() / ".config/systemd/user"
+        if command_exists("systemctl"):
+            for unit_name in legacy_unit_names:
+                run(
+                    ["systemctl", "--user", "disable", "--now", unit_name],
+                    check=False,
+                    capture=True,
+                )
+                for destination in (
+                    systemd_user / unit_name,
+                    systemd_user / "default.target.wants" / unit_name,
+                ):
+                    if destination.is_symlink():
+                        destination.unlink()
+                        changes += 1
+
+        unit_name = "codex-remote-control.service"
+        source = ROOT / "config/systemd/user" / unit_name
+        destination = systemd_user / unit_name
+        changes += int(link_file(source, destination))
+        managed_codex = (
+            Path.home() / ".codex/packages/standalone/current/codex"
+        )
+        if command_exists("systemctl") and managed_codex.exists():
             run(["systemctl", "--user", "daemon-reload"])
-            for unit_name in (
-                "codex-remote-control.service",
-                "codex-remote-control-refresh.path",
-            ):
-                enabled = run(
-                    ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
-                    check=False,
-                ).returncode == 0
-                active = run(
-                    ["systemctl", "--user", "is-active", "--quiet", unit_name],
-                    check=False,
-                ).returncode == 0
-                if not enabled or not active:
-                    run(["systemctl", "--user", "enable", "--now", unit_name])
-                    changes += 1
+            enabled = run(
+                ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            active = run(
+                ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                check=False,
+            ).returncode == 0
+            daemon_settings = Path.home() / ".codex/app-server-daemon/settings.json"
+            daemon_state = run(
+                [str(managed_codex), "app-server", "daemon", "version"],
+                check=False,
+                capture=True,
+            )
+            daemon_running = False
+            if daemon_state.returncode == 0:
+                try:
+                    daemon_running = (
+                        json.loads(daemon_state.stdout).get("status") == "running"
+                    )
+                except json.JSONDecodeError:
+                    pass
+            if not enabled:
+                run(["systemctl", "--user", "enable", unit_name])
+                changes += 1
+            if not active or not daemon_running or not daemon_settings.is_file():
+                run(["systemctl", "--user", "restart", unit_name])
+                changes += 1
             if command_exists("loginctl"):
                 linger = run(
                     ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
@@ -2692,10 +2720,10 @@ def apply_direct(
                 if linger.returncode != 0 or linger.stdout.strip() != "yes":
                     run(["loginctl", "enable-linger", getpass.getuser()])
                     changes += 1
-        elif not app_codex.exists():
+        elif not managed_codex.exists():
             print(
-                f"Codex Desktop core is missing at {app_codex}; "
-                "Remote Control units were installed but not enabled.",
+                f"Managed Codex is missing at {managed_codex}; "
+                "native Remote Control was not bootstrapped.",
                 file=sys.stderr,
             )
     print(f"Applied {profile_name}: {changes} configuration change(s)")
@@ -9139,13 +9167,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             codex_detail or "standalone install check failed",
         )
         unit_name = "codex-remote-control.service"
-        app_codex = Path("/usr/lib/chatgpt/resources/codex")
-        app_codex_ok = app_codex.is_file() and os.access(app_codex, os.X_OK)
-        failures += not doctor_check(
-            "Codex Desktop core",
-            app_codex_ok,
-            str(app_codex) if app_codex_ok else f"missing executable: {app_codex}",
-        )
         enabled = run(
             ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
             check=False,
@@ -9161,50 +9182,57 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if enabled and active
             else f"{unit_name} is not {'enabled' if not enabled else 'active'}",
         )
-        refresh_unit = "codex-remote-control-refresh.path"
-        refresh_enabled = run(
-            ["systemctl", "--user", "is-enabled", "--quiet", refresh_unit],
-            check=False,
-        ).returncode == 0
-        refresh_active = run(
-            ["systemctl", "--user", "is-active", "--quiet", refresh_unit],
-            check=False,
-        ).returncode == 0
-        failures += not doctor_check(
-            "Codex update synchronization",
-            refresh_enabled and refresh_active,
-            "Desktop core update watcher enabled and active"
-            if refresh_enabled and refresh_active
-            else f"{refresh_unit} is not enabled and active",
+        managed_codex = (
+            Path.home() / ".codex/packages/standalone/current/codex"
         )
-        if active and app_codex_ok:
-            main_pid = run(
-                [
-                    "systemctl", "--user", "show", unit_name,
-                    "--property=MainPID", "--value",
-                ],
-                check=False,
-                capture=True,
-            ).stdout.strip()
-            running_executable = ""
-            if main_pid.isdigit() and main_pid != "0":
-                try:
-                    running_executable = str(
-                        Path(f"/proc/{main_pid}/exe").resolve()
-                    )
-                except OSError:
-                    pass
-            expected_executable = str(app_codex.resolve())
-            failures += not doctor_check(
-                "Codex Remote Control version alignment",
-                running_executable == expected_executable,
-                "running the Codex Desktop core"
-                if running_executable == expected_executable
-                else (
-                    f"running {running_executable or 'an unknown binary'}; "
-                    f"expected {expected_executable}"
-                ),
-            )
+        daemon_version = run(
+            [str(managed_codex), "app-server", "daemon", "version"],
+            check=False,
+            capture=True,
+        ) if managed_codex.is_file() else None
+        daemon_status: dict[str, Any] = {}
+        if daemon_version and daemon_version.returncode == 0:
+            try:
+                daemon_status = json.loads(daemon_version.stdout)
+            except json.JSONDecodeError:
+                pass
+        running = daemon_status.get("status") == "running"
+        reported_path = daemon_status.get("managedCodexPath", "")
+        path_aligned = False
+        if reported_path:
+            try:
+                path_aligned = Path(reported_path).resolve() == managed_codex.resolve()
+            except OSError:
+                pass
+        failures += not doctor_check(
+            "Codex native Remote Control daemon",
+            running and path_aligned,
+            "running from the managed standalone channel"
+            if running and path_aligned
+            else (
+                (daemon_version.stdout or daemon_version.stderr).strip()
+                if daemon_version
+                else f"missing executable: {managed_codex}"
+            ),
+        )
+        daemon_settings = Path.home() / ".codex/app-server-daemon/settings.json"
+        remote_enabled = False
+        if daemon_settings.is_file():
+            try:
+                settings = load_json(daemon_settings)
+                remote_enabled = bool(
+                    settings.get("remote_control")
+                    or settings.get("remoteControlEnabled")
+                )
+            except (OSError, ValueError):
+                pass
+        failures += not doctor_check(
+            "Codex Remote Control preference",
+            remote_enabled,
+            "persisted in the native daemon settings"
+            if remote_enabled
+            else f"not enabled in {daemon_settings}",
+        )
         linger = run(
             ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
             check=False,

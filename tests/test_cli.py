@@ -535,35 +535,38 @@ class DotCliTests(unittest.TestCase):
                 "dotfiles/ssh/personal/new-device",
             )
 
-    def test_codex_remote_control_tracks_desktop_core(self):
+    def test_codex_remote_control_uses_native_daemon_lifecycle(self):
         service = (
             ROOT / "config/systemd/user/codex-remote-control.service"
         ).read_text()
-        refresh_path = (
-            ROOT / "config/systemd/user/codex-remote-control-refresh.path"
-        ).read_text()
-        refresh_service = (
-            ROOT / "config/systemd/user/codex-remote-control-refresh.service"
-        ).read_text()
-        desktop_core = "/usr/lib/chatgpt/resources/codex"
+        managed = "%h/.codex/packages/standalone/current/codex"
 
-        self.assertIn(f"ConditionFileIsExecutable={desktop_core}", service)
-        self.assertIn(f"ExecStart={desktop_core} app-server", service)
-        self.assertIn("TimeoutStopSec=15s", service)
-        self.assertNotIn("%h/.local/bin/codex", service)
-        self.assertIn(f"PathChanged={desktop_core}", refresh_path)
+        self.assertIn(f"ConditionFileIsExecutable={managed}", service)
         self.assertIn(
-            "Unit=codex-remote-control-refresh.service", refresh_path
+            f"ExecStart={managed} app-server daemon bootstrap --remote-control",
+            service,
         )
         self.assertIn(
-            "--no-block try-restart codex-remote-control.service",
-            refresh_service,
+            f"ExecReload={managed} app-server daemon enable-remote-control",
+            service,
+        )
+        self.assertIn(f"ExecStop={managed} app-server daemon stop", service)
+        self.assertIn("Type=oneshot", service)
+        self.assertIn("RemainAfterExit=yes", service)
+        self.assertNotIn(" app-server --remote-control --listen ", service)
+        self.assertFalse(
+            (ROOT / "config/systemd/user/codex-remote-control-refresh.path").exists()
+        )
+        self.assertFalse(
+            (ROOT / "config/systemd/user/codex-remote-control-refresh.service").exists()
         )
 
         cli = DOT.read_text()
-        self.assertIn('Path("/usr/lib/chatgpt/resources/codex")', cli)
+        self.assertIn('"app-server", "daemon", "version"', cli)
         self.assertIn('"codex-remote-control-refresh.path"', cli)
-        self.assertIn("Codex Remote Control version alignment", cli)
+        self.assertIn("Codex native Remote Control daemon", cli)
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        self.assertRegex(playbook, r"(?s)Apply portable configuration.*?- codex")
 
     def test_meshcentral_generated_command_is_parsed_without_shell_execution(self):
         module = runpy.run_path(str(DOT))

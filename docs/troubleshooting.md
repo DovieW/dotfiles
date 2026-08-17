@@ -399,35 +399,30 @@ Check the managed user service:
 
 ```bash
 systemctl --user status codex-remote-control.service
-journalctl --user -u codex-remote-control.service --since today
+codex app-server daemon version
 loginctl show-user "$USER" --property=Linger
 ```
 
-If the standalone CLI is missing, rerun
-`dot apply --profile kubuntu-laptop`; the profile installs the latest stable
-release through the official installer, whose release archive verification is
-retained. Do not run `codex app-server daemon bootstrap` from a session
-currently connected through that daemon: bootstrapping replaces the app-server
-and disconnects the session.
+If the standalone CLI or native daemon state is missing, rerun
+`dot apply --profile kubuntu-laptop --tags codex`. The profile installs the
+verified stable standalone release, removes the obsolete parallel app-server
+units, and bootstraps Codex's native daemon with Remote Control enabled.
 
-Remote Control does not use the standalone CLI. It uses
-`/usr/lib/chatgpt/resources/codex` so its version stays aligned with Desktop.
-Check both the update watcher and the running executable with:
+Check the native state with:
 
 ```bash
-systemctl --user status codex-remote-control-refresh.path
-main_pid="$(systemctl --user show codex-remote-control.service --property=MainPID --value)"
-readlink -f "/proc/$main_pid/exe"
-readlink -f /usr/lib/chatgpt/resources/codex
+codex app-server daemon version
+cat ~/.codex/app-server-daemon/settings.json
 ```
 
-If the paths differ, fully close active Codex work and run:
+If Desktop reports that it could not enable Remote Control while the logs say
+`409 Remote app server already online`, a legacy raw app-server is competing
+with Desktop. Fully close active Codex work, then run:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user --no-block restart codex-remote-control.service
+dot apply --profile kubuntu-laptop --tags codex
 ```
 
-The command returns after queuing the restart. Existing Remote Control sessions
-disconnect, and systemd gives the old core up to 15 seconds to exit before
-starting the Desktop-matched core.
+The apply intentionally disconnects the obsolete owner once, writes the native
+daemon preference, and restores the background connection. Reopen Desktop only
+after the apply completes.

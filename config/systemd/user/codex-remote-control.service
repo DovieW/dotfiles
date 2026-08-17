@@ -1,21 +1,21 @@
 [Unit]
 Description=Codex app-server with Remote Control
-Documentation=https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan
+Documentation=https://github.com/openai/codex/blob/main/codex-rs/app-server-daemon/README.md
 Wants=network-online.target
 After=network-online.target
-ConditionFileIsExecutable=/usr/lib/chatgpt/resources/codex
+ConditionFileIsExecutable=%h/.codex/packages/standalone/current/codex
 
 [Service]
-Type=simple
-# Remote Control shares ~/.codex state with Codex Desktop. Use the core bundled
-# with the app so both processes always read and write the same state format.
-ExecStart=/usr/lib/chatgpt/resources/codex app-server --remote-control --listen unix://
-Restart=always
-RestartSec=5s
-# Active sessions may keep an old core alive after SIGTERM. Give them a short
-# grace period, then complete the version switch instead of blocking for the
-# systemd default of 90 seconds.
-TimeoutStopSec=15s
+Type=oneshot
+RemainAfterExit=yes
+# Let Codex own its control socket, persisted remote-control preference,
+# pidfiles, and updater. The systemd unit only restores that native daemon after
+# boot; running a second raw app-server makes Desktop fail with HTTP 409.
+ExecStart=%h/.codex/packages/standalone/current/codex app-server daemon bootstrap --remote-control
+ExecReload=%h/.codex/packages/standalone/current/codex app-server daemon enable-remote-control
+ExecStop=%h/.codex/packages/standalone/current/codex app-server daemon stop
+TimeoutStartSec=120s
+TimeoutStopSec=30s
 
 [Install]
 WantedBy=default.target

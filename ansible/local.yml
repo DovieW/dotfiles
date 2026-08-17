@@ -402,6 +402,7 @@
         - rdp
         - clipboard
         - screenshots
+        - codex
         - tailscale
 
     - name: Configure native application window frames
