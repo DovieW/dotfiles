@@ -924,7 +924,9 @@ class DotCliTests(unittest.TestCase):
             [
                 "applications:google-chrome.desktop",
                 "applications:com.mitchellh.ghostty.desktop",
+                "applications:chatgpt.desktop",
                 "applications:dot-obsidian.desktop",
+                "applications:code.desktop",
             ],
         )
         self.assertEqual(
