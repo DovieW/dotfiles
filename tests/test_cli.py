@@ -1292,6 +1292,9 @@ class DotCliTests(unittest.TestCase):
         task = (ROOT / "ansible/tasks/krdp.yml").read_text()
         server = (ROOT / "scripts/krdp-server").read_text()
         client = (ROOT / "config/rdp/krdp-client").read_text()
+        client_desktop = (
+            ROOT / "config/rdp/io.github.doview.dotfiles.krdp.desktop"
+        ).read_text()
         panel_watch = (ROOT / "scripts/krdp-panel-watch").read_text()
         self.assertIn("/gfx", client)
         self.assertNotIn("AVC444", client)
@@ -1343,6 +1346,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("/cert:tofu", client)
         self.assertIn("/scale-desktop:175", client)
         self.assertNotIn("/p:", client)
+        self.assertIn("~/.local/bin/krdp-client", client_desktop)
+        self.assertNotIn("Exec=krdp-client", client_desktop)
         self.assertIn("Physical autologin is deliberately", architecture)
         self.assertIn("krdp", manifest["approved_tags"])
         self.assertIn('"KRdp service"', DOT.read_text())

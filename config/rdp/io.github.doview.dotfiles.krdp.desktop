@@ -2,7 +2,7 @@
 Type=Application
 Name=Desktop (KRdp)
 Comment=Open the private Plasma desktop over Tailscale RDP
-Exec=krdp-client
+Exec=/bin/sh -lc "exec ~/.local/bin/krdp-client"
 Icon=preferences-system-network-remote
 Terminal=false
 Categories=Network;RemoteAccess;
