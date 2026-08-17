@@ -4009,7 +4009,12 @@ def cmd_meshcentral(args: argparse.Namespace) -> None:
         "Run `dot apply --profile kubuntu-laptop --tags meshcentral` first.",
     )
     if action in {"enroll", "enroll-and-store"}:
-        install_command = getpass.getpass("MeshCentral Linux install command: ")
+        if getattr(args, "install_command_stdin", False):
+            install_command = sys.stdin.readline().rstrip("\n")
+            if not install_command:
+                raise DotError("MeshCentral install-command input was empty")
+        else:
+            install_command = getpass.getpass("MeshCentral Linux install command: ")
         enrollment = parse_meshcentral_install_command(install_command)
         if action == "enroll-and-store":
             session, should_lock = bw_session()
@@ -9110,6 +9115,11 @@ def build_parser() -> argparse.ArgumentParser:
     meshcentral.add_argument(
         "meshcentral_action",
         choices=["status", "enroll", "enroll-stored", "enroll-and-store"],
+    )
+    meshcentral.add_argument(
+        "--install-command-stdin",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     meshcentral.set_defaults(func=cmd_meshcentral)
     clipboard = sub.add_parser("clipboard")
