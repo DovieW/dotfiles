@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import datetime as dt
@@ -23,7 +24,7 @@ import sys
 import tempfile
 import time
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -3956,37 +3957,153 @@ def meshcentral_service_state() -> tuple[bool, bool, bool, Path | None]:
     return installed, enabled, active, config
 
 
+def download_meshcentral_asset(
+    url: str, destination: Path, *, private_url: bool = False
+) -> bool:
+    """Download one MeshCentral asset without exposing private URLs in argv."""
+    command = [
+        "curl",
+        "--fail",
+        "--show-error",
+        "--silent",
+        "--location",
+        "--proto",
+        "=https",
+        "--tlsv1.2",
+        "--output",
+        str(destination),
+    ]
+    input_text = None
+    if private_url:
+        command.extend(["--config", "-"])
+        input_text = f"url = {json.dumps(url)}\n"
+    else:
+        command.append(url)
+    result = subprocess.run(
+        command,
+        check=False,
+        text=True,
+        input=input_text,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    return result.returncode == 0
+
+
+def meshcentral_linux_agent_id() -> int:
+    """Match the architecture mapping in MeshCentral's Linux installer."""
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return 6 if sys.maxsize > 2**32 else 5
+    if machine in {"x86", "i386", "i486", "i586", "i686"}:
+        return 5
+    if machine in {"armv6l", "armv7l"}:
+        return 25
+    if machine in {"aarch64", "arm64"}:
+        return 26
+    if machine == "riscv64":
+        return 45
+    raise DotError(f"MeshCentral does not publish a Linux agent for {machine}")
+
+
+def meshcentral_mesh_id_hex(mesh_id: str) -> str:
+    encoded = mesh_id.replace("@", "+").replace("$", "/")
+    encoded += "=" * (-len(encoded) % 4)
+    try:
+        raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise DotError("MeshCentral device-group identifier is not valid base64") from exc
+    if len(raw) < 32:
+        raise DotError("MeshCentral device-group identifier is unexpectedly short")
+    return raw.hex().upper()
+
+
+def validate_meshcentral_settings(
+    settings_path: Path, enrollment: dict[str, Any]
+) -> None:
+    try:
+        raw = settings_path.read_bytes()
+        if not raw or len(raw) > 1024 * 1024 or b"\0" in raw:
+            raise ValueError
+        settings: dict[str, str] = {}
+        for line in raw.decode("utf-8").splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                settings[key] = value
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise DotError("MeshCentral returned invalid agent settings") from exc
+
+    expected_mesh_id = "0x" + meshcentral_mesh_id_hex(enrollment["mesh_id"])
+    if settings.get("MeshID", "").lower() != expected_mesh_id.lower():
+        raise DotError("MeshCentral returned settings for a different device group")
+    server = urlparse(enrollment["server_url"])
+    agent_server = urlparse(settings.get("MeshServer", ""))
+    try:
+        server_port = server.port or 443
+        agent_server_port = agent_server.port or 443
+    except ValueError as exc:
+        raise DotError("MeshCentral returned settings with an invalid server port") from exc
+    if (
+        agent_server.scheme != "wss"
+        or agent_server.hostname != server.hostname
+        or agent_server_port != server_port
+        or not agent_server.path.endswith("/agent.ashx")
+        or agent_server.username
+        or agent_server.password
+        or agent_server.query
+        or agent_server.fragment
+    ):
+        raise DotError("MeshCentral returned settings for a different server")
+    if not re.fullmatch(r"[0-9A-Fa-f]{64,}", settings.get("ServerID", "")):
+        raise DotError("MeshCentral returned settings without a valid server identity")
+
+
 def install_meshcentral_enrollment(enrollment: dict[str, Any]) -> None:
     """Download and run one already-validated MeshCentral enrollment."""
     with tempfile.TemporaryDirectory(prefix="dot-meshcentral-") as temp_dir:
+        work_dir = Path(temp_dir)
         installer = Path(temp_dir) / "meshinstall.sh"
-        run(
-            [
-                "curl",
-                "--fail",
-                "--show-error",
-                "--silent",
-                "--location",
-                "--proto",
-                "=https",
-                "--tlsv1.2",
-                "--output",
-                str(installer),
-                enrollment["installer_url"],
-            ]
+        if download_meshcentral_asset(enrollment["installer_url"], installer):
+            if not installer.is_file() or installer.stat().st_size == 0:
+                raise DotError("MeshCentral returned an empty installer")
+            if not installer.read_bytes().startswith(b"#!"):
+                raise DotError("MeshCentral returned an unexpected installer format")
+            installer.chmod(0o700)
+            run(
+                [
+                    "sudo",
+                    str(installer),
+                    enrollment["server_url"],
+                    enrollment["mesh_id"],
+                ]
+            )
+            return
+
+        print(
+            "MeshCentral's helper script is unavailable; using its native "
+            "Linux agent installer."
         )
-        if not installer.is_file() or installer.stat().st_size == 0:
-            raise DotError("MeshCentral returned an empty installer")
-        if not installer.read_bytes().startswith(b"#!"):
-            raise DotError("MeshCentral returned an unexpected installer format")
-        installer.chmod(0o700)
+        agent = work_dir / "meshagent"
+        settings = work_dir / "meshagent.msh"
+        agent_url = (
+            f"{enrollment['server_url']}/meshagents?"
+            + urlencode({"id": meshcentral_linux_agent_id()})
+        )
+        settings_url = (
+            f"{enrollment['server_url']}/meshsettings?"
+            + urlencode({"id": enrollment["mesh_id"]})
+        )
+        if not download_meshcentral_asset(agent_url, agent):
+            raise DotError("MeshCentral did not provide a native Linux agent")
+        if not agent.is_file() or not agent.read_bytes().startswith(b"\x7fELF"):
+            raise DotError("MeshCentral returned an unexpected Linux agent format")
+        if not download_meshcentral_asset(settings_url, settings, private_url=True):
+            raise DotError("MeshCentral did not provide device-group settings")
+        validate_meshcentral_settings(settings, enrollment)
+        agent.chmod(0o700)
         run(
-            [
-                "sudo",
-                str(installer),
-                enrollment["server_url"],
-                enrollment["mesh_id"],
-            ]
+            ["sudo", str(agent), "-fullinstall", "--copy-msh=1"],
+            cwd=work_dir,
         )
 
 

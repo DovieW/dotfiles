@@ -590,6 +590,90 @@ class DotCliTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(error):
                 normalize({**baseline, **changes})
 
+    def test_meshcentral_native_linux_fallback_validates_settings(self):
+        module = runpy.run_path(str(DOT))
+        install = module["install_meshcentral_enrollment"]
+        raw_mesh_id = bytes(range(96))
+        mesh_id = (
+            module["base64"]
+            .b64encode(raw_mesh_id)
+            .decode()
+            .replace("+", "@")
+            .replace("/", "$")
+        )
+        enrollment = {
+            "schema_version": 1,
+            "server_url": "https://mc.example.test",
+            "installer_url": "https://mc.example.test/meshagents?script=1",
+            "mesh_id": mesh_id,
+        }
+        downloads = []
+
+        def fake_download(url, destination, *, private_url=False):
+            downloads.append((url, destination.name, private_url))
+            if destination.name == "meshinstall.sh":
+                return False
+            if destination.name == "meshagent":
+                destination.write_bytes(b"\x7fELF" + b"agent")
+            else:
+                destination.write_text(
+                    "MeshName=Personal\n"
+                    f"MeshID=0x{raw_mesh_id.hex()}\n"
+                    f"ServerID={'A' * 96}\n"
+                    "MeshServer=wss://mc.example.test:443/agent.ashx\n"
+                )
+            return True
+
+        run_mock = mock.Mock(
+            return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        )
+        with mock.patch.dict(
+            install.__globals__,
+            {
+                "download_meshcentral_asset": fake_download,
+                "meshcentral_linux_agent_id": lambda: 6,
+                "run": run_mock,
+            },
+        ):
+            install(enrollment)
+
+        self.assertIn(
+            ("https://mc.example.test/meshagents?id=6", "meshagent", False),
+            downloads,
+        )
+        self.assertTrue(
+            any(name == "meshagent.msh" and private for _, name, private in downloads)
+        )
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[0], "sudo")
+        self.assertEqual(command[-2:], ["-fullinstall", "--copy-msh=1"])
+
+    def test_meshcentral_native_settings_reject_wrong_group(self):
+        module = runpy.run_path(str(DOT))
+        validate = module["validate_meshcentral_settings"]
+        error = module["DotError"]
+        raw_mesh_id = bytes(range(96))
+        mesh_id = (
+            module["base64"]
+            .b64encode(raw_mesh_id)
+            .decode()
+            .replace("+", "@")
+            .replace("/", "$")
+        )
+        enrollment = {
+            "server_url": "https://mc.example.test",
+            "mesh_id": mesh_id,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory) / "meshagent.msh"
+            settings.write_text(
+                "MeshID=0x" + ("F" * 192) + "\n"
+                "ServerID=" + ("A" * 96) + "\n"
+                "MeshServer=wss://mc.example.test:443/agent.ashx\n"
+            )
+            with self.assertRaises(error):
+                validate(settings, enrollment)
+
     def test_kubuntu_meshcentral_integration_is_explicit_and_documented(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         self.assertTrue(profile["features"]["meshcentral_agent"])

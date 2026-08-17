@@ -28,6 +28,11 @@ fixed arguments.
 
 `dot meshcentral enroll` downloads the current installer directly from the
 configured MeshCentral server, invokes it, and verifies the system service.
+If a reverse proxy exposes the native agent endpoints but not the optional
+`meshagents?script=1` helper, enrollment falls back to MeshCentral's native
+Linux binary flow. The downloaded ELF agent and generated `.msh` file are
+validated against the requested HTTPS origin and device group before sudo runs
+the installer.
 
 For repeatable enrollment, the invitation can optionally be stored as the
 Bitwarden secure note `dotfiles/meshcentral-agent`:
