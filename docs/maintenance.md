@@ -14,7 +14,9 @@ recorded but not installed.
 External Debian applications declare their official GitHub source and asset
 pattern in `packages/external-deb.yml`. Apply resolves the newest non-draft,
 non-prerelease asset and verifies GitHub's published SHA-256 digest before
-installation.
+installation. If GitHub's releases collection is temporarily empty, resolution
+falls back to the newest matching stable Git tag and its tag-specific release
+metadata rather than reporting an installed package as missing.
 
 ## Version policy
 

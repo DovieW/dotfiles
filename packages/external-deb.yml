@@ -4,11 +4,15 @@
     "bitwarden": {
       "channel": "stable",
       "source": "bitwarden/clients",
+      "tag_glob": "desktop-v*",
+      "tag_regex": "^desktop-v[0-9.]+$",
       "asset_regex": "^Bitwarden-[0-9.]+-amd64\\.deb$"
     },
     "obsidian": {
       "channel": "stable",
       "source": "obsidianmd/obsidian-releases",
+      "tag_glob": "v*",
+      "tag_regex": "^v[0-9.]+$",
       "asset_regex": "^obsidian_[0-9.]+_amd64\\.deb$"
     }
   }

@@ -1553,8 +1553,13 @@ class DotCliTests(unittest.TestCase):
         for package in manifest["packages"].values():
             self.assertEqual(package["channel"], "stable")
             self.assertIn("/", package["source"])
+            self.assertTrue(package["tag_glob"])
+            self.assertTrue(package["tag_regex"].startswith("^"))
             self.assertTrue(package["asset_regex"].endswith(r"\.deb$"))
             self.assertNotIn("version", package)
+        resolver = (ROOT / "scripts/fetch-external-deb").read_text()
+        self.assertIn("git ls-remote --tags", resolver)
+        self.assertIn("releases/tags/$latest_tag", resolver)
 
     def test_kubuntu_removes_retired_rustdesk_remote_access(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

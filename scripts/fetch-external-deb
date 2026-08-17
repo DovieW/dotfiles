@@ -11,7 +11,7 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$root/packages/external-deb.yml"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/debs"
 
-for required in curl dpkg-deb jq sha256sum; do
+for required in curl dpkg-deb git jq sha256sum; do
   command -v "$required" >/dev/null 2>&1 || {
     echo "$required is required." >&2
     exit 1
@@ -22,6 +22,8 @@ entry="$(jq -cer --arg name "$name" '.packages[$name] // error("unknown package"
 channel="$(jq -r '.channel' <<<"$entry")"
 source="$(jq -r '.source' <<<"$entry")"
 asset_regex="$(jq -r '.asset_regex' <<<"$entry")"
+tag_glob="$(jq -r '.tag_glob' <<<"$entry")"
+tag_regex="$(jq -r '.tag_regex' <<<"$entry")"
 [[ "$channel" == "stable" ]] || {
   echo "$name must use the stable channel." >&2
   exit 1
@@ -50,7 +52,7 @@ else
   )"
 fi
 
-asset="$(
+resolve_asset() {
   jq -cer --arg pattern "$asset_regex" '
     [
       .[]
@@ -65,8 +67,42 @@ asset="$(
           digest
         }
     ][0] // error("no stable matching Debian asset found")
-  ' <<<"$releases"
-)"
+  '
+}
+
+asset="$(resolve_asset <<<"$releases" 2>/dev/null || true)"
+if [[ -z "$asset" ]]; then
+  # GitHub has occasionally returned an empty releases collection while the
+  # repository's tag-specific release endpoints remain healthy. Resolve the
+  # newest matching stable tag directly so update checks do not mislabel an
+  # upstream API inconsistency as a missing package.
+  latest_tag="$(
+    git ls-remote --tags "https://github.com/$source.git" "refs/tags/$tag_glob" |
+      sed 's#.*refs/tags/##; s/\^{}$//' |
+      sort -Vu |
+      grep -E "$tag_regex" |
+      tail -n 1 || true
+  )"
+  [[ "$latest_tag" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    echo "No stable matching release tag found for $source." >&2
+    exit 1
+  }
+  release="$(
+    curl \
+      --proto '=https' \
+      --tlsv1.2 \
+      --fail \
+      --location \
+      --retry 3 \
+      --connect-timeout 15 \
+      --silent \
+      --show-error \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'User-Agent: DovieW-dotfiles' \
+      "https://api.github.com/repos/$source/releases/tags/$latest_tag"
+  )"
+  asset="$(resolve_asset <<<"[$release]")"
+fi
 asset_name="$(jq -r '.name' <<<"$asset")"
 url="$(jq -r '.url' <<<"$asset")"
 digest="$(jq -r '.digest' <<<"$asset")"
