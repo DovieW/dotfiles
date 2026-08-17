@@ -1519,7 +1519,12 @@ def sync_managed_kglobal_shortcuts() -> None:
         "Quick Tile Window to the Top",
     )
     system_monitor = (
-        "org.kde.plasma-systemmonitor.desktop",
+        # Plasma registers this desktop launcher under KGlobalAccel's unique
+        # component name, which replaces dots with underscores but preserves
+        # the hyphen in `plasma-systemmonitor`.  Using the desktop-file ID
+        # writes kglobalshortcutsrc but always reads back `[0]`, turning a
+        # successful update into a five-second false-negative.
+        "org_kde_plasma-systemmonitor_desktop",
         "_launch",
         "System Monitor",
         "System Monitor",

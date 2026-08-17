@@ -1639,7 +1639,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Window Quick Tile Top"', cli)
         self.assertIn('"Overview"', cli)
         self.assertIn('"Walk Through Windows"', cli)
-        self.assertIn('"org.kde.plasma-systemmonitor.desktop"', cli)
+        self.assertIn('"org_kde_plasma-systemmonitor_desktop"', cli)
         self.assertIn("117440512", cli)
         self.assertIn("screenedgeEnabled=false", kwin)
         self.assertIn("shakecursorEnabled=false", kwin)
