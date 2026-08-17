@@ -1,0 +1,49 @@
+---
+- name: Install the system-wide keyboard remapper
+  become: true
+  ansible.builtin.apt:
+    name: keyd
+    state: latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install the Copilot-to-Right-Control mapping
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/keyd/copilot-right-control.conf"
+    dest: /etc/keyd/copilot-right-control.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: dot_keyd_config
+
+- name: Enable and start the keyboard remapper
+  become: true
+  ansible.builtin.systemd:
+    name: keyd.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Reload the keyboard mapping after a configuration change
+  become: true
+  ansible.builtin.command:
+    argv: [keyd.rvaiya, reload]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - dot_keyd_config.changed
+
+- name: Verify the keyboard remapper is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, keyd.service]
+  register: dot_keyd_service
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Explain keyboard-remapping check mode
+  ansible.builtin.debug:
+    msg: >-
+      keyd will be enabled, reloaded, and verified during a real apply. Check
+      mode does not alter the system keyboard.
+  when: ansible_check_mode

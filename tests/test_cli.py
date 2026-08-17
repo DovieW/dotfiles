@@ -250,6 +250,23 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("https://github.com/DovieW/dotfiles.git", launcher)
         self.assertIn("verified USB bundle", launcher)
 
+    def test_kubuntu_laptop_maps_copilot_to_right_control_with_keyd(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/keyd.yml").read_text()
+        config = (
+            ROOT / "config/keyd/copilot-right-control.conf"
+        ).read_text()
+
+        self.assertTrue(profile["features"]["copilot_right_control"])
+        self.assertIn("keyd", profile["packages"]["apt"])
+        self.assertIn("tasks/keyd.yml", playbook)
+        self.assertIn('"keyd",', DOT.read_text())
+        self.assertIn("keyd.rvaiya, reload", task)
+        self.assertIn("keyd.service", task)
+        self.assertIn("systemctl, is-active, keyd.service", task)
+        self.assertIn("leftmeta+leftshift+f23 = rightcontrol", config)
+
     def test_remote_support_precedes_identity_and_requires_tailscale(self):
         cli = DOT.read_text()
         support = (ROOT / "scripts/bootstrap-remote-support").read_text()

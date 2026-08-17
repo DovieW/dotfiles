@@ -160,6 +160,14 @@
       when: dot_profile_data.features.emoji_picker | default(false)
       tags: [packages, emoji, clipboard, app-updates]
 
+    - name: Configure the Copilot key as Right Control
+      ansible.builtin.include_tasks:
+        file: tasks/keyd.yml
+        apply:
+          tags: [packages, keyboard, keyd]
+      when: dot_profile_data.features.copilot_right_control | default(false)
+      tags: [packages, keyboard, keyd]
+
     - name: Install or upgrade FiraCode Nerd Font Mono from the stable channel
       ansible.builtin.command:
         argv: ["{{ dot_repo }}/scripts/install-firacode-nerd-font", "--ensure"]

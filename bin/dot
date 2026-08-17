@@ -2836,6 +2836,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "emoji",
             "rdp",
             "krdp",
+            "keyboard",
+            "keyd",
             "meshcentral",
             "nomachine",
             "tailscale",
