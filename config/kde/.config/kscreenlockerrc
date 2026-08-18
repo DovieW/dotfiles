@@ -1,3 +1,8 @@
+[Daemon]
+Autolock=true
+LockOnResume=true
+Timeout=5
+
 [Greeter][LnF]
 showMediaControls=false
 

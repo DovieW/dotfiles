@@ -1902,6 +1902,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wallpaperplugin=org.kde.color", panel)
         self.assertIn("Color=0,0,0", panel)
         self.assertIn("PopupPosition=BottomRight", plasma_notify)
+        self.assertIn("[Daemon]\nAutolock=true\nLockOnResume=true\nTimeout=5", lock_screen)
         self.assertIn('".config/plasmanotifyrc",', cli)
         self.assertIn('".config/klaunchrc",', cli)
         self.assertIn("BusyCursor=false", launch_feedback)

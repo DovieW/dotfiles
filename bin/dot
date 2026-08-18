@@ -8313,6 +8313,22 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if lock_media_ok
             else "run dot apply --profile kubuntu-laptop --tags lockscreen",
         )
+        lock_idle_ok = all(
+            value in lock_screen
+            for value in (
+                "[Daemon]",
+                "Autolock=true",
+                "LockOnResume=true",
+                "Timeout=5",
+            )
+        )
+        failures += not doctor_check(
+            "five-minute idle lock",
+            lock_idle_ok,
+            "enabled with lock-on-resume"
+            if lock_idle_ok
+            else "run dot apply --profile kubuntu-laptop --tags lockscreen",
+        )
         lock_qml = (
             LOCKSCREEN_PACKAGE_SOURCE
             / "contents/lockscreen/LockScreen.qml"
