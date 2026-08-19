@@ -2936,6 +2936,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "keyboard",
             "keyd",
             "meshcentral",
+            "memory",
             "nomachine",
             "tailscale",
             "touchpad",
@@ -2958,6 +2959,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
         "tailscale", False
     ) or profile.get("features", {}).get(
         "krdp_server", False
+    ) or profile.get("features", {}).get(
+        "memory_pressure_protection", False
     ) or (
         package_apply_selected
         and profile.get("features", {}).get("inputactions", False)

@@ -1060,6 +1060,7 @@ class DotCliTests(unittest.TestCase):
             for profile, tag in (
                 ("wsl-personal", "packages"),
                 ("kubuntu-laptop", "clipboard"),
+                ("kubuntu-desktop", "memory"),
             ):
                 with self.subTest(profile=profile, tag=tag):
                     result = subprocess.run(
@@ -1113,9 +1114,9 @@ class DotCliTests(unittest.TestCase):
                         str(DOT),
                         "apply",
                         "--profile",
-                        "wsl-personal",
+                        "kubuntu-desktop",
                         "--tags",
-                        "packages",
+                        "memory",
                     ],
                     env,
                 )
