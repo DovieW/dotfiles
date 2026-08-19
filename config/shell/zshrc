@@ -126,3 +126,7 @@ fi
 
 # sentry
 fpath=("/home/dovie/.local/share/zsh/site-functions" $fpath)
+
+# >>> Codex installer >>>
+export PATH="/home/dovie/.local/bin:$PATH"
+# <<< Codex installer <<<
