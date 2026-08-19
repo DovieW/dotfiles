@@ -7524,6 +7524,58 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if systemd_ready and not desktop_integration
                 else "enable WSL systemd and disable Docker Desktop WSL integration",
             )
+    if profile.get("features", {}).get("memory_pressure_protection"):
+        memory_packages = ("systemd-oomd", "systemd-zram-generator")
+        missing_memory_packages = []
+        for package in memory_packages:
+            installed = run(
+                ["dpkg-query", "-W", "-f=${db:Status-Status}", package],
+                check=False,
+                capture=True,
+            )
+            if installed.returncode != 0 or installed.stdout.strip() != "installed":
+                missing_memory_packages.append(package)
+        failures += not doctor_check(
+            "Memory-pressure packages",
+            not missing_memory_packages,
+            "zram generator and systemd-oomd installed"
+            if not missing_memory_packages
+            else f"missing {', '.join(missing_memory_packages)}",
+        )
+        active_swaps = run(
+            ["swapon", "--show=NAME,TYPE,SIZE,PRIO", "--noheadings"],
+            check=False,
+            capture=True,
+        )
+        zram_line = next(
+            (
+                line.strip()
+                for line in active_swaps.stdout.splitlines()
+                if line.split() and line.split()[0] == "/dev/zram0"
+            ),
+            "",
+        )
+        failures += not doctor_check(
+            "Compressed swap",
+            active_swaps.returncode == 0 and bool(zram_line),
+            zram_line
+            or f"run dot apply --profile {profile['name']} --tags memory",
+        )
+        oomd_enabled = run(
+            ["systemctl", "is-enabled", "--quiet", "systemd-oomd.service"],
+            check=False,
+        ).returncode == 0
+        oomd_active = run(
+            ["systemctl", "is-active", "--quiet", "systemd-oomd.service"],
+            check=False,
+        ).returncode == 0
+        failures += not doctor_check(
+            "Memory-pressure recovery",
+            oomd_enabled and oomd_active,
+            "systemd-oomd enabled and active"
+            if oomd_enabled and oomd_active
+            else f"run dot apply --profile {profile['name']} --tags memory",
+        )
     if profile.get("features", {}).get("tailscale"):
         tailscale_package = run(
             ["dpkg-query", "-W", "-f=${db:Status-Status}", "tailscale"],

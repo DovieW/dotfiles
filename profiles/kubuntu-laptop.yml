@@ -21,6 +21,7 @@
     "lid_power_saver": true,
     "luna_ocr": true,
     "meshcentral_agent": true,
+    "memory_pressure_protection": true,
     "nomachine": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,

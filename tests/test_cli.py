@@ -1199,6 +1199,35 @@ class DotCliTests(unittest.TestCase):
             self.assertNotIn("docker", profile["packages"]["brew"])
             self.assertNotIn("docker-compose", profile["packages"]["brew"])
 
+    def test_kubuntu_manages_interactive_memory_pressure(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/memory.yml").read_text()
+        zram = (ROOT / "config/systemd/zram-generator.conf").read_text()
+        oomd = (
+            ROOT / "config/systemd/oomd/60-dotfiles-desktop.conf"
+        ).read_text()
+        user_slice = (
+            ROOT
+            / "config/systemd/system/user.slice.d/60-dotfiles-oomd.conf"
+        ).read_text()
+        cli = DOT.read_text()
+
+        self.assertTrue(profile["features"]["memory_pressure_protection"])
+        self.assertIn("tasks/memory.yml", playbook)
+        self.assertIn("systemd-zram-generator", task)
+        self.assertIn("systemd-oomd", task)
+        self.assertIn("dev-zram0.swap", task)
+        self.assertIn("zram-size = min(ram / 2, 8192)", zram)
+        self.assertIn("compression-algorithm = zstd", zram)
+        self.assertIn("swap-priority = 100", zram)
+        self.assertIn("SwapUsedLimit=80%", oomd)
+        self.assertIn("DefaultMemoryPressureLimit=50%", oomd)
+        self.assertIn("ManagedOOMSwap=kill", user_slice)
+        self.assertIn("ManagedOOMMemoryPressure=kill", user_slice)
+        self.assertIn('get("memory_pressure_protection")', cli)
+        self.assertIn("Compressed swap", cli)
+
     def test_tailscale_runs_on_native_hosts_not_inside_wsl(self):
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())

@@ -73,6 +73,21 @@ The interactive user is appended to the `docker` group, so the first apply
 requires a WSL restart or a normal Linux logout/login before that membership is
 active in every shell.
 
+## Interactive memory pressure
+
+Native Kubuntu profiles protect desktop responsiveness with compressed zram
+swap and `systemd-oomd`. The zram device is capped at half of physical RAM or
+8 GiB, whichever is smaller, uses zstd, and has higher priority than ordinary
+disk swap. Its configured capacity is not reserved up front; physical memory
+is consumed only for pages actually compressed into the device.
+
+`systemd-oomd` monitors `user.slice`. It may terminate a high-pressure desktop
+application when sustained memory pressure exceeds 50% for 20 seconds or total
+swap use exceeds 80%. This deliberately sacrifices a runaway browser,
+Electron application, or other user workload before reclaim I/O makes Plasma,
+audio, input, and remote access unusable. Existing disk swap remains a
+lower-priority fallback.
+
 ## Tailscale
 
 The `tailscale` feature is enabled only for the native Kubuntu profile. Its

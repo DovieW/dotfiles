@@ -67,6 +67,14 @@
       when: dot_profile_data.features.tailscale | default(false)
       tags: [packages, tailscale, app-updates]
 
+    - name: Configure interactive memory-pressure protection
+      ansible.builtin.include_tasks:
+        file: tasks/memory.yml
+        apply:
+          tags: [packages, memory]
+      when: dot_profile_data.features.memory_pressure_protection | default(false)
+      tags: [packages, memory]
+
     - name: Configure Plasma's native KRdp server
       ansible.builtin.include_tasks:
         file: tasks/krdp.yml

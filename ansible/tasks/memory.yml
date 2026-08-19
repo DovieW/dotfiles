@@ -1,0 +1,102 @@
+---
+- name: Validate memory-pressure protection operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+      - ansible_facts.system == "Linux"
+    fail_msg: >-
+      Managed zram and systemd-oomd are supported only on native Debian-family
+      Linux profiles.
+
+- name: Install zram and userspace out-of-memory protection
+  become: true
+  ansible.builtin.apt:
+    name:
+      - systemd-oomd
+      - systemd-zram-generator
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create system memory-policy configuration directories
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/systemd/oomd.conf.d
+    - /etc/systemd/system/user.slice.d
+
+- name: Install the compressed swap policy
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/zram-generator.conf"
+    dest: /etc/systemd/zram-generator.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the desktop out-of-memory thresholds
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/oomd/60-dotfiles-desktop.conf"
+    dest: /etc/systemd/oomd.conf.d/60-dotfiles-desktop.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Make desktop workloads eligible for memory-pressure recovery
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/system/user.slice.d/60-dotfiles-oomd.conf"
+    dest: /etc/systemd/system/user.slice.d/60-dotfiles-oomd.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Reload systemd generators and memory policy
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Enable and start userspace out-of-memory protection
+  become: true
+  ansible.builtin.systemd_service:
+    name: systemd-oomd.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Start compressed swap without waiting for a reboot
+  become: true
+  ansible.builtin.systemd_service:
+    name: dev-zram0.swap
+    state: started
+  when: not ansible_check_mode
+
+- name: Read active swap devices
+  ansible.builtin.command:
+    argv: [swapon, --show=NAME,TYPE,SIZE,PRIO, --noheadings]
+  register: dot_memory_swaps
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify compressed swap and userspace OOM protection
+  ansible.builtin.assert:
+    that:
+      - "'/dev/zram0' in dot_memory_swaps.stdout"
+    fail_msg: >-
+      The memory policy was installed, but /dev/zram0 is not active. Reboot and
+      rerun dot doctor if the running kernel could not create it immediately.
+  when: not ansible_check_mode
+
+- name: Explain memory-policy check mode
+  ansible.builtin.debug:
+    msg: >-
+      zram and systemd-oomd will be installed, started, and verified during a
+      real apply. Check mode does not alter live swap devices.
+  when: ansible_check_mode

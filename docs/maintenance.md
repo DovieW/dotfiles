@@ -149,6 +149,19 @@ dot apply --profile kubuntu-laptop --tags docker
 Use the matching WSL profile name inside WSL. The Docker role is idempotent and
 does not remove `/var/lib/docker`, images, containers, volumes, or `/etc/docker`.
 
+Kubuntu uses zram and `systemd-oomd` to remain interactive under memory
+pressure. Apply or repair that policy without changing unrelated desktop
+configuration:
+
+```bash
+dot apply --profile kubuntu-laptop --tags memory
+dot doctor --profile kubuntu-laptop
+```
+
+The active zram device should appear ahead of the disk swap in `swapon --show`.
+`oomctl` shows the user slice monitored for both swap exhaustion and sustained
+memory pressure.
+
 Tailscale advances through its official stable APT repository during normal
 Kubuntu applies and updates. Install or repair only that subsystem with:
 
