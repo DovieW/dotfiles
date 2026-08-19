@@ -40,7 +40,7 @@ options:
       - name: become_exe
   become_flags:
     description: Options passed to sudo.
-    default: -H -S -n
+    default: -H -S
     ini:
       - section: privilege_escalation
         key: become_flags

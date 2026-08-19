@@ -307,7 +307,8 @@
     '  case "$1" in' \
     '    -p|--prompt) prompt="$2"; shift 2 ;;' \
     '    -u|--user) shift 2 ;;' \
-    '    -H|-S|-n|--stdin|--non-interactive) shift ;;' \
+    '    -n|--non-interactive) echo "sudo-rs rejected interactive authentication" >&2; exit 1 ;;' \
+    '    -H|-S|--stdin) shift ;;' \
     '    *) break ;;' \
     '  esac' \
     'done' \

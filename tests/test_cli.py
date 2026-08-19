@@ -1141,6 +1141,8 @@ class DotCliTests(unittest.TestCase):
         plugin = (ROOT / "ansible/become_plugins/sudo_rs.py").read_text()
         self.assertIn('self.prompt = f"[sudo: {self.prompt}]"', plugin)
         self.assertIn('name = "sudo_rs"', plugin)
+        self.assertIn("default: -H -S", plugin)
+        self.assertNotIn("default: -H -S -n", plugin)
         dot = DOT.read_text()
         self.assertIn('Path("/usr/lib/cargo/bin/sudo")', dot)
         self.assertIn('["--become-method", "sudo_rs"]', dot)
