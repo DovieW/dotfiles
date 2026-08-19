@@ -80,7 +80,7 @@
 
 - name: Read active swap devices
   ansible.builtin.command:
-    argv: [swapon, --show=NAME,TYPE,SIZE,PRIO, --noheadings]
+    argv: [swapon, "--show=NAME,TYPE,SIZE,PRIO", --noheadings]
   register: dot_memory_swaps
   changed_when: false
   when: not ansible_check_mode
