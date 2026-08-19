@@ -2074,6 +2074,14 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ElectricBorderMaximize=false", kwin)
         self.assertIn("ElectricBorders=0", kwin)
         self.assertIn("ElectricBorderTiling=false", kwin)
+        self.assertIn(
+            "[Effect-overview]\nBorderActivate=9\nTouchBorderActivate=9",
+            kwin,
+        )
+        self.assertIn(
+            "[Effect-windowview]\nBorderActivate=9\nTouchBorderActivate=9",
+            kwin,
+        )
         self.assertIn("[Greeter][LnF]\nshowMediaControls=false", lock_screen)
         self.assertIn("FillMode=2", lock_screen)
         self.assertNotIn("leaves_wallpaper", lock_screen)

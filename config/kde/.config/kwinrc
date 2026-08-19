@@ -39,6 +39,14 @@ wobblywindowsEnabled=false
 HideOnTyping=true
 InactivityDuration=1
 
+[Effect-overview]
+BorderActivate=9
+TouchBorderActivate=9
+
+[Effect-windowview]
+BorderActivate=9
+TouchBorderActivate=9
+
 [ElectricBorders]
 Bottom=None
 BottomLeft=None

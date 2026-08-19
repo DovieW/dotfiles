@@ -8293,6 +8293,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             value in kwin
             for value in (
                 "screenedgeEnabled=false",
+                "[Effect-overview]\nBorderActivate=9\nTouchBorderActivate=9",
+                "[Effect-windowview]\nBorderActivate=9\nTouchBorderActivate=9",
                 "[ElectricBorders]",
                 "Bottom=None",
                 "BottomLeft=None",
