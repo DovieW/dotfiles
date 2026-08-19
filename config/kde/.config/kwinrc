@@ -39,13 +39,27 @@ wobblywindowsEnabled=false
 HideOnTyping=true
 InactivityDuration=1
 
+[ElectricBorders]
+Bottom=None
+BottomLeft=None
+BottomRight=None
+Left=None
+Right=None
+Top=None
+TopLeft=None
+TopRight=None
+
 [Script-desktopchangeosd]
 PopupHideDelay=200
 
 [Windows]
 BorderlessMaximizedWindows=true
+ElectricBorderAllScreenCorner=false
 ElectricBorderCooldown=50
 ElectricBorderDelay=0
+ElectricBorderMaximize=false
+ElectricBorders=0
+ElectricBorderTiling=false
 
 [Tiling][64a75ce1-48d0-4102-b780-268519bd8d8e][72f577a6-4854-43c5-8f4a-a43074992e90]
 padding=4

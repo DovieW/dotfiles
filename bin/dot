@@ -8289,19 +8289,32 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         kwin_path = Path.home() / ".config/kwinrc"
         kwin = kwin_path.read_text(encoding="utf-8") if kwin_path.exists() else ""
-        panel_reveal_ok = all(
+        screen_edges_disabled = all(
             value in kwin
             for value in (
                 "screenedgeEnabled=false",
+                "[ElectricBorders]",
+                "Bottom=None",
+                "BottomLeft=None",
+                "BottomRight=None",
+                "Left=None",
+                "Right=None",
+                "Top=None",
+                "TopLeft=None",
+                "TopRight=None",
+                "ElectricBorderAllScreenCorner=false",
                 "ElectricBorderDelay=0",
                 "ElectricBorderCooldown=50",
+                "ElectricBorderMaximize=false",
+                "ElectricBorders=0",
+                "ElectricBorderTiling=false",
             )
         )
         failures += not doctor_check(
-            "Plasma panel reveal",
-            panel_reveal_ok,
-            "immediate edge activation with the blue edge glow disabled"
-            if panel_reveal_ok
+            "KWin screen edges",
+            screen_edges_disabled,
+            "hot corners, edge actions, edge switching, maximize, and tiling disabled"
+            if screen_edges_disabled
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         task_switcher_source = ROOT / "config/kwin/tabbox-large-list"

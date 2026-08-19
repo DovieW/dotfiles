@@ -2058,6 +2058,22 @@ class DotCliTests(unittest.TestCase):
             self.assertIn(f"{effect}Enabled=false", kwin)
         self.assertIn("ElectricBorderDelay=0", kwin)
         self.assertIn("ElectricBorderCooldown=50", kwin)
+        self.assertIn("[ElectricBorders]", kwin)
+        for edge in (
+            "Bottom",
+            "BottomLeft",
+            "BottomRight",
+            "Left",
+            "Right",
+            "Top",
+            "TopLeft",
+            "TopRight",
+        ):
+            self.assertIn(f"{edge}=None", kwin)
+        self.assertIn("ElectricBorderAllScreenCorner=false", kwin)
+        self.assertIn("ElectricBorderMaximize=false", kwin)
+        self.assertIn("ElectricBorders=0", kwin)
+        self.assertIn("ElectricBorderTiling=false", kwin)
         self.assertIn("[Greeter][LnF]\nshowMediaControls=false", lock_screen)
         self.assertIn("FillMode=2", lock_screen)
         self.assertNotIn("leaves_wallpaper", lock_screen)
@@ -2178,7 +2194,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"org.kde.kwin.Effects.unloadEffect"', cli)
         self.assertIn("restore_backup(backup_run_id)", cli)
         self.assertIn('"Plasma panel layout"', cli)
-        self.assertIn('"Plasma panel reveal"', cli)
+        self.assertIn('"KWin screen edges"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
     def test_meta_e_uses_one_taskbar_hidden_dolphin_window(self):
