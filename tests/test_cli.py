@@ -2561,9 +2561,13 @@ class DotCliTests(unittest.TestCase):
     def test_kubuntu_uses_ubuntu_recommended_nvidia_driver(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         role = (ROOT / "ansible/tasks/nvidia.yml").read_text()
+        autostart = (
+            ROOT / "config/nvidia/nvidia-settings-autostart.desktop"
+        ).read_text()
         cli = DOT.read_text()
         self.assertTrue(profile["features"]["nvidia_driver"])
         self.assertFalse(profile["features"]["nvidia_dynamic_boost"])
+        self.assertFalse(profile["features"]["nvidia_settings_autostart"])
         self.assertIn("ubuntu-drivers, devices", role)
         self.assertIn("recommended", role)
         self.assertIn("state: latest", role)
@@ -2571,7 +2575,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("nvidia-powerd.service", role)
         self.assertIn("systemctl, is-failed, --quiet, nvidia-powerd.service", role)
         self.assertIn("dot_nvidia_powerd_failed.rc == 0", role)
+        self.assertIn("nvidia-settings-autostart.desktop", role)
+        self.assertIn("reset-failed", role)
+        self.assertIn("nvidia-settings-autostart.desktop", cli)
+        self.assertIn("Hidden=true", autostart)
         self.assertIn('"NVIDIA userspace"', cli)
+        self.assertIn('"NVIDIA settings autostart"', cli)
         self.assertIn('"NVIDIA Dynamic Boost workaround"', cli)
         self.assertNotIn("nvidia-driver-595", role)
         self.assertIn('"gpu",', cli)

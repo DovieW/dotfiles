@@ -25,6 +25,7 @@
     "nomachine": true,
     "nvidia_driver": true,
     "nvidia_dynamic_boost": false,
+    "nvidia_settings_autostart": false,
     "rdp_files": true,
     "tailscale": true,
     "touchpad_jump_workaround": true,

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=NVIDIA X Server Settings
+Comment=Disabled on this managed PRIME on-demand system
+Hidden=true
+X-GNOME-Autostart-enabled=false

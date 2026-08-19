@@ -1863,6 +1863,27 @@ def apply_direct(
                 Path.home() / ".config/autostart/tailscale-systray.desktop",
             )
         )
+    if (
+        features.get("nvidia_driver")
+        and not features.get("nvidia_settings_autostart", True)
+        and selected("gpu", "kde")
+    ):
+        nvidia_autostart_changed = link_file(
+            ROOT / "config/nvidia/nvidia-settings-autostart.desktop",
+            Path.home() / ".config/autostart/nvidia-settings-autostart.desktop",
+        )
+        changes += int(nvidia_autostart_changed)
+        if nvidia_autostart_changed and command_exists("systemctl"):
+            run(["systemctl", "--user", "daemon-reload"], check=False)
+            run(
+                [
+                    "systemctl",
+                    "--user",
+                    "reset-failed",
+                    "app-nvidia\\x2dsettings\\x2dautostart@autostart.service",
+                ],
+                check=False,
+            )
     if features.get("copyq") and selected("clipboard"):
         copyq_mappings = {
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",
@@ -9351,6 +9372,30 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 prime.returncode == 0 and prime.stdout.strip() == "on-demand",
                 prime.stdout.strip() or "prime-select unavailable",
             )
+            if not profile.get("features", {}).get(
+                "nvidia_settings_autostart", True
+            ):
+                nvidia_autostart = (
+                    Path.home()
+                    / ".config/autostart/nvidia-settings-autostart.desktop"
+                )
+                nvidia_autostart_source = (
+                    ROOT / "config/nvidia/nvidia-settings-autostart.desktop"
+                )
+                nvidia_autostart_disabled = (
+                    nvidia_autostart.is_symlink()
+                    and nvidia_autostart.resolve()
+                    == nvidia_autostart_source.resolve()
+                    and "Hidden=true"
+                    in nvidia_autostart_source.read_text(encoding="utf-8")
+                )
+                failures += not doctor_check(
+                    "NVIDIA settings autostart",
+                    nvidia_autostart_disabled,
+                    "disabled; PRIME on-demand remains available without a failed login unit"
+                    if nvidia_autostart_disabled
+                    else "run dot apply --profile kubuntu-laptop --tags gpu",
+                )
             if not profile.get("features", {}).get("nvidia_dynamic_boost", True):
                 dynamic_boost = run(
                     ["systemctl", "is-enabled", "nvidia-powerd.service"],
