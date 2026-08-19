@@ -1577,6 +1577,12 @@ def sync_managed_kglobal_shortcuts() -> None:
         "KWin",
         "Open Clipboard History (Ctrl+Grave)",
     )
+    clipboard_probe = (
+        "kwin",
+        "dot-clipboard-probe",
+        "KWin",
+        "Verify Clipboard Shortcuts",
+    )
     klipper_popup = (
         "plasmashell",
         "show-on-mouse-pos",
@@ -1612,8 +1618,44 @@ def sync_managed_kglobal_shortcuts() -> None:
         clipboard_history_meta: [268435542],
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
+        clipboard_probe: [0],
     }
     activate_kglobal_shortcuts(desired)
+
+
+def managed_clipboard_callback_ok() -> bool:
+    """Prove the registered clipboard KWin action still has a live callback."""
+    if not command_exists("qdbus6") or not command_exists("systemctl"):
+        return False
+    service = "dot-clipboard-probe.service"
+    run(["systemctl", "--user", "stop", service], check=False, capture=True)
+    try:
+        invoked = run(
+            [
+                "qdbus6",
+                "org.kde.kglobalaccel",
+                "/component/kwin",
+                "org.kde.kglobalaccel.Component.invokeShortcut",
+                "dot-clipboard-probe",
+            ],
+            check=False,
+            capture=True,
+        )
+        if invoked.returncode:
+            return False
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            active = run(
+                ["systemctl", "--user", "is-active", service],
+                check=False,
+                capture=True,
+            )
+            if active.stdout.strip() == "active":
+                return True
+            time.sleep(0.05)
+        return False
+    finally:
+        run(["systemctl", "--user", "stop", service], check=False, capture=True)
 
 
 def sync_managed_screenshot_shortcuts() -> None:
@@ -1825,35 +1867,56 @@ def apply_direct(
         copyq_mappings = {
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",
             ROOT / "config/copyq/dot-copyq-history": Path.home() / ".local/bin/dot-copyq-history",
+            ROOT / "scripts/test-copyq-paste": Path.home() / ".local/bin/dot-test-copyq-paste",
             ROOT / "config/copyq/io.github.doview.copyq-history.desktop": Path.home() / ".local/share/applications/io.github.doview.copyq-history.desktop",
             ROOT / "config/copyq/com.github.hluk.copyq.desktop": Path.home() / ".local/share/applications/com.github.hluk.copyq.desktop",
             ROOT / "config/kwin/dot-clipboard/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-clipboard/metadata.json",
             ROOT / "config/kwin/dot-clipboard/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js",
             ROOT / "config/systemd/user/dot-copyq-history.service": Path.home() / ".config/systemd/user/dot-copyq-history.service",
             ROOT / "config/systemd/user/dot-copyq.service": Path.home() / ".config/systemd/user/dot-copyq.service",
+            ROOT / "config/systemd/user/dot-clipboard-probe.service": Path.home() / ".config/systemd/user/dot-clipboard-probe.service",
             ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
         }
         for source, destination in copyq_mappings.items():
             changes += int(link_file(source, destination))
         obsolete_autostart = Path.home() / ".config/autostart/copyq.desktop"
-        if obsolete_autostart.is_symlink():
-            obsolete_autostart.unlink()
-            changes += 1
+        legacy_autostarts = (
+            obsolete_autostart,
+            Path.home() / ".config/autostart/com.github.hluk.copyq.desktop",
+        )
+        for legacy_autostart in legacy_autostarts:
+            legacy_managed = legacy_autostart.is_symlink()
+            if legacy_autostart.is_file() and not legacy_autostart.is_symlink():
+                legacy_text = legacy_autostart.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                legacy_managed = bool(
+                    "Name=CopyQ" in legacy_text
+                    and "/dotfiles/apps/copyq/releases/" in legacy_text
+                    and "X-GNOME-Autostart-enabled=true" in legacy_text
+                )
+            if legacy_managed:
+                legacy_autostart.unlink()
+                changes += 1
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"])
             copyq_unit = "dot-copyq.service"
-            enabled = run(
-                ["systemctl", "--user", "is-enabled", "--quiet", copyq_unit],
-                check=False,
-            ).returncode == 0
+            systemd_user = Path.home() / ".config/systemd/user"
+            desired_wants = (
+                systemd_user / "graphical-session.target.wants" / copyq_unit
+            )
+            obsolete_wants = systemd_user / "default.target.wants" / copyq_unit
             active = run(
                 ["systemctl", "--user", "is-active", "--quiet", copyq_unit],
                 check=False,
             ).returncode == 0
-            if not enabled:
+            if obsolete_wants.is_symlink():
+                obsolete_wants.unlink()
+                changes += 1
+            if not desired_wants.is_symlink():
                 run(["systemctl", "--user", "enable", copyq_unit])
                 changes += 1
-            if not active:
+            if not active and os.environ.get("WAYLAND_DISPLAY"):
                 run(["systemctl", "--user", "start", copyq_unit])
                 changes += 1
         if command_exists("update-desktop-database"):
@@ -2073,10 +2136,6 @@ def apply_direct(
             run(["systemctl", "--user", "daemon-reload"])
         if command_exists("qdbus6"):
             script_name = "dot-clipboard"
-            script_path = (
-                Path.home()
-                / ".local/share/kwin/scripts/dot-clipboard/contents/code/main.js"
-            )
             run(
                 [
                     "qdbus6",
@@ -2088,26 +2147,39 @@ def apply_direct(
                 check=False,
                 capture=True,
             )
-            script_id = run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Scripting",
-                    "org.kde.kwin.Scripting.loadScript",
-                    str(script_path),
-                    script_name,
-                ],
-                capture=True,
-            ).stdout.strip()
             run(
                 [
                     "qdbus6",
                     "org.kde.KWin",
-                    f"/Scripting/Script{script_id}",
-                    "org.kde.kwin.Script.run",
+                    "/KWin",
+                    "org.kde.KWin.reconfigure",
                 ]
             )
-        sync_managed_kglobal_shortcuts()
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                loaded = run(
+                    [
+                        "qdbus6",
+                        "org.kde.KWin",
+                        "/Scripting",
+                        "org.kde.kwin.Scripting.isScriptLoaded",
+                        script_name,
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                if loaded.stdout.strip() == "true":
+                    break
+                time.sleep(0.1)
+            else:
+                raise DotError("KWin did not reload the managed clipboard script.")
+            sync_managed_kglobal_shortcuts()
+            if not managed_clipboard_callback_ok():
+                raise DotError(
+                    "KWin registered clipboard action names without live callbacks."
+                )
+        else:
+            sync_managed_kglobal_shortcuts()
     if lockscreen_only:
         for relative in sorted(lockscreen_files):
             changes += int(
@@ -4350,7 +4422,7 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         ],
         check=False,
         capture=True,
-    )
+    ).stdout.strip() == "true"
     expected = {
         ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
         ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
@@ -4365,9 +4437,103 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         )
     except DotError as error:
         return False, str(error)
-    if loaded.returncode == 0 and loaded.stdout.strip() == "true" and assignments_ok:
-        return True, "KWin owns Meta+V, Ctrl+`, and Meta+.; stock actions disabled"
+    callback_ok = managed_clipboard_callback_ok()
+    if loaded and assignments_ok and callback_ok:
+        return True, "KWin owns Meta+V, Ctrl+`, and Meta+.; live callback verified"
+    if not callback_ok:
+        return False, "KWin clipboard action has no live callback"
     return False, "KWin clipboard script or live key assignments drifted"
+
+
+def copyq_runtime() -> tuple[bool, str]:
+    """Validate the live server, monitor, graphical ownership, and paste path."""
+    problems: list[str] = []
+    copyq_bin = Path.home() / ".local/bin/copyq"
+    systemd_user = Path.home() / ".config/systemd/user"
+    desired_wants = systemd_user / "graphical-session.target.wants/dot-copyq.service"
+    obsolete_wants = systemd_user / "default.target.wants/dot-copyq.service"
+    if not desired_wants.is_symlink() or obsolete_wants.is_symlink():
+        problems.append("CopyQ is not owned exclusively by graphical-session.target")
+    for legacy in (
+        Path.home() / ".config/autostart/copyq.desktop",
+        Path.home() / ".config/autostart/com.github.hluk.copyq.desktop",
+    ):
+        enabled = legacy.is_symlink()
+        if legacy.is_file() and not legacy.is_symlink():
+            desktop = legacy.read_text(encoding="utf-8", errors="replace")
+            enabled = not (
+                "Hidden=true" in desktop
+                or "X-GNOME-Autostart-enabled=false" in desktop
+            )
+        if enabled:
+            problems.append(f"legacy autostart remains at {legacy}")
+
+    service_active = run(
+        ["systemctl", "--user", "is-active", "--quiet", "dot-copyq.service"],
+        check=False,
+    ).returncode == 0
+    if not service_active:
+        problems.append("dot-copyq.service is inactive")
+    else:
+        main_pid = run(
+            ["systemctl", "--user", "show", "dot-copyq.service", "-p", "MainPID", "--value"],
+            check=False,
+            capture=True,
+        ).stdout.strip()
+        environ = Path(f"/proc/{main_pid}/environ")
+        try:
+            service_environment = environ.read_bytes().replace(b"\0", b"\n")
+        except (OSError, ValueError):
+            service_environment = b""
+        if b"WAYLAND_DISPLAY=" not in service_environment:
+            problems.append("CopyQ server was not launched inside a Wayland session")
+
+    if not copyq_bin.is_file():
+        problems.append("managed CopyQ launcher is missing")
+    elif service_active:
+        monitoring = run(
+            [str(copyq_bin), "eval", "print(monitoring())"],
+            check=False,
+            capture=True,
+        )
+        if monitoring.returncode or monitoring.stdout.strip() != "true":
+            problems.append("CopyQ clipboard monitoring is inactive")
+
+    monitors = 0
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            if proc.stat().st_uid != os.getuid():
+                continue
+            command = proc.joinpath("cmdline").read_bytes().replace(b"\0", b" ")
+        except OSError:
+            continue
+        if b"--clipboard-access monitorClipboard" in command:
+            monitors += 1
+    if service_active and monitors != 1:
+        problems.append(f"expected one CopyQ clipboard monitor, found {monitors}")
+
+    ydotool_active = run(
+        ["systemctl", "--user", "is-active", "--quiet", "ydotool.service"],
+        check=False,
+    ).returncode == 0
+    if not ydotool_active:
+        problems.append("ydotool.service is inactive")
+    # With no username, id reports this process's effective supplementary
+    # groups. Passing a username would read the updated account database and
+    # falsely claim that a required logout/reboot had already happened.
+    groups = run(["id", "-nG"], check=False, capture=True).stdout.split()
+    if "dot-uinput" not in groups:
+        problems.append("dot-uinput membership is pending a full logout or reboot")
+    if "input" in groups:
+        problems.append("broad physical input-group access is still effective")
+    if not os.access("/dev/uinput", os.W_OK):
+        problems.append("/dev/uinput is not writable by this session")
+
+    if problems:
+        return False, "; ".join(problems)
+    return True, "one graphical server and monitor; narrow uinput and Wayland paste ready"
 
 
 def cmd_clipboard(args: argparse.Namespace) -> None:
@@ -4384,6 +4550,13 @@ def cmd_clipboard(args: argparse.Namespace) -> None:
                 f"`dot apply --profile {profile} --tags clipboard`."
             )
         print(f"Emoji Picker runtime: {runtime_detail}.")
+        copyq_ok, copyq_detail = copyq_runtime()
+        if not copyq_ok:
+            raise DotError(
+                f"CopyQ runtime is incomplete ({copyq_detail}). Run "
+                f"`dot apply --profile {profile} --tags clipboard`, then fully log out or reboot."
+            )
+        print(f"CopyQ runtime: {copyq_detail}.")
         shortcuts_ok, shortcuts_detail = clipboard_shortcuts_runtime()
         if not shortcuts_ok:
             raise DotError(
@@ -4401,6 +4574,8 @@ def cmd_clipboard(args: argparse.Namespace) -> None:
                 f"`dot apply --profile {profile} --tags clipboard`."
             )
         run([str(Path.home() / ".local/bin/emoji-picker")])
+    elif action == "test":
+        run([str(Path.home() / ".local/bin/dot-test-copyq-paste")])
     elif action in {"apply", "update"}:
         cmd_apply(
             argparse.Namespace(
@@ -6860,6 +7035,11 @@ def palette_clipboard_menu(profile: str) -> None:
                     "Verify CopyQ, Emoji Picker, configuration, and stable versions",
                 ),
                 (
+                    "test",
+                    "Test automatic paste",
+                    "Run guided shortcuts, text paste, image, and restart acceptance",
+                ),
+                (
                     "apply",
                     "Repair clipboard tools",
                     "Reapply programs, configuration, launchers, and shortcuts",
@@ -8145,10 +8325,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ).returncode
             == 0
         )
+        copyq_runtime_ok, copyq_runtime_detail = copyq_runtime()
         copyq_ok = (
             copyq_install.returncode == 0
             and copyq_config.returncode == 0
             and copyq_service_ok
+            and copyq_runtime_ok
             and clipboard_shortcuts_ok
         )
         failures += not doctor_check(
@@ -8156,7 +8338,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             copyq_ok,
             "persistent server; latest stable release; Meta+V, Ctrl+`, and Wayland paste configured"
             if copyq_ok
-            else f"{clipboard_shortcuts_detail}; run dot apply --profile "
+            else f"{copyq_runtime_detail}; {clipboard_shortcuts_detail}; run dot apply --profile "
             f"{profile['name']} --tags clipboard",
         )
     if profile.get("features", {}).get("emoji_picker"):
@@ -9617,7 +9799,7 @@ def build_parser() -> argparse.ArgumentParser:
         "clipboard_action",
         nargs="?",
         default="status",
-        choices=["status", "history", "emoji", "apply", "update"],
+        choices=["status", "history", "emoji", "test", "apply", "update"],
     )
     clipboard.add_argument("--profile")
     clipboard.set_defaults(func=cmd_clipboard)

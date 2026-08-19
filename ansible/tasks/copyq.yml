@@ -1,9 +1,79 @@
 ---
+- name: Create the narrow virtual-input authorization group
+  become: true
+  ansible.builtin.group:
+    name: dot-uinput
+    system: true
+    state: present
+
+- name: Authorize the desktop user for virtual input
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_facts['user_id'] }}"
+    groups: dot-uinput
+    append: true
+
+- name: Read the desktop user's effective groups
+  ansible.builtin.command:
+    argv: [id, -nG, "{{ ansible_facts['user_id'] }}"]
+  register: dot_copyq_user_groups
+  changed_when: false
+
+- name: Remove broad physical-input access after narrow authorization is recorded
+  become: true
+  ansible.builtin.command:
+    argv: [gpasswd, --delete, "{{ ansible_facts['user_id'] }}", input]
+  when:
+    - not ansible_check_mode
+    - "'input' in dot_copyq_user_groups.stdout.split()"
+  register: dot_copyq_input_group_removed
+  changed_when: dot_copyq_input_group_removed.rc == 0
+
+- name: Install the managed uinput permission rule
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/udev/99-dotfiles-uinput.rules"
+    dest: /etc/udev/rules.d/99-dotfiles-uinput.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload udev rules after virtual-input policy changes
+
+- name: Enable the packaged ydotool daemon for user sessions
+  ansible.builtin.systemd_service:
+    name: ydotool.service
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+
 - name: Install or upgrade CopyQ from the official stable channel
   ansible.builtin.command:
     argv: ["{{ dot_repo }}/scripts/install-copyq", "--ensure"]
   register: dot_copyq_install
   changed_when: "dot_copyq_install.stdout.startswith('CHANGED ')"
+
+- name: Inspect the managed CopyQ service installation
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/dot-copyq.service"
+  register: dot_copyq_service_unit
+
+- name: Restart CopyQ after a runtime upgrade
+  ansible.builtin.systemd_service:
+    name: dot-copyq.service
+    state: restarted
+    daemon_reload: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+  when:
+    - dot_copyq_install.changed
+    - dot_copyq_service_unit.stat.exists
+    - lookup('env', 'WAYLAND_DISPLAY') | length > 0
 
 - name: Apply managed CopyQ configuration
   ansible.builtin.command:

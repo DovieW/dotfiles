@@ -1,8 +1,10 @@
 [Unit]
 Description=Managed CopyQ clipboard server
 Documentation=https://hluk.github.io/CopyQ/
-After=graphical-session.target
+After=graphical-session-pre.target plasma-kwin_wayland.service ydotool.service
+Wants=ydotool.service
 PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=forking
@@ -10,9 +12,9 @@ ExecStartPre=-%h/.local/bin/copyq exit
 ExecStart=%h/.local/bin/copyq --start-server
 ExecStop=%h/.local/bin/copyq exit
 Restart=on-failure
-RestartSec=2s
+RestartSec=5s
 TimeoutStartSec=15s
 TimeoutStopSec=10s
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

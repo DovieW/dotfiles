@@ -1,0 +1,3 @@
+# Permit managed desktop automation without granting access to physical input
+# event devices. Group membership takes effect after a full logout or reboot.
+KERNEL=="uinput", GROUP="dot-uinput", MODE="0660", OPTIONS+="static_node=uinput"

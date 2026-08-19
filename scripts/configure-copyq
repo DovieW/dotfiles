@@ -36,14 +36,22 @@ if [[ "$mode" == --ensure && ! -f "$archive_marker" ]]; then
 fi
 
 if [[ "$mode" == --check ]]; then
-  "$copyq_bin" eval "config('maxitems') == 999 && config('clipboard_mime_size_limit') == '.*:100M' && config('disable_tray') && tab().indexOf('Clipboard') >= 0 && tab().indexOf('Emoji') < 0" |
+  "$copyq_bin" eval "config('maxitems') == 1100 && config('clipboard_mime_size_limit') == '.*:100M' && config('disable_tray') && str(config('autostart')) == 'false' && tab().indexOf('Clipboard') >= 0 && tab().indexOf('Emoji') < 0" |
     grep -qx true || { echo "CopyQ clipboard settings drifted." >&2; exit 1; }
   "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Wayland paste' && c.isScript})" |
     grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
   "$copyq_bin" eval "commands().every(function(c){return c.name != 'Dotfiles Clipboard History'})" |
     grep -qx true || { echo "CopyQ still owns a global shortcut that belongs to KDE." >&2; exit 1; }
-  "$copyq_bin" eval "global.dotfilesPasteVersion == 4 && global.paste === global.dotfilesPaste" |
+  "$copyq_bin" eval "global.dotfilesPasteVersion == 5 && global.paste === global.dotfilesPaste" |
     grep -qx true || { echo "CopyQ Wayland paste override is not loaded." >&2; exit 1; }
+  helper_check="$($copyq_bin eval "var p=execute(global.dotfilesPasteHelper, '--check'); print(p && p.exit_code == 0 ? str(p.stdout).trim() : str(p ? p.stderr : 'helper did not start').trim())" 2>&1)" || {
+    echo "CopyQ could not execute its Wayland paste helper: $helper_check" >&2
+    exit 1
+  }
+  [[ "$helper_check" == "CopyQ paste helper is ready." ]] || {
+    echo "CopyQ Wayland paste helper is unhealthy: $helper_check" >&2
+    exit 1
+  }
   "$copyq_bin" eval "var theme = new Settings(info('config')); print(theme.value('Theme/bg') == '#0d1117' && theme.value('Theme/fg') == '#e6edf3' && theme.value('Theme/sel_bg') == '#1f6feb' && theme.value('Theme/style_main_window') == 'true')" |
     grep -qx true || { echo "CopyQ GitHub Dark theme drifted." >&2; exit 1; }
   echo "CopyQ clipboard history, GitHub Dark theme, and Wayland paste integration are configured."

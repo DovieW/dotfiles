@@ -1,0 +1,217 @@
+#!/usr/bin/python3
+"""Guided, data-preserving CopyQ Wayland acceptance test."""
+
+from __future__ import annotations
+
+import base64
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import uuid
+
+from PyQt6 import QtCore, QtWidgets
+
+
+COPYQ = Path(os.environ.get("XDG_BIN_HOME", Path.home() / ".local/bin")) / "copyq"
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def copyq(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(COPYQ), *args],
+        check=check,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+
+class AcceptanceWindow(QtWidgets.QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("CopyQ Paste Acceptance")
+        self.setMinimumWidth(680)
+        self.token_prefix = f"dot-copyq-test-{uuid.uuid4()}"
+        self.phase = 0
+        self.original_count = int(copyq("count").stdout.strip())
+        self.original_max = copyq("config", "maxitems").stdout.strip() or "999"
+        self.providers: list[subprocess.Popen[bytes]] = []
+        self.cleaned = False
+        self.passed = False
+
+        self.instructions = QtWidgets.QLabel()
+        self.instructions.setWordWrap(True)
+        self.field = QtWidgets.QLineEdit()
+        self.field.setPlaceholderText("The selected CopyQ item must appear here")
+        self.status = QtWidgets.QLabel("Preparing a disposable clipboard entry…")
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self.instructions)
+        layout.addWidget(self.field)
+        layout.addWidget(self.status)
+
+        copyq("config", "maxitems", str(max(int(self.original_max), self.original_count + 4)))
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(100)
+        self.timer.timeout.connect(self.observe)
+        try:
+            self.prepare_text_phase("Meta+V")
+        except Exception:
+            self.cleanup()
+            raise
+        self.timer.start()
+
+    def wait_for_top(self, expected: str, timeout: float = 3) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if copyq("read", "0", check=False).stdout == expected:
+                return
+            QtWidgets.QApplication.processEvents()
+            time.sleep(0.05)
+        raise RuntimeError("CopyQ did not record the disposable text item")
+
+    def prepare_text_phase(self, shortcut: str) -> None:
+        self.phase += 1
+        self.expected = f"{self.token_prefix}-{self.phase}"
+        self.field.clear()
+        provider = subprocess.Popen(
+            ["/usr/bin/wl-copy", "--foreground", "--type", "text/plain;charset=utf-8"],
+            stdin=subprocess.PIPE,
+        )
+        assert provider.stdin is not None
+        provider.stdin.write(self.expected.encode())
+        provider.stdin.close()
+        self.providers.append(provider)
+        self.wait_for_top(self.expected)
+        self.instructions.setText(
+            f"Keep this field focused. Press {shortcut}, leave the newest test item selected, "
+            "then press Enter. CopyQ must close and paste it back here automatically."
+        )
+        self.status.setText(f"Waiting for the complete {shortcut} → CopyQ → paste path…")
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.field.setFocus()
+
+    def remove_top_item(self) -> None:
+        """Restore the prior clipboard owner before deleting a test item."""
+        copyq("disable")
+        try:
+            copyq("remove", "0")
+            if int(copyq("count").stdout.strip()):
+                copyq("select", "0")
+        finally:
+            copyq("enable", check=False)
+
+    def observe(self) -> None:
+        if self.field.text() != self.expected:
+            return
+        if copyq("read", "0", check=False).stdout == self.expected:
+            self.remove_top_item()
+        if self.phase == 1:
+            self.prepare_text_phase("Ctrl+`")
+            return
+        self.timer.stop()
+        try:
+            self.test_image_history()
+            self.test_restart_persistence()
+        except Exception as error:  # noqa: BLE001 - surface exact acceptance failure
+            self.status.setText(f"FAILED: {error}")
+            self.instructions.setText("CopyQ acceptance failed. Close this window after recording the error.")
+            return
+        self.status.setText("PASS: shortcuts, automatic paste, PNG history, monitoring, and restart persistence work.")
+        self.instructions.setText("CopyQ passed the guided acceptance test. You can close this window.")
+        self.passed = True
+
+    def test_image_history(self) -> None:
+        self.status.setText("Verifying PNG clipboard history and monitor health…")
+        provider = subprocess.Popen(
+            ["/usr/bin/wl-copy", "--foreground", "--type", "image/png"],
+            stdin=subprocess.PIPE,
+        )
+        assert provider.stdin is not None
+        provider.stdin.write(PNG_1X1)
+        provider.stdin.close()
+        self.providers.append(provider)
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            formats = copyq("read", "?", "0", check=False).stdout.splitlines()
+            if "image/png" in formats:
+                self.remove_top_item()
+                return
+            QtWidgets.QApplication.processEvents()
+            time.sleep(0.05)
+        raise RuntimeError("CopyQ did not retain image/png from a stable Wayland provider")
+
+    def test_restart_persistence(self) -> None:
+        if self.original_count:
+            copyq("select", "0")
+        for provider in self.providers:
+            try:
+                provider.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                provider.terminate()
+        before = int(copyq("count").stdout.strip())
+        subprocess.run(
+            ["/usr/bin/systemctl", "--user", "restart", "dot-copyq.service"],
+            check=True,
+            timeout=20,
+        )
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            ready = copyq("eval", 'print(monitoring())', check=False)
+            if ready.returncode == 0 and ready.stdout.strip() == "true":
+                break
+            QtWidgets.QApplication.processEvents()
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("CopyQ monitoring did not recover after a managed restart")
+        after = int(copyq("count").stdout.strip())
+        if before != after or after != self.original_count:
+            raise RuntimeError(
+                f"CopyQ history count changed across acceptance ({self.original_count} → {after})"
+            )
+
+    def cleanup(self) -> None:
+        if self.cleaned:
+            return
+        self.cleaned = True
+        for _ in range(4):
+            top = copyq("read", "0", check=False).stdout
+            if top.startswith(self.token_prefix):
+                self.remove_top_item()
+            else:
+                break
+        copyq("config", "maxitems", self.original_max, check=False)
+        if self.original_count:
+            copyq("select", "0", check=False)
+        for provider in self.providers:
+            if provider.poll() is None:
+                provider.terminate()
+
+    def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        self.cleanup()
+        super().closeEvent(event)
+
+
+def main() -> int:
+    if not COPYQ.is_file():
+        print("CopyQ is not installed.", file=sys.stderr)
+        return 1
+    app = QtWidgets.QApplication(sys.argv)
+    try:
+        window = AcceptanceWindow()
+    except Exception as error:  # noqa: BLE001
+        print(f"CopyQ acceptance setup failed: {error}", file=sys.stderr)
+        return 1
+    window.show()
+    result = app.exec()
+    window.cleanup()
+    return result if result else (0 if window.passed else 1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -11,6 +11,74 @@ api="https://api.github.com/repos/hluk/CopyQ/releases/latest"
 app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/copyq"
 bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
 marker="$app_root/current-release"
+current_link="$app_root/current"
+current_app="$current_link/app"
+current_run="$current_app/AppRun"
+
+install_wrapper() {
+  local wrapper
+  install -d -m 0755 "$bin_dir"
+  wrapper="$(mktemp "$bin_dir/.copyq-wrapper.XXXXXX")"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'export QT_QPA_PLATFORM=wayland' \
+    "export APPDIR=\"$current_app\"" \
+    "exec \"$current_run\" \"\$@\"" >"$wrapper"
+  chmod 0755 "$wrapper"
+  mv -f -- "$wrapper" "$bin_dir/copyq"
+}
+
+wrapper_ready() {
+  [[ -x "$bin_dir/copyq" && ! -L "$bin_dir/copyq" ]] &&
+    grep -Fqx -- "export APPDIR=\"$current_app\"" "$bin_dir/copyq" &&
+    grep -Fq -- "$current_run" "$bin_dir/copyq"
+}
+
+activate_release() {
+  local release_dir="$1" temporary_link
+  install -d -m 0755 "$app_root"
+  temporary_link="$app_root/.current.$$.tmp"
+  ln -s -- "$release_dir" "$temporary_link"
+  mv -Tf -- "$temporary_link" "$current_link"
+  install_wrapper
+}
+
+local_release_ready() {
+  local release="$1" release_dir="$2" image="$3" expected_file="$4" expected
+  [[ "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  [[ -x "$release_dir/app/AppRun" && -f "$image" && -f "$expected_file" ]] || return 1
+  expected="$(<"$expected_file")"
+  [[ "$expected" =~ ^[[:xdigit:]]{128}$ ]] || return 1
+  printf '%s  %s\n' "$expected" "$image" | sha512sum --check --status
+}
+
+if [[ "$mode" == --check ]]; then
+  installed=""
+  [[ -f "$marker" ]] && installed="$(<"$marker")"
+  if [[ ! "$installed" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "CopyQ local release marker is missing or invalid." >&2
+    exit 1
+  fi
+  version="${installed#v}"
+  release_dir="$app_root/releases/$installed"
+  image="$release_dir/CopyQ-$version-x86_64.AppImage"
+  expected_file="$release_dir/image.sha512"
+  local_release_ready "$installed" "$release_dir" "$image" "$expected_file" || {
+    echo "CopyQ $installed local runtime failed its integrity check." >&2
+    exit 1
+  }
+  [[ "$(readlink -f -- "$current_link" 2>/dev/null || true)" == "$(readlink -f -- "$release_dir")" ]] || {
+    echo "CopyQ current runtime does not point to $installed." >&2
+    exit 1
+  }
+  wrapper_ready || {
+    echo "CopyQ launcher does not target the managed current runtime." >&2
+    exit 1
+  }
+  echo "CopyQ $installed local runtime is intact."
+  exit 0
+fi
 
 release_json="$(curl --proto '=https' --tlsv1.2 -fsSL "$api")"
 readarray -t resolved < <(python3 -c '
@@ -39,61 +107,47 @@ fi
 release_dir="$app_root/releases/$release"
 image="$release_dir/$asset_name"
 app_dir="$release_dir/app"
-app_run="$app_dir/AppRun"
+expected_file="$release_dir/image.sha512"
 installed=""
 [[ -f "$marker" ]] && installed="$(<"$marker")"
 
-install_wrapper() {
-  local wrapper
-  wrapper="$(mktemp "$bin_dir/.copyq-wrapper.XXXXXX")"
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'set -euo pipefail' \
-    'export QT_QPA_PLATFORM=wayland' \
-    "export APPDIR=\"$app_dir\"" \
-    "exec \"$app_run\" \"\$@\"" >"$wrapper"
-  chmod 0755 "$wrapper"
-  mv -f -- "$wrapper" "$bin_dir/copyq"
-}
-
-runtime_ready=false
-if [[ "$installed" == "$release" && -x "$image" && -x "$app_run" ]]; then
-  runtime_ready=true
-fi
-wrapper_ready=false
-if [[ -x "$bin_dir/copyq" && ! -L "$bin_dir/copyq" ]] &&
-   grep -Fqx -- "export APPDIR=\"$app_dir\"" "$bin_dir/copyq" &&
-   ! grep -Fq -- "COPYQ_CLIPBOARD_MIME_SIZE_LIMIT" "$bin_dir/copyq" &&
-   grep -Fq -- "$app_run" "$bin_dir/copyq"; then
-  wrapper_ready=true
-fi
-if [[ "$runtime_ready" == true && "$wrapper_ready" == true ]]; then
-  echo "CopyQ $release is installed from the official stable channel."
-  exit 0
-fi
-if [[ "$runtime_ready" == true && "$mode" == --ensure ]]; then
-  install -d -m 0755 "$bin_dir"
-  install_wrapper
-  echo "CHANGED CopyQ $release launcher updated."
-  exit 0
-fi
-if [[ "$mode" == --check ]]; then
-  echo "CopyQ requires update: ${installed:-missing} -> $release" >&2
-  exit 1
-fi
-
-# AppImages must execute themselves to perform `--appimage-extract`. Hardened
-# systems commonly mount /tmp with noexec, so stage beside the persistent app
-# tree on the same executable user filesystem that will run CopyQ.
 install -d -m 0755 "$app_root"
 work_dir="$(mktemp -d "$app_root/.install.XXXXXX")"
-trap 'rm -rf -- "$work_dir"' EXIT
+cleanup() { rm -rf -- "$work_dir"; }
+trap cleanup EXIT
 curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
 expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"
 if [[ ! "$expected" =~ ^[[:xdigit:]]{128}$ ]]; then
   echo "CopyQ: official SHA-512 entry is missing or malformed." >&2
   exit 1
 fi
+
+runtime_ready=false
+if [[ -x "$app_dir/AppRun" && -f "$image" ]] &&
+   printf '%s  %s\n' "$expected" "$image" | sha512sum --check --status; then
+  runtime_ready=true
+fi
+active_ready=false
+if [[ "$runtime_ready" == true && "$installed" == "$release" ]] &&
+   [[ "$(readlink -f -- "$current_link" 2>/dev/null || true)" == "$(readlink -f -- "$release_dir")" ]] &&
+   wrapper_ready; then
+  active_ready=true
+fi
+if [[ "$active_ready" == true ]]; then
+  printf '%s\n' "$expected" >"$expected_file"
+  chmod 0644 "$expected_file"
+  echo "CopyQ $release is installed from the official stable channel."
+  exit 0
+fi
+if [[ "$runtime_ready" == true ]]; then
+  printf '%s\n' "$expected" >"$expected_file"
+  chmod 0644 "$expected_file"
+  activate_release "$release_dir"
+  printf '%s\n' "$release" >"$marker"
+  echo "CHANGED CopyQ $release runtime activated."
+  exit 0
+fi
+
 source_image="$image"
 if [[ ! -f "$source_image" ]] ||
    ! printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status; then
@@ -101,29 +155,37 @@ if [[ ! -f "$source_image" ]] ||
   curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$source_image"
   printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status
 fi
-# curl creates new files without execute bits. Apply the permission only after
-# the official digest succeeds and before asking the AppImage to extract itself.
 chmod 0755 "$source_image"
 
-# CopyQ keeps its server and clipboard monitor alive after the launcher exits.
-# An AppImage FUSE mount can disappear while those processes still use its
-# executable and plugins, causing SIGBUS crashes. Keep the verified image for
-# updates, but execute CopyQ from a persistent extracted release directory.
 (
   cd -- "$work_dir"
   "$source_image" --appimage-extract >/dev/null
 )
-[[ -x "$work_dir/squashfs-root/AppRun" ]] || {
+new_app="$work_dir/squashfs-root"
+[[ -x "$new_app/AppRun" ]] || {
   echo "CopyQ: extracted AppImage does not contain an executable AppRun." >&2
   exit 1
 }
+version="${release#v}"
+QT_QPA_PLATFORM=offscreen APPDIR="$new_app" "$new_app/AppRun" --version 2>&1 |
+  grep -Fq "CopyQ Clipboard Manager $version" || {
+    echo "CopyQ: extracted runtime failed version validation." >&2
+    exit 1
+  }
 
 install -d -m 0755 "$release_dir" "$bin_dir"
 if [[ "$source_image" != "$image" ]]; then
   install -m 0755 "$source_image" "$image"
 fi
-rm -rf -- "$app_dir"
-mv -- "$work_dir/squashfs-root" "$app_dir"
-install_wrapper
+printf '%s\n' "$expected" >"$expected_file"
+chmod 0644 "$expected_file"
+rm -rf -- "$release_dir/app.previous" "$release_dir/app.new"
+mv -- "$new_app" "$release_dir/app.new"
+if [[ -d "$app_dir" ]]; then
+  mv -- "$app_dir" "$release_dir/app.previous"
+fi
+mv -- "$release_dir/app.new" "$app_dir"
+activate_release "$release_dir"
 printf '%s\n' "$release" >"$marker"
+rm -rf -- "$release_dir/app.previous"
 echo "CHANGED CopyQ $release installed from the official stable channel."

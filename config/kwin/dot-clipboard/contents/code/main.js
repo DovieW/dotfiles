@@ -9,7 +9,7 @@ function reopenUserUnit(unit) {
     );
 }
 
-let requestedCopyQDesktop = null;
+var requestedCopyQDesktop = null;
 
 function isCopyQ(window) {
     return window.resourceClass === "com.github.hluk.copyq" ||
@@ -30,20 +30,14 @@ function focusCopyQ(window) {
 function openCopyQ() {
     requestedCopyQDesktop = workspace.currentDesktop;
     reopenUserUnit("dot-copyq-history.service");
-    const windows = workspace.stackingOrder;
-    for (let index = windows.length - 1; index >= 0; index -= 1) {
+    var windows = workspace.stackingOrder;
+    for (var index = windows.length - 1; index >= 0; index -= 1) {
         if (isCopyQ(windows[index])) {
             focusCopyQ(windows[index]);
             return;
         }
     }
 }
-
-workspace.windowAdded.connect((window) => {
-    if (requestedCopyQDesktop !== null && isCopyQ(window)) {
-        focusCopyQ(window);
-    }
-});
 
 registerShortcut(
     "dot-copyq-history-meta",
@@ -63,5 +57,18 @@ registerShortcut(
     "dot-emoji-picker",
     "Open Dotfiles Emoji Picker",
     "Meta+.",
-    () => reopenUserUnit("dot-emoji-picker.service")
+    function () { reopenUserUnit("dot-emoji-picker.service"); }
 );
+
+registerShortcut(
+    "dot-clipboard-probe",
+    "Verify Clipboard Shortcuts",
+    "",
+    function () { reopenUserUnit("dot-clipboard-probe.service"); }
+);
+
+workspace.windowAdded.connect(function (window) {
+    if (requestedCopyQDesktop !== null && isCopyQ(window)) {
+        focusCopyQ(window);
+    }
+});

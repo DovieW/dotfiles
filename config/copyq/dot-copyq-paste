@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! systemctl --user is-active --quiet ydotool.service; then
+mode="${1:---paste}"
+case "$mode" in
+  --paste|--check) ;;
+  *) echo "usage: dot-copyq-paste [--paste|--check]" >&2; exit 2 ;;
+esac
+
+if ! /usr/bin/systemctl --user is-active --quiet ydotool.service; then
   echo "CopyQ paste requires the active ydotool user service." >&2
   exit 1
+fi
+
+socket="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$UID}/.ydotool_socket}"
+if [[ ! -S "$socket" ]]; then
+  echo "CopyQ paste cannot find the ydotool socket at $socket." >&2
+  exit 1
+fi
+
+if [[ ! -w /dev/uinput ]]; then
+  echo "CopyQ paste requires writable /dev/uinput access; reboot after applying the managed dot-uinput policy." >&2
+  exit 1
+fi
+
+if [[ "$mode" == --check ]]; then
+  echo "CopyQ paste helper is ready."
+  exit 0
 fi
 
 # CopyQ closes before invoking this helper. Release any shortcut modifiers,
 # allow the previous Wayland surface to regain focus, then paste without
 # synthesizing text or inspecting clipboard contents.
-ydotool key 29:0 42:0 54:0 56:0 125:0 126:0 >/dev/null
+/usr/bin/ydotool key 29:0 42:0 54:0 56:0 125:0 126:0 >/dev/null
 sleep 0.12
-ydotool key 42:1 110:1 110:0 42:0 >/dev/null
+/usr/bin/ydotool key 42:1 110:1 110:0 42:0 >/dev/null
