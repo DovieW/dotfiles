@@ -40,3 +40,9 @@ The generated handoff is local state and must not be committed.
 If the user corrected the OS hostname after identity bootstrap, use
 `bin/dot device rename OLD NEW --profile PROFILE`; do not delete device state or
 create replacement credentials manually.
+
+If two physical computers accidentally share one local device ID, do not use
+`device rename`, because that would move the other computer's Bitwarden item.
+Use `bin/dot device restore-local --profile PROFILE` only after confirming the
+current hostname-specific public key is already configured and present in the
+Bitwarden SSH agent.

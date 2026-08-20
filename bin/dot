@@ -3865,6 +3865,112 @@ def clear_stale_chrome_hostname_lock(old_hostname: str) -> bool:
     return True
 
 
+def bitwarden_agent_public_keys() -> tuple[Path | None, list[str]]:
+    """Read public keys from the active Bitwarden agent without unlocking the vault."""
+    sockets = (
+        Path.home() / ".bitwarden-ssh-agent.sock",
+        Path.home() / "snap/bitwarden/current/.bitwarden-ssh-agent.sock",
+    )
+    active_socket = next((path for path in sockets if path.is_socket()), None)
+    if active_socket is None:
+        return None, []
+    environment = os.environ.copy()
+    environment["SSH_AUTH_SOCK"] = str(active_socket)
+    try:
+        result = run(
+            ["ssh-add", "-L"],
+            check=False,
+            capture=True,
+            env=environment,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return active_socket, []
+    return (
+        active_socket,
+        result.stdout.splitlines() if result.returncode == 0 else [],
+    )
+
+
+def cmd_device_restore_local(args: argparse.Namespace) -> None:
+    """Repair local identity collision without renaming another device's key."""
+    profile = load_profile(args.profile)
+    desired = inferred_device_id()
+    device_path = CONFIG_DIR / "device.json"
+    if not device_path.exists():
+        raise DotError(f"Dotfiles device identity does not exist: {device_path}")
+    current = validate_device_id(load_json(device_path).get("device_id"))
+    if current == desired:
+        print(f"Local device identity is already {desired}.")
+        return
+
+    account = profile.get("account", "personal")
+    desired_public = (
+        Path.home() / ".ssh" / f"dotfiles-{account}-{desired}.pub"
+    )
+    if not desired_public.is_file():
+        raise DotError(
+            f"Refusing local identity repair because {desired_public} is missing. "
+            "Use the new-computer bootstrap flow to create a distinct credential."
+        )
+    expected_key_parts = desired_public.read_text(encoding="utf-8").split()[:2]
+    if len(expected_key_parts) != 2:
+        raise DotError(f"Invalid device public key: {desired_public}")
+
+    identity_path = CONFIG_DIR / f"git-{account}.gitconfig"
+    signing_key = run(
+        ["git", "config", "--file", str(identity_path), "--get", "user.signingkey"],
+        check=False,
+        capture=True,
+    )
+    configured_key = Path(signing_key.stdout.strip()).expanduser()
+    if (
+        signing_key.returncode != 0
+        or not configured_key.is_file()
+        or configured_key.resolve() != desired_public.resolve()
+    ):
+        raise DotError(
+            "Refusing local identity repair because the configured Git signing "
+            f"key is not {desired_public}."
+        )
+
+    agent_socket, agent_keys = bitwarden_agent_public_keys()
+    agent_has_key = any(
+        line.split()[:2] == expected_key_parts
+        for line in agent_keys
+        if len(line.split()) >= 2
+    )
+    if not agent_has_key:
+        raise DotError(
+            "Refusing local identity repair because the existing hostname key is "
+            "not available from the Bitwarden SSH agent. Start and unlock "
+            f"Bitwarden Desktop, confirm {desired_public}, and retry."
+        )
+
+    state_path = STATE_DIR / "bootstrap" / f"{profile['name']}.json"
+    state = load_json(state_path) if state_path.exists() else None
+    if state is not None:
+        if state.get("device") not in {current, desired}:
+            raise DotError(
+                f"Bootstrap state belongs to {state.get('device')!r}; refusing "
+                "a partial local identity repair."
+            )
+        state["device"] = desired
+        atomic_text(state_path, json.dumps(state, indent=2) + "\n", 0o600)
+
+    atomic_text(
+        device_path,
+        json.dumps({"schema_version": 1, "device_id": desired}, indent=2) + "\n",
+        0o600,
+    )
+    write_finalization_handoff(profile["name"], desired)
+    print(f"Restored local dotfiles identity: {current} -> {desired}")
+    print(
+        f"Verified {desired_public.name} through {agent_socket}; no Bitwarden "
+        f"items, GitHub keys, or state belonging to {current} were renamed or removed."
+    )
+
+
 def cmd_device_rename(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     old = validate_device_id(args.old_device)
@@ -9726,6 +9832,9 @@ def build_parser() -> argparse.ArgumentParser:
     device_rename.add_argument("new_device")
     device_rename.add_argument("--profile", required=True)
     device_rename.set_defaults(func=cmd_device_rename)
+    device_restore = device_sub.add_parser("restore-local")
+    device_restore.add_argument("--profile", required=True)
+    device_restore.set_defaults(func=cmd_device_restore_local)
     bootstrap_media = sub.add_parser("bootstrap-media")
     bootstrap_media_sub = bootstrap_media.add_subparsers(dest="media_action", required=True)
     media_create = bootstrap_media_sub.add_parser("create")

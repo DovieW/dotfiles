@@ -3,8 +3,13 @@ set -euo pipefail
 
 github_user="${1:-}"
 tailscale_ip="${2:-}"
+mode="${3:-}"
 if [[ ! "$github_user" =~ ^[A-Za-z0-9-]+$ ]]; then
-  echo "usage: bootstrap-remote-support GITHUB-USER TAILSCALE-IPV4" >&2
+  echo "usage: bootstrap-remote-support GITHUB-USER TAILSCALE-IPV4 [--keys-only]" >&2
+  exit 2
+fi
+if [[ -n "$mode" && "$mode" != "--keys-only" ]]; then
+  echo "usage: bootstrap-remote-support GITHUB-USER TAILSCALE-IPV4 [--keys-only]" >&2
   exit 2
 fi
 python3 - "$tailscale_ip" <<'PY'
@@ -35,11 +40,33 @@ while IFS= read -r key; do
   ssh-keygen -l -f <(printf '%s\n' "$key") >/dev/null
 done <"$keys"
 
-sudo apt-get update
-sudo apt-get install -y openssh-server
-
 install -d -m 0700 "$HOME/.ssh" "$HOME/.ssh/authorized_keys.d"
 install -m 0600 "$keys" "$HOME/.ssh/authorized_keys.d/dotfiles-github"
+
+if [[ "$mode" == "--keys-only" ]]; then
+  if [[ ! -f /etc/ssh/sshd_config.d/00-dotfiles-remote-support.conf ]]; then
+    echo "Managed OpenSSH policy is missing; run the full remote-support setup." >&2
+    exit 1
+  fi
+  echo "Refreshed ${github_user}'s published workstation keys for managed OpenSSH."
+  exit 0
+fi
+
+if sudo -n true >/dev/null 2>&1; then
+  privilege=(sudo -n)
+elif command -v pkexec >/dev/null 2>&1; then
+  privilege=(pkexec)
+elif [[ -t 0 ]]; then
+  privilege=(sudo)
+else
+  echo "Administrator authorization requires a terminal or PolicyKit agent." >&2
+  exit 1
+fi
+
+if ! command -v sshd >/dev/null 2>&1; then
+  "${privilege[@]}" /usr/bin/apt-get update
+  "${privilege[@]}" /usr/bin/apt-get install -y openssh-server
+fi
 
 sshd_config="$work_dir/00-dotfiles-remote-support.conf"
 cat >"$sshd_config" <<EOF
@@ -51,12 +78,12 @@ PermitRootLogin no
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys.d/dotfiles-github
 EOF
-sudo install -m 0644 "$sshd_config" /etc/ssh/sshd_config.d/00-dotfiles-remote-support.conf
-sudo sshd -t
-sudo systemctl enable --now ssh
-sudo systemctl restart ssh
+"${privilege[@]}" /usr/bin/install -m 0644 "$sshd_config" /etc/ssh/sshd_config.d/00-dotfiles-remote-support.conf
+"${privilege[@]}" /usr/sbin/sshd -t
+"${privilege[@]}" /usr/bin/systemctl enable --now ssh
+"${privilege[@]}" /usr/bin/systemctl restart ssh
 
-effective="$(sudo sshd -T)"
+effective="$("${privilege[@]}" /usr/sbin/sshd -T)"
 grep -qx 'passwordauthentication no' <<<"$effective"
 grep -qx 'kbdinteractiveauthentication no' <<<"$effective"
 grep -qx 'permitrootlogin no' <<<"$effective"

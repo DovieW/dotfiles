@@ -105,6 +105,20 @@ local signing paths and bootstrap state, and regenerates the finalization
 handoff. Existing GitHub key labels may retain the historical name; labels do
 not affect authentication or signing identity.
 
+If local state was accidentally pointed at another physical computer that
+still exists, do not rename that other computer or its credential. Restore the
+current host only:
+
+```bash
+dot device restore-local --profile kubuntu-laptop
+```
+
+This command requires the hostname-specific public key to already be the
+configured Git signing key and available through Bitwarden's SSH agent. It
+updates only this host's `device.json`, matching bootstrap state, and local
+finalization handoff. It never renames or removes Bitwarden items, GitHub keys,
+or state belonging to the colliding device ID.
+
 The manifest is not a replacement for automatic detection. AMD, Intel, and
 NVIDIA graphics should be handled generically where reliable detection is
 possible. Manifests record which deferred subsystems belong on a machine and

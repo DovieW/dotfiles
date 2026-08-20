@@ -284,6 +284,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ListenAddress ${tailscale_ip}", support)
         self.assertIn('ipaddress.ip_network("100.64.0.0/10")', support)
         self.assertIn("authorized_keys.d/dotfiles-github", support)
+        self.assertIn('mode="${3:-}"', support)
+        self.assertIn('if [[ "$mode" == "--keys-only" ]]', support)
+        keys_only = support.split('if [[ "$mode" == "--keys-only" ]]', 1)[1]
+        keys_only = keys_only.split("exit 0", 1)[0]
+        self.assertNotIn("sudo", keys_only)
+        self.assertIn("privilege=(pkexec)", support)
         self.assertNotIn("tailscale ssh", support.lower())
 
     def test_bootstrap_preflight_rejects_identity_drift(self):
@@ -411,6 +417,30 @@ class DotCliTests(unittest.TestCase):
             with self.assertRaises(module["DotError"]):
                 function("test-device")
 
+    def test_ideapad_has_a_distinct_finalized_laptop_manifest(self):
+        laptop = json.loads(
+            (ROOT / "devices/dovie-ideapad-linux.yml").read_text()
+        )
+        desktop = json.loads(
+            (ROOT / "devices/dovie-desktop-linux.yml").read_text()
+        )
+        self.assertEqual(laptop["device_id"], "dovie-ideapad-linux")
+        self.assertEqual(laptop["profile"], "kubuntu-laptop")
+        self.assertTrue(laptop["finalized"])
+        self.assertEqual(
+            laptop["approved_tags"],
+            ["gpu", "meshcentral", "nomachine", "touchpad"],
+        )
+        self.assertEqual(desktop["device_id"], "dovie-desktop-linux")
+        self.assertEqual(desktop["profile"], "kubuntu-desktop")
+        self.assertNotEqual(laptop["device_id"], desktop["device_id"])
+        self.assertNotIn("gpu", desktop["approved_tags"])
+        for manifest in (laptop, desktop):
+            serialized = json.dumps(manifest).lower()
+            self.assertNotIn("serial", serialized)
+            self.assertNotIn("uuid", serialized)
+            self.assertNotIn("token", serialized)
+
     def test_device_identity_rejects_path_traversal(self):
         module = runpy.run_path(str(DOT))
         function = module["ensure_device"]
@@ -437,6 +467,96 @@ class DotCliTests(unittest.TestCase):
                         old_device="old-device",
                         new_device="new-device",
                     ))
+
+    def test_device_restore_local_preserves_colliding_device_credentials(self):
+        module = runpy.run_path(str(DOT))
+        function = module["cmd_device_restore_local"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config"
+            state_dir = root / "state"
+            bootstrap_dir = state_dir / "bootstrap"
+            home = root / "home"
+            ssh_dir = home / ".ssh"
+            config.mkdir()
+            bootstrap_dir.mkdir(parents=True)
+            ssh_dir.mkdir(parents=True)
+            desired_public = ssh_dir / "dotfiles-personal-new-device.pub"
+            public_key = "ssh-ed25519 AAAATEST new-device"
+            desired_public.write_text(public_key + "\n")
+            (config / "git-personal.gitconfig").write_text(
+                "[user]\n"
+                f"\tsigningkey = {desired_public}\n"
+            )
+            (config / "device.json").write_text(json.dumps({
+                "schema_version": 1,
+                "device_id": "other-device",
+            }))
+            state_path = bootstrap_dir / "kubuntu-laptop.json"
+            state_path.write_text(json.dumps({
+                "schema_version": 1,
+                "profile": "kubuntu-laptop",
+                "device": "other-device",
+                "completed": ["identity"],
+            }))
+            handoff = mock.Mock()
+            with mock.patch.object(Path, "home", return_value=home), \
+                 mock.patch.dict(function.__globals__, {
+                     "CONFIG_DIR": config,
+                     "STATE_DIR": state_dir,
+                     "inferred_device_id": mock.Mock(return_value="new-device"),
+                     "bitwarden_agent_public_keys": mock.Mock(
+                         return_value=(home / ".bitwarden-ssh-agent.sock", [public_key])
+                     ),
+                     "write_finalization_handoff": handoff,
+                 }):
+                function(argparse.Namespace(profile="kubuntu-laptop"))
+            self.assertEqual(
+                json.loads((config / "device.json").read_text())["device_id"],
+                "new-device",
+            )
+            self.assertEqual(json.loads(state_path.read_text())["device"], "new-device")
+            self.assertTrue(desired_public.exists())
+            handoff.assert_called_once_with("kubuntu-laptop", "new-device")
+
+    def test_device_restore_local_requires_existing_agent_key(self):
+        module = runpy.run_path(str(DOT))
+        function = module["cmd_device_restore_local"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config"
+            state = root / "state"
+            home = root / "home"
+            ssh_dir = home / ".ssh"
+            config.mkdir()
+            ssh_dir.mkdir(parents=True)
+            desired_public = ssh_dir / "dotfiles-personal-new-device.pub"
+            desired_public.write_text("ssh-ed25519 AAAATEST new-device\n")
+            (config / "git-personal.gitconfig").write_text(
+                "[user]\n"
+                f"\tsigningkey = {desired_public}\n"
+            )
+            (config / "device.json").write_text(json.dumps({
+                "schema_version": 1,
+                "device_id": "other-device",
+            }))
+            with mock.patch.object(Path, "home", return_value=home), \
+                 mock.patch.dict(function.__globals__, {
+                     "CONFIG_DIR": config,
+                     "STATE_DIR": state,
+                     "inferred_device_id": mock.Mock(return_value="new-device"),
+                     "bitwarden_agent_public_keys": mock.Mock(
+                         return_value=(None, [])
+                     ),
+                 }):
+                with self.assertRaisesRegex(
+                    module["DotError"], "Bitwarden SSH agent"
+                ):
+                    function(argparse.Namespace(profile="kubuntu-laptop"))
+            self.assertEqual(
+                json.loads((config / "device.json").read_text())["device_id"],
+                "other-device",
+            )
 
     def test_chrome_hostname_lock_cleanup_is_guarded(self):
         module = runpy.run_path(str(DOT))

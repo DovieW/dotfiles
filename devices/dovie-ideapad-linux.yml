@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "device_id": "dovie-ideapad-linux",
+  "profile": "kubuntu-laptop",
+  "finalized": true,
+  "approved_tags": ["gpu", "meshcentral", "nomachine", "touchpad"],
+  "notes": [
+    "Lenovo IdeaPad Pro 5 16IAH10 laptop with Intel integrated graphics and an NVIDIA GeForce RTX 5050 Mobile GPU.",
+    "Keep Intel as the default through PRIME on-demand; the NVIDIA GPU remains available for explicit offload.",
+    "NVIDIA Dynamic Boost is disabled because this firmware rejects its platform requests; normal GPU acceleration remains available.",
+    "The built-in CIRQ1080 I2C touchpad uses the narrowly matched libinput coordinate-jump workaround.",
+    "MeshCentral, private Tailscale-only NoMachine, and ordinary key-only OpenSSH are approved for remote support."
+  ]
+}
