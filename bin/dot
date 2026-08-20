@@ -4911,6 +4911,151 @@ class UpdateCheckResult:
     updates: tuple[AvailableUpdate, ...] = ()
 
 
+VersionSnapshot = dict[tuple[str, str], str]
+
+
+def parse_installed_version_rows(output: str) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for line in output.splitlines():
+        name, separator, version = line.partition("\t")
+        if separator and name and version:
+            versions[name] = version
+    return versions
+
+
+def command_semver(command: list[str]) -> str | None:
+    result = run(command, check=False, capture=True, timeout=15)
+    if result.returncode:
+        return None
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    match = re.search(r"\bv?(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)\b", output)
+    return match.group(1) if match else None
+
+
+def installed_version_snapshot(
+    profile: dict[str, Any], *, system: bool, apps: bool
+) -> tuple[VersionSnapshot, set[str]]:
+    """Capture actual installed versions without making an update fail on reporting."""
+    versions: VersionSnapshot = {}
+    complete: set[str] = set()
+
+    if (system or apps) and command_exists("dpkg-query"):
+        result = run(
+            ["dpkg-query", "-W", "-f=${binary:Package}\\t${Version}\\n"],
+            check=False,
+            capture=True,
+        )
+        if result.returncode == 0:
+            complete.add("APT")
+            for name, version in parse_installed_version_rows(result.stdout).items():
+                versions[("APT", name)] = version
+
+    if apps and command_exists("snap"):
+        result = run(["snap", "list"], check=False, capture=True)
+        if result.returncode == 0:
+            complete.add("Snap")
+            for name, version in parse_snap_rows(result.stdout).items():
+                versions[("Snap", name)] = version
+
+    if apps and command_exists("brew"):
+        result = run(
+            ["brew", "list", "--formula", "--versions"],
+            check=False,
+            capture=True,
+        )
+        if result.returncode == 0:
+            complete.add("Homebrew")
+            for line in result.stdout.splitlines():
+                fields = line.split()
+                if len(fields) >= 2:
+                    versions[("Homebrew", fields[0])] = ", ".join(fields[1:])
+
+    if apps and profile.get("features", {}).get("codex_remote_control"):
+        path = Path.home() / ".local/bin/codex"
+        version = command_semver([str(path), "--version"]) if path.exists() else None
+        if not path.exists() or version:
+            complete.add("Codex CLI")
+        if version:
+            versions[("Codex CLI", "codex")] = version
+
+    if apps and profile.get("features", {}).get("vite_plus"):
+        path = Path.home() / ".vite-plus/bin/vp"
+        version = command_semver([str(path), "--version"]) if path.exists() else None
+        if not path.exists() or version:
+            complete.add("Vite+")
+        if version:
+            versions[("Vite+", "vite-plus")] = version
+
+    if apps and profile.get("features", {}).get("shell"):
+        path = Path.home() / ".local/bin/transcribe"
+        version = command_semver([str(path), "--version"]) if path.exists() else None
+        if not path.exists() or version:
+            complete.add("Transcribe")
+        if version:
+            versions[("Transcribe", "transcribe")] = version
+
+    if apps and profile.get("features", {}).get("neovim"):
+        try:
+            lock = json.loads(NVIM_LOCK_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            lock = {}
+        else:
+            complete.add("Neovim plugins")
+        for name, metadata in lock.items():
+            commit = metadata.get("commit") if isinstance(metadata, dict) else None
+            if commit:
+                versions[("Neovim plugins", name)] = str(commit)[:12]
+
+        mason_root = Path(
+            os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+        ) / "nvim/mason/packages"
+        if mason_root.is_dir():
+            complete.add("Mason tools")
+            for receipt in mason_root.glob("*/mason-receipt.json"):
+                try:
+                    payload = json.loads(receipt.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                name = str(payload.get("name") or receipt.parent.name)
+                source = payload.get("source") or {}
+                source_id = str(
+                    (source.get("raw") or {}).get("id") or source.get("id") or ""
+                )
+                version = source_id.rsplit("@", 1)[-1] if "@" in source_id else source_id
+                if version:
+                    versions[("Mason tools", name)] = version
+
+    return versions, complete
+
+
+def render_update_receipt(
+    before: VersionSnapshot,
+    after: VersionSnapshot,
+    complete_providers: set[str],
+) -> None:
+    changes: list[tuple[str, str, str, str]] = []
+    keys = set(before) | set(after)
+    for provider, name in keys:
+        if provider not in complete_providers:
+            continue
+        old = before.get((provider, name), "not installed")
+        new = after.get((provider, name), "removed")
+        if old != new:
+            changes.append((provider, name, old, new))
+
+    print("\nUpdate receipt")
+    if not changes:
+        print("  No installed version changes were detected; everything was already current.")
+        return
+    current_provider = None
+    for provider, name, old, new in sorted(changes, key=lambda item: (item[0], item[1].casefold())):
+        if provider != current_provider:
+            print(f"  {provider}")
+            current_provider = provider
+        print(f"    {name}: {old} -> {new}")
+    print(f"  {len(changes)} installed version change(s).")
+
+
 def parse_apt_updates(output: str) -> tuple[AvailableUpdate, ...]:
     updates: list[AvailableUpdate] = []
     for line in output.splitlines():
@@ -5296,6 +5441,9 @@ def cmd_update(args: argparse.Namespace) -> None:
             + "\n  ".join(blockers)
             + "\nWait for it to finish before running dot update."
         )
+    versions_before, providers_before = installed_version_snapshot(
+        profile, system=system, apps=apps
+    )
     selected_tags = []
     if system:
         selected_tags.append("system-updates")
@@ -5330,6 +5478,14 @@ def cmd_update(args: argparse.Namespace) -> None:
         "system" if system else "application"
     )
     print(f"Updated all installed {categories} packages for {profile['name']}.")
+    versions_after, providers_after = installed_version_snapshot(
+        profile, system=system, apps=apps
+    )
+    render_update_receipt(
+        versions_before,
+        versions_after,
+        providers_before & providers_after,
+    )
 
 
 def nvim_environment(root: Path | None = None) -> dict[str, str]:

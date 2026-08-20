@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -1202,6 +1204,33 @@ class DotCliTests(unittest.TestCase):
                         "Run this command in an interactive terminal",
                         result.stderr,
                     )
+
+    def test_update_receipt_reports_only_actual_version_changes(self):
+        module = runpy.run_path(str(DOT))
+        render = module["render_update_receipt"]
+        before = {
+            ("APT", "curl"): "1.0",
+            ("APT", "unchanged"): "3.0",
+            ("Homebrew", "fzf"): "0.74.2",
+            ("Snap", "removed-app"): "5.0",
+        }
+        after = {
+            ("APT", "curl"): "2.0",
+            ("APT", "unchanged"): "3.0",
+            ("APT", "new-package"): "1.0",
+            ("Homebrew", "fzf"): "0.74.3",
+        }
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            render(before, after, {"APT", "Homebrew", "Snap"})
+        receipt = output.getvalue()
+        self.assertIn("Update receipt", receipt)
+        self.assertIn("curl: 1.0 -> 2.0", receipt)
+        self.assertIn("new-package: not installed -> 1.0", receipt)
+        self.assertIn("fzf: 0.74.2 -> 0.74.3", receipt)
+        self.assertIn("removed-app: 5.0 -> removed", receipt)
+        self.assertNotIn("unchanged", receipt)
+        self.assertIn("4 installed version change(s)", receipt)
 
     def test_interactive_package_apply_asks_ansible_for_become_password(self):
         with tempfile.TemporaryDirectory() as directory:
