@@ -1194,6 +1194,7 @@ class DotCliTests(unittest.TestCase):
                         ],
                         text=True,
                         capture_output=True,
+                        stdin=subprocess.DEVNULL,
                         env=env,
                     )
                     self.assertNotEqual(result.returncode, 0)
