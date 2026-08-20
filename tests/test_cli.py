@@ -1759,6 +1759,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("upgrade: dist", playbook)
         self.assertIn("Refresh every installed Snap", playbook)
         self.assertIn("Upgrade all installed Homebrew formulae", playbook)
+        self.assertIn('HOMEBREW_NO_INSTALL_CLEANUP: "1"', playbook)
+        self.assertIn("Clean old Homebrew versions after upgrades finish", playbook)
         self.assertIn("upgrade_ansible_controller", cli)
         self.assertIn("item not in ['ansible', 'ansible-lint']", playbook)
         self.assertIn("tags: [packages, app-updates]", playbook)
@@ -1776,6 +1778,36 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("check_codex_updates", cli)
         self.assertIn("check_vite_plus_updates", cli)
         self.assertIn("[config, shell, tmux, app-updates]", playbook)
+
+    def test_update_refuses_automatic_profile_for_another_hostname(self):
+        module = runpy.run_path(str(DOT))
+        function = module["update_profile"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "config"
+            devices = root / "devices"
+            config.mkdir()
+            devices.mkdir()
+            (config / "device.json").write_text(json.dumps({
+                "schema_version": 1,
+                "device_id": "other-computer",
+            }))
+            (devices / "other-computer.yml").write_text(json.dumps({
+                "schema_version": 1,
+                "device_id": "other-computer",
+                "profile": "kubuntu-desktop",
+                "finalized": True,
+                "approved_tags": [],
+            }))
+            with mock.patch.dict(function.__globals__, {
+                "CONFIG_DIR": config,
+                "DEVICE_DIR": devices,
+            }), mock.patch("socket.gethostname", return_value="this-computer"):
+                with self.assertRaisesRegex(
+                    module["DotError"], "Refusing automatic profile selection"
+                ):
+                    function(None)
+                self.assertEqual(function("kubuntu-laptop"), "kubuntu-laptop")
 
     def test_codex_permissions_are_managed_without_replacing_other_config(self):
         script = ROOT / "scripts/configure-codex"

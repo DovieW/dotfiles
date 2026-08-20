@@ -293,6 +293,8 @@
     - name: Upgrade managed Homebrew formulae
       ansible.builtin.command:
         argv: [brew, upgrade, "{{ item }}"]
+      environment:
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
       changed_when: true
       loop: "{{ dot_profile_data.packages.brew | default([]) }}"
       when:
@@ -304,11 +306,23 @@
     - name: Upgrade all installed Homebrew formulae
       ansible.builtin.command:
         argv: [brew, upgrade]
+      environment:
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
       changed_when: true
       when:
         - dot_brew.rc | default(1) == 0
         - (dot_brew_outdated.stdout_lines | default([]) | length) > 0
       tags: [app-updates]
+
+    - name: Clean old Homebrew versions after upgrades finish
+      ansible.builtin.command:
+        argv: [brew, cleanup]
+      register: dot_brew_cleanup
+      changed_when: dot_brew_cleanup.stdout | length > 0
+      when:
+        - dot_brew.rc | default(1) == 0
+        - (dot_brew_outdated.stdout_lines | default([]) | length) > 0
+      tags: [packages, app-updates]
 
     - name: Check curated Snap applications
       ansible.builtin.command:

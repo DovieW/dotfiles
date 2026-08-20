@@ -5145,6 +5145,15 @@ def update_profile(explicit: str | None) -> str:
     detected = infer_platform()
     if detected == "linux":
         device = ensure_device()
+        inferred = inferred_device_id()
+        if device != inferred:
+            raise DotError(
+                "Refusing automatic profile selection because this computer's "
+                f"hostname implies `{inferred}`, but its dotfiles identity is "
+                f"`{device}`. Another device's profile must not be applied here. "
+                "Choose the correct profile explicitly for this run, then repair "
+                "the device identity through the managed device workflow."
+            )
         manifest = load_device_manifest(device)
         return manifest["profile"] if manifest else "kubuntu-laptop"
     defaults = {
