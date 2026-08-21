@@ -8,15 +8,6 @@ function desktopIndex(desktop) {
     return -1;
 }
 
-function suppressApplicationAttention(window) {
-    window.demandsAttention = false;
-    window.demandsAttentionChanged.connect(() => {
-        if (window.demandsAttention) {
-            window.demandsAttention = false;
-        }
-    });
-}
-
 function moveWindowAndFollow(offset) {
     const window = workspace.activeWindow;
     if (!window || window.onAllDesktops) {
@@ -50,6 +41,3 @@ registerShortcut(
     "Meta+Alt+Right",
     () => moveWindowAndFollow(1)
 );
-
-workspace.windowAdded.connect(suppressApplicationAttention);
-workspace.stackingOrder.forEach(suppressApplicationAttention);

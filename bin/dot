@@ -6430,6 +6430,7 @@ configure(task, ["General"], {{
     // their manual order; KWin rules independently make rare apps global.
     showOnlyCurrentDesktop: "true",
     showOnlyCurrentScreen: "false",
+    unhideOnAttention: "false",
     wheelEnabled: "false"
 }});
 
@@ -6489,7 +6490,7 @@ def panel_profile_matches(profile_name: str) -> tuple[bool, str]:
 const ps=panels();
 if (!ps.length) { print("missing"); }
 else {
- const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="", taskSorting="", taskCurrentDesktop="", taskCurrentScreen="", taskMiddleClick="", taskSeparate="", taskOnlyGroupWhenFull="";
+ const p=ps[0]; let types=[], trayShown="", trayHidden="", launcherIcon="", taskLaunchers="", taskSorting="", taskCurrentDesktop="", taskCurrentScreen="", taskMiddleClick="", taskSeparate="", taskOnlyGroupWhenFull="", taskUnhideOnAttention="";
  for (let i=0;i<p.widgetIds.length;++i) {
   const w=p.widgetById(p.widgetIds[i]); if (w) {
    types.push(w.type);
@@ -6511,6 +6512,7 @@ else {
    taskMiddleClick=w.readConfig("middleClickAction","");
    taskSeparate=w.readConfig("separateLaunchers","");
    taskOnlyGroupWhenFull=w.readConfig("onlyGroupWhenFull","");
+   taskUnhideOnAttention=w.readConfig("unhideOnAttention","");
    }
   }
  }
@@ -6528,7 +6530,8 @@ else {
   p.lengthMode,p.height,p.hiding,p.alignment,p.floating,
   p.minimumLength,p.maximumLength,types.join(","),black,iconFree,
   trayShown,trayHidden,launcherIcon,taskLaunchers,taskSorting,taskCurrentDesktop,
-  taskCurrentScreen,taskMiddleClick,taskSeparate,taskOnlyGroupWhenFull
+  taskCurrentScreen,taskMiddleClick,taskSeparate,taskOnlyGroupWhenFull,
+  taskUnhideOnAttention
  ].join("|"));
 }
 """
@@ -6536,7 +6539,7 @@ else {
     if output == "missing":
         return False, "no live panel"
     parts = output.split("|")
-    if len(parts) != 20:
+    if len(parts) != 21:
         return False, f"could not parse Plasma state: {output}"
     (
         length_mode,
@@ -6559,6 +6562,7 @@ else {
         task_middle_click,
         task_separate,
         task_only_group_when_full,
+        task_unhide_on_attention,
     ) = parts
     if length_mode != profile["length_mode"]:
         return False, "length mode does not match"
@@ -6612,6 +6616,8 @@ else {
         return False, "taskbar middle-click does not close windows"
     if task_separate != "true" or task_only_group_when_full != "false":
         return False, "taskbar launcher and grouping behavior does not match"
+    if task_unhide_on_attention != "false":
+        return False, "taskbar unhides when an application requests attention"
     if black != "true":
         return False, "desktop is not solid black"
     if icon_free != "true":

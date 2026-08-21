@@ -95,6 +95,7 @@ showOnlyCurrentDesktop=true
 showOnlyCurrentScreen=false
 sortingStrategy=1
 taskMaxWidth=Wide
+unhideOnAttention=false
 wheelEnabled=false
 
 [Containments][2][Applets][7]

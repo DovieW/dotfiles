@@ -2155,6 +2155,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("onlyGroupWhenFull=false", panel)
         self.assertIn("separateLaunchers=true", panel)
         self.assertIn("showOnlyCurrentDesktop=true", panel)
+        self.assertIn("unhideOnAttention=false", panel)
         self.assertIn("sortingStrategy=1", panel)
         self.assertIn("panelLengthMode=0", geometry)
         self.assertIn("panelVisibility=1", geometry)
@@ -2539,9 +2540,8 @@ class DotCliTests(unittest.TestCase):
             ROOT / "config/kwin/dot-window-desktop/contents/code/main.js"
         ).read_text()
 
-        self.assertIn("suppressApplicationAttention", script)
-        self.assertIn("window.demandsAttention = false", script)
-        self.assertIn("window.demandsAttentionChanged.connect", script)
+        self.assertNotIn("demandsAttention", script)
+        self.assertIn('unhideOnAttention: "false"', cli)
 
         self.assertIn("dot-window-desktopEnabled=true", kwin)
         self.assertIn(
