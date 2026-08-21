@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -15,6 +16,33 @@ import time
 def fail(message: str) -> "NoReturn":
     print(f"dot-remmina-f5: {message}", file=sys.stderr)
     raise SystemExit(2)
+
+
+def requested_resolution() -> tuple[str, str]:
+    """Return the resolution owned by the active dotfiles profile."""
+    state_home = Path(
+        os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")
+    )
+    runtime_profile = Path(
+        os.environ.get(
+            "DOTFILES_RUNTIME_PROFILE",
+            state_home / "dotfiles/runtime-profile.json",
+        )
+    )
+    try:
+        profile = json.loads(runtime_profile.read_text(encoding="utf-8"))[
+            "dot_profile_data"
+        ]
+        rdp = profile["rdp"]
+        width = int(rdp["resolution_width"])
+        height = int(rdp["resolution_height"])
+        if width <= 0 or height <= 0:
+            raise ValueError("resolution must be positive")
+        return str(width), str(height)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        # Preserve the established laptop behavior when this helper is run
+        # outside a managed `dot apply` environment.
+        return "2880", "1800"
 
 
 if len(sys.argv) != 2:
@@ -78,10 +106,12 @@ runtime_dir.chmod(0o700)
 profile = runtime_dir / "f5-current.remmina"
 
 # This restores the useful core of the 2024 files-repository workflow. Request
-# the panel's physical 2880x1800 canvas and have Windows render it at 175%.
+# the active profile's physical display canvas and have Windows render it at
+# the managed desktop scale.
 # Remmina's profile view mode enters fullscreen after honoring the custom
 # resolution; passing --enable-fullscreen on the command line would instead
 # replace it with GTK's roughly 1644x1028 logical size and blur the result.
+resolution_width, resolution_height = requested_resolution()
 settings = {
     "name": server,
     "server": server,
@@ -96,8 +126,8 @@ settings = {
     "gateway_password": "",
     "disablepasswordstoring": "1",
     "resolution_mode": "0",
-    "resolution_width": "2880",
-    "resolution_height": "1800",
+    "resolution_width": resolution_width,
+    "resolution_height": resolution_height,
     "scale": "1",
     "viewmode": "4",
     "window_maximize": "1",

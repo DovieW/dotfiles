@@ -179,6 +179,7 @@
   fake_configure="$BATS_TEST_TMPDIR/configure-remmina"
   captured_profile="$BATS_TEST_TMPDIR/remmina-profile"
   runtime_dir="$BATS_TEST_TMPDIR/runtime"
+  runtime_profile="$BATS_TEST_TMPDIR/laptop-runtime-profile.json"
   rdp_file="$BATS_TEST_TMPDIR/f5-launch.rdp"
   mkdir -p "$fake_bin" "$runtime_dir"
   printf '%s\n' \
@@ -187,6 +188,7 @@
   chmod +x "$fake_bin/remmina"
   printf '#!/bin/sh\nexit 0\n' >"$fake_configure"
   chmod +x "$fake_configure"
+  printf '%s\n' '{"dot_profile_data":{"rdp":{"resolution_width":2880,"resolution_height":1800}}}' >"$runtime_profile"
   printf '%s\r\n' \
     'full address:s:remote.example.test' \
     'gatewayhostname:s:gateway.example.test' \
@@ -197,6 +199,7 @@
     XDG_RUNTIME_DIR="$runtime_dir" \
     DOT_TEST_REMMINA_PROFILE="$captured_profile" \
     DOT_REMMINA_CONFIGURE="$fake_configure" \
+    DOTFILES_RUNTIME_PROFILE="$runtime_profile" \
     "$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5" "$rdp_file"
 
   [ "$status" -eq 0 ]
@@ -211,6 +214,36 @@
   grep -Fxq "quality=9" "$captured_profile"
   grep -Fxq "cert_ignore=0" "$captured_profile"
   [ ! -e "$runtime_dir/dotfiles-remmina-$(id -u)/f5-current.remmina" ]
+}
+
+@test "dot-remmina-f5 requests the desktop profile resolution" {
+  fake_bin="$BATS_TEST_TMPDIR/desktop-remmina-bin"
+  fake_configure="$BATS_TEST_TMPDIR/desktop-configure-remmina"
+  captured_profile="$BATS_TEST_TMPDIR/desktop-remmina-profile"
+  runtime_dir="$BATS_TEST_TMPDIR/desktop-runtime"
+  runtime_profile="$BATS_TEST_TMPDIR/desktop-runtime-profile.json"
+  rdp_file="$BATS_TEST_TMPDIR/desktop-f5-launch.rdp"
+  mkdir -p "$fake_bin" "$runtime_dir"
+  printf '#!/bin/sh\ncp "$2" "$DOT_TEST_REMMINA_PROFILE"\n' >"$fake_bin/remmina"
+  chmod +x "$fake_bin/remmina"
+  printf '#!/bin/sh\nexit 0\n' >"$fake_configure"
+  chmod +x "$fake_configure"
+  printf '%s\n' '{"dot_profile_data":{"rdp":{"resolution_width":3840,"resolution_height":2160}}}' >"$runtime_profile"
+  printf '%s\r\n' \
+    'full address:s:remote.example.test' \
+    'gatewayhostname:s:gateway.example.test' \
+    'gatewayaccesstoken:s:one-time-token' >"$rdp_file"
+
+  run env PATH="$fake_bin:$PATH" \
+    XDG_RUNTIME_DIR="$runtime_dir" \
+    DOT_TEST_REMMINA_PROFILE="$captured_profile" \
+    DOT_REMMINA_CONFIGURE="$fake_configure" \
+    DOTFILES_RUNTIME_PROFILE="$runtime_profile" \
+    "$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5" "$rdp_file"
+
+  [ "$status" -eq 0 ]
+  grep -Fxq "resolution_width=3840" "$captured_profile"
+  grep -Fxq "resolution_height=2160" "$captured_profile"
 }
 
 @test "Codex installer accepts a managed stable-channel release" {

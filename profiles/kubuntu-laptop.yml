@@ -32,6 +32,10 @@
     "vscode": true,
     "windows_fonts": true
   },
+  "rdp": {
+    "resolution_width": 2880,
+    "resolution_height": 1800
+  },
   "packages": {
     "apt": [
       "adb",
