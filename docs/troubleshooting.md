@@ -131,6 +131,10 @@ the local clipboard as keystrokes, `M` to minimize Remmina, and `F9` to toggle
 view-only mode. Standard bidirectional RDP clipboard redirection is also
 enabled; the keystroke command remains available as a fallback for targets or
 fields where clipboard redirection does not work.
+Remote Windows audio plays through the local default output, and the local
+default microphone is redirected through PipeWire's PulseAudio-compatible
+interface. The remote server or gateway may still reject either virtual
+channel as a matter of policy.
 Closing a window containing multiple connections does not show an additional
 confirmation prompt.
 Right Control+F12 saves a local screenshot and also places the image on the

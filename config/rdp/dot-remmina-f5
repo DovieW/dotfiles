@@ -196,13 +196,13 @@ settings = {
     # desktop effects. Quality 0 uses 0x6F and makes Windows text jagged.
     "quality": "9",
     "disableclipboard": "0",
-    "sound": "off",
+    "sound": "local",
     "cert_ignore": "0",
     "ignore-tls-errors": "0",
     "authentication level": fields.get("authentication level", "0"),
     "sharesmartcard": "0",
     "shareprinter": "0",
-    "microphone": "",
+    "microphone": "sys:pulse",
 }
 
 profile.write_text(

@@ -2942,6 +2942,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"shortcutkey_viewonly": "65478"', remmina_preferences)
         self.assertIn('"keyboard_grab": "1"', remmina_launcher)
         self.assertIn('"disableclipboard": "0"', remmina_launcher)
+        self.assertIn('"sound": "local"', remmina_launcher)
+        self.assertIn('"microphone": "sys:pulse"', remmina_launcher)
         self.assertIn(
             "MimeType=application/x-rdp;application/x-remmina;",
             rdp_desktop,
