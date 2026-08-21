@@ -1476,6 +1476,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("org.kde.PlasmaShell.evaluateScript", remote_panel)
         self.assertIn('"hiding": "none"', remote_panel)
         self.assertIn("state[\"sessions\"]", remote_panel)
+        self.assertIn('session.get("source") == source', remote_panel)
         self.assertIn("restored", display)
         self.assertIn("previous hiding mode", docs)
         self.assertIn("physical monitor", docs)
@@ -1606,6 +1607,7 @@ class DotCliTests(unittest.TestCase):
         config = (ROOT / "config/ghostty/config").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
         cli = DOT.read_text()
+        kscreen = (ROOT / "scripts/kscreen-doctor").read_text()
 
         self.assertIn("ghostty", profile["packages"]["apt"])
         self.assertTrue(profile["features"]["firacode_nerd_font"])
@@ -1629,6 +1631,9 @@ class DotCliTests(unittest.TestCase):
             kdeglobals,
         )
         self.assertIn("TerminalApplication=/usr/bin/ghostty", kdeglobals)
+        self.assertIn("WAYLAND_DISPLAY", kscreen)
+        self.assertIn("exec /usr/bin/kscreen-doctor", kscreen)
+        self.assertIn('ROOT / "scripts/kscreen-doctor"', cli)
         self.assertIn(
             "font=Segoe UI Variable,9,-1,5,50,0,0,0,0,0",
             kdeglobals,
@@ -2442,7 +2447,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(
             "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
             "emoji-picker-ephemeral,flameshot-ephemeral,"
-            "ghostty-all-desktops,system-settings-ephemeral,"
+            "system-settings-ephemeral,"
             "bitwarden-ephemeral,system-monitor-ephemeral",
             rules,
         )
@@ -2458,10 +2463,8 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("wmclass=com.github.hluk.copyq", rules)
         self.assertIn("[flameshot-ephemeral]", rules)
         self.assertIn("wmclass=flameshot", rules)
-        self.assertIn("[ghostty-all-desktops]", rules)
-        self.assertIn("wmclass=com.mitchellh.ghostty", rules)
-        self.assertIn("desktops=\n", rules)
-        self.assertIn("desktopsrule=2", rules)
+        self.assertNotIn("[ghostty-all-desktops]", rules)
+        self.assertNotIn("wmclass=com.mitchellh.ghostty", rules)
         self.assertIn("[system-settings-ephemeral]", rules)
         self.assertIn("wmclass=systemsettings", rules)
         self.assertIn("[bitwarden-ephemeral]", rules)
@@ -2492,6 +2495,7 @@ class DotCliTests(unittest.TestCase):
         service = (
             ROOT / "config/systemd/user/dot-obsidian-launch.service"
         ).read_text()
+        launch = (ROOT / "scripts/obsidian-launch").read_text()
 
         self.assertIn("dot-obsidianEnabled=true", kwin)
         self.assertIn('window.desktopFileName === "obsidian"', script)
@@ -2512,8 +2516,11 @@ class DotCliTests(unittest.TestCase):
             service,
         )
         self.assertIn(
-            "obsidian-cli command id=workspace:open-in-new-window", service
+            "ExecStart=%h/.local/bin/dot-obsidian-launch", service
         )
+        self.assertIn("obsidian-cli command id=workspace:open-in-new-window", launch)
+        self.assertIn("systemd-run --user --unit=dot-obsidian-app", launch)
+        self.assertIn('ROOT / "scripts/obsidian-launch"', cli)
         self.assertIn('"config/kwin/dot-obsidian/metadata.json"', cli)
         self.assertIn('"config/obsidian/dot-obsidian.desktop"', cli)
         self.assertIn('"config/obsidian/obsidian.desktop"', cli)

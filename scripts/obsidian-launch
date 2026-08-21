@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if /opt/Obsidian/obsidian-cli command id=workspace:open-in-new-window; then
+    exit 0
+fi
+
+exec systemd-run --user --unit=dot-obsidian-app --collect \
+    --property=Type=exec "$HOME/.local/bin/obsidian"

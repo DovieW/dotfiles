@@ -4,4 +4,4 @@ Description=Open the active Obsidian note on the current virtual desktop
 [Service]
 Type=exec
 Environment=SSH_AUTH_SOCK=%h/.bitwarden-ssh-agent.sock
-ExecStart=/opt/Obsidian/obsidian-cli command id=workspace:open-in-new-window
+ExecStart=%h/.local/bin/dot-obsidian-launch

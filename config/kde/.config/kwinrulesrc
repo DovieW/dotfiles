@@ -1,6 +1,6 @@
 [General]
-count=8
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,ghostty-all-desktops,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
+count=7
+rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
 
 [bitwarden-ephemeral]
 Description=Keep Bitwarden out of persistent window lists
@@ -55,13 +55,6 @@ skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
 wmclass=flameshot
-wmclassmatch=1
-
-[ghostty-all-desktops]
-Description=Keep Ghostty on all virtual desktops
-desktops=
-desktopsrule=2
-wmclass=com.mitchellh.ghostty
 wmclassmatch=1
 
 [system-monitor-ephemeral]

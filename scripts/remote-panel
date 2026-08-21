@@ -141,7 +141,14 @@ def restore_states(
 def activate(source: str, session_id: str) -> None:
     state = load_state()
     current = panel_states()
-    if not state["sessions"]:
+    replaced = [
+        key
+        for key, session in state["sessions"].items()
+        if session.get("source") == source
+    ]
+    for key in replaced:
+        state["sessions"].pop(key, None)
+    if not state["sessions"] and not replaced:
         state["original"] = current
     key = f"{source}:{session_id}"
     state["sessions"][key] = {"source": source, "session": session_id}
@@ -150,7 +157,8 @@ def activate(source: str, session_id: str) -> None:
     actual = panel_states()
     if any(panel["hiding"] != "none" for panel in actual):
         raise RuntimeError("Plasma did not keep every current panel visible")
-    log(f"activated {key}; sessions={len(state['sessions'])}")
+    replacement = f"; replaced={','.join(replaced)}" if replaced else ""
+    log(f"activated {key}; sessions={len(state['sessions'])}{replacement}")
 
 
 def deactivate(source: str, session_id: str) -> None:

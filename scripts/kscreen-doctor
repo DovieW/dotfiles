@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR="$runtime"
+
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    for socket in "$runtime"/wayland-[0-9]*; do
+        if [[ -S "$socket" ]]; then
+            export WAYLAND_DISPLAY="${socket##*/}"
+            break
+        fi
+    done
+fi
+
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+    export QT_QPA_PLATFORM=wayland
+fi
+
+exec /usr/bin/kscreen-doctor "$@"

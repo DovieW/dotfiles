@@ -2477,6 +2477,8 @@ def apply_direct(
             ROOT / "config/environment.d/20-locale.conf": Path.home() / ".config/environment.d/20-locale.conf",
             ROOT / "config/environment.d/30-user-path.conf": Path.home() / ".config/environment.d/30-user-path.conf",
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
+            ROOT / "scripts/kscreen-doctor": Path.home() / ".local/bin/kscreen-doctor",
+            ROOT / "scripts/obsidian-launch": Path.home() / ".local/bin/dot-obsidian-launch",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
             ROOT / "config/kwin/dot-obsidian/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-obsidian/metadata.json",

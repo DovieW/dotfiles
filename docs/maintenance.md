@@ -301,9 +301,9 @@ or always hidden, then run `dot panel save`. That command captures both live
 preferences, validates the complete repository, and commits and pushes only
 the panel manifest.
 
-Running tasks are filtered to the current virtual desktop. Applications belong
-to every taskbar only through an explicit KWin all-desktops rule; Ghostty is the
-only normal application managed that way.
+Running tasks, including Ghostty, are filtered to the current virtual desktop.
+An application belongs to every taskbar only when an explicit KWin
+all-desktops rule opts it into that behavior.
 
 To capture only reviewed files, repeat `--only` with allowlisted basenames:
 
