@@ -11,11 +11,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Plasma 6.6's noninteractive screenshot portal hardcodes cursor inclusion.
-# Let KWin's managed hide-cursor effect reach its one-second idle threshold
-# before Flameshot asks the portal for the base image.
-sleep 1.25
-
 case "$mode" in
     region)
         QT_QPA_PLATFORM=wayland flameshot gui --path "$capture" --accept-on-select
@@ -23,12 +18,8 @@ case "$mode" in
     full)
         QT_QPA_PLATFORM=wayland flameshot full --path "$capture"
         ;;
-    editor)
-        QT_QPA_PLATFORM=wayland flameshot gui
-        exit 0
-        ;;
     *)
-        printf 'usage: capture-flameshot {region|full|editor}\n' >&2
+        printf 'usage: capture-flameshot {region|full}\n' >&2
         exit 2
         ;;
 esac
