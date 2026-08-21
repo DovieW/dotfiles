@@ -6379,7 +6379,10 @@ for (let i = 0; i < oldPanels.length; ++i) {{
 // Migrate the retired dedicated launcher back to Plasma's native Obsidian task.
 launchers = launchers.replace(
     "applications:dot-obsidian.desktop",
-    "applications:obsidian.desktop"
+    "applications:md.obsidian.Obsidian.desktop"
+).replace(
+    "applications:obsidian.desktop",
+    "applications:md.obsidian.Obsidian.desktop"
 );
 const panel = new Panel;
 panel.location = "bottom";

@@ -1081,7 +1081,7 @@ class DotCliTests(unittest.TestCase):
                 "applications:google-chrome.desktop",
                 "applications:com.mitchellh.ghostty.desktop",
                 "applications:chatgpt.desktop",
-                "applications:obsidian.desktop",
+                "applications:md.obsidian.Obsidian.desktop",
                 "applications:code.desktop",
             ],
         )
@@ -1661,7 +1661,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(
             "launchers=applications:google-chrome.desktop,"
             "applications:com.mitchellh.ghostty.desktop,"
-            "applications:obsidian.desktop",
+            "applications:md.obsidian.Obsidian.desktop",
             panel,
         )
         self.assertNotIn("applications:org.kde.konsole.desktop", panel)
