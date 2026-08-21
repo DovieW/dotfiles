@@ -2935,6 +2935,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"rdp_quality_9": "80"', remmina_preferences)
         self.assertIn('"start_dynres": "false"', remmina_preferences)
         self.assertIn('"fullscreen_toolbar_visibility": "2"', remmina_preferences)
+        self.assertIn('"confirm_close": "false"', remmina_preferences)
         self.assertIn('"shortcutkey_clipboard": "118"', remmina_preferences)
         self.assertIn('"shortcutkey_minimize": "109"', remmina_preferences)
         self.assertIn('"shortcutkey_viewonly": "65478"', remmina_preferences)

@@ -129,6 +129,8 @@ or restores the grab. The fullscreen toolbar is disabled completely, including
 its edge-hover activation area. Managed Right Control shortcuts use `V` to send
 the local clipboard as keystrokes, `M` to minimize Remmina, and `F9` to toggle
 view-only mode.
+Closing a window containing multiple connections does not show an additional
+confirmation prompt.
 
 The generated profile selects Remmina's Best quality preset, and dotfiles
 manages that preset with FreeRDP's font-smoothing flag enabled. If remote text

@@ -19,6 +19,7 @@ DESIRED = {
     # Keep the fullscreen canvas unobstructed: mode 2 disables the floating
     # toolbar and its edge-hover activation area completely.
     "fullscreen_toolbar_visibility": "2",
+    "confirm_close": "false",
     # Connection shortcuts use the configured Right Control host key.
     "shortcutkey_clipboard": "118",  # v
     "shortcutkey_minimize": "109",  # m
