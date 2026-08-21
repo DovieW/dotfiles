@@ -2512,6 +2512,10 @@ class DotCliTests(unittest.TestCase):
             mime_launcher,
         )
         self.assertIn(
+            "Icon=/usr/share/icons/hicolor/512x512/apps/obsidian.png",
+            mime_launcher,
+        )
+        self.assertIn(
             "Environment=SSH_AUTH_SOCK=%h/.bitwarden-ssh-agent.sock",
             service,
         )
