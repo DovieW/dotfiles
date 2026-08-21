@@ -133,6 +133,8 @@ enabled; the keystroke command remains available as a fallback for targets or
 fields where clipboard redirection does not work.
 Closing a window containing multiple connections does not show an additional
 confirmation prompt.
+Right Control+F12 saves a local screenshot and also places the image on the
+local clipboard for immediate pasting.
 
 The generated profile selects Remmina's Best quality preset, and dotfiles
 manages that preset with FreeRDP's font-smoothing flag enabled. If remote text

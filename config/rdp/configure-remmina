@@ -20,6 +20,7 @@ DESIRED = {
     # toolbar and its edge-hover activation area completely.
     "fullscreen_toolbar_visibility": "2",
     "confirm_close": "false",
+    "deny_screenshot_clipboard": "false",
     # Connection shortcuts use the configured Right Control host key.
     "shortcutkey_clipboard": "118",  # v
     "shortcutkey_minimize": "109",  # m
