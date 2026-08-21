@@ -6376,11 +6376,10 @@ for (let i = 0; i < oldPanels.length; ++i) {{
         break;
     }}
 }}
-// Migrate the old launcher ID. That ID matched windows on other desktops, so
-// Plasma intercepted clicks before our desktop-aware launcher could run.
+// Migrate the retired dedicated launcher back to Plasma's native Obsidian task.
 launchers = launchers.replace(
-    "applications:obsidian.desktop",
-    "applications:dot-obsidian.desktop"
+    "applications:dot-obsidian.desktop",
+    "applications:obsidian.desktop"
 );
 const panel = new Panel;
 panel.location = "bottom";

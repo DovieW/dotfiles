@@ -4,9 +4,8 @@ function isObsidian(window) {
 
 function manageObsidian(window) {
     if (isObsidian(window)) {
-        // One dedicated launcher represents Obsidian in the taskbar. Real vault
-        // windows remain available through Alt+Tab on their own desktops.
-        window.skipTaskbar = true;
+        // Keep native Obsidian windows associated with the real pinned launcher.
+        window.skipTaskbar = false;
     }
 }
 

@@ -6,7 +6,7 @@
     "applications:google-chrome.desktop",
     "applications:com.mitchellh.ghostty.desktop",
     "applications:chatgpt.desktop",
-    "applications:dot-obsidian.desktop",
+    "applications:obsidian.desktop",
     "applications:code.desktop"
   ],
   "tray": {

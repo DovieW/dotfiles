@@ -8,15 +8,7 @@ function desktopIndex(desktop) {
     return -1;
 }
 
-function isTeams(window) {
-    return window.desktopFileName === "teams-for-linux"
-        || window.resourceClass === "teams-for-linux";
-}
-
-function suppressTeamsAttention(window) {
-    if (!isTeams(window)) {
-        return;
-    }
+function suppressApplicationAttention(window) {
     window.demandsAttention = false;
     window.demandsAttentionChanged.connect(() => {
         if (window.demandsAttention) {
@@ -59,5 +51,5 @@ registerShortcut(
     () => moveWindowAndFollow(1)
 );
 
-workspace.windowAdded.connect(suppressTeamsAttention);
-workspace.stackingOrder.forEach(suppressTeamsAttention);
+workspace.windowAdded.connect(suppressApplicationAttention);
+workspace.stackingOrder.forEach(suppressApplicationAttention);

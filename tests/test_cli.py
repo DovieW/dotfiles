@@ -1081,7 +1081,7 @@ class DotCliTests(unittest.TestCase):
                 "applications:google-chrome.desktop",
                 "applications:com.mitchellh.ghostty.desktop",
                 "applications:chatgpt.desktop",
-                "applications:dot-obsidian.desktop",
+                "applications:obsidian.desktop",
                 "applications:code.desktop",
             ],
         )
@@ -1661,7 +1661,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(
             "launchers=applications:google-chrome.desktop,"
             "applications:com.mitchellh.ghostty.desktop,"
-            "applications:dot-obsidian.desktop",
+            "applications:obsidian.desktop",
             panel,
         )
         self.assertNotIn("applications:org.kde.konsole.desktop", panel)
@@ -2501,7 +2501,7 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn("dot-obsidianEnabled=true", kwin)
         self.assertIn('["obsidian", "md.obsidian.Obsidian"]', script)
-        self.assertIn("window.skipTaskbar = true", script)
+        self.assertIn("window.skipTaskbar = false", script)
         self.assertIn("workspace.windowAdded.connect(manageObsidian)", script)
         self.assertNotIn("registerShortcut", script)
         self.assertIn("systemctl --user start dot-obsidian-launch.service", launcher)
@@ -2539,8 +2539,7 @@ class DotCliTests(unittest.TestCase):
             ROOT / "config/kwin/dot-window-desktop/contents/code/main.js"
         ).read_text()
 
-        self.assertIn('window.desktopFileName === "teams-for-linux"', script)
-        self.assertIn('window.resourceClass === "teams-for-linux"', script)
+        self.assertIn("suppressApplicationAttention", script)
         self.assertIn("window.demandsAttention = false", script)
         self.assertIn("window.demandsAttentionChanged.connect", script)
 
