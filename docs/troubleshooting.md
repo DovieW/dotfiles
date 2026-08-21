@@ -123,6 +123,13 @@ replace the custom canvas with its approximately 1644×1028 logical surface,
 which looks correctly sized but fuzzy when stretched over the physical panel.
 Dynamic resolution remains disabled.
 
+The ephemeral profile starts with keyboard grabbing enabled, so ordinary
+desktop shortcuts are sent to remote Windows; tapping Right Control releases
+or restores the grab. The fullscreen toolbar is disabled completely, including
+its edge-hover activation area. Managed Right Control shortcuts use `V` to send
+the local clipboard as keystrokes, `M` to minimize Remmina, and `F9` to toggle
+view-only mode.
+
 The generated profile selects Remmina's Best quality preset, and dotfiles
 manages that preset with FreeRDP's font-smoothing flag enabled. If remote text
 looks jagged after an update, reconnect the RDP session and verify that

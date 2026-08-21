@@ -180,6 +180,7 @@ settings = {
     "gateway_username": "",
     "gateway_password": "",
     "disablepasswordstoring": "1",
+    "keyboard_grab": "1",
     "resolution_mode": "0",
     "resolution_width": resolution_width,
     "resolution_height": resolution_height,

@@ -204,6 +204,7 @@
   grep -Fxq "gateway_server=gateway.example.test" "$captured_profile"
   grep -Fxq "gatewayaccesstoken=one-time-token" "$captured_profile"
   grep -Fxq "resolution_mode=0" "$captured_profile"
+  grep -Fxq "keyboard_grab=1" "$captured_profile"
   grep -Fxq "resolution_width=2880" "$captured_profile"
   grep -Fxq "resolution_height=1800" "$captured_profile"
   grep -Fxq "scale=1" "$captured_profile"

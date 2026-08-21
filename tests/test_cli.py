@@ -2934,6 +2934,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"rdp_deviceScaleFactor"', remmina_preferences)
         self.assertIn('"rdp_quality_9": "80"', remmina_preferences)
         self.assertIn('"start_dynres": "false"', remmina_preferences)
+        self.assertIn('"fullscreen_toolbar_visibility": "2"', remmina_preferences)
+        self.assertIn('"shortcutkey_clipboard": "118"', remmina_preferences)
+        self.assertIn('"shortcutkey_minimize": "109"', remmina_preferences)
+        self.assertIn('"shortcutkey_viewonly": "65478"', remmina_preferences)
+        self.assertIn('"keyboard_grab": "1"', remmina_launcher)
         self.assertIn(
             "MimeType=application/x-rdp;application/x-remmina;",
             rdp_desktop,
