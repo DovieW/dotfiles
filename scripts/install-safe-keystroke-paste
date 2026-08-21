@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure|--check) ;;
+  *) echo "usage: install-safe-keystroke-paste [--ensure|--check]" >&2; exit 2 ;;
+esac
+
+repo="https://github.com/DovieW/safe-keystroke-paste.git"
+api="https://api.github.com/repos/DovieW/safe-keystroke-paste/releases/latest"
+app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/safe-keystroke-paste"
+bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+marker="$app_root/current-release"
+
+release="$(
+  curl --proto '=https' --tlsv1.2 -fsSL "$api" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))'
+)"
+if [[ ! "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Safe Keystroke Paste: latest stable release could not be resolved." >&2
+  exit 1
+fi
+
+target="$app_root/releases/$release"
+installed=""
+[[ -f "$marker" ]] && installed="$(<"$marker")"
+if [[ "$installed" == "$release" && -f "$target/safe_keystroke_paste/cli.py" &&
+      -x "$bin_dir/skpaste" ]]; then
+  echo "Safe Keystroke Paste $release is installed from the stable channel."
+  exit 0
+fi
+if [[ "$mode" == --check ]]; then
+  echo "Safe Keystroke Paste requires update: ${installed:-missing} -> $release" >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf -- "$work_dir"' EXIT
+git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$release" "$repo" "$work_dir/repo"
+
+install -d -m 0755 "$target/safe_keystroke_paste" "$bin_dir"
+for source in "$work_dir/repo"/src/safe_keystroke_paste/*.py; do
+  install -m 0644 "$source" "$target/safe_keystroke_paste/$(basename "$source")"
+done
+install -m 0644 "$work_dir/repo/LICENSE" "$target/LICENSE"
+
+launcher="$target/skpaste"
+# The following strings intentionally become the generated launcher's shell code.
+# shellcheck disable=SC2016
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -euo pipefail' \
+  'app_dir="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"' \
+  'export PYTHONPATH="$app_dir${PYTHONPATH:+:$PYTHONPATH}"' \
+  'exec /usr/bin/python3 -m safe_keystroke_paste "$@"' >"$launcher"
+chmod 0755 "$launcher"
+ln -sfn "$launcher" "$bin_dir/skpaste"
+printf '%s\n' "$release" >"$marker"
+
+echo "CHANGED Safe Keystroke Paste $release installed from the stable channel."

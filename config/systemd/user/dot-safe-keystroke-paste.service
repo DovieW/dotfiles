@@ -1,0 +1,6 @@
+[Unit]
+Description=Preview and safely type clipboard text
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/skpaste send

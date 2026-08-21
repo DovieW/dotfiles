@@ -2900,10 +2900,20 @@ class DotCliTests(unittest.TestCase):
             ROOT / "config/rdp/io.github.doview.dotfiles.rdp.desktop"
         ).read_text()
         rdp_mime = (ROOT / "config/rdp/rdp-mime.xml").read_text()
+        safe_paste_task = (
+            ROOT / "ansible/tasks/safe-keystroke-paste.yml"
+        ).read_text()
+        safe_paste_installer = (
+            ROOT / "scripts/install-safe-keystroke-paste"
+        ).read_text()
+        shortcuts = (
+            ROOT / "config/kde/.config/kglobalshortcutsrc"
+        ).read_text()
         cli = DOT.read_text()
 
         self.assertTrue(profile["features"]["vscode"])
         self.assertTrue(profile["features"]["rdp_files"])
+        self.assertTrue(profile["features"]["safe_keystroke_paste"])
         self.assertIn("code", profile["packages"]["apt"])
         self.assertIn("freerdp-sdl", profile["packages"]["apt"])
         self.assertIn("remmina", profile["packages"]["apt"])
@@ -2917,6 +2927,11 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertIn("tasks/vscode.yml", playbook)
         self.assertIn("tasks/rdp.yml", playbook)
+        self.assertIn("tasks/safe-keystroke-paste.yml", playbook)
+        self.assertIn("DovieW/safe-keystroke-paste", safe_paste_installer)
+        self.assertIn("python3-pyqt6", safe_paste_task)
+        self.assertIn("dot-safe-keystroke-paste=Meta+Shift+V", shortcuts)
+        self.assertIn("dot-safe-keystroke-paste-cancel=Meta+Shift+C", shortcuts)
         self.assertIn("https://packages.microsoft.com/repos/code", vscode)
         self.assertIn(
             "BC528686B50D79E339D3721CEB3E94ADBE1229CF",
@@ -2958,7 +2973,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"fullscreen_toolbar_visibility": "2"', remmina_preferences)
         self.assertIn('"confirm_close": "false"', remmina_preferences)
         self.assertIn('"deny_screenshot_clipboard": "false"', remmina_preferences)
-        self.assertIn('"shortcutkey_clipboard": "118"', remmina_preferences)
+        self.assertIn('"shortcutkey_clipboard": "0"', remmina_preferences)
         self.assertIn('"shortcutkey_minimize": "109"', remmina_preferences)
         self.assertIn('"shortcutkey_viewonly": "65478"', remmina_preferences)
         self.assertIn('"keyboard_grab": "1"', remmina_launcher)

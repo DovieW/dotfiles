@@ -61,6 +61,20 @@ registerShortcut(
 );
 
 registerShortcut(
+    "dot-safe-keystroke-paste",
+    "Open Safe Keystroke Paste",
+    "Meta+Shift+V",
+    function () { reopenUserUnit("dot-safe-keystroke-paste.service"); }
+);
+
+registerShortcut(
+    "dot-safe-keystroke-paste-cancel",
+    "Cancel Safe Keystroke Paste",
+    "Meta+Shift+C",
+    function () { reopenUserUnit("dot-safe-keystroke-paste-cancel.service"); }
+);
+
+registerShortcut(
     "dot-clipboard-probe",
     "Verify Clipboard Shortcuts",
     "",

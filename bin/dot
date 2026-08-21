@@ -1583,6 +1583,18 @@ def sync_managed_kglobal_shortcuts() -> None:
         "KWin",
         "Verify Clipboard Shortcuts",
     )
+    safe_keystroke_paste = (
+        "kwin",
+        "dot-safe-keystroke-paste",
+        "KWin",
+        "Open Safe Keystroke Paste",
+    )
+    safe_keystroke_paste_cancel = (
+        "kwin",
+        "dot-safe-keystroke-paste-cancel",
+        "KWin",
+        "Cancel Safe Keystroke Paste",
+    )
     klipper_popup = (
         "plasmashell",
         "show-on-mouse-pos",
@@ -1619,6 +1631,9 @@ def sync_managed_kglobal_shortcuts() -> None:
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
         clipboard_probe: [0],
+        # Qt::META | Qt::SHIFT | V and C.
+        safe_keystroke_paste: [301989974],
+        safe_keystroke_paste_cancel: [301989955],
     }
     activate_kglobal_shortcuts(desired)
 
@@ -1884,7 +1899,7 @@ def apply_direct(
                 ],
                 check=False,
             )
-    if features.get("copyq") and selected("clipboard"):
+    if features.get("copyq") and selected("clipboard", "safe-keystroke-paste"):
         copyq_mappings = {
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",
             ROOT / "config/copyq/dot-copyq-history": Path.home() / ".local/bin/dot-copyq-history",
@@ -1897,6 +1912,8 @@ def apply_direct(
             ROOT / "config/systemd/user/dot-copyq.service": Path.home() / ".config/systemd/user/dot-copyq.service",
             ROOT / "config/systemd/user/dot-clipboard-probe.service": Path.home() / ".config/systemd/user/dot-clipboard-probe.service",
             ROOT / "config/systemd/user/dot-emoji-picker.service": Path.home() / ".config/systemd/user/dot-emoji-picker.service",
+            ROOT / "config/systemd/user/dot-safe-keystroke-paste.service": Path.home() / ".config/systemd/user/dot-safe-keystroke-paste.service",
+            ROOT / "config/systemd/user/dot-safe-keystroke-paste-cancel.service": Path.home() / ".config/systemd/user/dot-safe-keystroke-paste-cancel.service",
         }
         for source, destination in copyq_mappings.items():
             changes += int(link_file(source, destination))
@@ -2137,8 +2154,12 @@ def apply_direct(
             runtime_state.parent.mkdir(parents=True, exist_ok=True)
             runtime_state.write_text(runtime_name + "\n", encoding="utf-8")
     if (
-        (features.get("copyq") and selected("clipboard"))
+        (features.get("copyq") and selected("clipboard", "safe-keystroke-paste"))
         or (features.get("emoji_picker") and selected("emoji", "clipboard"))
+        or (
+            features.get("safe_keystroke_paste")
+            and selected("safe-keystroke-paste", "rdp")
+        )
     ):
         if command_exists("kwriteconfig6"):
             run(
@@ -4554,6 +4575,8 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
         ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
         ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],
+        ("kwin", "dot-safe-keystroke-paste", "KWin", "Open Safe Keystroke Paste"): [301989974],
+        ("kwin", "dot-safe-keystroke-paste-cancel", "KWin", "Cancel Safe Keystroke Paste"): [301989955],
         ("org.kde.plasma.emojier.desktop", "_launch", "Emoji Selector", "Emoji Selector"): [0],
         ("plasmashell", "show-on-mouse-pos", "plasmashell", "Show Clipboard Items at Mouse Position"): [0],
     }
@@ -4566,7 +4589,7 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         return False, str(error)
     callback_ok = managed_clipboard_callback_ok()
     if loaded and assignments_ok and callback_ok:
-        return True, "KWin owns Meta+V, Ctrl+`, and Meta+.; live callback verified"
+        return True, "KWin owns clipboard, emoji, and safe-paste shortcuts; live callback verified"
     if not callback_ok:
         return False, "KWin clipboard action has no live callback"
     return False, "KWin clipboard script or live key assignments drifted"

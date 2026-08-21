@@ -1,0 +1,22 @@
+---
+- name: Install Safe Keystroke Paste runtime dependencies
+  become: true
+  ansible.builtin.apt:
+    name:
+      - python3-pyqt6
+      - wl-clipboard
+      - ydotool
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install or upgrade Safe Keystroke Paste from its stable channel
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/install-safe-keystroke-paste", "--ensure"]
+  register: dot_safe_keystroke_paste_install
+  changed_when: "dot_safe_keystroke_paste_install.stdout.startswith('CHANGED ')"
+
+- name: Verify Safe Keystroke Paste
+  ansible.builtin.command:
+    argv: ["{{ ansible_facts.user_dir }}/.local/bin/skpaste", "--version"]
+  changed_when: false

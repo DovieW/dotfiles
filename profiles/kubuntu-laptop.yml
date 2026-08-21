@@ -27,6 +27,7 @@
     "nvidia_dynamic_boost": false,
     "nvidia_settings_autostart": false,
     "rdp_files": true,
+    "safe_keystroke_paste": true,
     "tailscale": true,
     "touchpad_jump_workaround": true,
     "vscode": true,

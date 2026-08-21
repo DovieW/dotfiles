@@ -1,0 +1,6 @@
+[Unit]
+Description=Cancel active Safe Keystroke Paste transmission
+
+[Service]
+Type=oneshot
+ExecStart=-%h/.local/bin/skpaste cancel

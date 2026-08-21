@@ -168,6 +168,14 @@
       when: dot_profile_data.features.emoji_picker | default(false)
       tags: [packages, emoji, clipboard, app-updates]
 
+    - name: Configure Safe Keystroke Paste
+      ansible.builtin.include_tasks:
+        file: tasks/safe-keystroke-paste.yml
+        apply:
+          tags: [packages, clipboard, rdp, safe-keystroke-paste, app-updates]
+      when: dot_profile_data.features.safe_keystroke_paste | default(false)
+      tags: [packages, clipboard, rdp, safe-keystroke-paste, app-updates]
+
     - name: Configure the Copilot key as Right Control
       ansible.builtin.include_tasks:
         file: tasks/keyd.yml

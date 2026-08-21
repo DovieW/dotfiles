@@ -22,7 +22,8 @@ DESIRED = {
     "confirm_close": "false",
     "deny_screenshot_clipboard": "false",
     # Connection shortcuts use the configured Right Control host key.
-    "shortcutkey_clipboard": "118",  # v
+    # Safe Keystroke Paste replaces Remmina's unbounded clipboard sender.
+    "shortcutkey_clipboard": "0",
     "shortcutkey_minimize": "109",  # m
     "shortcutkey_viewonly": "65478",  # F9
 }
