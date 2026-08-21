@@ -2498,7 +2498,7 @@ class DotCliTests(unittest.TestCase):
         launch = (ROOT / "scripts/obsidian-launch").read_text()
 
         self.assertIn("dot-obsidianEnabled=true", kwin)
-        self.assertIn('window.desktopFileName === "obsidian"', script)
+        self.assertIn('["obsidian", "md.obsidian.Obsidian"]', script)
         self.assertIn("isOnDesktop(windows[index], desktop)", script)
         self.assertIn("window.desktops = [requestedDesktop]", script)
         self.assertIn("window.skipTaskbar = true", script)

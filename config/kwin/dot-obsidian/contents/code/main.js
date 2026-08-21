@@ -1,7 +1,7 @@
 let requestedDesktop = null;
 
 function isObsidian(window) {
-    return window.desktopFileName === "obsidian";
+    return ["obsidian", "md.obsidian.Obsidian"].includes(window.desktopFileName);
 }
 
 function isOnDesktop(window, desktop) {
