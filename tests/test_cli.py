@@ -267,6 +267,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("keyd.rvaiya, reload", task)
         self.assertIn("keyd.service", task)
         self.assertIn("systemctl, is-active, keyd.service", task)
+        self.assertIn("rightcontrol = rightcontrol", config)
         self.assertIn("leftmeta+leftshift+f23 = rightcontrol", config)
 
     def test_remote_support_precedes_identity_and_requires_tailscale(self):
