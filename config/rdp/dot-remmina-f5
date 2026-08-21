@@ -195,7 +195,7 @@ settings = {
     # FreeRDP font smoothing without disabling themes, composition, or other
     # desktop effects. Quality 0 uses 0x6F and makes Windows text jagged.
     "quality": "9",
-    "disableclipboard": "1",
+    "disableclipboard": "0",
     "sound": "off",
     "cert_ignore": "0",
     "ignore-tls-errors": "0",

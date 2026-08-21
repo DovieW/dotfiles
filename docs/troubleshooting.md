@@ -128,7 +128,9 @@ desktop shortcuts are sent to remote Windows; tapping Right Control releases
 or restores the grab. The fullscreen toolbar is disabled completely, including
 its edge-hover activation area. Managed Right Control shortcuts use `V` to send
 the local clipboard as keystrokes, `M` to minimize Remmina, and `F9` to toggle
-view-only mode.
+view-only mode. Standard bidirectional RDP clipboard redirection is also
+enabled; the keystroke command remains available as a fallback for targets or
+fields where clipboard redirection does not work.
 Closing a window containing multiple connections does not show an additional
 confirmation prompt.
 
