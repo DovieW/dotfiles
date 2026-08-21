@@ -158,10 +158,10 @@ dispatcher.
 Ordinary files use the stock SDL client in fullscreen dynamic-resolution mode.
 Token-bearing F5 webtop files use the restored Remmina flow: a managed helper
 reads the target, gateway, and short-lived token; generates a mode-0600 profile
-under the per-user runtime directory; requests the active profile's native
-display canvas; enters fullscreen through the profile view mode; and deletes the
-generated profile. Windows renders that physical canvas at 175% desktop scale
-and the closest supported 180% device bucket. The launcher does not pass
+under the per-user runtime directory; queries KScreen for the current primary
+display's physical canvas and scale; enters fullscreen through the profile view
+mode; and deletes the generated profile. Windows uses the matching desktop
+scale and the closest supported 100%, 140%, or 180% device bucket. The launcher does not pass
 Remmina's command-line fullscreen override because it substitutes GTK's
 low-resolution logical surface and produces blurry client-side enlargement.
 It selects Remmina's Best rendering preset, with FreeRDP font smoothing

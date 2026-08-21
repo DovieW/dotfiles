@@ -10,11 +10,6 @@ import tempfile
 
 
 DESIRED = {
-    # The F5 profile requests the panel's physical 2880x1800 canvas. Windows
-    # then renders at the same 175% scale as the local KDE desktop, avoiding
-    # client-side enlargement of a low-resolution logical framebuffer.
-    "rdp_desktopScaleFactor": "175",
-    "rdp_deviceScaleFactor": "180",
     "rdp_desktopOrientation": "0",
     # Remmina's Best preset: enable FreeRDP font smoothing and leave the
     # disable-performance flags clear. The profile selects this as quality 9.
@@ -24,7 +19,7 @@ DESIRED = {
 }
 
 
-def render(original: str) -> str:
+def render(original: str, desired: dict[str, str]) -> str:
     lines = original.splitlines()
     section_start = next(
         (index for index, line in enumerate(lines) if line == "[remmina_pref]"),
@@ -47,10 +42,10 @@ def render(original: str) -> str:
     seen: set[str] = set()
     for index in range(section_start + 1, section_end):
         key, separator, _value = lines[index].partition("=")
-        if separator and key in DESIRED:
-            lines[index] = f"{key}={DESIRED[key]}"
+        if separator and key in desired:
+            lines[index] = f"{key}={desired[key]}"
             seen.add(key)
-    for key, value in DESIRED.items():
+    for key, value in desired.items():
         if key not in seen:
             lines.insert(section_end, f"{key}={value}")
             section_end += 1
@@ -59,14 +54,28 @@ def render(original: str) -> str:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--check", action="store_true")
+parser.add_argument("--desktop-scale", type=int)
+parser.add_argument("--device-scale", type=int, choices=(100, 140, 180))
 args = parser.parse_args()
+if (args.desktop_scale is None) != (args.device_scale is None):
+    parser.error("--desktop-scale and --device-scale must be supplied together")
+desired = dict(DESIRED)
+if args.desktop_scale is not None:
+    if not 100 <= args.desktop_scale <= 500:
+        parser.error("--desktop-scale must be between 100 and 500")
+    desired.update(
+        {
+            "rdp_desktopScaleFactor": str(args.desktop_scale),
+            "rdp_deviceScaleFactor": str(args.device_scale),
+        }
+    )
 
 path = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     / "remmina/remmina.pref"
 )
 original = path.read_text(encoding="utf-8") if path.exists() else ""
-managed = render(original)
+managed = render(original, desired)
 
 if args.check:
     if original == managed:

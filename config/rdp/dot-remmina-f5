@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -18,31 +19,78 @@ def fail(message: str) -> "NoReturn":
     raise SystemExit(2)
 
 
-def requested_resolution() -> tuple[str, str]:
-    """Return the resolution owned by the active dotfiles profile."""
-    state_home = Path(
-        os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")
+def graphical_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    runtime = Path(f"/run/user/{os.getuid()}")
+    environment.setdefault("XDG_RUNTIME_DIR", str(runtime))
+    environment.setdefault(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus"
     )
-    runtime_profile = Path(
-        os.environ.get(
-            "DOTFILES_RUNTIME_PROFILE",
-            state_home / "dotfiles/runtime-profile.json",
+    if not environment.get("WAYLAND_DISPLAY"):
+        sockets = sorted(
+            path.name
+            for path in runtime.glob("wayland-*")
+            if re.fullmatch(r"wayland-\d+", path.name)
         )
-    )
+        if sockets:
+            environment["WAYLAND_DISPLAY"] = sockets[0]
+    environment["QT_QPA_PLATFORM"] = "wayland"
+    return environment
+
+
+def local_display() -> tuple[str, str, str, str]:
+    """Return primary width, height, desktop scale, and device scale."""
     try:
-        profile = json.loads(runtime_profile.read_text(encoding="utf-8"))[
-            "dot_profile_data"
+        doctor = os.environ.get("DOT_KSCREEN_DOCTOR", "kscreen-doctor")
+        result = subprocess.run(
+            [doctor, "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=graphical_environment(),
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("KScreen query failed")
+        outputs = [
+            output
+            for output in json.loads(result.stdout).get("outputs", [])
+            if output.get("connected") and output.get("enabled")
         ]
-        rdp = profile["rdp"]
-        width = int(rdp["resolution_width"])
-        height = int(rdp["resolution_height"])
-        if width <= 0 or height <= 0:
-            raise ValueError("resolution must be positive")
-        return str(width), str(height)
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        # Preserve the established laptop behavior when this helper is run
-        # outside a managed `dot apply` environment.
-        return "2880", "1800"
+        output = next(
+            (candidate for candidate in outputs if candidate.get("primary")),
+            outputs[0] if len(outputs) == 1 else None,
+        )
+        if output is None:
+            raise ValueError("primary output is ambiguous")
+        mode_id = str(output["currentModeId"])
+        mode = next(
+            mode
+            for mode in output["modes"]
+            if str(mode.get("id")) == mode_id
+        )
+        width = int(mode["size"]["width"])
+        height = int(mode["size"]["height"])
+        desktop_scale = round(float(output["scale"]) * 100)
+        if width <= 0 or height <= 0 or not 100 <= desktop_scale <= 500:
+            raise ValueError("invalid display geometry")
+        device_scale = min(
+            (100, 140, 180), key=lambda item: abs(item - desktop_scale)
+        )
+        return tuple(map(str, (width, height, desktop_scale, device_scale)))
+    except (
+        json.JSONDecodeError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        subprocess.SubprocessError,
+        TypeError,
+        ValueError,
+    ):
+        # Preserve the established laptop behavior outside a graphical Plasma
+        # session or when KScreen cannot identify a primary output.
+        return "2880", "1800", "175", "180"
 
 
 if len(sys.argv) != 2:
@@ -57,6 +105,8 @@ if shutil.which("remmina") is None:
         "`dot apply --profile kubuntu-laptop --tags rdp`"
     )
 
+resolution_width, resolution_height, desktop_scale, device_scale = local_display()
+
 preferences_helper = Path(
     os.environ.get(
         "DOT_REMMINA_CONFIGURE",
@@ -69,7 +119,13 @@ if not preferences_helper.is_file():
         "`dot apply --profile kubuntu-laptop --tags rdp`"
     )
 preferences = subprocess.run(
-    [str(preferences_helper)],
+    [
+        str(preferences_helper),
+        "--desktop-scale",
+        desktop_scale,
+        "--device-scale",
+        device_scale,
+    ],
     check=False,
     capture_output=True,
     text=True,
@@ -111,7 +167,6 @@ profile = runtime_dir / "f5-current.remmina"
 # Remmina's profile view mode enters fullscreen after honoring the custom
 # resolution; passing --enable-fullscreen on the command line would instead
 # replace it with GTK's roughly 1644x1028 logical size and blur the result.
-resolution_width, resolution_height = requested_resolution()
 settings = {
     "name": server,
     "server": server,

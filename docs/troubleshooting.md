@@ -111,11 +111,13 @@ profile exists only in the per-user runtime directory, is readable only by the
 user, and is erased after Remmina has consumed it. Certificate validation
 remains enabled.
 
-The managed Remmina profile requests the active dotfiles profile's native
-canvas (2880×1800 on the laptop or 3840×2160 on the desktop) and has Windows
-render it at 175% desktop scale (using FreeRDP's closest supported
-180% device bucket). This produces the same apparent size as KDE while keeping
-text pixel-sharp. The launcher deliberately relies on profile `viewmode=4`
+At each launch, the managed Remmina helper queries KScreen for the primary
+display's current physical canvas and Plasma scale. It has Windows render at
+that same desktop scale while selecting FreeRDP's closest supported 100%, 140%,
+or 180% device bucket. This follows monitor and scaling changes without another
+`dot apply` and keeps text pixel-sharp. If KScreen is unavailable, it falls back
+to the managed laptop's 2880×1800 canvas at 175% scale. The launcher deliberately
+relies on profile `viewmode=4`
 rather than passing Remmina's `--enable-fullscreen` flag: that flag makes GTK
 replace the custom canvas with its approximately 1644×1028 logical surface,
 which looks correctly sized but fuzzy when stretched over the physical panel.

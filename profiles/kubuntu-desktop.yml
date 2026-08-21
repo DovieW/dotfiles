@@ -15,10 +15,6 @@
     "nvidia_dynamic_boost": false,
     "touchpad_jump_workaround": false
   },
-  "rdp": {
-    "resolution_width": 3840,
-    "resolution_height": 2160
-  },
   "packages": {
     "apt": [],
     "brew": [],
