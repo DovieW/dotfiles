@@ -2527,6 +2527,14 @@ def apply_direct(
                 "dot-window-desktop": Path.home()
                 / ".local/share/kwin/scripts/dot-window-desktop/contents/code/main.js",
             }
+            kwin_script_actions = {
+                "dot-dolphin": ("dot-dolphin",),
+                "dot-obsidian": (),
+                "dot-window-desktop": (
+                    "dot-window-desktop-left",
+                    "dot-window-desktop-right",
+                ),
+            }
             for script_name, script_path in kwin_scripts.items():
                 loaded = run(
                     [
@@ -2548,6 +2556,18 @@ def apply_direct(
                                 "/Scripting",
                                 "org.kde.kwin.Scripting.unloadScript",
                                 script_name,
+                            ],
+                            check=False,
+                        )
+                    for action_name in kwin_script_actions[script_name]:
+                        run(
+                            [
+                                "qdbus6",
+                                "org.kde.kglobalaccel",
+                                "/kglobalaccel",
+                                "org.kde.KGlobalAccel.unregister",
+                                "kwin",
+                                action_name,
                             ],
                             check=False,
                         )
@@ -9245,7 +9265,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "dot-obsidianEnabled=true" in kwin
             and obsidian_script_loaded
             and obsidian_launcher.is_file()
-            and "org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian"
+            and "systemctl --user start dot-obsidian-launch.service"
             in obsidian_launcher.read_text(encoding="utf-8")
             and obsidian_cli_enabled
         )

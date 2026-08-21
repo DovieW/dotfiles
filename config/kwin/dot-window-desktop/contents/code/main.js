@@ -8,6 +8,23 @@ function desktopIndex(desktop) {
     return -1;
 }
 
+function isTeams(window) {
+    return window.desktopFileName === "teams-for-linux"
+        || window.resourceClass === "teams-for-linux";
+}
+
+function suppressTeamsAttention(window) {
+    if (!isTeams(window)) {
+        return;
+    }
+    window.demandsAttention = false;
+    window.demandsAttentionChanged.connect(() => {
+        if (window.demandsAttention) {
+            window.demandsAttention = false;
+        }
+    });
+}
+
 function moveWindowAndFollow(offset) {
     const window = workspace.activeWindow;
     if (!window || window.onAllDesktops) {
@@ -41,3 +58,6 @@ registerShortcut(
     "Meta+Alt+Right",
     () => moveWindowAndFollow(1)
 );
+
+workspace.windowAdded.connect(suppressTeamsAttention);
+workspace.stackingOrder.forEach(suppressTeamsAttention);

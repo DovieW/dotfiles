@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Obsidian
 Comment=Open Obsidian on this virtual desktop
-Exec=/usr/bin/qdbus6 org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian
+Exec=/usr/bin/systemctl --user start dot-obsidian-launch.service
 Terminal=false
 Type=Application
 Icon=obsidian

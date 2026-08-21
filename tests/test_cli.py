@@ -2481,6 +2481,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"config/kwin/dot-dolphin/metadata.json"', cli)
         self.assertIn('"config/kwin/dot-dolphin/contents/code/main.js"', cli)
         self.assertIn('"systemctl", "--user", "daemon-reload"', cli)
+        self.assertIn('"org.kde.KGlobalAccel.unregister"', cli)
+        self.assertIn('"dot-obsidian": ()', cli)
         self.assertIn('"Dolphin singleton shortcut"', cli)
         self.assertIn('"Dolphin taskbar rule"', cli)
 
@@ -2499,13 +2501,10 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn("dot-obsidianEnabled=true", kwin)
         self.assertIn('["obsidian", "md.obsidian.Obsidian"]', script)
-        self.assertIn("isOnDesktop(windows[index], desktop)", script)
-        self.assertIn("window.desktops = [requestedDesktop]", script)
         self.assertIn("window.skipTaskbar = true", script)
-        self.assertIn("workspace.activeWindow = window", script)
-        self.assertIn("dot-obsidian-launch.service", script)
-        self.assertIn('"dot-obsidian"', script)
-        self.assertIn("org.kde.kglobalaccel.Component.invokeShortcut dot-obsidian", launcher)
+        self.assertIn("workspace.windowAdded.connect(manageObsidian)", script)
+        self.assertNotIn("registerShortcut", script)
+        self.assertIn("systemctl --user start dot-obsidian-launch.service", launcher)
         self.assertIn("StartupWMClass=dot-obsidian-launcher", launcher)
         self.assertIn(
             "Exec=/home/dovie/.local/bin/obsidian %U",
@@ -2539,6 +2538,11 @@ class DotCliTests(unittest.TestCase):
         script = (
             ROOT / "config/kwin/dot-window-desktop/contents/code/main.js"
         ).read_text()
+
+        self.assertIn('window.desktopFileName === "teams-for-linux"', script)
+        self.assertIn('window.resourceClass === "teams-for-linux"', script)
+        self.assertIn("window.demandsAttention = false", script)
+        self.assertIn("window.demandsAttentionChanged.connect", script)
 
         self.assertIn("dot-window-desktopEnabled=true", kwin)
         self.assertIn(
