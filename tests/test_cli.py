@@ -1801,6 +1801,19 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("git ls-remote --tags", resolver)
         self.assertIn("releases/tags/$latest_tag", resolver)
 
+    def test_kubuntu_installs_teams_for_linux(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        package = json.loads(
+            (ROOT / "packages/external-deb.yml").read_text()
+        )["packages"]["teams-for-linux"]
+
+        self.assertIn("teams-for-linux", profile["packages"]["deb"])
+        self.assertEqual(package["source"], "IsmaelMartinez/teams-for-linux")
+        self.assertEqual(
+            package["asset_regex"],
+            r"^teams-for-linux_[0-9.]+_amd64\.deb$",
+        )
+
     def test_kubuntu_removes_retired_rustdesk_remote_access(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         manifest = json.loads((ROOT / "packages/external-deb.yml").read_text())

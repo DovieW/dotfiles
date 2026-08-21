@@ -67,7 +67,7 @@
       "ydotool"
     ],
     "brew": ["bun", "freerdp", "lazydocker", "lazygit"],
-    "deb": ["bitwarden", "obsidian"],
+    "deb": ["bitwarden", "obsidian", "teams-for-linux"],
     "snap": []
   }
 }

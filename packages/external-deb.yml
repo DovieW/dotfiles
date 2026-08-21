@@ -14,6 +14,13 @@
       "tag_glob": "v*",
       "tag_regex": "^v[0-9.]+$",
       "asset_regex": "^obsidian_[0-9.]+_amd64\\.deb$"
+    },
+    "teams-for-linux": {
+      "channel": "stable",
+      "source": "IsmaelMartinez/teams-for-linux",
+      "tag_glob": "v*",
+      "tag_regex": "^v[0-9.]+$",
+      "asset_regex": "^teams-for-linux_[0-9.]+_amd64\\.deb$"
     }
   }
 }
