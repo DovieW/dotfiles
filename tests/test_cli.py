@@ -2980,7 +2980,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"fullscreen_toolbar_visibility": "2"', remmina_preferences)
         self.assertIn('"confirm_close": "false"', remmina_preferences)
         self.assertIn('"deny_screenshot_clipboard": "false"', remmina_preferences)
-        self.assertIn('"shortcutkey_clipboard": "0"', remmina_preferences)
+        self.assertIn('"shortcutkey_clipboard": "118"', remmina_preferences)
         self.assertIn('"shortcutkey_minimize": "109"', remmina_preferences)
         self.assertIn('"shortcutkey_viewonly": "65478"', remmina_preferences)
         self.assertIn('"keyboard_grab": "1"', remmina_launcher)
