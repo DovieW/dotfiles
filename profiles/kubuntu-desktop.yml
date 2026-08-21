@@ -16,7 +16,7 @@
     "touchpad_jump_workaround": false
   },
   "packages": {
-    "apt": [],
+    "apt": ["ratbagd"],
     "brew": [],
     "deb": [],
     "snap": []

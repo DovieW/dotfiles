@@ -2,6 +2,11 @@
 cursorSize=32
 cursorTheme=Breeze_Light
 
+[Libinput][1133][16511][Logitech G502]
+PointerAcceleration=-1.000
+PointerAccelerationProfile=1
+ScrollFactor=0.5
+
 [Libinput][1160][4180][CIRQ1080:00 0488:1054 Touchpad]
 DisableWhileTyping=false
 PointerAcceleration=0.200

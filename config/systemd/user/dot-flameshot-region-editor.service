@@ -3,4 +3,4 @@ Description=Select and edit a rectangular screenshot
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/flameshot gui
+ExecStart=%h/.local/bin/dot-capture-flameshot editor

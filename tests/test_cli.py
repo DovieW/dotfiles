@@ -2381,6 +2381,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("PointerAccelerationProfile=1", input_config)
         self.assertIn("ScrollFactor=0.1", input_config)
         self.assertIn("DisableWhileTyping=false", input_config)
+        self.assertIn(
+            "[Libinput][1133][16511][Logitech G502]\n"
+            "PointerAcceleration=-1.000\n"
+            "PointerAccelerationProfile=1\n"
+            "ScrollFactor=0.5",
+            input_config,
+        )
         self.assertIn("[Mouse]\ncursorSize=32\ncursorTheme=Breeze_Light", input_config)
         self.assertIn('"plasma-apply-cursortheme"', cli)
         self.assertIn('"Breeze_Light"', cli)
@@ -3010,7 +3017,9 @@ class DotCliTests(unittest.TestCase):
         self.assertFalse(profile["features"]["nvidia_driver"])
         self.assertFalse(profile["features"]["touchpad_jump_workaround"])
         self.assertIn("openssh-server", profile["packages"]["apt"])
+        self.assertIn("ratbagd", profile["packages"]["apt"])
         self.assertNotIn("anydesk", profile["packages"]["apt"])
+        self.assertTrue(any("G502" in note and "900 DPI" in note for note in manifest["notes"]))
         self.assertEqual(manifest["profile"], "kubuntu-desktop")
         self.assertEqual(
             manifest["approved_tags"], ["krdp", "meshcentral", "nomachine"]
@@ -3282,6 +3291,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("dot-capture-flameshot full", full_service)
         self.assertIn("flameshot gui --path", flameshot_capture)
         self.assertIn("flameshot full --path", flameshot_capture)
+        self.assertIn("QT_QPA_PLATFORM=wayland", flameshot_capture)
+        self.assertIn("sleep 1.25", flameshot_capture)
+        self.assertIn("Plasma 6.6's noninteractive screenshot portal", flameshot_capture)
         self.assertIn("wl-copy --foreground --type image/png", flameshot_capture)
         self.assertIn('ROOT / "scripts/capture-flameshot"', cli)
         self.assertIn("dot-capture-active-window", window_service)
@@ -3289,7 +3301,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("--activewindow", active_capture)
         self.assertIn("--output", active_capture)
         self.assertIn("wl-copy --foreground --type image/png", active_capture)
-        self.assertIn("ExecStart=/usr/bin/flameshot gui", editor_service)
+        self.assertIn("dot-capture-flameshot editor", editor_service)
         self.assertNotIn("--pin", editor_service)
         self.assertIn("RemainAfterExit=yes", probe_service)
         self.assertIn("luna-ocr capture", luna_ocr_service)
