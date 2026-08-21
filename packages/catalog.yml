@@ -11,6 +11,7 @@
     "anydesk": {"provider": "apt"},
     "ansible": {"provider": "brew"},
     "bat": {"provider": "brew"},
+    "bats-core": {"provider": "brew"},
     "bun": {"provider": "brew"},
     "chatgpt": {"provider": "apt"},
     "code": {"provider": "apt"},

@@ -29,6 +29,7 @@
       "ansible-lint",
       "bash",
       "bat",
+      "bats-core",
       "bitwarden-cli",
       "eza",
       "fd",
