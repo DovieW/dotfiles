@@ -381,3 +381,10 @@
   [ "$status" -eq 0 ]
   [[ "$output" == *"failed=0"* ]]
 }
+
+@test "ydotool receives narrow current-session uinput access" {
+  grep -Fq '"acl"' "$BATS_TEST_DIRNAME/../profiles/kubuntu-laptop.yml"
+  grep -Fq 'setfacl' "$BATS_TEST_DIRNAME/../ansible/tasks/copyq.yml"
+  grep -Fq 'udevadm, trigger' "$BATS_TEST_DIRNAME/../ansible/tasks/copyq.yml"
+  grep -Fq 'state: started' "$BATS_TEST_DIRNAME/../ansible/tasks/copyq.yml"
+}

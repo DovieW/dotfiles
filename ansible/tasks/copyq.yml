@@ -37,7 +37,47 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Reload udev rules after virtual-input policy changes
+  register: dot_copyq_uinput_rule
+
+- name: Reload udev after virtual-input policy changes
+  become: true
+  ansible.builtin.command:
+    argv: [udevadm, control, --reload-rules]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - dot_copyq_uinput_rule.changed
+
+- name: Apply virtual-input ownership to the existing device
+  become: true
+  ansible.builtin.command:
+    argv: [udevadm, trigger, --action=change, --sysname-match=uinput]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - dot_copyq_uinput_rule.changed
+
+- name: Inspect current-session virtual-input access
+  ansible.builtin.command:
+    argv: [getfacl, --absolute-names, --omit-header, /dev/uinput]
+  register: dot_copyq_uinput_acl
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Bridge virtual-input access until group membership refreshes
+  become: true
+  ansible.builtin.command:
+    argv:
+      - setfacl
+      - --modify
+      - "user:{{ ansible_facts['user_id'] }}:rw"
+      - /dev/uinput
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - >-
+      ('user:' ~ ansible_facts['user_id'] ~ ':rw-') not in
+      dot_copyq_uinput_acl.stdout
 
 - name: Enable the packaged ydotool daemon for user sessions
   ansible.builtin.systemd_service:
@@ -48,6 +88,17 @@
     XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
     DBUS_SESSION_BUS_ADDRESS: >-
       unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+
+- name: Start ydotool after virtual-input authorization is effective
+  ansible.builtin.systemd_service:
+    name: ydotool.service
+    state: started
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: >-
+      unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
+  when: not ansible_check_mode
 
 - name: Install or upgrade CopyQ from the official stable channel
   ansible.builtin.command:
