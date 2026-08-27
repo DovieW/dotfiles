@@ -2421,6 +2421,8 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"org.kde.kwin.Effects.unloadEffect"', cli)
         self.assertIn("restore_backup(backup_run_id)", cli)
         self.assertIn('"Plasma panel layout"', cli)
+        self.assertIn("Validate the panel", cli)
+        self.assertIn("panel_profile_matches(selected_panel)", cli)
         self.assertIn('"KWin screen edges"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
@@ -2485,6 +2487,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
         self.assertIn("dot-dolphin-launch.service", script)
+        self.assertIn('plugin_key = f"{script_name}Enabled"', cli)
         self.assertIn("registerShortcut(", script)
         self.assertIn('"KPackageStructure": "KWin/Script"', metadata)
         self.assertIn("ExecStart=/usr/bin/dolphin", service)

@@ -2470,8 +2470,15 @@ def apply_direct(
                 time.sleep(0.25)
             else:
                 raise DotError("Plasma Shell did not return after applying the panel.")
-            matches, detail = panel_profile_matches(selected_panel)
-            if not matches:
+            # Plasma registers its DBus service before the replacement panel
+            # has finished restoring placement and hiding. Validate the panel
+            # state itself instead of treating DBus availability as readiness.
+            for _attempt in range(40):
+                matches, detail = panel_profile_matches(selected_panel)
+                if matches:
+                    break
+                time.sleep(0.25)
+            else:
                 raise DotError(f"Managed panel did not validate: {detail}")
         record_kde_baseline()
         if powerdevil_changed and command_exists("systemctl"):
@@ -2615,6 +2622,68 @@ def apply_direct(
                             "org.kde.kwin.Script.run",
                         ]
                     )
+                    # Plasma 6 can report a raw loadScript instance as loaded
+                    # without recreating its KGlobalAccel actions. Toggle the
+                    # installed plugin through KWin's normal configuration
+                    # path so registerShortcut() runs in the managed package
+                    # lifecycle as well as the raw-script fallback above.
+                    if command_exists("kwriteconfig6"):
+                        plugin_key = f"{script_name}Enabled"
+                        run(
+                            [
+                                "kwriteconfig6",
+                                "--file",
+                                "kwinrc",
+                                "--group",
+                                "Plugins",
+                                "--key",
+                                plugin_key,
+                                "false",
+                            ]
+                        )
+                        run(
+                            [
+                                "qdbus6",
+                                "org.kde.KWin",
+                                "/KWin",
+                                "org.kde.KWin.reconfigure",
+                            ]
+                        )
+                        for _attempt in range(50):
+                            unloaded = run(
+                                [
+                                    "qdbus6",
+                                    "org.kde.KWin",
+                                    "/Scripting",
+                                    "org.kde.kwin.Scripting.isScriptLoaded",
+                                    script_name,
+                                ],
+                                check=False,
+                                capture=True,
+                            )
+                            if unloaded.stdout.strip() == "false":
+                                break
+                            time.sleep(0.1)
+                        run(
+                            [
+                                "kwriteconfig6",
+                                "--file",
+                                "kwinrc",
+                                "--group",
+                                "Plugins",
+                                "--key",
+                                plugin_key,
+                                "true",
+                            ]
+                        )
+                        run(
+                            [
+                                "qdbus6",
+                                "org.kde.KWin",
+                                "/KWin",
+                                "org.kde.KWin.reconfigure",
+                            ]
+                        )
             # registerShortcut() happens when the scripts run, after the
             # static kglobalshortcutsrc synchronization above. Reconcile once
             # more now that every managed KWin action exists.
