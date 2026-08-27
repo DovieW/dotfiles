@@ -11,6 +11,10 @@ _k_friendly_name=Keyboard Layout Switcher
 _k_friendly_name=ChatGPT
 global-dictation=Alt+\\,,Ctrl+Alt+Shift+D,Global dictation
 
+[com.kolboo.app]
+_k_friendly_name=Kolboo (Development)
+toggle-0-f3=F3,F3,Start or stop voice dictation
+
 [kaccess]
 Toggle Screen Reader On and Off=Meta+Alt+S,Meta+Alt+S,Toggle Screen Reader On and Off
 _k_friendly_name=Accessibility

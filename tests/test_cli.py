@@ -2239,6 +2239,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"pointer visibility"', cli)
         self.assertIn("Name_1=General", kwin)
         self.assertIn("Name_2=Money", kwin)
+        self.assertIn("Name_3=Work", kwin)
+        self.assertIn("Number=3", kwin)
+        self.assertIn("[Tiling][f9dc656f-0cd5-48cd-9c07-7a11c3635d64]", kwin)
+        self.assertIn("[com.kolboo.app]", shortcuts)
+        self.assertIn("toggle-0-f3=F3,F3,Start or stop voice dictation", shortcuts)
         self.assertIn("desktopchangeosdEnabled=true", kwin)
         self.assertIn("[Script-desktopchangeosd]", kwin)
         self.assertIn("PopupHideDelay=200", kwin)
@@ -2391,7 +2396,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("BackgroundNormal=13,17,23", colors)
         self.assertIn("PointerAccelerationProfile=1", input_config)
         self.assertIn("ScrollFactor=0.1", input_config)
-        self.assertIn("DisableWhileTyping=false", input_config)
+        self.assertIn("DisableWhileTyping=true", input_config)
         self.assertIn(
             "[Libinput][1133][16511][Logitech G502]\n"
             "PointerAcceleration=-1.000\n"
