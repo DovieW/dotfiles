@@ -9389,9 +9389,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 Path.home() / ".local/bin/code": ROOT / "config/chromium/code",
                 Path.home() / ".local/bin/obsidian": ROOT
                 / "config/obsidian/obsidian",
-                Path.home()
-                / ".local/share/applications/google-chrome.desktop": ROOT
-                / "config/chromium/google-chrome.desktop",
                 Path.home() / ".local/share/applications/code.desktop": ROOT
                 / "config/chromium/code.desktop",
             }
@@ -9401,6 +9398,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 and "WaylandWpColorManagerV1"
                 in source.read_text(encoding="utf-8")
                 for destination, source in chromium_targets.items()
+            )
+            chrome_desktop = (
+                Path.home() / ".local/share/applications/google-chrome.desktop"
+            )
+            chrome_desktop_source = ROOT / "config/chromium/google-chrome.desktop"
+            chromium_policy_ok = (
+                chromium_policy_ok
+                and chrome_desktop.is_symlink()
+                and chrome_desktop.resolve() == chrome_desktop_source.resolve()
+                and "Exec=/home/dovie/.local/bin/google-chrome-stable"
+                in chrome_desktop_source.read_text(encoding="utf-8")
             )
             obsidian_desktop = (
                 Path.home() / ".local/share/applications/obsidian.desktop"

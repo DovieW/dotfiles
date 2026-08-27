@@ -2910,6 +2910,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("config/obsidian/obsidian", cli)
         self.assertIn(".local/bin/obsidian", cli)
         self.assertIn("Chromium native-gamut policy", cli)
+        self.assertIn("Exec=/home/dovie/.local/bin/google-chrome-stable", cli)
 
     def test_kubuntu_manages_vscode_and_fullscreen_rdp_files(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
