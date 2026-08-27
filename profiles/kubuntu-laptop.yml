@@ -37,6 +37,7 @@
     "apt": [
       "acl",
       "adb",
+      "calibre",
       "code",
       "flameshot",
       "fonts-cascadia-code",
