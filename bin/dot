@@ -93,7 +93,6 @@ KWIN_DISABLED_EFFECTS = (
     "fadingpopups",
     "fullscreen",
     "glide",
-    "hidecursor",
     "magiclamp",
     "maximize",
     "scale",
@@ -106,7 +105,7 @@ KWIN_DISABLED_EFFECTS = (
     "windowaperture",
     "wobblywindows",
 )
-KWIN_ENABLED_EFFECTS = ()
+KWIN_ENABLED_EFFECTS = ("hidecursor",)
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -2502,8 +2501,6 @@ def apply_direct(
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "scripts/kscreen-doctor": Path.home() / ".local/bin/kscreen-doctor",
             ROOT / "scripts/obsidian-launch": Path.home() / ".local/bin/dot-obsidian-launch",
-            ROOT / "config/obsidian/obsidian": Path.home() / ".local/bin/obsidian",
-            ROOT / "config/obsidian/obsidian.desktop": Path.home() / ".local/share/applications/obsidian.desktop",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
             ROOT / "config/kwin/dot-obsidian/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-obsidian/metadata.json",
@@ -2527,13 +2524,19 @@ def apply_direct(
         for source, destination in desktop_mappings.items():
             file_changed = copy_managed_file(source, destination)
             changes += int(file_changed)
-        changes += int(
-            copy_managed_file(
+        obsidian_mappings = (
+            (ROOT / "config/obsidian/obsidian", Path.home() / ".local/bin/obsidian"),
+            (
                 ROOT / "config/obsidian/obsidian.desktop",
-                Path.home()
-                / ".local/share/applications/md.obsidian.Obsidian.desktop",
-            )
+                Path.home() / ".local/share/applications/obsidian.desktop",
+            ),
+            (
+                ROOT / "config/obsidian/obsidian.desktop",
+                Path.home() / ".local/share/applications/md.obsidian.Obsidian.desktop",
+            ),
         )
+        for source, destination in obsidian_mappings:
+            changes += int(link_file(source, destination))
         obsolete_obsidian_wrapper = Path.home() / ".local/bin/dot-obsidian"
         if obsolete_obsidian_wrapper.is_file() or obsolete_obsidian_wrapper.is_symlink():
             obsolete_obsidian_wrapper.unlink()
@@ -9645,7 +9648,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             native_frames_detail
             or "Chrome and Obsidian use KWin-managed frames",
         )
-        hide_cursor_loaded = True
+        hide_cursor_loaded = False
         if command_exists("qdbus6"):
             hide_cursor_effect = run(
                 [
@@ -9658,19 +9661,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 check=False,
                 capture=True,
             )
-            hide_cursor_loaded = not (
+            hide_cursor_loaded = (
                 hide_cursor_effect.returncode == 0
                 and hide_cursor_effect.stdout.strip() == "true"
             )
         hide_cursor_ok = (
-            "hidecursorEnabled=false" in kwin
-            and "[Effect-hidecursor]" not in kwin
+            "hidecursorEnabled=true" in kwin
+            and "[Effect-hidecursor]" in kwin
+            and "HideOnTyping=true" in kwin
+            and "InactivityDuration=1" in kwin
             and hide_cursor_loaded
         )
         failures += not doctor_check(
             "pointer visibility",
             hide_cursor_ok,
-            "remains visible while idle and while typing"
+            "hidden after one second idle and while typing; pointer motion restores it"
             if hide_cursor_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
@@ -10098,18 +10103,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         ghostty_desktops_ok = all(
-            value in dolphin_rules
+            value not in dolphin_rules
             for value in (
                 "[ghostty-all-desktops]",
                 "wmclass=com.mitchellh.ghostty",
-                "desktops=\n",
                 "desktopsrule=2",
             )
         )
         failures += not doctor_check(
             "Ghostty virtual desktop rule",
             ghostty_desktops_ok,
-            "available on every virtual desktop"
+            "follows normal per-desktop window placement"
             if ghostty_desktops_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )

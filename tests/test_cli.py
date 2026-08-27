@@ -2231,8 +2231,9 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ButtonsOnRight=IAX", kwin)
         self.assertIn("BorderlessMaximizedWindows=true", kwin)
         self.assertIn("KWIN_ENABLED_EFFECTS", cli)
-        self.assertIn('KWIN_ENABLED_EFFECTS = ()', cli)
-        self.assertIn('"hidecursor",', cli)
+        self.assertIn('KWIN_ENABLED_EFFECTS = ("hidecursor",)', cli)
+        disabled_effects = cli.split("KWIN_DISABLED_EFFECTS = (", 1)[1].split(")", 1)[0]
+        self.assertNotIn('"hidecursor"', disabled_effects)
         self.assertIn('"window frames"', cli)
         self.assertIn('"native application frames"', cli)
         self.assertIn("configure-native-frames", cli)
