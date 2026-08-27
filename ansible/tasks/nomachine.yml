@@ -263,6 +263,34 @@
   notify: Restart NoMachine after private-network configuration
   when: dot_nomachine_tailscale_ready
 
+- name: Install the NoMachine Tailscale readiness guard
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/wait-nomachine-tailscale"
+    dest: /usr/local/libexec/wait-nomachine-tailscale
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart NoMachine after private-network configuration
+  when: dot_nomachine_tailscale_ready
+
+- name: Order NoMachine after its private Tailscale address
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nxserver.service.d/20-tailscale.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Wants=network-online.target tailscaled.service
+      After=network-online.target tailscaled.service
+
+      [Service]
+      ExecStartPre=/usr/local/libexec/wait-nomachine-tailscale 45
+  notify: Restart NoMachine after private-network configuration
+  when: dot_nomachine_tailscale_ready
+
 - name: Apply pending NoMachine configuration before verification
   ansible.builtin.meta: flush_handlers
   when: dot_nomachine_tailscale_ready

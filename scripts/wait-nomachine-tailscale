@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config=/usr/NX/etc/server.cfg
+timeout_seconds="${1:-45}"
+address="$(sed -nE 's/^NXDListenAddress[[:space:]]+"?([^"[:space:]]+)"?.*/\1/p' "$config" | tail -n 1)"
+
+if [[ -z "$address" ]]; then
+  echo "NoMachine has no managed NXDListenAddress" >&2
+  exit 1
+fi
+
+for ((attempt = 0; attempt < timeout_seconds; attempt++)); do
+  if ip -4 address show dev tailscale0 2>/dev/null | grep -Fq "inet $address/"; then
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Timed out waiting for Tailscale address $address before starting NoMachine" >&2
+exit 1

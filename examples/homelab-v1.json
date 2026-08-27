@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "truenas": {
+    "hostname": "nas.example.internal",
+    "api_url": "wss://nas.example.internal/api/current",
+    "supported_versions": ["25.10"],
+    "pools": [
+      {"name": "example-pool", "expected_status": "ONLINE", "management": "audit"}
+    ],
+    "smb_shares": ["example-share"],
+    "services": [
+      {"name": "cifs", "desired_state": "running", "management": "apply"}
+    ],
+    "applications": [
+      {
+        "name": "example-app",
+        "desired_state": "running",
+        "owner_repo": "OWNER/example-app",
+        "management": "apply"
+      }
+    ]
+  },
+  "tailscale": {
+    "tailnet": "example.com",
+    "policy_file": "tailscale/policy.hujson",
+    "policy_authoritative": true,
+    "nodes": [
+      {
+        "name": "nas",
+        "expected_online": true,
+        "tags": ["tag:server"],
+        "advertised_routes": ["192.0.2.0/24"],
+        "exit_node": false,
+        "accept_dns": false
+      }
+    ]
+  }
+}

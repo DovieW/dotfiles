@@ -29,6 +29,7 @@
     "navi": {"provider": "brew"},
     "neovim": {"provider": "brew"},
     "openssh-server": {"provider": "apt"},
+    "python3-websockets": {"provider": "apt"},
     "remmina": {"provider": "apt"},
     "remmina-plugin-rdp": {"provider": "apt"},
     "ripgrep": {"provider": "brew"},

@@ -783,6 +783,7 @@
 
     - name: Restart NoMachine after private-network configuration
       become: true
-      ansible.builtin.command:
-        argv: [/etc/NX/nxserver, --restart]
-      changed_when: true
+      ansible.builtin.systemd_service:
+        name: nxserver.service
+        daemon_reload: true
+        state: restarted
