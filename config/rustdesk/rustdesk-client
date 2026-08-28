@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RustDesk's Flutter UI does not honor Plasma's fractional Wayland scale. GDK
+# accepts only integer application scales, so select the closest useful bucket
+# from the primary KScreen output at launch time.
+scale=1
+if command -v kscreen-doctor >/dev/null 2>&1; then
+  primary_scale="$(
+    kscreen-doctor -o 2>/dev/null |
+      sed $'s/\033\\[[0-9;]*m//g' |
+      awk '/priority 1/{primary=1; next} primary && /Scale:/{print $2; exit}'
+  )"
+  if [[ "$primary_scale" =~ ^[0-9]+([.][0-9]+)?$ ]] &&
+     awk -v scale="$primary_scale" 'BEGIN {exit !(scale >= 1.5)}'; then
+    scale=2
+  fi
+fi
+
+export GDK_SCALE="${GDK_SCALE:-$scale}"
+exec "@APP_RUN@" "$@"

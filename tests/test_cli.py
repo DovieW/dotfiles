@@ -1439,6 +1439,7 @@ class DotCliTests(unittest.TestCase):
         docs = (ROOT / "docs/rustdesk.md").read_text()
         cli = (ROOT / "bin/dot").read_text()
         desktop = (ROOT / "config/rustdesk/rustdesk-client.desktop").read_text()
+        launcher = (ROOT / "config/rustdesk/rustdesk-client").read_text()
 
         self.assertTrue(kubuntu["features"]["rustdesk_client"])
         self.assertIn("tasks/rustdesk-client.yml", local)
@@ -1447,12 +1448,17 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('asset="rustdesk-$version-x86_64.AppImage"', installer)
         self.assertIn("sha256sum --check --status", installer)
         self.assertIn("--appimage-extract", installer)
+        self.assertIn('cmp -s -- - "$launcher"', installer)
         self.assertIn("systemctl is-enabled --quiet rustdesk.service", installer)
         self.assertIn("dpkg-query", installer)
         self.assertNotIn("rustdesk.service", local)
         self.assertIn("does not install, enable, or start", docs)
         self.assertIn('"RustDesk client"', cli)
         self.assertIn('Exec=/bin/sh -lc "exec ~/.local/bin/rustdesk"', desktop)
+        self.assertIn("kscreen-doctor -o", launcher)
+        self.assertIn("sed $'s/\\033\\\\[[0-9;]*m//g'", launcher)
+        self.assertIn('export GDK_SCALE="${GDK_SCALE:-$scale}"', launcher)
+        self.assertIn('exec "@APP_RUN@" "$@"', launcher)
 
     def test_nomachine_is_private_to_the_kubuntu_tailnet(self):
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

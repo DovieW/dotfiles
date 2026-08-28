@@ -20,6 +20,7 @@ image="$release_dir/$asset"
 launcher="$bin_home/rustdesk"
 desktop="$data_home/applications/rustdesk-client.desktop"
 desktop_source="$(cd -- "$(dirname -- "$0")/.." && pwd)/config/rustdesk/rustdesk-client.desktop"
+launcher_source="$(cd -- "$(dirname -- "$0")/.." && pwd)/config/rustdesk/rustdesk-client"
 
 client_only() {
   ! dpkg-query -W -f='${db:Status-Status}' rustdesk 2>/dev/null |
@@ -33,7 +34,8 @@ client_only() {
 ready() {
   [[ -x "$app_dir/AppRun" && -f "$image" && -x "$launcher" ]] || return 1
   printf '%s  %s\n' "$digest" "$image" | sha256sum --check --status || return 1
-  grep -Fq -- "$app_dir/AppRun" "$launcher" || return 1
+  sed "s|@APP_RUN@|$app_dir/AppRun|g" "$launcher_source" |
+    cmp -s -- - "$launcher" || return 1
   cmp -s -- "$desktop_source" "$desktop" || return 1
   client_only
 }
@@ -93,7 +95,7 @@ if [[ -n "$rustdesk_icon" ]]; then
 fi
 
 launcher_tmp="$work_dir/rustdesk"
-printf '#!/bin/sh\nexec "%s" "$@"\n' "$app_dir/AppRun" >"$launcher_tmp"
+sed "s|@APP_RUN@|$app_dir/AppRun|g" "$launcher_source" >"$launcher_tmp"
 install -m 0755 "$launcher_tmp" "$launcher"
 install -m 0644 "$desktop_source" "$desktop"
 
