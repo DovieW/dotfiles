@@ -4,6 +4,7 @@
   gather_facts: true
   vars:
     dot_repo: "{{ playbook_dir | dirname }}"
+    dot_device_manifest: {}
   pre_tasks:
     - name: Validate runtime profile
       ansible.builtin.assert:
@@ -11,6 +12,7 @@
           - dot_profile_data.schema_version == 1
           - dot_profile_data.name == dot_profile
           - dot_profile_data.packages is mapping
+          - dot_device_manifest is mapping
         fail_msg: >-
           Run this playbook through bin/dot so inherited profile data is
           supplied.
@@ -686,6 +688,130 @@
         - not ansible_check_mode
       changed_when: true
       tags: [config, kde, power]
+
+    - name: Create the system sleep-safety directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/dotfiles
+        - /usr/local/libexec/dotfiles
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Install the sleep-safety controller
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/power/dot-sleep-safety"
+        dest: /usr/local/libexec/dotfiles/dot-sleep-safety
+        mode: "0755"
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Install the device sleep-safety policy
+      become: true
+      ansible.builtin.copy:
+        content: "{{ dot_device_manifest.sleep_safety | to_nice_json }}\n"
+        dest: /etc/dotfiles/sleep-safety.json
+        mode: "0644"
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Install the sleep-safety system service
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/systemd/system/dot-sleep-safety.service"
+        dest: /etc/systemd/system/dot-sleep-safety.service
+        mode: "0644"
+      register: dot_sleep_safety_unit
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Create the hibernation service drop-in directory
+      become: true
+      ansible.builtin.file:
+        path: /etc/systemd/system/systemd-hibernate.service.d
+        state: directory
+        mode: "0755"
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Install the hibernation failure safety units
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0644"
+      loop:
+        - src: "{{ dot_repo }}/config/systemd/system/dot-sleep-safety-poweroff.service"
+          dest: /etc/systemd/system/dot-sleep-safety-poweroff.service
+        - src: "{{ dot_repo }}/config/systemd/system/60-dotfiles-hibernate-safety.conf"
+          dest: /etc/systemd/system/systemd-hibernate.service.d/60-dotfiles-safety.conf
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Install the hibernation configurator
+      become: true
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/scripts/configure-hibernation"
+        dest: /usr/local/libexec/dotfiles/configure-hibernation
+        mode: "0755"
+      when: dot_device_manifest.sleep_safety is defined
+      tags: [config, power]
+
+    - name: Configure swapfile hibernation
+      become: true
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/dotfiles/configure-hibernation]
+      register: dot_hibernate_configuration
+      changed_when: "'updated' in dot_hibernate_configuration.stdout"
+      when:
+        - dot_device_manifest.sleep_safety is defined
+        - not ansible_check_mode
+      tags: [config, power]
+
+    - name: Enable the device sleep-safety service
+      become: true
+      ansible.builtin.systemd_service:
+        name: dot-sleep-safety.service
+        enabled: true
+        state: restarted
+        daemon_reload: true
+      when:
+        - dot_device_manifest.sleep_safety is defined
+        - not ansible_check_mode
+      tags: [config, power]
+
+    - name: Disable device sleep safety when it is not declared
+      become: true
+      ansible.builtin.systemd_service:
+        name: dot-sleep-safety.service
+        enabled: false
+        state: stopped
+        daemon_reload: true
+      failed_when: false
+      when: dot_device_manifest.sleep_safety is not defined
+      tags: [config, power]
+
+    - name: Remove device sleep safety when it is not declared
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/dot-sleep-safety.service
+        - /etc/systemd/system/dot-sleep-safety-poweroff.service
+        - /etc/systemd/system/systemd-hibernate.service.d/60-dotfiles-safety.conf
+        - /etc/dotfiles/sleep-safety.json
+        - /etc/dotfiles/hibernate-state.json
+        - /usr/local/libexec/dotfiles/dot-sleep-safety
+        - /usr/local/libexec/dotfiles/configure-hibernation
+        - /etc/initramfs-tools/conf.d/dotfiles-resume
+        - /etc/default/grub.d/99-dotfiles-resume.cfg
+      when: dot_device_manifest.sleep_safety is not defined
+      tags: [config, power]
 
     - name: Make the IdeaPad screenshot key emit Print
       become: true

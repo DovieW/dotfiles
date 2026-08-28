@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly swap_file="${DOT_HIBERNATE_SWAP_FILE:-/swapfile}"
+readonly initramfs_config="/etc/initramfs-tools/conf.d/dotfiles-resume"
+readonly grub_config="/etc/default/grub.d/99-dotfiles-resume.cfg"
+readonly state_config="/etc/dotfiles/hibernate-state.json"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  printf 'configure-hibernation: must run as root\n' >&2
+  exit 1
+fi
+if [[ ! -f "$swap_file" ]]; then
+  printf 'configure-hibernation: required swap file is missing: %s\n' "$swap_file" >&2
+  exit 1
+fi
+if ! swapon --show=NAME --noheadings | awk '{$1=$1};1' | grep -Fxq "$swap_file"; then
+  printf 'configure-hibernation: swap file is not active: %s\n' "$swap_file" >&2
+  exit 1
+fi
+
+root_source="$(findmnt -no SOURCE /)"
+root_uuid="$(blkid -s UUID -o value "$root_source")"
+page_size="$(getconf PAGESIZE)"
+resume_offset="$({ filefrag -v "-b$page_size" "$swap_file"; } | awk '
+  $1 == "0:" {
+    value = $4
+    sub(/\.\..*/, "", value)
+    gsub(/[^0-9]/, "", value)
+    print value
+    exit
+  }
+')"
+swap_inode="$(stat -c %i "$swap_file")"
+
+if [[ -z "$root_uuid" || -z "$resume_offset" ]]; then
+  printf 'configure-hibernation: could not determine resume UUID and offset\n' >&2
+  exit 1
+fi
+
+install_if_changed() {
+  local destination="$1"
+  local mode="$2"
+  local temporary
+  temporary="$(mktemp)"
+  trap 'rm -f "$temporary"' RETURN
+  cat >"$temporary"
+  if [[ -f "$destination" ]] && cmp -s "$temporary" "$destination"; then
+    return 1
+  fi
+  install -D -m "$mode" "$temporary" "$destination"
+  return 0
+}
+
+changed=false
+if install_if_changed "$initramfs_config" 0644 <<EOF
+RESUME=UUID=$root_uuid
+EOF
+then
+  changed=true
+fi
+if install_if_changed "$grub_config" 0644 <<EOF
+# Generated locally by dotfiles; never commit machine filesystem identifiers.
+GRUB_CMDLINE_LINUX_DEFAULT="\${GRUB_CMDLINE_LINUX_DEFAULT} resume=UUID=$root_uuid resume_offset=$resume_offset"
+EOF
+then
+  changed=true
+fi
+if install_if_changed "$state_config" 0644 <<EOF
+{
+  "swap_file": "$swap_file",
+  "swap_inode": $swap_inode,
+  "resume_uuid": "$root_uuid",
+  "resume_offset": $resume_offset
+}
+EOF
+then
+  changed=true
+fi
+
+if [[ "$changed" == true ]]; then
+  update-initramfs -u -k all
+  update-grub
+  printf 'hibernate configuration updated; reboot required\n'
+else
+  printf 'hibernate configuration current\n'
+fi

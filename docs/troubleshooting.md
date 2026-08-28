@@ -178,7 +178,7 @@ written to disk. If the field remains unresponsive for longer than three
 seconds, reapply the `lockscreen` tag before investigating PAM; an older managed
 theme could leave the authenticator stopped indefinitely.
 
-## Closing the lid suspends the laptop
+## Closing the lid or a suspend behaves unexpectedly
 
 The managed policy ignores lid closure and disables automatic suspend for AC,
 battery, and low-battery profiles. It preserves manual Sleep and the physical
@@ -204,8 +204,25 @@ Verify both no-sleep behavior and the current lid-aware power choice with:
 dot doctor --profile kubuntu-laptop
 ```
 
-This is not a substitute for suspend: manually sleep the laptop before putting
-it in a bag.
+On the finalized IdeaPad, `dot doctor` also verifies the system sleep-safety
+service and the locally generated hibernation resume configuration. Closing the
+lid does not immediately suspend. Five continuous closed hours force suspend,
+and every suspend becomes hibernation after fifteen hours. If the machine
+resumes earlier while still closed, it hibernates immediately. A failed
+emergency hibernation powers off, so unsaved work can be lost only on that
+last-resort path.
+
+After the hibernation configuration changes, reboot before trusting transport
+safety. Then run:
+
+```bash
+dot doctor --profile kubuntu-laptop
+```
+
+Physically verify one hibernate/resume cycle before relying on it. Opening the
+lid before waking gives a normal resume; waking it while still closed is
+intentionally treated as the hot-bag signature and sends it to hibernation.
+The hibernation image is written to this laptop's unencrypted swapfile.
 
 ## Custom touchpad gestures fail or destabilize KWin
 

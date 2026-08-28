@@ -420,6 +420,20 @@ class DotCliTests(unittest.TestCase):
             with self.assertRaises(module["DotError"]):
                 function("test-device")
 
+            manifest["approved_tags"] = ["gpu"]
+            manifest["sleep_safety"] = {
+                "closed_lid_awake_timeout_sec": 18000,
+                "suspend_hibernate_delay_sec": 54000,
+                "closed_lid_resume_action": "hibernate",
+                "hibernate_failure_action": "poweroff",
+            }
+            (Path(directory) / "test-device.yml").write_text(json.dumps(manifest))
+            self.assertEqual(function("test-device"), manifest)
+            manifest["sleep_safety"]["closed_lid_awake_timeout_sec"] = 0
+            (Path(directory) / "test-device.yml").write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(module["DotError"], "sleep-safety"):
+                function("test-device")
+
     def test_ideapad_has_a_distinct_finalized_laptop_manifest(self):
         laptop = json.loads(
             (ROOT / "devices/dovie-ideapad-linux.yml").read_text()
@@ -434,6 +448,15 @@ class DotCliTests(unittest.TestCase):
             laptop["approved_tags"],
             ["gpu", "meshcentral", "nomachine", "touchpad"],
         )
+        self.assertEqual(
+            laptop["sleep_safety"],
+            {
+                "closed_lid_awake_timeout_sec": 18000,
+                "suspend_hibernate_delay_sec": 54000,
+                "closed_lid_resume_action": "hibernate",
+                "hibernate_failure_action": "poweroff",
+            },
+        )
         self.assertEqual(desktop["device_id"], "dovie-desktop-linux")
         self.assertEqual(desktop["profile"], "kubuntu-desktop")
         self.assertNotEqual(laptop["device_id"], desktop["device_id"])
@@ -443,6 +466,55 @@ class DotCliTests(unittest.TestCase):
             self.assertNotIn("serial", serialized)
             self.assertNotIn("uuid", serialized)
             self.assertNotIn("token", serialized)
+
+    def test_sleep_safety_controller_enforces_closed_deadlines_and_resume(self):
+        module = runpy.run_path(str(ROOT / "config/power/dot-sleep-safety"))
+        policy = {
+            "closed_lid_awake_timeout_sec": 18000,
+            "suspend_hibernate_delay_sec": 54000,
+            "closed_lid_resume_action": "hibernate",
+            "hibernate_failure_action": "poweroff",
+        }
+        controller = module["SafetyController"](policy)
+        globals_dict = controller.refresh_lid.__globals__
+        with mock.patch.dict(globals_dict, {
+            "lid_is_closed": lambda: True,
+            "arm_closed_lid_timer": mock.Mock(
+                return_value=subprocess.CompletedProcess([], 0, "", "")
+            ),
+        }), mock.patch.object(
+            globals_dict["time"], "monotonic", side_effect=[100.0, 18100.0]
+        ), mock.patch.object(controller, "start_action") as action:
+            self.assertTrue(controller.refresh_lid())
+            self.assertTrue(controller.evaluate_closed_timeout())
+            action.assert_called_once_with(
+                "suspend", "lid remained closed for configured limit"
+            )
+
+        controller = module["SafetyController"](policy)
+        with mock.patch.dict(controller.refresh_lid.__globals__, {
+            "lid_is_closed": lambda: True,
+            "systemctl": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", "")),
+            "arm_closed_lid_timer": mock.Mock(
+                return_value=subprocess.CompletedProcess([], 0, "", "")
+            ),
+        }), mock.patch.object(controller, "start_action") as action:
+            controller.prepare_for_sleep(False)
+            action.assert_called_once_with(
+                "hibernate", "system resumed while lid remained closed"
+            )
+
+    def test_sleep_safety_hibernate_failure_powers_off(self):
+        module = runpy.run_path(str(ROOT / "config/power/dot-sleep-safety"))
+        calls = []
+
+        def fake_systemctl(*arguments, **_kwargs):
+            calls.append(arguments)
+            return subprocess.CompletedProcess([], 1 if "hibernate" in arguments else 0, "failed", "")
+
+        with mock.patch.dict(module["hibernate_or_poweroff"].__globals__, {"systemctl": fake_systemctl}):
+            self.assertEqual(module["hibernate_or_poweroff"]("test"), 0)
+        self.assertEqual(calls, [("--no-block", "hibernate"), ("poweroff",)])
 
     def test_device_identity_rejects_path_traversal(self):
         module = runpy.run_path(str(DOT))
@@ -2798,10 +2870,27 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("PartOf=graphical-session.target", lid_unit)
         self.assertIn("WantedBy=graphical-session.target", lid_unit)
         self.assertIn("dot-lid-power watch", lid_unit)
+        self.assertIn("Restart=on-failure", lid_unit)
+        self.assertIn("RestartSec=30s", lid_unit)
+        self.assertIn("StartLimitBurst=5", lid_unit)
+        sleep_safety = (ROOT / "config/power/dot-sleep-safety").read_text()
+        self.assertIn("closed_lid_awake_timeout_sec", sleep_safety)
+        self.assertIn("system resumed while lid remained closed", sleep_safety)
+        self.assertIn("hibernate_or_poweroff", sleep_safety)
+        self.assertIn("WakeSystem=true", sleep_safety)
+        safety_unit = (
+            ROOT / "config/systemd/system/dot-sleep-safety.service"
+        ).read_text()
+        self.assertIn("WantedBy=multi-user.target", safety_unit)
+        self.assertIn("Restart=on-failure", safety_unit)
         self.assertIn('"lid power-saver service"', cli)
         self.assertIn('"lid-aware power profile"', cli)
+        self.assertIn('"closed-lid sleep safety"', cli)
+        self.assertIn('"hibernate resume path"', cli)
         playbook = (ROOT / "ansible/local.yml").read_text()
         self.assertIn("path: /etc/systemd/logind.conf.d", playbook)
+        self.assertIn("dot_device_manifest.sleep_safety", playbook)
+        self.assertIn("configure-hibernation", playbook)
         quiet_resume = (
             ROOT / "config/grub/99-dotfiles-quiet-resume.cfg"
         ).read_text()

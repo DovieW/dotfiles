@@ -1,0 +1,15 @@
+[Unit]
+Description=Enforce device-specific closed-lid sleep safety
+After=dbus.service systemd-logind.service upower.service
+Wants=systemd-logind.service upower.service
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/dotfiles/dot-sleep-safety watch
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target

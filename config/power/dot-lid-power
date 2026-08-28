@@ -81,7 +81,11 @@ reconcile() {
   expected="$(desired_profile)"
   if [[ "$current" != "$expected" ]]; then
     printf 'dot-lid-power: changing profile %s -> %s\n' "$current" "$expected"
-    "$powerprofiles_command" set "$expected"
+    if ! "$powerprofiles_command" set "$expected"; then
+      printf 'dot-lid-power: could not set profile to %s; continuing to monitor events\n' \
+        "$expected" >&2
+      return 0
+    fi
   fi
 }
 

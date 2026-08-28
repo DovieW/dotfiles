@@ -356,6 +356,29 @@ def load_device_manifest(device: str, required: bool = False) -> dict[str, Any] 
         raise DotError(
             f"Device manifest contains unsupported finalization tags: {', '.join(sorted(unknown))}"
         )
+    sleep_safety = manifest.get("sleep_safety")
+    if sleep_safety is not None:
+        expected_keys = {
+            "closed_lid_awake_timeout_sec",
+            "suspend_hibernate_delay_sec",
+            "closed_lid_resume_action",
+            "hibernate_failure_action",
+        }
+        if not isinstance(sleep_safety, dict) or set(sleep_safety) != expected_keys:
+            raise DotError(f"Invalid sleep-safety policy in device manifest: {path}")
+        closed_timeout = sleep_safety.get("closed_lid_awake_timeout_sec")
+        hibernate_delay = sleep_safety.get("suspend_hibernate_delay_sec")
+        if (
+            not isinstance(closed_timeout, int)
+            or isinstance(closed_timeout, bool)
+            or closed_timeout < 60
+            or not isinstance(hibernate_delay, int)
+            or isinstance(hibernate_delay, bool)
+            or hibernate_delay < 60
+            or sleep_safety.get("closed_lid_resume_action") != "hibernate"
+            or sleep_safety.get("hibernate_failure_action") != "poweroff"
+        ):
+            raise DotError(f"Invalid sleep-safety policy in device manifest: {path}")
     return manifest
 
 
@@ -3090,6 +3113,15 @@ def upgrade_ansible_controller(
 
 def cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    device_manifest: dict[str, Any] = {}
+    device_config = CONFIG_DIR / "device.json"
+    if device_config.exists():
+        configured_device = load_json(device_config).get("device_id")
+        if configured_device:
+            validate_device_id(configured_device)
+            loaded_manifest = load_device_manifest(configured_device)
+            if loaded_manifest and loaded_manifest["profile"] == profile["name"]:
+                device_manifest = loaded_manifest
     selected_tags = set((args.tags or "").replace(",", " ").split())
     upgrade_ansible_controller(profile, selected_tags, check=args.check)
     if profile.get("features", {}).get("kde"):
@@ -3098,6 +3130,26 @@ def cmd_apply(args: argparse.Namespace) -> None:
     skip_tags = getattr(args, "skip_tags", None)
     if args.direct or not command_exists("ansible-playbook"):
         direct_tags = set((args.tags or "").replace(",", " ").split())
+        sleep_safety_selected = (
+            bool(device_manifest.get("sleep_safety"))
+            and (
+                not direct_tags
+                or "all" in direct_tags
+                or "config" in direct_tags
+                or "power" in direct_tags
+            )
+        )
+        if sleep_safety_selected and "power" in direct_tags:
+            raise DotError(
+                "Device sleep safety requires the privileged Ansible apply path; "
+                "install Ansible and rerun without --direct."
+            )
+        if sleep_safety_selected:
+            print(
+                "dot: Device sleep safety was not changed by the portable direct path; "
+                "rerun with Ansible to apply privileged power policy.",
+                file=sys.stderr,
+            )
         direct_kde_selected = (
             not direct_tags
             or "all" in direct_tags
@@ -3223,7 +3275,18 @@ def cmd_apply(args: argparse.Namespace) -> None:
         check_kde_apply_conflicts(force=force_kde, only=only)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     runtime_profile = STATE_DIR / "runtime-profile.json"
-    atomic_text(runtime_profile, json.dumps({"dot_profile_data": profile}, indent=2) + "\n", 0o600)
+    atomic_text(
+        runtime_profile,
+        json.dumps(
+            {
+                "dot_profile_data": profile,
+                "dot_device_manifest": device_manifest,
+            },
+            indent=2,
+        )
+        + "\n",
+        0o600,
+    )
     command = [
         "ansible-playbook",
         "-i",
@@ -8477,6 +8540,14 @@ def doctor_check(label: str, ok: bool, detail: str) -> bool:
 
 def cmd_doctor(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    device_manifest: dict[str, Any] = {}
+    device_config_path = CONFIG_DIR / "device.json"
+    if device_config_path.exists():
+        configured_device = load_json(device_config_path).get("device_id")
+        if configured_device:
+            loaded_manifest = load_device_manifest(validate_device_id(configured_device))
+            if loaded_manifest and loaded_manifest["profile"] == profile["name"]:
+                device_manifest = loaded_manifest
     failures = 0
     expected_platform = {
         "kubuntu-laptop": "linux",
@@ -10464,6 +10535,134 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 lid_status.returncode == 0,
                 lid_detail or "the lid power controller could not read system state",
             )
+            sleep_safety = device_manifest.get("sleep_safety")
+            if sleep_safety:
+                safety_unit = "dot-sleep-safety.service"
+                safety_enabled = run(
+                    ["systemctl", "is-enabled", "--quiet", safety_unit],
+                    check=False,
+                ).returncode == 0
+                safety_active = run(
+                    ["systemctl", "is-active", "--quiet", safety_unit],
+                    check=False,
+                ).returncode == 0
+                failures += not doctor_check(
+                    "closed-lid sleep safety",
+                    safety_enabled and safety_active,
+                    "enabled and active"
+                    if safety_enabled and safety_active
+                    else "run dot apply --profile kubuntu-laptop --tags power",
+                )
+                policy_path = Path("/etc/dotfiles/sleep-safety.json")
+                try:
+                    live_policy = load_json(policy_path)
+                except (OSError, json.JSONDecodeError):
+                    live_policy = None
+                failures += not doctor_check(
+                    "sleep-safety policy",
+                    live_policy == sleep_safety,
+                    (
+                        f"closed limit {sleep_safety['closed_lid_awake_timeout_sec']}s; "
+                        f"hibernate delay {sleep_safety['suspend_hibernate_delay_sec']}s"
+                        if live_policy == sleep_safety
+                        else "run dot apply --profile kubuntu-laptop --tags power"
+                    ),
+                )
+                safety_command = Path("/usr/local/libexec/dotfiles/dot-sleep-safety")
+                safety_status = run(
+                    [str(safety_command), "status"],
+                    check=False,
+                    capture=True,
+                    timeout=5,
+                ) if safety_command.exists() else subprocess.CompletedProcess([], 1, "", "missing")
+                safety_detail = (safety_status.stdout or safety_status.stderr).strip()
+                failures += not doctor_check(
+                    "sleep-safety state",
+                    safety_status.returncode == 0,
+                    safety_detail or "the system safety controller could not read state",
+                )
+                resume_configured = (
+                    Path("/etc/initramfs-tools/conf.d/dotfiles-resume").exists()
+                    and Path("/etc/default/grub.d/99-dotfiles-resume.cfg").exists()
+                )
+                kernel_command_line = Path("/proc/cmdline").read_text(encoding="utf-8")
+                try:
+                    hibernate_state = load_json(
+                        Path("/etc/dotfiles/hibernate-state.json")
+                    )
+                    swap_path = Path(hibernate_state["swap_file"])
+                    resume_live = (
+                        f"resume=UUID={hibernate_state['resume_uuid']}" in kernel_command_line
+                        and f"resume_offset={hibernate_state['resume_offset']}" in kernel_command_line
+                        and swap_path.stat().st_ino == hibernate_state["swap_inode"]
+                    )
+                except (KeyError, OSError, TypeError, json.JSONDecodeError):
+                    resume_live = False
+                failures += not doctor_check(
+                    "hibernate resume path",
+                    resume_configured and resume_live,
+                    "configured and active"
+                    if resume_configured and resume_live
+                    else (
+                        "configuration installed; reboot required"
+                        if resume_configured
+                        else "run dot apply --profile kubuntu-laptop --tags power"
+                    ),
+                )
+                can_hibernate = run(
+                    [
+                        "busctl",
+                        "call",
+                        "org.freedesktop.login1",
+                        "/org/freedesktop/login1",
+                        "org.freedesktop.login1.Manager",
+                        "CanHibernate",
+                    ],
+                    check=False,
+                    capture=True,
+                )
+                hibernate_supported = (
+                    can_hibernate.returncode == 0
+                    and can_hibernate.stdout.strip() == 's "yes"'
+                )
+                failures += not doctor_check(
+                    "hibernate capability",
+                    hibernate_supported,
+                    "available"
+                    if hibernate_supported
+                    else (
+                        "reboot, then physically validate hibernate"
+                        if resume_configured
+                        else "hibernate is not configured"
+                    ),
+                )
+                memory_kib = int(
+                    next(
+                        line.split()[1]
+                        for line in Path("/proc/meminfo").read_text().splitlines()
+                        if line.startswith("MemTotal:")
+                    )
+                )
+                swap_file = Path("/swapfile")
+                swap_sized = swap_file.exists() and swap_file.stat().st_size >= memory_kib * 1024
+                swap_active = any(
+                    line.split()[0] == str(swap_file)
+                    for line in Path("/proc/swaps").read_text().splitlines()[1:]
+                )
+                failures += not doctor_check(
+                    "hibernate swap capacity",
+                    swap_sized and swap_active,
+                    "active and at least as large as RAM"
+                    if swap_sized and swap_active
+                    else "an active swapfile at least as large as RAM is required",
+                )
+                failures += not doctor_check(
+                    "wake-capable timer",
+                    Path("/sys/class/rtc/rtc0/wakealarm").exists(),
+                    "RTC wake alarm available"
+                    if Path("/sys/class/rtc/rtc0/wakealarm").exists()
+                    else "15-hour hibernation deadline cannot be guaranteed",
+                )
         segoe = list((Path.home() / ".local/share/fonts").glob("**/SegUIVar.ttf"))
         failures += not doctor_check("Segoe UI Variable", bool(segoe), str(segoe[0]) if segoe else "not provisioned")
         ghostty_config = Path.home() / ".config/ghostty/config"

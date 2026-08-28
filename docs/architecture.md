@@ -370,8 +370,18 @@ closed. On opening, it restores performance on AC, balanced on battery above
 20%, or power-saver at 20% and below. This lowers heat and power draw while
 closed without changing the deliberate no-sleep policy. The same
 closed-to-open event asks PowerDevil to wake the internal display so it does
-not remain in DPMS power-off until the next input event. Manually suspend
-before putting the running laptop in a bag.
+not remain in DPMS power-off until the next input event.
+
+The finalized `dovie-ideapad-linux` device adds a system-level transport
+safety policy without changing the shared laptop profile or the desktop. Lid
+closure still does nothing immediately, but five continuous closed hours force
+suspend regardless of AC power, workload, attached displays, or remote
+sessions. Every suspend arms a wake-capable fifteen-hour hibernation deadline.
+Any earlier resume while the lid remains closed hibernates immediately; an
+actual hibernation failure powers the machine off. Opening the lid clears the
+closed timer, and an open laptop still never sleeps automatically. The
+hibernate image is stored in this machine's existing unencrypted swapfile, an
+explicit device-level security tradeoff.
 
 Kubuntu installs the NVIDIA
 desktop driver currently marked recommended by `ubuntu-drivers`, without

@@ -1,0 +1,305 @@
+#!/usr/bin/python3
+"""Enforce the finalized device's closed-lid and post-suspend safety policy."""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+POLICY_PATH = Path("/etc/dotfiles/sleep-safety.json")
+LID_GLOB = "/proc/acpi/button/lid/*/state"
+HIBERNATE_TIMER = "dot-sleep-hibernate.timer"
+CLOSED_LID_TIMER = "dot-closed-lid-suspend.timer"
+
+
+def load_policy(path: Path = POLICY_PATH) -> dict[str, object]:
+    policy = json.loads(path.read_text(encoding="utf-8"))
+    required = {
+        "closed_lid_awake_timeout_sec",
+        "suspend_hibernate_delay_sec",
+        "closed_lid_resume_action",
+        "hibernate_failure_action",
+    }
+    if set(policy) != required:
+        raise ValueError("sleep-safety policy has unexpected fields")
+    if policy["closed_lid_resume_action"] != "hibernate":
+        raise ValueError("unsupported closed-lid resume action")
+    if policy["hibernate_failure_action"] != "poweroff":
+        raise ValueError("unsupported hibernation failure action")
+    for key in ("closed_lid_awake_timeout_sec", "suspend_hibernate_delay_sec"):
+        if isinstance(policy[key], bool) or not isinstance(policy[key], int) or policy[key] < 60:
+            raise ValueError(f"invalid {key}")
+    return policy
+
+
+def lid_is_closed() -> bool:
+    matches = sorted(Path("/proc/acpi/button/lid").glob("*/state"))
+    if len(matches) != 1:
+        raise RuntimeError(f"expected exactly one lid state, found {len(matches)}")
+    state = matches[0].read_text(encoding="utf-8").strip().lower()
+    if state.endswith("closed"):
+        return True
+    if state.endswith("open"):
+        return False
+    raise RuntimeError(f"unrecognized lid state: {state}")
+
+
+def systemctl(*arguments: str, check: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["systemctl", *arguments],
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def arm_transient_timer(
+    unit: str, delay: int, command: str, *, wake_system: bool
+) -> subprocess.CompletedProcess[str]:
+    timer = f"{unit}.timer"
+    systemctl("stop", timer)
+    systemctl("reset-failed", f"{unit}.service", timer)
+    timer_properties = ["--timer-property=AccuracySec=1min"]
+    if wake_system:
+        timer_properties.append("--timer-property=WakeSystem=true")
+    return subprocess.run(
+        [
+            "systemd-run",
+            "--quiet",
+            "--collect",
+            f"--unit={unit}",
+            f"--on-active={delay}s",
+            *timer_properties,
+            "/usr/local/libexec/dotfiles/dot-sleep-safety",
+            command,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def arm_hibernate_timer(delay: int) -> subprocess.CompletedProcess[str]:
+    return arm_transient_timer(
+        "dot-sleep-hibernate", delay, "hibernate-deadline", wake_system=True
+    )
+
+
+def arm_closed_lid_timer(delay: int) -> subprocess.CompletedProcess[str]:
+    if systemctl("is-active", CLOSED_LID_TIMER).returncode == 0:
+        return subprocess.CompletedProcess([], 0, "already armed", "")
+    return arm_transient_timer(
+        "dot-closed-lid-suspend", delay, "suspend-deadline", wake_system=False
+    )
+
+
+def hibernate_or_poweroff(reason: str) -> int:
+    logging.critical("requesting hibernation: %s", reason)
+    result = systemctl("--no-block", "hibernate")
+    if result.returncode == 0:
+        return 0
+    logging.critical("hibernation failed (%s); powering off", result.stdout.strip())
+    return systemctl("poweroff").returncode
+
+
+class SafetyController:
+    def __init__(self, policy: dict[str, object]) -> None:
+        self.policy = policy
+        self.closed_since: float | None = None
+        self.sleeping = False
+        self.action_in_progress = False
+        self.lock = threading.Lock()
+
+    def refresh_lid(self) -> bool:
+        closed = lid_is_closed()
+        if closed and self.closed_since is None:
+            self.closed_since = time.monotonic()
+            timeout = int(self.policy["closed_lid_awake_timeout_sec"])
+            result = arm_closed_lid_timer(timeout)
+            if result.returncode != 0:
+                logging.error("could not arm closed-lid deadline: %s", result.stdout.strip())
+            else:
+                logging.info("lid closed; safety deadline armed for %s seconds", timeout)
+        elif not closed and self.closed_since is not None:
+            self.closed_since = None
+            systemctl("stop", CLOSED_LID_TIMER)
+            logging.info("lid opened; closed-lid safety deadline cleared")
+        return closed
+
+    def start_action(self, action: str, reason: str) -> None:
+        with self.lock:
+            if self.action_in_progress:
+                return
+            self.action_in_progress = True
+
+        def worker() -> None:
+            try:
+                if action == "hibernate":
+                    hibernate_or_poweroff(reason)
+                elif action == "suspend":
+                    logging.warning("requesting suspend: %s", reason)
+                    result = systemctl("--no-block", "suspend")
+                    if result.returncode != 0:
+                        logging.error("suspend failed: %s", result.stdout.strip())
+                else:
+                    raise ValueError(f"unsupported action: {action}")
+            finally:
+                with self.lock:
+                    self.action_in_progress = False
+
+        threading.Thread(target=worker, name=f"sleep-safety-{action}", daemon=True).start()
+
+    def evaluate_closed_timeout(self) -> bool:
+        try:
+            closed = self.refresh_lid()
+        except Exception:
+            logging.exception("cannot evaluate lid state; taking no automatic action")
+            return True
+        timeout = int(self.policy["closed_lid_awake_timeout_sec"])
+        if (
+            closed
+            and not self.sleeping
+            and self.closed_since is not None
+            and time.monotonic() - self.closed_since >= timeout
+        ):
+            self.start_action("suspend", "lid remained closed for configured limit")
+        return True
+
+    def prepare_for_sleep(self, sleeping: bool) -> None:
+        self.sleeping = sleeping
+        if sleeping:
+            delay = int(self.policy["suspend_hibernate_delay_sec"])
+            result = arm_hibernate_timer(delay)
+            if result.returncode != 0:
+                logging.error("could not arm hibernation deadline: %s", result.stdout.strip())
+            else:
+                logging.info("armed hibernation deadline for %s seconds", delay)
+            return
+
+        systemctl("stop", HIBERNATE_TIMER)
+        try:
+            closed = self.refresh_lid()
+        except Exception:
+            logging.exception("cannot read lid after resume; taking no automatic action")
+            return
+        if closed:
+            self.start_action("hibernate", "system resumed while lid remained closed")
+
+
+def status(policy: dict[str, object]) -> int:
+    closed = lid_is_closed()
+    hibernate_timer = systemctl("is-active", HIBERNATE_TIMER)
+    closed_timer = systemctl("is-active", CLOSED_LID_TIMER)
+    print(
+        "lid={} closed_timeout={}s closed_timer={} hibernate_delay={}s "
+        "hibernate_timer={}".format(
+            "closed" if closed else "open",
+            policy["closed_lid_awake_timeout_sec"],
+            "armed" if closed_timer.returncode == 0 else "idle",
+            policy["suspend_hibernate_delay_sec"],
+            "armed" if hibernate_timer.returncode == 0 else "idle",
+        )
+    )
+    return 0
+
+
+def suspend_if_closed() -> int:
+    if not lid_is_closed():
+        logging.info("closed-lid deadline elapsed after lid opened; taking no action")
+        return 0
+    logging.warning("closed-lid deadline elapsed; requesting suspend")
+    return systemctl("--no-block", "suspend").returncode
+
+
+def watch(policy: dict[str, object]) -> int:
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    logging.basicConfig(level=logging.INFO, format="dot-sleep-safety: %(levelname)s: %(message)s")
+    controller = SafetyController(policy)
+    controller.refresh_lid()
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+
+    def login_signal(
+        _connection: object,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _signal: str,
+        parameters: object,
+    ) -> None:
+        controller.prepare_for_sleep(bool(parameters.unpack()[0]))  # type: ignore[attr-defined]
+
+    def upower_signal(
+        _connection: object,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _signal: str,
+        parameters: object,
+    ) -> None:
+        _changed_interface, changed, _invalidated = parameters.unpack()  # type: ignore[attr-defined]
+        if "LidIsClosed" in changed:
+            try:
+                controller.refresh_lid()
+            except Exception:
+                logging.exception("cannot process lid-state change")
+
+    bus.signal_subscribe(
+        "org.freedesktop.login1",
+        "org.freedesktop.login1.Manager",
+        "PrepareForSleep",
+        "/org/freedesktop/login1",
+        None,
+        Gio.DBusSignalFlags.NONE,
+        login_signal,
+    )
+    bus.signal_subscribe(
+        "org.freedesktop.UPower",
+        "org.freedesktop.DBus.Properties",
+        "PropertiesChanged",
+        "/org/freedesktop/UPower",
+        None,
+        Gio.DBusSignalFlags.NONE,
+        upower_signal,
+    )
+    GLib.timeout_add_seconds(30, controller.evaluate_closed_timeout)
+    GLib.MainLoop().run()
+    return 0
+
+
+def main() -> int:
+    try:
+        policy = load_policy()
+        command = sys.argv[1] if len(sys.argv) == 2 else ""
+        if command == "watch":
+            return watch(policy)
+        if command == "status":
+            return status(policy)
+        if command == "hibernate-deadline":
+            logging.basicConfig(level=logging.INFO)
+            return hibernate_or_poweroff("configured suspend duration elapsed")
+        if command == "suspend-deadline":
+            logging.basicConfig(level=logging.INFO)
+            return suspend_if_closed()
+        print(
+            "usage: dot-sleep-safety "
+            "{watch|status|hibernate-deadline|suspend-deadline}",
+            file=sys.stderr,
+        )
+        return 2
+    except Exception as exc:
+        print(f"dot-sleep-safety: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
