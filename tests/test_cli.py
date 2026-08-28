@@ -1438,6 +1438,7 @@ class DotCliTests(unittest.TestCase):
         installer = (ROOT / "scripts/install-rustdesk-client").read_text()
         docs = (ROOT / "docs/rustdesk.md").read_text()
         cli = (ROOT / "bin/dot").read_text()
+        desktop = (ROOT / "config/rustdesk/rustdesk-client.desktop").read_text()
 
         self.assertTrue(kubuntu["features"]["rustdesk_client"])
         self.assertIn("tasks/rustdesk-client.yml", local)
@@ -1451,6 +1452,7 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("rustdesk.service", local)
         self.assertIn("does not install, enable, or start", docs)
         self.assertIn('"RustDesk client"', cli)
+        self.assertIn('Exec=/bin/sh -lc "exec ~/.local/bin/rustdesk"', desktop)
 
     def test_nomachine_is_private_to_the_kubuntu_tailnet(self):
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

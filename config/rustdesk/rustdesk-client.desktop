@@ -2,7 +2,7 @@
 Type=Application
 Name=RustDesk
 Comment=Connect to another computer with RustDesk
-Exec=rustdesk %u
+Exec=/bin/sh -lc "exec ~/.local/bin/rustdesk"
 Icon=rustdesk
 Terminal=false
 Categories=Network;RemoteAccess;
