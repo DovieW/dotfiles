@@ -1431,6 +1431,27 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"Tailscale enrollment"', cli)
         self.assertIn("editor = nvim", git_config)
 
+    def test_rustdesk_is_an_outbound_only_kubuntu_client(self):
+        kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        local = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/rustdesk-client.yml").read_text()
+        installer = (ROOT / "scripts/install-rustdesk-client").read_text()
+        docs = (ROOT / "docs/rustdesk.md").read_text()
+        cli = (ROOT / "bin/dot").read_text()
+
+        self.assertTrue(kubuntu["features"]["rustdesk_client"])
+        self.assertIn("tasks/rustdesk-client.yml", local)
+        self.assertIn("install-rustdesk-client", task)
+        self.assertIn("version=1.4.9", installer)
+        self.assertIn('asset="rustdesk-$version-x86_64.AppImage"', installer)
+        self.assertIn("sha256sum --check --status", installer)
+        self.assertIn("--appimage-extract", installer)
+        self.assertIn("systemctl is-enabled --quiet rustdesk.service", installer)
+        self.assertIn("dpkg-query", installer)
+        self.assertNotIn("rustdesk.service", local)
+        self.assertIn("does not install, enable, or start", docs)
+        self.assertIn('"RustDesk client"', cli)
+
     def test_nomachine_is_private_to_the_kubuntu_tailnet(self):
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         local = (ROOT / "ansible/local.yml").read_text()

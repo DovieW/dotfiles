@@ -1,0 +1,8 @@
+---
+- name: Install or verify the outbound-only RustDesk client
+  ansible.builtin.command:
+    argv:
+      - "{{ dot_repo }}/scripts/install-rustdesk-client"
+      - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+  register: dot_rustdesk_client
+  changed_when: dot_rustdesk_client.stdout.startswith('CHANGED ')

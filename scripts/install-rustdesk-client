@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+[[ "$mode" == --ensure || "$mode" == --check ]] || {
+  echo "usage: install-rustdesk-client [--ensure|--check]" >&2
+  exit 2
+}
+
+version=1.4.9
+digest=7902cd60a4f29817eebe2668a15c9a1952ac690e8f7b07bfe7620fedd4e28217
+asset="rustdesk-$version-x86_64.AppImage"
+url="https://github.com/rustdesk/rustdesk/releases/download/$version/$asset"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+app_root="$data_home/dotfiles/rustdesk"
+release_dir="$app_root/releases/$version"
+app_dir="$release_dir/app"
+image="$release_dir/$asset"
+launcher="$bin_home/rustdesk"
+desktop="$data_home/applications/rustdesk-client.desktop"
+desktop_source="$(cd -- "$(dirname -- "$0")/.." && pwd)/config/rustdesk/rustdesk-client.desktop"
+
+client_only() {
+  ! dpkg-query -W -f='${db:Status-Status}' rustdesk 2>/dev/null |
+    grep -Fxq installed || return 1
+  ! systemctl is-enabled --quiet rustdesk.service 2>/dev/null || return 1
+  ! systemctl is-active --quiet rustdesk.service 2>/dev/null || return 1
+  ! systemctl --user is-enabled --quiet rustdesk.service 2>/dev/null || return 1
+  ! systemctl --user is-active --quiet rustdesk.service 2>/dev/null
+}
+
+ready() {
+  [[ -x "$app_dir/AppRun" && -f "$image" && -x "$launcher" ]] || return 1
+  printf '%s  %s\n' "$digest" "$image" | sha256sum --check --status || return 1
+  grep -Fq -- "$app_dir/AppRun" "$launcher" || return 1
+  cmp -s -- "$desktop_source" "$desktop" || return 1
+  client_only
+}
+
+if [[ "$mode" == --check ]]; then
+  ready || {
+    echo "RustDesk client $version is missing or has drifted." >&2
+    exit 1
+  }
+  echo "RustDesk client $version is installed without a host service."
+  exit 0
+fi
+
+client_only || {
+  echo "RustDesk: remove the native package and rustdesk.service before installing the client-only runtime." >&2
+  exit 1
+}
+
+if ready; then
+  echo "RustDesk client $version is installed without a host service."
+  exit 0
+fi
+
+install -d -m 0755 "$release_dir" "$bin_home" "$data_home/applications"
+work_dir="$(mktemp -d "$app_root/.install.XXXXXX")"
+cleanup() { rm -rf -- "$work_dir"; }
+trap cleanup EXIT
+
+source_image="$image"
+if [[ ! -f "$source_image" ]] ||
+   ! printf '%s  %s\n' "$digest" "$source_image" | sha256sum --check --status; then
+  source_image="$work_dir/$asset"
+  curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$source_image"
+  printf '%s  %s\n' "$digest" "$source_image" | sha256sum --check --status
+fi
+chmod 0755 "$source_image"
+
+(
+  cd -- "$work_dir"
+  "$source_image" --appimage-extract >/dev/null
+)
+[[ -x "$work_dir/squashfs-root/AppRun" ]] || {
+  echo "RustDesk: official AppImage did not contain AppRun." >&2
+  exit 1
+}
+
+rm -rf -- "$app_dir.new"
+mv -- "$work_dir/squashfs-root" "$app_dir.new"
+rm -rf -- "$app_dir"
+mv -- "$app_dir.new" "$app_dir"
+[[ "$source_image" == "$image" ]] || install -m 0755 "$source_image" "$image"
+
+rustdesk_icon="$(find "$app_dir" -type f \( -name 'rustdesk.png' -o -name 'rustdesk.svg' \) | head -n 1)"
+if [[ -n "$rustdesk_icon" ]]; then
+  install -d -m 0755 "$data_home/icons"
+  install -m 0644 "$rustdesk_icon" "$data_home/icons/rustdesk.${rustdesk_icon##*.}"
+fi
+
+launcher_tmp="$work_dir/rustdesk"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$app_dir/AppRun" >"$launcher_tmp"
+install -m 0755 "$launcher_tmp" "$launcher"
+install -m 0644 "$desktop_source" "$desktop"
+
+# The portable AppImage deliberately installs no rustdesk.service. It is only
+# started interactively to initiate outbound sessions.
+echo "CHANGED RustDesk client $version installed without a host service."

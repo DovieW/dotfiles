@@ -99,6 +99,14 @@
       when: dot_profile_data.features.nomachine | default(false)
       tags: [packages, nomachine, app-updates]
 
+    - name: Configure the outbound-only RustDesk client
+      ansible.builtin.include_tasks:
+        file: tasks/rustdesk-client.yml
+        apply:
+          tags: [packages, rustdesk, app-updates]
+      when: dot_profile_data.features.rustdesk_client | default(false)
+      tags: [packages, rustdesk, app-updates]
+
     - name: Configure Ubuntu's recommended NVIDIA driver
       ansible.builtin.include_tasks:
         file: tasks/nvidia.yml

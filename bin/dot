@@ -1828,6 +1828,17 @@ def apply_direct(
     def selected(*tags: str) -> bool:
         return apply_all or bool(selected_tags.intersection(tags))
 
+    if features.get("rustdesk_client") and selected(
+        "packages", "rustdesk", "app-updates"
+    ):
+        result = run(
+            [str(ROOT / "scripts/install-rustdesk-client"), "--ensure"],
+            capture=True,
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        changes += result.stdout.count("CHANGED ")
+
     force_kde = force_kde or os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") == "1"
     lockscreen_files = {
         ".config/kscreenlockerrc",
@@ -3159,6 +3170,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "meshcentral",
             "memory",
             "nomachine",
+            "rustdesk",
             "tailscale",
             "touchpad",
             "vscode",
@@ -8924,6 +8936,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             "server installed and running"
             if nomachine_status is not None and nomachine_status.returncode == 0
             else f"run dot apply --profile {profile['name']} --tags nomachine",
+        )
+    if profile.get("features", {}).get("rustdesk_client"):
+        rustdesk_client = run(
+            [str(ROOT / "scripts/install-rustdesk-client"), "--check"],
+            check=False,
+            capture=True,
+        )
+        failures += not doctor_check(
+            "RustDesk client",
+            rustdesk_client.returncode == 0,
+            rustdesk_client.stdout.strip()
+            if rustdesk_client.returncode == 0
+            else f"run dot apply --profile {profile['name']} --tags rustdesk",
         )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")

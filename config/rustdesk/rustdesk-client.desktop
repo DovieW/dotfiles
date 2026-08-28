@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RustDesk
+Comment=Connect to another computer with RustDesk
+Exec=rustdesk %u
+Icon=rustdesk
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupWMClass=rustdesk
