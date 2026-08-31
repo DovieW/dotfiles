@@ -8,5 +8,6 @@
   "skin_tone": "",
   "gender": "",
   "language": "en",
-  "kaomoji": true
+  "kaomoji": true,
+  "theme": "auto"
 }
