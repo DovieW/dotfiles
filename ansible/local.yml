@@ -77,6 +77,14 @@
       when: dot_profile_data.features.memory_pressure_protection | default(false)
       tags: [packages, memory]
 
+    - name: Configure increased inotify capacity
+      ansible.builtin.include_tasks:
+        file: tasks/inotify.yml
+        apply:
+          tags: [inotify]
+      when: dot_profile_data.features.inotify_capacity | default(false)
+      tags: [inotify]
+
     - name: Configure Plasma's native KRdp server
       ansible.builtin.include_tasks:
         file: tasks/krdp.yml

@@ -162,6 +162,13 @@ The active zram device should appear ahead of the disk swap in `swapon --show`.
 `oomctl` shows the user slice monitored for both swap exhaustion and sustained
 memory pressure.
 
+The Kubuntu setup also persists the increased inotify watch capacity. Apply or
+repair only that setting with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags inotify
+```
+
 Tailscale advances through its official stable APT repository during normal
 Kubuntu applies and updates. Install or repair only that subsystem with:
 

@@ -1454,6 +1454,20 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('get("memory_pressure_protection")', cli)
         self.assertIn("Compressed swap", cli)
 
+    def test_kubuntu_manages_increased_inotify_capacity(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/inotify.yml").read_text()
+        sysctl = (
+            ROOT / "config/sysctl.d/60-dotfiles-inotify.conf"
+        ).read_text()
+
+        self.assertTrue(profile["features"]["inotify_capacity"])
+        self.assertIn("tasks/inotify.yml", playbook)
+        self.assertIn("/etc/sysctl.d/60-dotfiles-inotify.conf", task)
+        self.assertIn("sysctl, --load=/etc/sysctl.d/60-dotfiles-inotify.conf", task)
+        self.assertIn("fs.inotify.max_user_watches = 524288", sysctl)
+
     def test_tailscale_runs_on_native_hosts_not_inside_wsl(self):
         kubuntu = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())

@@ -88,6 +88,11 @@ Electron application, or other user workload before reclaim I/O makes Plasma,
 audio, input, and remote access unusable. Existing disk swap remains a
 lower-priority fallback.
 
+The Kubuntu profile also raises `fs.inotify.max_user_watches` to 524,288 so
+editors, development servers, and other file-watching desktop applications can
+monitor large workspaces. The setting is installed in `/etc/sysctl.d` and takes
+effect during setup without requiring a reboot.
+
 ## Tailscale
 
 The `tailscale` feature is enabled only for the native Kubuntu profile. Its

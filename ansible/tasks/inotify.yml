@@ -1,0 +1,34 @@
+---
+- name: Validate inotify tuning operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == "Linux"
+    fail_msg: Managed inotify limits are supported only on Linux profiles.
+
+- name: Create the system sysctl configuration directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/sysctl.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the increased inotify watch limit
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/sysctl.d/60-dotfiles-inotify.conf"
+    dest: /etc/sysctl.d/60-dotfiles-inotify.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: dot_inotify_sysctl
+
+- name: Apply the increased inotify watch limit
+  become: true
+  ansible.builtin.command:
+    argv: [sysctl, --load=/etc/sysctl.d/60-dotfiles-inotify.conf]
+  when:
+    - dot_inotify_sysctl.changed
+    - not ansible_check_mode
+  changed_when: true
