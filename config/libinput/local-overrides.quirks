@@ -14,3 +14,12 @@ MatchVendor=0x0488
 MatchProduct=0x1054
 MatchDMIModalias=dmi:*:svnLENOVO:pn83JM:pvrIdeaPadPro516IAH10:*
 ModelLenovoX1Gen6Touchpad=1
+
+# keyd grabs the built-in keyboard and re-emits its events through this virtual
+# device. Mark that narrowly matched device as internal so libinput can pair it
+# with the built-in touchpad for disable-while-typing.
+[keyd virtual keyboard]
+MatchUdevType=keyboard
+MatchName=keyd virtual keyboard
+MatchDMIModalias=dmi:*:svnLENOVO:pn83JM:*
+AttrKeyboardIntegration=internal

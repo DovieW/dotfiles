@@ -484,6 +484,13 @@ and must be removed once the upstream arrival-time fix reaches Ubuntu. It does
 not change pointer acceleration, scrolling, gesture recognition, or the
 firmware's palm classification.
 
+The laptop uses keyd to preserve the Copilot and Right Control key behavior.
+Because keyd grabs the physical keyboard and re-emits it as `keyd virtual
+keyboard`, libinput would otherwise see no activity from an internal keyboard
+and disable-while-typing would not engage. The local libinput quirk database
+therefore classifies that virtual keyboard as internal only on the Lenovo 83JM.
+The normal libinput disable-while-typing timeout remains unchanged.
+
 Native Linux graphical applications receive
 `SSH_AUTH_SOCK=${HOME}/.bitwarden-ssh-agent.sock` through systemd's
 `environment.d` mechanism. This makes Obsidian and other desktop Git clients

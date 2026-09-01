@@ -2794,6 +2794,11 @@ class DotCliTests(unittest.TestCase):
             quirk,
         )
         self.assertIn("ModelLenovoX1Gen6Touchpad=1", quirk)
+        self.assertIn("[keyd virtual keyboard]", quirk)
+        self.assertIn("MatchUdevType=keyboard", quirk)
+        self.assertIn("MatchName=keyd virtual keyboard", quirk)
+        self.assertIn("MatchDMIModalias=dmi:*:svnLENOVO:pn83JM:*", quirk)
+        self.assertIn("AttrKeyboardIntegration=internal", quirk)
         self.assertIn('"touchpad jump workaround"', cli)
         self.assertIn('"touchpad libinput match"', cli)
         self.assertIn('"touchpad"', cli)
