@@ -393,7 +393,9 @@ the control socket, daemon settings, pidfiles, and detached updater; systemd
 only restores that native lifecycle after boot. The desktop profile enables
 user lingering so the unit and daemon remain available after logout. The unit
 also restarts after a process or cgroup failure, with bounded retries, so an OOM
-kill cannot leave Remote Control offline indefinitely.
+kill cannot leave Remote Control offline indefinitely. On startup it reclaims
+the exact non-remote fallback app-server shape that an SSH client may create
+after an abrupt loss; it does not broadly terminate Codex processes.
 
 Do not add a second raw `codex app-server --remote-control` process. Desktop
 then sees no native persisted preference, attempts to connect itself, and the
