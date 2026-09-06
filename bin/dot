@@ -3029,6 +3029,19 @@ def apply_direct(
             if remote_mode == "headless" and not enabled:
                 run(["systemctl", "--user", "enable", unit_name])
                 changes += 1
+            if remote_mode == "headless":
+                changes += int(
+                    refresh_codex_remote_control_daemon(
+                        managed_codex=managed_codex
+                    )
+                )
+                active = run(
+                    ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                    check=False,
+                ).returncode == 0
+                daemon_running = (
+                    codex_daemon_status(managed_codex).get("status") == "running"
+                )
             if remote_mode == "headless" and (
                 not active
                 or not daemon_running
@@ -4892,6 +4905,33 @@ def process_executable(proc_root: Path, pid: int) -> str | None:
         return None
 
 
+def process_owns_unix_listener(proc_root: Path, pid: int, socket_path: Path) -> bool:
+    socket_inodes: set[str] = set()
+    try:
+        descriptors = (proc_root / str(pid) / "fd").iterdir()
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(descriptor)
+            except OSError:
+                continue
+            match = re.fullmatch(r"socket:\[(\d+)\]", target)
+            if match:
+                socket_inodes.add(match.group(1))
+        unix_sockets = (proc_root / "net/unix").read_text(encoding="utf-8")
+    except (OSError, PermissionError):
+        return False
+    for line in unix_sockets.splitlines()[1:]:
+        fields = line.split()
+        if (
+            len(fields) >= 8
+            and fields[6] in socket_inodes
+            and fields[7] == str(socket_path)
+            and fields[5] == "01"
+        ):
+            return True
+    return False
+
+
 def chatgpt_embedded_codex_servers(
     *,
     proc_root: Path = Path("/proc"),
@@ -5025,6 +5065,171 @@ def refresh_chatgpt_desktop_codex_server(
     return True
 
 
+def codex_daemon_status(managed_codex: Path) -> dict[str, Any]:
+    result = run(
+        [str(managed_codex), "app-server", "daemon", "version"],
+        check=False,
+        capture=True,
+    )
+    if result.returncode:
+        return {}
+    try:
+        status = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+def legacy_codex_daemon_pids(
+    stale_version: str,
+    *,
+    proc_root: Path = Path("/proc"),
+    codex_home: Path | None = None,
+) -> tuple[int, ...]:
+    """Find only stale standalone servers owning Codex's daemon control socket."""
+    home = codex_home or Path.home() / ".codex"
+    releases = home / "packages/standalone/releases"
+    socket_path = home / "app-server-control/app-server-control.sock"
+    candidates = []
+    for process_dir in proc_root.glob("[0-9]*"):
+        try:
+            pid = int(process_dir.name)
+        except ValueError:
+            continue
+        arguments = process_arguments(proc_root, pid)
+        executable = process_executable(proc_root, pid)
+        if (
+            not arguments
+            or not executable
+            or "app-server" not in arguments
+            or "--listen" not in arguments
+            or "unix://" not in arguments
+        ):
+            continue
+        executable_path = Path(executable.removesuffix(" (deleted)"))
+        try:
+            executable_path.relative_to(releases)
+        except ValueError:
+            continue
+        running_version = command_semver(
+            [str(proc_root / str(pid) / "exe"), "--version"]
+        )
+        if (
+            running_version == stale_version
+            and process_owns_unix_listener(proc_root, pid, socket_path)
+        ):
+            candidates.append(pid)
+    return tuple(sorted(candidates))
+
+
+def refresh_codex_remote_control_daemon(
+    *,
+    managed_codex: Path | None = None,
+    proc_root: Path = Path("/proc"),
+    codex_home: Path | None = None,
+    wait_seconds: float = 10,
+) -> bool:
+    """Align the headless Remote Control daemon with the installed Codex CLI."""
+    executable = managed_codex or (
+        Path.home() / ".codex/packages/standalone/current/codex"
+    )
+    if platform.system() != "Linux" or not executable.is_file():
+        return False
+    status = codex_daemon_status(executable)
+    installed_version = status.get("managedCodexVersion") or status.get(
+        "cliVersion"
+    )
+    running_version = status.get("appServerVersion")
+    version_changed = bool(
+        status.get("status") == "running"
+        and installed_version
+        and running_version
+        and running_version != installed_version
+    )
+    changed = False
+    if version_changed:
+        restart = run(
+            [str(executable), "app-server", "daemon", "restart"],
+            check=False,
+            capture=True,
+        )
+        if restart.returncode:
+            detail = "\n".join(
+                value.strip()
+                for value in (restart.stdout, restart.stderr)
+                if value.strip()
+            )
+            if "not managed by codex app-server daemon" not in detail:
+                raise DotError(f"Codex Remote Control daemon restart failed: {detail}")
+            legacy = legacy_codex_daemon_pids(
+                str(running_version),
+                proc_root=proc_root,
+                codex_home=codex_home,
+            )
+            if len(legacy) != 1:
+                raise DotError(
+                    "Codex reported an unmanaged stale Remote Control daemon, but "
+                    f"found {len(legacy)} safely identifiable socket owner(s)."
+                )
+            legacy_pid = legacy[0]
+            os.kill(legacy_pid, signal.SIGTERM)
+            deadline = time.monotonic() + wait_seconds
+            while (
+                (proc_root / str(legacy_pid)).exists()
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.2)
+            if (proc_root / str(legacy_pid)).exists():
+                raise DotError(
+                    f"Legacy Codex Remote Control daemon PID {legacy_pid} did not stop."
+                )
+            run(
+                [
+                    str(executable),
+                    "app-server",
+                    "daemon",
+                    "bootstrap",
+                    "--remote-control",
+                ],
+                capture=True,
+            )
+
+        deadline = time.monotonic() + wait_seconds
+        refreshed: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            refreshed = codex_daemon_status(executable)
+            if (
+                refreshed.get("status") == "running"
+                and refreshed.get("appServerVersion") == installed_version
+            ):
+                break
+            time.sleep(0.2)
+        else:
+            raise DotError(
+                "Codex Remote Control daemon did not restart on the installed version."
+            )
+        print(
+            "Refreshed Codex Remote Control daemon: "
+            f"{running_version} -> {installed_version}."
+        )
+        changed = True
+
+    unit_name = "codex-remote-control.service"
+    if command_exists("systemctl"):
+        enabled = run(
+            ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+            check=False,
+        ).returncode == 0
+        active = run(
+            ["systemctl", "--user", "is-active", "--quiet", unit_name],
+            check=False,
+        ).returncode == 0
+        if enabled and not active:
+            run(["systemctl", "--user", "start", unit_name])
+            changed = True
+    return changed
+
+
 def cmd_codex_update(args: argparse.Namespace) -> None:
     profile_name = update_profile(getattr(args, "profile", None))
     profile = load_profile(profile_name)
@@ -5033,6 +5238,11 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
             raise DotError("Updating Codex Desktop requires ansible-playbook.")
         palette_apply(profile_name, "chatgpt")
     run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
+    if (
+        profile.get("features", {}).get("codex_remote_control")
+        and profile.get("features", {}).get("codex_remote_control_mode") == "headless"
+    ):
+        refresh_codex_remote_control_daemon()
     if profile.get("features", {}).get("chatgpt_desktop"):
         refresh_chatgpt_desktop_codex_server()
         print(
@@ -6289,6 +6499,11 @@ def cmd_update(args: argparse.Namespace) -> None:
     if apps and profile.get("features", {}).get("codex_remote_control"):
         # app-updates already upgrades the desktop package.
         run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
+        if (
+            profile.get("features", {}).get("codex_remote_control_mode")
+            == "headless"
+        ):
+            refresh_codex_remote_control_daemon()
     if apps and profile.get("features", {}).get("chatgpt_desktop"):
         refresh_chatgpt_desktop_codex_server()
     if apps and profile.get("features", {}).get("vite_plus"):
@@ -10971,6 +11186,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             except json.JSONDecodeError:
                 pass
         running = daemon_status.get("status") == "running"
+        versions_aligned = (
+            daemon_status.get("appServerVersion")
+            == daemon_status.get("managedCodexVersion")
+        )
         reported_path = daemon_status.get("managedCodexPath", "")
         path_aligned = False
         if reported_path:
@@ -10990,7 +11209,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             capture=True,
         ).returncode == 0
         remote_owner_healthy = (
-            (running and path_aligned)
+            (running and path_aligned and versions_aligned)
             if remote_mode == "headless"
             else not running or desktop_server_running
         )

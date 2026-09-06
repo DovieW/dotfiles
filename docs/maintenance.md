@@ -419,6 +419,12 @@ the desktop app only when you need to load other desktop UI changes. Profiles
 without `chatgpt_desktop` update only the CLI. Use `--profile NAME` to select a
 profile explicitly. The broader application update performs the same check.
 
+On a headless Remote Control profile, both update commands also compare the
+daemon's reported `appServerVersion` with its managed Codex version. A mismatch
+uses the native daemon restart. A legacy unmanaged server is replaced only when
+exactly one stale standalone process owns the expected Codex control socket;
+ambiguous ownership fails closed instead of signaling an unrelated Codex process.
+
 The native daemon bootstrap also runs its own detached stable-channel updater.
 Run `dot doctor --profile kubuntu-laptop` to verify the boot unit, daemon,
 managed executable, and persisted Remote Control preference together.

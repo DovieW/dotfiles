@@ -113,6 +113,135 @@ class DotCliTests(unittest.TestCase):
             )
         calls.refresh.assert_called_once_with()
 
+    def test_codex_update_refreshes_headless_remote_control_daemon(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        calls = mock.Mock()
+        with mock.patch.dict(
+            function.__globals__,
+            {
+                "update_profile": mock.Mock(return_value="selected"),
+                "load_profile": mock.Mock(
+                    return_value={
+                        "features": {
+                            "chatgpt_desktop": False,
+                            "codex_remote_control": True,
+                            "codex_remote_control_mode": "headless",
+                        },
+                    }
+                ),
+                "run": calls.run,
+                "refresh_codex_remote_control_daemon": calls.refresh,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            function(argparse.Namespace(profile="selected"))
+        self.assertEqual(
+            calls.mock_calls,
+            [
+                mock.call.run(
+                    [str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT
+                ),
+                mock.call.refresh(),
+            ],
+        )
+
+    def test_legacy_codex_daemon_selection_requires_exact_socket_owner(self):
+        module = runpy.run_path(str(DOT))
+        select = module["legacy_codex_daemon_pids"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proc_root = root / "proc"
+            codex_home = root / "home/.codex"
+            release = codex_home / "packages/standalone/releases/1.0.0/bin/codex"
+            release.parent.mkdir(parents=True)
+            release.touch()
+            socket_path = codex_home / "app-server-control/app-server-control.sock"
+
+            def process(pid, inode, *arguments):
+                process_dir = proc_root / str(pid)
+                (process_dir / "fd").mkdir(parents=True)
+                (process_dir / "cmdline").write_bytes(
+                    b"\0".join(value.encode() for value in arguments) + b"\0"
+                )
+                (process_dir / "exe").symlink_to(release)
+                if inode:
+                    (process_dir / "fd/3").symlink_to(f"socket:[{inode}]")
+
+            process(10, 123, "codex", "app-server", "--listen", "unix://")
+            process(11, 456, "codex", "app-server", "--listen", "unix://")
+            process(12, 789, "codex", "app-server", "proxy")
+            (proc_root / "net").mkdir()
+            (proc_root / "net/unix").write_text(
+                "Num RefCount Protocol Flags Type St Inode Path\n"
+                f"0: 2 0 10000 1 01 123 {socket_path}\n"
+            )
+            with mock.patch.dict(
+                select.__globals__,
+                {"command_semver": mock.Mock(return_value="1.0.0")},
+            ):
+                self.assertEqual(
+                    select(
+                        "1.0.0",
+                        proc_root=proc_root,
+                        codex_home=codex_home,
+                    ),
+                    (10,),
+                )
+
+    def test_remote_control_refresh_replaces_one_unmanaged_legacy_owner(self):
+        module = runpy.run_path(str(DOT))
+        refresh = module["refresh_codex_remote_control_daemon"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "codex"
+            executable.touch()
+            proc_root = root / "proc"
+            legacy_process = proc_root / "99"
+            legacy_process.mkdir(parents=True)
+            old = {
+                "status": "running",
+                "managedCodexVersion": "2.0.0",
+                "appServerVersion": "1.0.0",
+            }
+            current = {
+                "status": "running",
+                "managedCodexVersion": "2.0.0",
+                "appServerVersion": "2.0.0",
+            }
+            restart_failed = subprocess.CompletedProcess(
+                [],
+                1,
+                "",
+                "app server is running but is not managed by codex app-server daemon",
+            )
+            bootstrap_ok = subprocess.CompletedProcess([], 0, "", "")
+
+            def terminate(pid, _signal):
+                self.assertEqual(pid, 99)
+                legacy_process.rmdir()
+
+            with (
+                mock.patch.dict(
+                    refresh.__globals__,
+                    {
+                    "codex_daemon_status": mock.Mock(side_effect=[old, current]),
+                    "legacy_codex_daemon_pids": mock.Mock(return_value=(99,)),
+                    "run": mock.Mock(side_effect=[restart_failed, bootstrap_ok]),
+                    "command_exists": mock.Mock(return_value=False),
+                },
+                ),
+                mock.patch.object(
+                    refresh.__globals__["os"], "kill", side_effect=terminate
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertTrue(
+                    refresh(
+                        managed_codex=executable,
+                        proc_root=proc_root,
+                        codex_home=root / ".codex",
+                    )
+                )
+
     def run_dot(self, *args):
         return subprocess.run([str(DOT), *args], text=True, capture_output=True)
 

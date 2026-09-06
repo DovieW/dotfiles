@@ -445,6 +445,13 @@ If the standalone CLI or native daemon state is missing, rerun
 verified stable standalone release, removes the obsolete parallel app-server
 units, and bootstraps Codex's native daemon with Remote Control enabled.
 
+If remote sessions show an older model catalog after the CLI updates, compare
+`appServerVersion` and `managedCodexVersion` in `codex app-server daemon version`.
+`dot codex update` and `dot update --apps` now restart a mismatched managed daemon.
+They can also replace one legacy unmanaged daemon when it is the sole stale
+standalone owner of the exact Codex control socket; otherwise they stop with an
+ownership error rather than killing an ambiguous process.
+
 Check the native state with:
 
 ```bash
