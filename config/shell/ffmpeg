@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Homebrew's FFmpeg is pulled in by FreeRDP but lacks Linux PulseAudio input.
+exec /usr/bin/ffmpeg "$@"

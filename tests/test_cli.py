@@ -2227,6 +2227,14 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ffmpeg", profile["packages"]["apt"])
         self.assertIn("yt-dlp", profile["packages"]["brew"])
 
+        ffmpeg = ROOT / "config/shell/ffmpeg"
+        self.assertTrue(ffmpeg.stat().st_mode & 0o111)
+        self.assertEqual(ffmpeg.read_text().splitlines()[-1], 'exec /usr/bin/ffmpeg "$@"')
+        self.assertIn(
+            'ROOT / "config/shell/ffmpeg": Path.home() / ".local/bin/ffmpeg"',
+            text,
+        )
+
     def test_transcribe_installer_is_managed_by_dot(self):
         installer = ROOT / "scripts/install-transcribe"
         self.assertTrue(installer.stat().st_mode & 0o111)

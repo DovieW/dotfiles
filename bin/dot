@@ -1886,6 +1886,7 @@ def apply_direct(
             ROOT / "config/shell/mbash": Path.home() / ".local/bin/mbash",
             ROOT / "config/shell/clip": Path.home() / ".local/bin/clip",
             ROOT / "config/shell/cclip": Path.home() / ".local/bin/cclip",
+            ROOT / "config/shell/ffmpeg": Path.home() / ".local/bin/ffmpeg",
             ROOT / "config/fzf/fzfrc": Path.home() / ".config/fzf/fzfrc",
             ROOT / "config/fzf/preview": Path.home() / ".local/bin/dot-fzf-preview",
             ROOT / "config/tmux/tmux.conf": Path.home() / ".config/tmux/tmux.conf",
