@@ -59,6 +59,10 @@ Vite+, git-sync, InputActions, Neovim plugins, and curated Mason language tools.
 package-manager transaction already in progress causes an actionable refusal
 instead of competing for native locks.
 
+The application update also installs any managed Homebrew formulae newly added
+to the active profile, keeping a previously configured workstation reconciled
+with the current package manifest.
+
 ## Automatic repository sync
 
 `g sync` is `git sync`: Git discovers the managed `git-sync` executable on

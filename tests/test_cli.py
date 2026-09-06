@@ -2286,11 +2286,16 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("upgrade: dist", playbook)
         self.assertIn("Refresh every installed Snap", playbook)
         self.assertIn("Upgrade all installed Homebrew formulae", playbook)
+        self.assertIn("Install missing Homebrew formulae", playbook)
         self.assertIn('HOMEBREW_NO_INSTALL_CLEANUP: "1"', playbook)
         self.assertIn("Clean old Homebrew versions after upgrades finish", playbook)
         self.assertIn("upgrade_ansible_controller", cli)
         self.assertIn("item not in ['ansible', 'ansible-lint']", playbook)
         self.assertIn("tags: [packages, app-updates]", playbook)
+        install_missing_brew = playbook.split(
+            "- name: Install missing Homebrew formulae", 1
+        )[1].split("- name: Read outdated Homebrew formulae", 1)[0]
+        self.assertIn("tags: [packages, app-updates]", install_missing_brew)
         self.assertIn("active_package_transactions", cli)
         self.assertIn('return manifest["profile"] if manifest else "kubuntu-laptop"', cli)
         self.assertIn('"Update everything"', cli)
