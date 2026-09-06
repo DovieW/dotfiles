@@ -4860,12 +4860,18 @@ def cmd_codex_install(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-codex"), "--install"], cwd=ROOT)
 
 
-def cmd_codex_update(_args: argparse.Namespace) -> None:
+def cmd_codex_update(args: argparse.Namespace) -> None:
+    profile_name = update_profile(getattr(args, "profile", None))
+    profile = load_profile(profile_name)
+    if profile.get("features", {}).get("chatgpt_desktop"):
+        if not command_exists("ansible-playbook"):
+            raise DotError("Updating Codex Desktop requires ansible-playbook.")
+        palette_apply(profile_name, "chatgpt")
     run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
-    print(
-        "The standalone terminal CLI was updated. Remote Control uses the Codex "
-        "Desktop core and is unaffected."
-    )
+    if profile.get("features", {}).get("chatgpt_desktop"):
+        print("Codex CLI and desktop update completed. Reopen the desktop app to use its updated version.")
+    else:
+        print("Codex CLI update completed; this profile does not manage the desktop app.")
 
 
 def cmd_vite_plus_install(_args: argparse.Namespace) -> None:
@@ -6112,7 +6118,8 @@ def cmd_update(args: argparse.Namespace) -> None:
         )
     )
     if apps and profile.get("features", {}).get("codex_remote_control"):
-        cmd_codex_update(args)
+        # app-updates already upgrades the desktop package.
+        run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
     if apps and profile.get("features", {}).get("vite_plus"):
         cmd_vite_plus_update(args)
     if apps and profile.get("features", {}).get("shell"):
@@ -7530,7 +7537,7 @@ def palette_update_menu(profile: str) -> None:
                     "Update Tmux plugins",
                     "Update TPM and every configured Tmux plugin",
                 ),
-                ("codex", "Update Codex", "Install the latest stable standalone CLI"),
+                ("codex", "Update Codex", "Upgrade the stable CLI and desktop app"),
                 ("vite", "Update Vite+", "Upgrade Vite+ from its stable channel"),
                 (
                     "tailscale",
@@ -7583,7 +7590,7 @@ def palette_update_menu(profile: str) -> None:
             elif action == "tmux":
                 palette_apply(profile, "tmux")
             elif action == "codex":
-                cmd_codex_update(argparse.Namespace())
+                cmd_codex_update(argparse.Namespace(profile=profile))
             elif action == "vite":
                 cmd_vite_plus_update(argparse.Namespace())
             elif action == "tailscale":
@@ -8150,7 +8157,7 @@ def palette_services_menu(profile: str) -> None:
                 ("docker-repair", "Install or repair Docker", "Apply native Engine, Compose, and Buildx"),
                 ("codex-status", "Codex Remote Control status", "Show the persistent user service"),
                 ("codex-install", "Install or repair Codex", "Install stable CLI and apply the service"),
-                ("codex-update", "Update Codex", "Upgrade the standalone stable CLI"),
+                ("codex-update", "Update Codex", "Upgrade the stable CLI and desktop app"),
                 ("vite-install", "Install or repair Vite+", "Install from the managed stable channel"),
                 ("vite-update", "Update Vite+", "Upgrade from the stable channel"),
                 ("gestures", "Touchpad gestures", "Status, reload, enable, or emergency-disable"),
@@ -8216,7 +8223,7 @@ def palette_services_menu(profile: str) -> None:
                 cmd_codex_install(argparse.Namespace())
                 palette_apply(profile, "codex")
             elif action == "codex-update":
-                cmd_codex_update(argparse.Namespace())
+                cmd_codex_update(argparse.Namespace(profile=profile))
             elif action == "vite-install":
                 cmd_vite_plus_install(argparse.Namespace())
             elif action == "vite-update":
@@ -11017,6 +11024,7 @@ def build_parser() -> argparse.ArgumentParser:
     codex_install = codex_sub.add_parser("install")
     codex_install.set_defaults(func=cmd_codex_install)
     codex_update = codex_sub.add_parser("update")
+    codex_update.add_argument("--profile")
     codex_update.set_defaults(func=cmd_codex_update)
     vite_plus = sub.add_parser("vite-plus")
     vite_plus_sub = vite_plus.add_subparsers(dest="vite_plus_command", required=True)

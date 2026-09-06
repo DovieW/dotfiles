@@ -21,6 +21,28 @@ os.environ["DOTFILES_TESTING"] = "1"
 
 
 class DotCliTests(unittest.TestCase):
+    def test_codex_update_includes_desktop_only_for_managed_profiles(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        for desktop in (True, False):
+            with self.subTest(desktop=desktop):
+                calls = mock.Mock()
+                with mock.patch.dict(function.__globals__, {
+                    "update_profile": mock.Mock(return_value="selected"),
+                    "load_profile": mock.Mock(return_value={
+                        "features": {"chatgpt_desktop": desktop},
+                    }),
+                    "command_exists": mock.Mock(return_value=True),
+                    "palette_apply": calls.apply,
+                    "run": calls.run,
+                }), contextlib.redirect_stdout(io.StringIO()):
+                    function(argparse.Namespace(profile="selected"))
+                expected = [mock.call.run(
+                    [str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
+                )]
+                if desktop:
+                    expected.insert(0, mock.call.apply("selected", "chatgpt"))
+                self.assertEqual(calls.mock_calls, expected)
+
     def run_dot(self, *args):
         return subprocess.run([str(DOT), *args], text=True, capture_output=True)
 

@@ -402,11 +402,18 @@ The official installer and stable-channel policy are stored in
 standalone installation is absent. Any healthy managed stable version is
 accepted.
 
-To update the standalone terminal CLI:
+To update the standalone terminal CLI and the desktop app managed by the current
+device profile:
 
 ```bash
 dot codex update
 ```
+
+The **Update Codex** picker action runs the same update. Desktop-enabled profiles
+upgrade the official `chatgpt` APT package, which includes Codex Desktop, before
+updating the CLI. Reopen the desktop app afterward to load the updated version.
+Profiles without `chatgpt_desktop` update only the CLI. Use `--profile NAME` to
+select a profile explicitly. The broader application update already includes both.
 
 The native daemon bootstrap also runs its own detached stable-channel updater.
 Run `dot doctor --profile kubuntu-laptop` to verify the boot unit, daemon,
