@@ -3,6 +3,8 @@ set -euo pipefail
 
 readonly threshold="${DOT_LID_POWER_LOW_THRESHOLD:-20}"
 readonly debounce_seconds="${DOT_LID_POWER_DEBOUNCE_SECONDS:-5}"
+readonly ac_debounce_seconds="${DOT_LID_POWER_AC_DEBOUNCE_SECONDS:-30}"
+readonly max_debounce_seconds="${DOT_LID_POWER_MAX_DEBOUNCE_SECONDS:-30}"
 readonly busctl_command="${DOT_LID_POWER_BUSCTL:-busctl}"
 readonly gdbus_command="${DOT_LID_POWER_GDBUS:-gdbus}"
 readonly powerprofiles_command="${DOT_LID_POWER_POWERPROFILESCTL:-powerprofilesctl}"
@@ -65,6 +67,30 @@ desired_profile() {
   printf '%s\n' "$profile"
 }
 
+safe_unstable_state() {
+  local lid percentage
+  lid="$(lid_is_closed)"
+  percentage="$(battery_percentage)"
+  if [[ "$lid" == "true" ]]; then
+    printf '%s|%s|%s\n' "$lid" power-saver ""
+  elif awk -v percentage="$percentage" -v threshold="$threshold" \
+    'BEGIN { exit !(percentage <= threshold) }'; then
+    printf '%s|%s|%s\n' "$lid" power-saver 40
+  else
+    printf '%s|%s|%s\n' "$lid" balanced 100
+  fi
+}
+
+state_debounce_seconds() {
+  local state="$1" lid profile brightness
+  IFS='|' read -r lid profile brightness <<<"$state"
+  if [[ "$profile" == "performance" ]]; then
+    printf '%s\n' "$ac_debounce_seconds"
+  else
+    printf '%s\n' "$debounce_seconds"
+  fi
+}
+
 state_summary() {
   local lid battery percentage current expected
   lid="$(lid_is_closed)"
@@ -95,10 +121,10 @@ set_brightness() {
   fi
 }
 
-reconcile() {
-  local current lid expected brightness
+apply_state() {
+  local state="$1" current lid expected brightness
   current="$("$powerprofiles_command" get)"
-  IFS='|' read -r lid expected brightness <<<"$(desired_state)"
+  IFS='|' read -r lid expected brightness <<<"$state"
   if [[ "$current" != "$expected" ]]; then
     printf 'dot-lid-power: changing profile %s -> %s\n' "$current" "$expected"
     if ! "$powerprofiles_command" set "$expected"; then
@@ -108,6 +134,10 @@ reconcile() {
     fi
   fi
   set_brightness "$brightness"
+}
+
+reconcile() {
+  apply_state "$(desired_state)"
 }
 
 wake_display() {
@@ -122,12 +152,13 @@ wake_display() {
 
 watch_events() {
   local previous_lid current_lid current_state event_line
-  local candidate applied candidate_since
+  local candidate applied candidate_since unstable_since required_debounce
   local monitor_fd monitor_pid
   previous_lid="$(lid_is_closed)"
   candidate="$(desired_state)"
   applied=""
   candidate_since=$SECONDS
+  unstable_since=$SECONDS
 
   coproc UPOWER_MONITOR { "$gdbus_command" monitor --system --dest org.freedesktop.UPower; }
   monitor_fd="${UPOWER_MONITOR[0]}"
@@ -139,6 +170,9 @@ watch_events() {
     if [[ "$current_lid" != "$previous_lid" ]]; then
       reconcile
       applied="$(desired_state)"
+      candidate="$applied"
+      candidate_since=$SECONDS
+      unstable_since=$SECONDS
       if [[ "$previous_lid" == "true" && "$current_lid" == "false" ]]; then
         wake_display
         printf 'dot-lid-power: lid opened; requested display wake\n'
@@ -150,12 +184,28 @@ watch_events() {
     if [[ "$current_state" != "$candidate" ]]; then
       candidate="$current_state"
       candidate_since=$SECONDS
-    elif [[ "$candidate" != "$applied" ]] &&
-      ((SECONDS - candidate_since >= debounce_seconds)); then
-      reconcile
+    fi
+    if [[ "$candidate" == "$applied" ]]; then
+      unstable_since=$SECONDS
+    else
+      required_debounce="$(state_debounce_seconds "$candidate")"
+    fi
+    if [[ "$candidate" != "$applied" ]] &&
+      ((SECONDS - candidate_since >= required_debounce)); then
+      apply_state "$candidate"
       applied="$candidate"
+      unstable_since=$SECONDS
       printf 'dot-lid-power: applied stable state after %ss debounce\n' \
-        "$debounce_seconds"
+        "$required_debounce"
+    elif [[ "$candidate" != "$applied" ]] &&
+      ((SECONDS - unstable_since >= max_debounce_seconds)); then
+      candidate="$(safe_unstable_state)"
+      apply_state "$candidate"
+      applied="$candidate"
+      candidate_since=$SECONDS
+      unstable_since=$SECONDS
+      printf 'dot-lid-power: power source remained unstable for %ss; applied safe battery state\n' \
+        "$max_debounce_seconds"
     fi
     sleep 1
   done

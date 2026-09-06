@@ -369,9 +369,11 @@ Performance policy uses performance on AC, balanced on battery, and power-saver
 at low battery. Display brightness is set to 100% on AC and regular battery and
 40% at 20% charge or below. PowerDevil's immediate profile-specific actions are
 disabled; the event-driven `dot-lid-power` graphical-session service applies
-both settings only after the power source has remained stable for five seconds.
+battery policy after five stable seconds and requires 30 stable seconds before
+restoring AC brightness and performance.
 This prevents a noisy charger or firmware signal from rapidly alternating the
-screen brightness and performance mode. Lid changes remain immediate: closing
+screen brightness and performance mode. If the signal never stabilizes for 30
+seconds, it falls back to the safer battery policy. Lid changes remain immediate: closing
 temporarily forces power-saver, while opening restores the stable source policy.
 This lowers heat and power draw while closed without changing the deliberate
 no-sleep policy. The same
