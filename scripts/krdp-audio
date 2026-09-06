@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""Session-scoped PipeWire playback and microphone tunnels through SSH."""
+
+from __future__ import annotations
+
+import fcntl
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import signal
+import subprocess
+import sys
+import time
+
+
+STATE_DIR = Path.home() / ".local/state/dotfiles"
+STATE_FILE = STATE_DIR / "krdp-audio.json"
+LOCK_FILE = STATE_DIR / "krdp-audio.lock"
+RUNTIME_DIR = Path(f"/run/user/{os.getuid()}/dotfiles")
+SINK = "dot_krdp_audio"
+SOURCE = "dot_krdp_microphone"
+running = True
+
+
+def pulse(*args: str) -> str:
+    result = subprocess.run(
+        ["pactl", *args], text=True, capture_output=True, timeout=10,
+        env={**os.environ, "PULSE_SERVER": f"unix:/run/user/{os.getuid()}/pulse/native"},
+    )
+    if result.returncode:
+        raise RuntimeError(f"pactl {args[0]}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def items(kind: str) -> list[dict]:
+    return json.loads(pulse("-f", "json", "list", kind))
+
+
+def save(state: dict) -> None:
+    temporary = STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(STATE_FILE)
+
+
+def snapshot() -> dict:
+    state = {"defaults": {}, "streams": {}}
+    for kind, streams, device in (
+        ("sinks", "sink-inputs", "sink"),
+        ("sources", "source-outputs", "source"),
+    ):
+        names = {entry["index"]: entry["name"] for entry in items(kind)}
+        state["defaults"][device] = pulse(f"get-default-{device}")
+        state["streams"][streams] = {
+            str(entry["index"]): {
+                "device": names.get(entry[device]),
+                "serial": entry.get("properties", {}).get("object.serial"),
+            }
+            for entry in items(streams)
+        }
+    return state
+
+
+def move_streams(streams: str, destination: str) -> None:
+    for entry in items(streams):
+        try:
+            pulse(f"move-{streams[:-1]}", str(entry["index"]), destination)
+        except RuntimeError as error:
+            # An application can close a stream between enumeration and move.
+            print(error, file=sys.stderr)
+
+
+def tunnel_modules() -> list[str]:
+    owned = []
+    for line in pulse("list", "short", "modules").splitlines():
+        fields = line.split("\t", 3)
+        if len(fields) < 3 or not fields[0].isdigit():
+            continue
+        expected = {
+            "module-tunnel-sink": f"sink_name={SINK}",
+            "module-tunnel-source": f"source_name={SOURCE}",
+        }.get(fields[1])
+        if expected and expected in shlex.split(fields[2]):
+            owned.append(fields[0])
+    return owned
+
+
+def restore() -> None:
+    if not STATE_FILE.exists():
+        return
+    state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    for kind, streams, device, managed in (
+        ("sinks", "sink-inputs", "sink", SINK),
+        ("sources", "source-outputs", "source", SOURCE),
+    ):
+        devices = items(kind)
+        names = {entry["name"] for entry in devices}
+        managed_ids = {entry["index"] for entry in devices if entry["name"] == managed}
+        original = state["defaults"][device]
+        fallback = original if original in names else next((
+            entry["name"] for entry in devices
+            if entry["name"] not in {SINK, SOURCE, f"{SINK}.monitor"}
+            and not entry["name"].endswith(".monitor")
+        ), None)
+        for entry in items(streams):
+            if entry[device] not in managed_ids:
+                continue
+            previous = state["streams"][streams].get(str(entry["index"]), {})
+            serial = entry.get("properties", {}).get("object.serial")
+            destination = previous.get("device") if previous.get("serial") == serial else None
+            if destination not in names:
+                destination = fallback
+            if destination:
+                try:
+                    pulse(f"move-{streams[:-1]}", str(entry["index"]), destination)
+                except RuntimeError as error:
+                    print(error, file=sys.stderr)
+        # Restore individual routes first, before default-following policy
+        # moves everything. Preserve a manual default selection by the user.
+        if fallback and pulse(f"get-default-{device}") == managed:
+            pulse(f"set-default-{device}", fallback)
+    for module in reversed(tunnel_modules()):
+        pulse("unload-module", module)
+    socket = Path(state.get("socket", ""))
+    if socket.parent == RUNTIME_DIR and re.fullmatch(r"krdp-audio-[0-9a-f]{16}\.sock", socket.name):
+        socket.unlink(missing_ok=True)
+    STATE_FILE.unlink()
+    print("KRdp audio: restored desktop playback and microphone devices.", flush=True)
+
+
+def activate(socket: Path) -> None:
+    # Save before loading modules so a killed SSH/helper can be reaped safely.
+    save({**snapshot(), "socket": str(socket)})
+    for device, name, description in (
+        ("sink", SINK, "KRdp-Laptop-Speakers"),
+        ("source", SOURCE, "KRdp-Laptop-Microphone"),
+    ):
+        pulse(
+            "load-module", f"module-tunnel-{device}", f"server=unix:{socket}",
+            f"{device}_name={name}",
+            f"{device}_properties=device.description={description}",
+            "latency_msec=80", "rate=48000", "channels=2",
+        )
+    deadline = time.monotonic() + 10
+    while True:
+        if (
+            any(entry["name"] == SINK for entry in items("sinks"))
+            and any(entry["name"] == SOURCE for entry in items("sources"))
+        ):
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError("audio tunnels did not become available")
+        time.sleep(0.1)
+    # Move existing streams before changing defaults: WirePlumber may move
+    # default-following streams itself when the defaults change.
+    move_streams("sink-inputs", SINK)
+    move_streams("source-outputs", SOURCE)
+    pulse("set-default-sink", SINK)
+    pulse("set-default-source", SOURCE)
+    print("KRdp audio: laptop speakers and laptop microphone connected.", flush=True)
+
+
+def rdp_connected(peer: str) -> bool:
+    result = subprocess.run(
+        ["ss", "-Htn", "state", "established", "sport", "=", ":3389"],
+        text=True, capture_output=True, check=True, timeout=5,
+    )
+    return any(
+        len(fields := line.split()) >= 4
+        and fields[3].rsplit(":", 1)[0].strip("[]") == peer
+        for line in result.stdout.splitlines()
+    )
+
+
+def session(socket: Path) -> None:
+    peer = str(ipaddress.ip_address(os.environ["SSH_CONNECTION"].split()[0]))
+    last_heartbeat = time.monotonic()
+
+    def heartbeat() -> bool:
+        nonlocal last_heartbeat
+        if select.select([sys.stdin], [], [], 1)[0]:
+            if not os.read(sys.stdin.fileno(), 4096):
+                return False
+            last_heartbeat = time.monotonic()
+        return running and time.monotonic() - last_heartbeat < 10
+
+    deadline = time.monotonic() + 20
+    while not rdp_connected(peer):
+        if not heartbeat() or time.monotonic() >= deadline:
+            return
+    activate(socket)
+    while heartbeat() and rdp_connected(peer):
+        if len(tunnel_modules()) != 2:
+            raise RuntimeError("an audio tunnel disconnected")
+
+
+def stop(_signal: int, _frame: object) -> None:
+    global running
+    running = False
+
+
+def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1] == "runtime":
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        print(RUNTIME_DIR)
+        return 0
+    if not (
+        (len(sys.argv) == 2 and sys.argv[1] == "reap")
+        or (len(sys.argv) == 3 and sys.argv[1] == "run")
+    ):
+        print("usage: krdp-audio runtime|reap|run SOCKET", file=sys.stderr)
+        return 2
+    socket = Path(sys.argv[2]) if sys.argv[1] == "run" else None
+    if socket and (
+        socket.parent != RUNTIME_DIR
+        or not re.fullmatch(r"krdp-audio-[0-9a-f]{16}\.sock", socket.name)
+        or not socket.is_socket()
+    ):
+        print("invalid private audio socket", file=sys.stderr)
+        return 2
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with LOCK_FILE.open("w", encoding="utf-8") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if socket:
+                    raise RuntimeError("another KRdp audio connection is active")
+                return 0
+            restore()
+            if socket:
+                for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                    signal.signal(signum, stop)
+                try:
+                    session(socket)
+                finally:
+                    restore()
+    except Exception as error:
+        print(f"KRdp audio: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if socket:
+            socket.unlink(missing_ok=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

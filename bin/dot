@@ -2814,6 +2814,8 @@ def apply_direct(
         rdp_mappings = {
             ROOT / "config/rdp/dot-rdp": Path.home() / ".local/bin/dot-rdp",
             ROOT / "config/rdp/krdp-client": Path.home() / ".local/bin/krdp-client",
+            ROOT / "config/rdp/krdp-audio-client": Path.home()
+            / ".local/libexec/krdp-audio-client",
             ROOT / "config/rdp/dot-remmina-f5": Path.home()
             / ".local/bin/dot-remmina-f5",
             ROOT / "config/rdp/configure-remmina": Path.home()
@@ -9384,6 +9386,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if krdp_panel_watcher_active
             else f"run dot apply --profile {profile['name']} --tags krdp",
         )
+        krdp_audio_ready = (
+            (Path.home() / ".local/libexec/krdp-audio").is_file()
+            and command_exists("pactl")
+        )
+        failures += not doctor_check(
+            "KRdp audio bridge",
+            krdp_audio_ready,
+            "two-way audio helper installed; activated by the managed client"
+            if krdp_audio_ready
+            else f"run dot apply --profile {profile['name']} --tags krdp",
+        )
     if profile.get("features", {}).get("nomachine"):
         nomachine_server = Path("/etc/NX/nxserver")
         nomachine_status = (
@@ -9750,6 +9763,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             and remmina_client
             and rdp_launcher.exists()
             and krdp_launcher.exists()
+            and (Path.home() / ".local/libexec/krdp-audio-client").exists()
             and remmina_launcher.exists()
             and remmina_preferences_check is not None
             and remmina_preferences_check.returncode == 0

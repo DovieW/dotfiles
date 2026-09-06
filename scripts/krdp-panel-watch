@@ -11,6 +11,7 @@ import time
 
 REMOTE_PANEL = "/usr/local/libexec/remote-panel"
 KRDP_SCALE = str(Path.home() / ".local/libexec/krdp-scale")
+KRDP_AUDIO = str(Path.home() / ".local/libexec/krdp-audio")
 SOURCE = "krdp"
 SESSION = "listener"
 running = True
@@ -53,12 +54,19 @@ def stop(_signum: int, _frame: object) -> None:
     running = False
 
 
+def reap_audio() -> None:
+    # A living audio helper holds a lock. If it was killed, restore its routes
+    # even when video is still connected; never leave a dead microphone behind.
+    subprocess.run([KRDP_AUDIO, "reap"], check=False, timeout=20)
+
+
 def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     active = False
     initialized = False
     while running:
+        reap_audio()
         current = connected()
         # Reconcile every connected poll. Plasma can replace a panel and its
         # numeric ID while the RDP socket remains established; activating is

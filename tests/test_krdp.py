@@ -149,6 +149,7 @@ class KrdpWatcherTests(unittest.TestCase):
             "connected": mock.Mock(side_effect=connections),
             "panel": calls.panel,
             "scale": calls.scale,
+            "reap_audio": mock.Mock(),
             "signal": mock.Mock(),
             "time": mock.Mock(sleep=mock.Mock(side_effect=pause)),
             "running": True,
@@ -183,6 +184,15 @@ class KrdpClientTests(unittest.TestCase):
             binaries.mkdir()
             events = root / "events"
             programs = {
+                "audio-helper": """
+if [[ "${KRDP_TEST_AUDIO_TRACE:-0}" == 1 ]]; then
+  [[ "$1" == test-desktop && "$2" == test-user && "$3" =~ ^[0-9]+$ ]] || exit 95
+  printf 'audio-start\\n' >> "$KRDP_TEST_EVENTS"
+  trap 'printf "audio-stop\\n" >> "$KRDP_TEST_EVENTS"' EXIT
+  trap 'exit 0' TERM
+  while kill -0 "$3" 2>/dev/null; do sleep 0.05; done
+fi
+""",
                 "pgrep": "exit 1\n",
                 "kdialog": """
 case "$1" in
@@ -213,6 +223,7 @@ read -r input
 for argument in "$@"; do
   [[ "$argument" != /p:* && "$argument" != *simulated-input* ]] || exit 94
 done
+if [[ "${KRDP_TEST_AUDIO_TRACE:-0}" == 1 ]]; then sleep 0.3; fi
 exit "${KRDP_TEST_CLIENT_EXIT:-0}"
 """,
             }
@@ -226,6 +237,8 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
                 "HOMEBREW_PREFIX": str(root),
                 "XDG_RUNTIME_DIR": str(root / "runtime"),
                 "KRDP_TEST_EVENTS": str(events),
+                "DOT_KRDP_AUDIO_HELPER": str(binaries / "audio-helper"),
+                "DOT_KRDP_USER": "test-user",
                 **overrides,
             }
             result = subprocess.run(
@@ -255,6 +268,14 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
         )
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertEqual(events, ["prompt", "ssh:prepare", "client", "ssh:release"])
+
+    def test_audio_tracks_the_client_and_stops_before_display_cleanup(self):
+        result, events = self.run_client(KRDP_TEST_AUDIO_TRACE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("audio-start", events)
+        self.assertIn("audio-stop", events)
+        self.assertLess(events.index("ssh:prepare"), events.index("audio-start"))
+        self.assertLess(events.index("audio-stop"), events.index("ssh:release"))
 
 
 if __name__ == "__main__":

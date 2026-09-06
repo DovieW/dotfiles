@@ -54,7 +54,17 @@ fi
 
 password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
 ssh_options=(-T -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2)
-cleanup_display() {
+client_pid=""
+audio_pid=""
+cleanup_session() {
+  if [[ -n "$audio_pid" ]]; then
+    kill "$audio_pid" 2>/dev/null || true
+    wait "$audio_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$client_pid" ]] && kill -0 "$client_pid" 2>/dev/null; then
+    kill "$client_pid" 2>/dev/null || true
+    wait "$client_pid" 2>/dev/null || true
+  fi
   ssh "${ssh_options[@]}" "${user}@${host}" \
     .local/libexec/krdp-scale release </dev/null >/dev/null 2>&1 || true
 }
@@ -62,7 +72,7 @@ if ! ssh "${ssh_options[@]}" "${user}@${host}" .local/libexec/krdp-scale prepare
   kdialog --error "Could not prepare the desktop display through key-only SSH. Check the desktop's SSH connection and managed KRdp configuration."
   exit 1
 fi
-trap cleanup_display EXIT
+trap cleanup_session EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 printf '%s\n' "$password" | "$client" \
@@ -75,4 +85,14 @@ printf '%s\n' "$password" | "$client" \
   +clipboard \
   /cert:tofu \
   /network:auto \
-  /gfx
+  /gfx &
+client_pid=$!
+unset password
+audio_helper="${DOT_KRDP_AUDIO_HELPER:-$HOME/.local/libexec/krdp-audio-client}"
+if [[ -x "$audio_helper" ]]; then
+  "$audio_helper" "$host" "$user" "$client_pid" 9>&- &
+  audio_pid=$!
+else
+  echo "KRdp audio helper is missing; reapply the managed RDP configuration." >&2
+fi
+wait "$client_pid"

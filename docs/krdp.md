@@ -40,9 +40,45 @@ watcher restores the original scale on disconnect, and failed or abandoned
 preparations expire after 60 seconds. The launcher also requests cleanup on exit.
 The client needs working key-only SSH to the same host and Linux user as RDP.
 Clients launched without this preparation use the output's existing scale.
-FreeRDP's own
-DPI negotiation flags are omitted because KRdp ignores them for the existing
-physical output and they can distort pointer mapping.
+FreeRDP's own DPI negotiation flags are omitted because KRdp ignores them for
+the existing physical output and they can distort pointer mapping.
+
+## Audio and microphone
+
+KRdp 6.6.4 does not implement native RDP audio. The managed launcher therefore
+starts a separate, two-way PipeWire audio bridge alongside FreeRDP:
+
+- Desktop playback goes to the laptop's default output through
+  `KRdp-Laptop-Speakers`.
+- The laptop's default microphone becomes `KRdp-Laptop-Microphone` on the
+  desktop. Laptop microphone mute settings remain effective.
+
+Both paths use a private Unix socket forwarded through key-only SSH. There is
+no new TCP audio listener, copied audio cookie, or saved audio recording. The
+desktop and laptop must run PipeWire's PulseAudio-compatible service. The
+server's `krdp` Ansible task installs the required `pactl` utility and bridge;
+the client's `rdp` configuration installs the local lifecycle helper.
+
+Existing desktop playback and recording streams are moved to the bridge, and
+the bridge becomes the desktop's default output and input. Apps explicitly
+pinned to another device may need `KRdp-Laptop-Microphone` selected in their own
+settings. The laptop's normal local audio routes are not changed.
+
+On disconnect, previous desktop defaults and per-stream routes are restored,
+and both tunnels are removed. Manual device changes made during the session
+are preserved. The helper is tied to the exact FreeRDP process and requires an
+RDP connection from the same SSH peer; a heartbeat and the server watcher clean
+up dropped connections or killed helpers. Audio retries independently if its
+SSH link breaks, without restarting video or changing display scale.
+
+This is an additional audio transport, not synchronized native RDP audio;
+network buffering may affect lip sync. The tunnel target latency is 80 ms per
+direction. Headphones are preferable for calls to avoid speaker feedback.
+
+The implementation uses PipeWire's [tunnel sink](https://docs.pipewire.org/page_pulse_module_tunnel_sink.html)
+and [tunnel source](https://docs.pipewire.org/page_pulse_module_tunnel_source.html).
+
+## Client
 
 On the managed laptop, launch **Desktop (KRdp)** from the application menu or
 run:

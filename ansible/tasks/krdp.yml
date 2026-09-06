@@ -41,6 +41,7 @@
       - flatpak
       - krdp
       - openssl
+      - pulseaudio-utils
     state: latest  # noqa package-latest
     update_cache: true
     cache_valid_time: 3600
@@ -163,6 +164,13 @@
     dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-scale"
     mode: "0755"
   notify: Restart KRdp after private-network configuration
+  when: dot_krdp_tailscale_ready
+
+- name: Install the session-scoped KRdp audio bridge
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/krdp-audio"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/krdp-audio"
+    mode: "0755"
   when: dot_krdp_tailscale_ready
 
 - name: Remove the retired KRdp physical-display manager

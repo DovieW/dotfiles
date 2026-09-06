@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Keep bidirectional KRdp audio alive only while the associated client runs."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+
+SSH_OPTIONS = [
+    "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+    "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2",
+    "-o", "ExitOnForwardFailure=yes",
+]
+running = True
+
+
+def identity(pid: int) -> str | None:
+    try:
+        if Path(f"/proc/{pid}/comm").read_text().strip() != "xfreerdp":
+            return None
+        # Start time distinguishes this client from a reused PID.
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def stop(_signal: int, _frame: object) -> None:
+    global running
+    running = False
+
+
+def terminate(process: subprocess.Popen) -> None:
+    # EOF asks the remote helper to restore routes before SSH is terminated.
+    if process.stdin:
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+def main() -> int:
+    if len(sys.argv) != 4 or not sys.argv[3].isdigit():
+        print("usage: krdp-audio-client HOST USER FREERDP_PID", file=sys.stderr)
+        return 2
+    host, user, pid_text = sys.argv[1:]
+    pid = int(pid_text)
+    original = identity(pid)
+    # The background pipeline PID can briefly still belong to Bash before it
+    # execs FreeRDP. Do not lose audio just because that child was scheduled late.
+    for _ in range(20):
+        if original is not None or not Path(f"/proc/{pid}").exists():
+            break
+        time.sleep(0.05)
+        original = identity(pid)
+    if original is None:
+        return 0
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, stop)
+    native = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "pulse/native"
+    if not native.is_socket():
+        print("KRdp audio: local PipeWire/PulseAudio socket is unavailable.", file=sys.stderr)
+        return 1
+    target = f"{user}@{host}"
+    ssh = ["ssh", *SSH_OPTIONS, target]
+    notified = False
+    while running and identity(pid) == original:
+        process = None
+        try:
+            runtime = subprocess.run(
+                [*ssh, ".local/libexec/krdp-audio", "runtime"],
+                check=True, text=True, capture_output=True, timeout=15,
+            ).stdout.strip()
+            if not re.fullmatch(r"/run/user/\d+/dotfiles", runtime):
+                raise RuntimeError("invalid remote audio runtime directory")
+            endpoint = f"{runtime}/krdp-audio-{uuid.uuid4().hex[:16]}.sock"
+            process = subprocess.Popen(
+                ["ssh", *SSH_OPTIONS, "-R", f"{endpoint}:{native}", target,
+                 ".local/libexec/krdp-audio", "run", endpoint],
+                stdin=subprocess.PIPE,
+            )
+            while running and identity(pid) == original and process.poll() is None:
+                process.stdin.write(b"alive\n")
+                process.stdin.flush()
+                time.sleep(1)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            print(f"KRdp audio: {error}", file=sys.stderr)
+        finally:
+            if process:
+                terminate(process)
+        if running and identity(pid) == original and not notified:
+            notified = True
+            if shutil.which("notify-send"):
+                try:
+                    subprocess.run([
+                        "notify-send", "--app-name=Desktop (KRdp)",
+                        "KRdp audio reconnecting",
+                        "Speaker and microphone forwarding stopped; retrying without restarting video.",
+                    ], check=False, timeout=5)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        # Retry a broken audio link without interrupting the RDP connection.
+        for _ in range(3):
+            if not running or identity(pid) != original:
+                return 0
+            time.sleep(1)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
