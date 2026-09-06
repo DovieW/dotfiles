@@ -365,15 +365,16 @@ Managed Chrome, VS Code, and Obsidian launchers disable
 as Plasma. This is an intentional appearance preference, not a color-accurate
 workflow; switch to `factory-accurate` when restrained sRGB rendering matters.
 
-Performance policy is profile-specific: AC uses performance, battery uses
-balanced, and low battery uses power-saver. Display brightness is set to 100%
-on AC and regular battery. At 20% charge or below, PowerDevil selects the low
-battery profile and sets display brightness to 40%. The event-driven
-`dot-lid-power` graphical-session service listens only for relevant UPower
-property changes and temporarily forces power-saver whenever the lid is
-closed. On opening, it restores performance on AC, balanced on battery above
-20%, or power-saver at 20% and below. This lowers heat and power draw while
-closed without changing the deliberate no-sleep policy. The same
+Performance policy uses performance on AC, balanced on battery, and power-saver
+at low battery. Display brightness is set to 100% on AC and regular battery and
+40% at 20% charge or below. PowerDevil's immediate profile-specific actions are
+disabled; the event-driven `dot-lid-power` graphical-session service applies
+both settings only after the power source has remained stable for five seconds.
+This prevents a noisy charger or firmware signal from rapidly alternating the
+screen brightness and performance mode. Lid changes remain immediate: closing
+temporarily forces power-saver, while opening restores the stable source policy.
+This lowers heat and power draw while closed without changing the deliberate
+no-sleep policy. The same
 closed-to-open event asks PowerDevil to wake the internal display so it does
 not remain in DPMS power-off until the next input event.
 

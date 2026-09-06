@@ -3089,20 +3089,20 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(powerdevil.count("AutoSuspendAction=0"), 3)
         self.assertEqual(powerdevil.count("LidAction=0"), 3)
         self.assertEqual(powerdevil.count("PowerButtonAction=1"), 3)
-        self.assertIn("[AC][Performance]\nPowerProfile=performance", powerdevil)
-        self.assertIn("[Battery][Performance]\nPowerProfile=balanced", powerdevil)
-        self.assertIn("[LowBattery][Performance]\nPowerProfile=power-saver", powerdevil)
+        self.assertNotIn("[AC][Performance]", powerdevil)
+        self.assertNotIn("[Battery][Performance]", powerdevil)
+        self.assertNotIn("[LowBattery][Performance]", powerdevil)
         self.assertIn("[BatteryManagement]\nBatteryLowLevel=20", powerdevil)
         self.assertIn(
-            "[AC][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=true",
+            "[AC][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=false",
             powerdevil,
         )
         self.assertIn(
-            "[Battery][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=true",
+            "[Battery][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=false",
             powerdevil,
         )
         self.assertIn(
-            "[LowBattery][Display]\nDisplayBrightness=40\nUseProfileSpecificDisplayBrightness=true",
+            "[LowBattery][Display]\nDisplayBrightness=40\nUseProfileSpecificDisplayBrightness=false",
             powerdevil,
         )
         logind = (ROOT / "config/systemd/logind/60-dotfiles-lid.conf").read_text()
@@ -3122,13 +3122,14 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("power-saver", lid_script)
         self.assertIn("performance", lid_script)
         self.assertIn("balanced", lid_script)
+        self.assertIn('DOT_LID_POWER_DEBOUNCE_SECONDS:-5', lid_script)
+        self.assertIn("SetBrightness", lid_script)
         self.assertIn(
             '"$gdbus_command" monitor --system --dest org.freedesktop.UPower',
             lid_script,
         )
-        self.assertIn("*LidIsClosed*", lid_script)
-        self.assertIn("*OnBattery*", lid_script)
-        self.assertIn("*Percentage*", lid_script)
+        self.assertIn('read -r -t 0.5 event_line', lid_script)
+        self.assertIn('current_state="$(desired_state)"', lid_script)
         self.assertIn('"$previous_lid" == "true"', lid_script)
         self.assertIn("org.kde.Solid.PowerManagement", lid_script)
         self.assertIn("wakeup", lid_script)

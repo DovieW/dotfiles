@@ -1,9 +1,6 @@
 [AC][Display]
 DisplayBrightness=100
-UseProfileSpecificDisplayBrightness=true
-
-[AC][Performance]
-PowerProfile=performance
+UseProfileSpecificDisplayBrightness=false
 
 [AC][SuspendAndShutdown]
 AutoSuspendAction=0
@@ -12,14 +9,11 @@ PowerButtonAction=1
 
 [Battery][Display]
 DisplayBrightness=100
-UseProfileSpecificDisplayBrightness=true
+UseProfileSpecificDisplayBrightness=false
 
 [Battery][Keyboard]
 KeyboardBrightness=0
 UseProfileSpecificKeyboardBrightness=true
-
-[Battery][Performance]
-PowerProfile=balanced
 
 [Battery][SuspendAndShutdown]
 AutoSuspendAction=0
@@ -31,10 +25,7 @@ BatteryLowLevel=20
 
 [LowBattery][Display]
 DisplayBrightness=40
-UseProfileSpecificDisplayBrightness=true
-
-[LowBattery][Performance]
-PowerProfile=power-saver
+UseProfileSpecificDisplayBrightness=false
 
 [LowBattery][SuspendAndShutdown]
 AutoSuspendAction=0

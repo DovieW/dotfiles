@@ -10787,7 +10787,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "automatic sleep policy",
             powerdevil_matches,
-            "100% brightness on AC and battery; at 20% battery or below, "
+            "debounced 100% brightness on AC and battery; at 20% battery or below, "
             "40% brightness and power-saver; AC performance and battery balanced; "
             "lid ignored and automatic sleep disabled; power button sleeps"
             if powerdevil_matches

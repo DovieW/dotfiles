@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly threshold="${DOT_LID_POWER_LOW_THRESHOLD:-20}"
+readonly debounce_seconds="${DOT_LID_POWER_DEBOUNCE_SECONDS:-5}"
 readonly busctl_command="${DOT_LID_POWER_BUSCTL:-busctl}"
 readonly gdbus_command="${DOT_LID_POWER_GDBUS:-gdbus}"
 readonly powerprofiles_command="${DOT_LID_POWER_POWERPROFILESCTL:-powerprofilesctl}"
@@ -40,22 +41,28 @@ battery_percentage() {
     Percentage
 }
 
-desired_profile() {
+desired_state() {
   local lid battery percentage
   lid="$(lid_is_closed)"
   battery="$(on_battery)"
   percentage="$(battery_percentage)"
 
   if [[ "$lid" == "true" ]]; then
-    printf '%s\n' power-saver
+    printf '%s|%s|%s\n' "$lid" power-saver ""
   elif [[ "$battery" != "true" ]]; then
-    printf '%s\n' performance
+    printf '%s|%s|%s\n' "$lid" performance 100
   elif awk -v percentage="$percentage" -v threshold="$threshold" \
     'BEGIN { exit !(percentage <= threshold) }'; then
-    printf '%s\n' power-saver
+    printf '%s|%s|%s\n' "$lid" power-saver 40
   else
-    printf '%s\n' balanced
+    printf '%s|%s|%s\n' "$lid" balanced 100
   fi
+}
+
+desired_profile() {
+  local lid profile brightness
+  IFS='|' read -r lid profile brightness <<<"$(desired_state)"
+  printf '%s\n' "$profile"
 }
 
 state_summary() {
@@ -75,10 +82,23 @@ state_summary() {
   [[ "$current" == "$expected" ]]
 }
 
+set_brightness() {
+  local percentage="$1"
+  [[ -n "$percentage" ]] || return 0
+  if ! "$busctl_command" --user call \
+    org.kde.Solid.PowerManagement \
+    /org/kde/ScreenBrightness/display0 \
+    org.kde.ScreenBrightness.Display \
+    SetBrightness iu "$((percentage * 100))" 0 >/dev/null; then
+    printf 'dot-lid-power: could not set display brightness to %s%%\n' \
+      "$percentage" >&2
+  fi
+}
+
 reconcile() {
-  local current expected
+  local current lid expected brightness
   current="$("$powerprofiles_command" get)"
-  expected="$(desired_profile)"
+  IFS='|' read -r lid expected brightness <<<"$(desired_state)"
   if [[ "$current" != "$expected" ]]; then
     printf 'dot-lid-power: changing profile %s -> %s\n' "$current" "$expected"
     if ! "$powerprofiles_command" set "$expected"; then
@@ -87,6 +107,7 @@ reconcile() {
       return 0
     fi
   fi
+  set_brightness "$brightness"
 }
 
 wake_display() {
@@ -100,28 +121,45 @@ wake_display() {
 }
 
 watch_events() {
-  local previous_lid current_lid event_line
+  local previous_lid current_lid current_state event_line
+  local candidate applied candidate_since
+  local monitor_fd monitor_pid
   previous_lid="$(lid_is_closed)"
-  reconcile
-  while IFS= read -r event_line; do
-    # UPower reports energy rate several times per second. Only lid, power
-    # source, and charge percentage can affect this policy.
-    if [[ "$event_line" != *LidIsClosed* &&
-      "$event_line" != *OnBattery* &&
-      "$event_line" != *Percentage* ]]; then
-      continue
-    fi
-    # Let PowerDevil finish its own AC/battery transition, then enforce the
-    # lid-specific override. Repeated UPower events are harmless.
-    sleep 0.35
+  candidate="$(desired_state)"
+  applied=""
+  candidate_since=$SECONDS
+
+  coproc UPOWER_MONITOR { "$gdbus_command" monitor --system --dest org.freedesktop.UPower; }
+  monitor_fd="${UPOWER_MONITOR[0]}"
+  monitor_pid="$UPOWER_MONITOR_PID"
+
+  while kill -0 "$monitor_pid" 2>/dev/null; do
+    IFS= read -r -t 0.5 event_line <&"$monitor_fd" || true
     current_lid="$(lid_is_closed)"
-    reconcile
-    if [[ "$previous_lid" == "true" && "$current_lid" == "false" ]]; then
-      wake_display
-      printf 'dot-lid-power: lid opened; requested display wake\n'
+    if [[ "$current_lid" != "$previous_lid" ]]; then
+      reconcile
+      applied="$(desired_state)"
+      if [[ "$previous_lid" == "true" && "$current_lid" == "false" ]]; then
+        wake_display
+        printf 'dot-lid-power: lid opened; requested display wake\n'
+      fi
+      previous_lid="$current_lid"
     fi
-    previous_lid="$current_lid"
-  done < <("$gdbus_command" monitor --system --dest org.freedesktop.UPower)
+
+    current_state="$(desired_state)"
+    if [[ "$current_state" != "$candidate" ]]; then
+      candidate="$current_state"
+      candidate_since=$SECONDS
+    elif [[ "$candidate" != "$applied" ]] &&
+      ((SECONDS - candidate_since >= debounce_seconds)); then
+      reconcile
+      applied="$candidate"
+      printf 'dot-lid-power: applied stable state after %ss debounce\n' \
+        "$debounce_seconds"
+    fi
+    sleep 1
+  done
+  wait "$monitor_pid"
 }
 
 case "${1:-}" in
