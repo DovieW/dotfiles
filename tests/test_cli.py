@@ -1584,6 +1584,8 @@ class DotCliTests(unittest.TestCase):
         ).read_text()
 
         self.assertTrue(kubuntu["features"]["nomachine"])
+        self.assertIn("Create the NoMachine systemd drop-in directory", task)
+        self.assertIn("path: /etc/systemd/system/nxserver.service.d", task)
         self.assertIn("20-tailscale.conf", task)
         self.assertIn("ExecStartPre=/usr/local/libexec/wait-nomachine-tailscale 45", task)
         self.assertIn("ip -4 address show dev tailscale0", readiness)

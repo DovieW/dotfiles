@@ -5,9 +5,12 @@
   "emoji_size": 28,
   "close_on_select": true,
   "insert_method": "ydotool",
+  "paste_shortcut": "ctrl+v",
   "skin_tone": "",
   "gender": "",
   "language": "en",
   "kaomoji": true,
-  "theme": "auto"
+  "theme": "auto",
+  "remember_position": false,
+  "window_position": null
 }
