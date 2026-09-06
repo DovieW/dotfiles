@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import signal
 import subprocess
 import time
@@ -15,7 +14,6 @@ KRDP_SCALE = str(Path.home() / ".local/libexec/krdp-scale")
 SOURCE = "krdp"
 SESSION = "listener"
 running = True
-MIN_STREAM_BYTES = 65536
 
 
 def connected() -> bool:
@@ -28,21 +26,6 @@ def connected() -> bool:
         timeout=5,
     )
     return result.returncode == 0 and bool(result.stdout.strip())
-
-
-def streaming() -> bool:
-    result = subprocess.run(
-        ["ss", "-Htin", "state", "established", "sport", "=", ":3389"],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-    )
-    if result.returncode != 0:
-        return False
-    sent = [int(value) for value in re.findall(r"bytes_sent:(\d+)", result.stdout)]
-    return any(value >= MIN_STREAM_BYTES for value in sent)
 
 
 def panel(action: str) -> None:
@@ -82,19 +65,20 @@ def main() -> int:
         # idempotent and lets the shared manager protect the replacement.
         if current:
             panel("activate")
-            if not active:
-                scale("deactivate")
-            elif streaming():
-                scale("activate")
-        elif active or not initialized:
-            panel("deactivate")
-            scale("deactivate")
+        else:
+            if active or not initialized:
+                panel("deactivate")
+            # Preparation happens before the client connects, while the portal
+            # is closed. Expire abandoned preparations and restore on disconnect.
+            # Do not release a lease here: a new client may have prepared its
+            # display since the previous connection ended between polls.
+            scale("restore-if-idle")
         active = current
         initialized = True
         time.sleep(1)
     if active:
         panel("deactivate")
-        scale("deactivate")
+    scale("restore-if-idle")
     return 0
 
 

@@ -53,6 +53,18 @@ if [[ -z "$client" ]]; then
 fi
 
 password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
+ssh_options=(-T -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2)
+cleanup_display() {
+  ssh "${ssh_options[@]}" "${user}@${host}" \
+    .local/libexec/krdp-scale release </dev/null >/dev/null 2>&1 || true
+}
+if ! ssh "${ssh_options[@]}" "${user}@${host}" .local/libexec/krdp-scale prepare; then
+  kdialog --error "Could not prepare the desktop display through key-only SSH. Check the desktop's SSH connection and managed KRdp configuration."
+  exit 1
+fi
+trap cleanup_display EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 printf '%s\n' "$password" | "$client" \
   "/v:${host}:3389" \
   "/u:${user}" \

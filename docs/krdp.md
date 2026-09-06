@@ -31,10 +31,16 @@ to always visible while KRdp is connected. It shares state with NoMachine,
 survives Plasma panel ID changes, and restores the previous hiding modes only
 after the final managed remote session disconnects.
 
-After video traffic begins, the watcher changes only the output's Plasma scale
-from its physical 145% setting to 235%. It never changes resolution or mode:
-doing that after KRdp's Wayland portal opens invalidates the portal's input
-coordinate map. The original scale is restored on disconnect. FreeRDP's own
+Before opening the RDP connection, the managed client uses key-only SSH to
+prepare the output's Plasma scale, changing it from its physical 145% setting
+to 235%. KRdp records the logical screen dimensions when its Wayland portal
+opens: changing scale afterward invalidates pointer mapping even when resolution
+is unchanged. Scale therefore stays fixed throughout the connection. The
+watcher restores the original scale on disconnect, and failed or abandoned
+preparations expire after 60 seconds. The launcher also requests cleanup on exit.
+The client needs working key-only SSH to the same host and Linux user as RDP.
+Clients launched without this preparation use the output's existing scale.
+FreeRDP's own
 DPI negotiation flags are omitted because KRdp ignores them for the existing
 physical output and they can distort pointer mapping.
 

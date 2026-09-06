@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Temporarily enlarge Plasma UI while the physical desktop is streamed."""
+"""Prepare Plasma scale before KRdp opens its portal; restore after disconnect."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any
 
 
@@ -18,6 +19,7 @@ STATE_FILE = STATE_DIR / "krdp-scale.json"
 LOCK_FILE = STATE_DIR / "krdp-scale.lock"
 LOG_FILE = STATE_DIR / "krdp-scale.log"
 TARGET_SCALE = 2.35
+PREPARE_TIMEOUT = 60
 
 
 def log(message: str) -> None:
@@ -98,10 +100,11 @@ def load_state() -> dict[str, float]:
     }
 
 
-def save_state(outputs: dict[str, float]) -> None:
+def save_state(outputs: dict[str, float], *, prepared_until: float = 0) -> None:
     temporary = STATE_FILE.with_suffix(".tmp")
     temporary.write_text(
-        json.dumps({"outputs": outputs}, indent=2) + "\n", encoding="utf-8"
+        json.dumps({"outputs": outputs, "prepared_until": prepared_until}, indent=2)
+        + "\n", encoding="utf-8"
     )
     temporary.replace(STATE_FILE)
 
@@ -136,6 +139,57 @@ def deactivate() -> None:
     log("restored physical display scale")
 
 
+def connected() -> bool:
+    result = subprocess.run(
+        ["ss", "-Htn", "state", "established", "sport", "=", ":3389"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=5,
+    )
+    return bool(result.stdout.strip())
+
+
+def prepared_until() -> float:
+    if not STATE_FILE.is_file():
+        return 0
+    payload = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    return float(payload.get("prepared_until", 0))
+
+
+def prepare() -> None:
+    # KRdp snapshots logical dimensions when the portal opens. Changing scale
+    # after that produces incorrect absolute pointer coordinates, even though
+    # the video resolution stays unchanged. The client calls this over SSH
+    # before opening its RDP socket; never change an existing session's scale.
+    if connected():
+        print("Preserving the display geometry of the existing KRdp connection.")
+        return
+    if prepared_until() > time.time():
+        raise RuntimeError("another KRdp connection is already being prepared")
+    activate()
+    current = enabled_outputs()
+    if not current or any(
+        abs(float(output["scale"]) - TARGET_SCALE) > 0.01 for output in current
+    ):
+        raise RuntimeError("Plasma did not apply the requested KRdp scale")
+    save_state(load_state(), prepared_until=time.time() + PREPARE_TIMEOUT)
+    print(f"KRdp display prepared at {TARGET_SCALE:g} scale.")
+
+
+def restore_if_idle(*, release: bool = False) -> None:
+    if not load_state():
+        return
+    if release:
+        # A closing client may briefly still have a server-side TCP socket.
+        # Let the watcher restore it once the socket has actually gone away.
+        save_state(load_state())
+    if connected() or prepared_until() > time.time():
+        return
+    deactivate()
+
+
 def status() -> None:
     outputs = ", ".join(
         f"{output['name']}={float(output['scale']):g}"
@@ -147,20 +201,25 @@ def status() -> None:
 
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in {
+        "prepare",
+        "release",
+        "restore-if-idle",
         "activate",
         "deactivate",
         "status",
     }:
-        print("usage: krdp-scale activate|deactivate|status", file=sys.stderr)
+        print("usage: krdp-scale prepare|release|restore-if-idle|status", file=sys.stderr)
         return 2
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     try:
         with LOCK_FILE.open("w", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            if sys.argv[1] == "activate":
-                activate()
-            elif sys.argv[1] == "deactivate":
-                deactivate()
+            if sys.argv[1] in {"prepare", "activate"}:
+                prepare()
+            elif sys.argv[1] in {"release", "deactivate"}:
+                restore_if_idle(release=True)
+            elif sys.argv[1] == "restore-if-idle":
+                restore_if_idle()
             else:
                 status()
     except Exception as error:
