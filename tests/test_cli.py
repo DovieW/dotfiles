@@ -3760,6 +3760,12 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bun", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
 
+    def test_linux_workstations_manage_herdr_with_homebrew(self):
+        profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        self.assertIn("herdr", profile["packages"]["brew"])
+        self.assertEqual(catalog["tools"]["herdr"]["provider"], "brew")
+
     def test_luna_ocr_release_installer_is_managed(self):
         cli = DOT.read_text()
         installer = (ROOT / "scripts/install-luna-ocr").read_text()

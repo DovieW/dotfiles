@@ -24,6 +24,7 @@
     "git": {"provider": "apt"},
     "google-chrome-stable": {"provider": "apt"},
     "glow": {"provider": "brew"},
+    "herdr": {"provider": "brew"},
     "jq": {"provider": "brew"},
     "kdialog": {"provider": "apt"},
     "navi": {"provider": "brew"},
