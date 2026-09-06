@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import signal
 import shutil
 import socket
 import subprocess
@@ -4860,6 +4861,170 @@ def cmd_codex_install(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-codex"), "--install"], cwd=ROOT)
 
 
+CHATGPT_DESKTOP_EXECUTABLE = Path("/usr/lib/chatgpt/ChatGPT")
+CHATGPT_BUNDLED_CODEX = Path("/usr/lib/chatgpt/resources/codex")
+
+
+def process_arguments(proc_root: Path, pid: int) -> tuple[str, ...]:
+    try:
+        return tuple(
+            value.decode(errors="replace")
+            for value in (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
+            if value
+        )
+    except (OSError, PermissionError):
+        return ()
+
+
+def process_parent_pid(proc_root: Path, pid: int) -> int | None:
+    try:
+        status = (proc_root / str(pid) / "status").read_text(encoding="utf-8")
+    except (OSError, PermissionError):
+        return None
+    match = re.search(r"^PPid:\s+(\d+)\s*$", status, flags=re.MULTILINE)
+    return int(match.group(1)) if match else None
+
+
+def process_executable(proc_root: Path, pid: int) -> str | None:
+    try:
+        return os.readlink(proc_root / str(pid) / "exe")
+    except (OSError, PermissionError):
+        return None
+
+
+def chatgpt_embedded_codex_servers(
+    *,
+    proc_root: Path = Path("/proc"),
+    desktop_executable: Path = CHATGPT_DESKTOP_EXECUTABLE,
+    bundled_codex: Path = CHATGPT_BUNDLED_CODEX,
+) -> tuple[tuple[int, int], ...]:
+    """Return only Codex app servers directly owned by ChatGPT Desktop."""
+    processes: dict[int, tuple[str, ...]] = {}
+    for process_dir in proc_root.glob("[0-9]*"):
+        try:
+            pid = int(process_dir.name)
+        except ValueError:
+            continue
+        arguments = process_arguments(proc_root, pid)
+        if arguments:
+            processes[pid] = arguments
+
+    desktop_pids = {
+        pid
+        for pid, arguments in processes.items()
+        if arguments[0] == str(desktop_executable)
+        and not any(value.startswith("--type=") for value in arguments[1:])
+    }
+    servers = []
+    for pid, arguments in processes.items():
+        parent_pid = process_parent_pid(proc_root, pid)
+        if (
+            parent_pid in desktop_pids
+            and arguments[0] == str(bundled_codex)
+            and "app-server" in arguments[1:]
+            and "--analytics-default-enabled" in arguments[1:]
+        ):
+            servers.append((pid, parent_pid))
+    return tuple(sorted(servers))
+
+
+def codex_server_needs_refresh(
+    executable: str | None,
+    running_version: str | None,
+    installed_version: str | None,
+) -> bool:
+    if executable and executable.endswith(" (deleted)"):
+        return True
+    return bool(
+        installed_version
+        and running_version
+        and running_version != installed_version
+    )
+
+
+def refresh_chatgpt_desktop_codex_server(
+    *,
+    proc_root: Path = Path("/proc"),
+    desktop_executable: Path = CHATGPT_DESKTOP_EXECUTABLE,
+    bundled_codex: Path = CHATGPT_BUNDLED_CODEX,
+    wait_seconds: float = 10,
+) -> bool:
+    """Recycle a stale desktop-owned server without touching other Codex owners."""
+    if platform.system() != "Linux" or not bundled_codex.is_file():
+        return False
+    installed_version = command_semver([str(bundled_codex), "--version"])
+    if not installed_version:
+        return False
+    servers = chatgpt_embedded_codex_servers(
+        proc_root=proc_root,
+        desktop_executable=desktop_executable,
+        bundled_codex=bundled_codex,
+    )
+    stale: list[tuple[int, int, str | None]] = []
+    for pid, parent_pid in servers:
+        executable = process_executable(proc_root, pid)
+        running_version = command_semver(
+            [str(proc_root / str(pid) / "exe"), "--version"]
+        )
+        if codex_server_needs_refresh(executable, running_version, installed_version):
+            stale.append((pid, parent_pid, running_version))
+    if not stale:
+        return False
+
+    for pid, _parent_pid, _version in stale:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError as exc:
+            raise DotError(
+                "Cannot refresh ChatGPT Desktop's embedded Codex server "
+                f"(PID {pid}): {exc}"
+            ) from exc
+
+    stale_pids = {pid for pid, _parent_pid, _version in stale}
+    stale_parent_pids = {parent_pid for _pid, parent_pid, _version in stale}
+    deadline = time.monotonic() + wait_seconds
+    refreshed = False
+    while time.monotonic() < deadline:
+        current = chatgpt_embedded_codex_servers(
+            proc_root=proc_root,
+            desktop_executable=desktop_executable,
+            bundled_codex=bundled_codex,
+        )
+        current_parent_pids = {parent_pid for _pid, parent_pid in current}
+        if (
+            current
+            and stale_pids.isdisjoint(pid for pid, _parent_pid in current)
+            and stale_parent_pids.issubset(current_parent_pids)
+        ):
+            refreshed = all(
+                not (process_executable(proc_root, pid) or "").endswith(" (deleted)")
+                and command_semver(
+                    [str(proc_root / str(pid) / "exe"), "--version"]
+                ) == installed_version
+                for pid, _parent_pid in current
+            )
+            if refreshed:
+                break
+        time.sleep(0.2)
+
+    old_versions = sorted(
+        {version or "stale" for _pid, _parent_pid, version in stale}
+    )
+    if refreshed:
+        print(
+            "Refreshed ChatGPT Desktop's embedded Codex server: "
+            f"{', '.join(old_versions)} -> {installed_version or 'installed version'}."
+        )
+    else:
+        print(
+            "Warning: stopped ChatGPT Desktop's stale embedded Codex server, but "
+            "a current replacement was not observed. Reopen ChatGPT Desktop."
+        )
+    return True
+
+
 def cmd_codex_update(args: argparse.Namespace) -> None:
     profile_name = update_profile(getattr(args, "profile", None))
     profile = load_profile(profile_name)
@@ -4869,7 +5034,11 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
         palette_apply(profile_name, "chatgpt")
     run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
     if profile.get("features", {}).get("chatgpt_desktop"):
-        print("Codex CLI and desktop update completed. Reopen the desktop app to use its updated version.")
+        refresh_chatgpt_desktop_codex_server()
+        print(
+            "Codex CLI and desktop update completed. Reopen the desktop app only "
+            "if you need to load other desktop UI changes."
+        )
     else:
         print("Codex CLI update completed; this profile does not manage the desktop app.")
 
@@ -6120,6 +6289,8 @@ def cmd_update(args: argparse.Namespace) -> None:
     if apps and profile.get("features", {}).get("codex_remote_control"):
         # app-updates already upgrades the desktop package.
         run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
+    if apps and profile.get("features", {}).get("chatgpt_desktop"):
+        refresh_chatgpt_desktop_codex_server()
     if apps and profile.get("features", {}).get("vite_plus"):
         cmd_vite_plus_update(args)
     if apps and profile.get("features", {}).get("shell"):

@@ -34,6 +34,7 @@ class DotCliTests(unittest.TestCase):
                     "command_exists": mock.Mock(return_value=True),
                     "palette_apply": calls.apply,
                     "run": calls.run,
+                    "refresh_chatgpt_desktop_codex_server": calls.refresh,
                 }), contextlib.redirect_stdout(io.StringIO()):
                     function(argparse.Namespace(profile="selected"))
                 expected = [mock.call.run(
@@ -41,7 +42,76 @@ class DotCliTests(unittest.TestCase):
                 )]
                 if desktop:
                     expected.insert(0, mock.call.apply("selected", "chatgpt"))
+                    expected.append(mock.call.refresh())
                 self.assertEqual(calls.mock_calls, expected)
+
+    def test_chatgpt_embedded_codex_server_selection_is_process_scoped(self):
+        module = runpy.run_path(str(DOT))
+        select = module["chatgpt_embedded_codex_servers"]
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory)
+            desktop = Path("/opt/chatgpt/ChatGPT")
+            bundled = Path("/opt/chatgpt/codex")
+
+            def process(pid, parent, *arguments):
+                process_dir = proc_root / str(pid)
+                process_dir.mkdir()
+                (process_dir / "cmdline").write_bytes(
+                    b"\0".join(value.encode() for value in arguments) + b"\0"
+                )
+                (process_dir / "status").write_text(f"Name:\ttest\nPPid:\t{parent}\n")
+
+            process(100, 1, str(desktop))
+            process(101, 100, str(desktop), "--type=renderer")
+            process(110, 100, str(bundled), "app-server", "--analytics-default-enabled")
+            process(111, 1, str(bundled), "app-server", "--analytics-default-enabled")
+            process(112, 100, "/other/codex", "app-server", "--analytics-default-enabled")
+            process(113, 100, str(bundled), "app-server", "proxy")
+
+            self.assertEqual(
+                select(
+                    proc_root=proc_root,
+                    desktop_executable=desktop,
+                    bundled_codex=bundled,
+                ),
+                ((110, 100),),
+            )
+
+    def test_chatgpt_embedded_codex_refresh_requires_positive_stale_evidence(self):
+        predicate = runpy.run_path(str(DOT))["codex_server_needs_refresh"]
+        self.assertTrue(predicate("/opt/chatgpt/codex (deleted)", None, "2.0.0"))
+        self.assertTrue(predicate("/opt/chatgpt/codex", "1.0.0", "2.0.0"))
+        self.assertFalse(predicate("/opt/chatgpt/codex", "2.0.0", "2.0.0"))
+        self.assertFalse(predicate("/opt/chatgpt/codex", None, "2.0.0"))
+
+    def test_application_update_refreshes_desktop_owned_codex_server(self):
+        function = runpy.run_path(str(DOT))["cmd_update"]
+        calls = mock.Mock()
+        profile = {
+            "name": "selected",
+            "features": {"chatgpt_desktop": True},
+        }
+        with mock.patch.dict(
+            function.__globals__,
+            {
+                "update_profile": mock.Mock(return_value="selected"),
+                "load_profile": mock.Mock(return_value=profile),
+                "active_package_transactions": mock.Mock(return_value=[]),
+                "installed_version_snapshot": mock.Mock(return_value=({}, set())),
+                "cmd_apply": calls.apply,
+                "refresh_chatgpt_desktop_codex_server": calls.refresh,
+                "render_update_receipt": calls.receipt,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            function(
+                argparse.Namespace(
+                    profile="selected",
+                    system=False,
+                    apps=True,
+                    check=False,
+                )
+            )
+        calls.refresh.assert_called_once_with()
 
     def run_dot(self, *args):
         return subprocess.run([str(DOT), *args], text=True, capture_output=True)
@@ -1707,7 +1777,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(":3389", panel_watch)
         self.assertIn("/usr/local/libexec/remote-panel", panel_watch)
         self.assertIn("krdp-scale", panel_watch)
-        self.assertIn("MIN_STREAM_BYTES = 65536", panel_watch)
+        self.assertNotIn('scale("activate")', panel_watch)
+        self.assertIn('scale("restore-if-idle")', panel_watch)
+        self.assertIn(".local/libexec/krdp-scale prepare", client)
+        self.assertIn("BatchMode=yes", client)
         self.assertIn('TARGET_SCALE = 2.35', scale)
         self.assertIn('["kscreen-doctor", f"output.{name}.scale.{scale:g}"]', scale)
         self.assertNotIn(".mode.", scale)

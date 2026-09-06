@@ -411,9 +411,13 @@ dot codex update
 
 The **Update Codex** picker action runs the same update. Desktop-enabled profiles
 upgrade the official `chatgpt` APT package, which includes Codex Desktop, before
-updating the CLI. Reopen the desktop app afterward to load the updated version.
-Profiles without `chatgpt_desktop` update only the CLI. Use `--profile NAME` to
-select a profile explicitly. The broader application update already includes both.
+updating the CLI. If ChatGPT Desktop is open and its directly owned Codex server
+still uses the replaced package binary, the updater stops only that stale child;
+ChatGPT respawns it from the newly installed package. SSH proxies, the standalone
+remote-control daemon, and other Codex services are intentionally excluded. Reopen
+the desktop app only when you need to load other desktop UI changes. Profiles
+without `chatgpt_desktop` update only the CLI. Use `--profile NAME` to select a
+profile explicitly. The broader application update performs the same check.
 
 The native daemon bootstrap also runs its own detached stable-channel updater.
 Run `dot doctor --profile kubuntu-laptop` to verify the boot unit, daemon,
