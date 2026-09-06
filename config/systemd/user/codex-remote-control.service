@@ -4,6 +4,8 @@ Documentation=https://github.com/openai/codex/blob/main/codex-rs/app-server-daem
 Wants=network-online.target
 After=network-online.target
 ConditionFileIsExecutable=%h/.codex/packages/standalone/current/codex
+StartLimitIntervalSec=5min
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -13,6 +15,8 @@ ExecReload=%h/.codex/packages/standalone/current/codex app-server daemon enable-
 ExecStop=%h/.codex/packages/standalone/current/codex app-server daemon stop
 TimeoutStartSec=120s
 TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=10s
 
 [Install]
 WantedBy=default.target

@@ -391,7 +391,9 @@ the headless unit disabled. There is no routine owner handoff.
 The unit runs `codex app-server daemon bootstrap --remote-control`. Codex owns
 the control socket, daemon settings, pidfiles, and detached updater; systemd
 only restores that native lifecycle after boot. The desktop profile enables
-user lingering so the unit and daemon remain available after logout.
+user lingering so the unit and daemon remain available after logout. The unit
+also restarts after a process or cgroup failure, with bounded retries, so an OOM
+kill cannot leave Remote Control offline indefinitely.
 
 Do not add a second raw `codex app-server --remote-control` process. Desktop
 then sees no native persisted preference, attempts to connect itself, and the

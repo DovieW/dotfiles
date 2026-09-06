@@ -965,6 +965,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(f"ExecStop={managed} app-server daemon stop", service)
         self.assertIn("Type=oneshot", service)
         self.assertIn("RemainAfterExit=yes", service)
+        self.assertIn("Restart=on-failure", service)
+        self.assertIn("RestartSec=10s", service)
+        self.assertIn("StartLimitIntervalSec=5min", service)
+        self.assertIn("StartLimitBurst=5", service)
         self.assertNotIn(" app-server --remote-control --listen ", service)
         headless_desktop = (
             ROOT / "config/applications/chatgpt-headless.desktop"
