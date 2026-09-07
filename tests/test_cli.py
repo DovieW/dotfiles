@@ -3438,6 +3438,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("mono_linux_${godot_arch}.zip", installer)
         self.assertIn("mono_export_templates.tpz", installer)
         self.assertIn("sha256sum --check --status", installer)
+        self.assertIn('temporary_root="$install_root"', installer)
         self.assertIn('cp -a "$editor_home"/. "$new_release/"', installer)
         self.assertIn('-d "$release_dir/GodotSharp/Api/Debug"', installer)
         self.assertIn('ln -sfn "$release_dir/godot" "$bin_home/godot"', installer)
@@ -3805,6 +3806,7 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(catalog["tools"]["cf"]["provider"], "npm")
         self.assertIn("Install or upgrade managed npm CLI packages", playbook)
         self.assertIn("argv: [npm, install, --global", playbook)
+        self.assertIn("tags: [packages, npm, app-updates]", playbook)
         self.assertIn('packages.get("npm", [])', DOT.read_text())
 
     def test_linux_workstations_manage_herdr_with_homebrew(self):

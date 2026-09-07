@@ -3274,6 +3274,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "meshcentral",
             "memory",
             "nomachine",
+            "npm",
             "rustdesk",
             "tailscale",
             "touchpad",

@@ -98,7 +98,8 @@ if [[ "$mode" == --check ]]; then
   exit 1
 fi
 
-temporary_root="${TMPDIR:-/tmp}"
+mkdir -p "$install_root"
+temporary_root="$install_root"
 work_dir="$(mktemp -d "$temporary_root/dotfiles-godot.XXXXXX")"
 cleanup() {
   case "$work_dir" in
@@ -154,7 +155,7 @@ cp -a "$editor_home"/. "$new_release/"
 mv -- "$new_release/$editor_basename" "$new_release/godot"
 chmod 0755 "$new_release/godot"
 
-mkdir -p "$install_root" "$bin_home" "$(dirname -- "$desktop_file")" \
+mkdir -p "$bin_home" "$(dirname -- "$desktop_file")" \
   "$(dirname -- "$templates_dir")"
 rm -rf -- "$release_dir" "$templates_dir"
 mv -- "$new_release" "$release_dir"

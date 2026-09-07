@@ -422,7 +422,7 @@
       changed_when: true
       loop: "{{ dot_profile_data.packages.npm | default([]) }}"
       when: (dot_profile_data.packages.npm | default([]) | length) > 0
-      tags: [packages, app-updates]
+      tags: [packages, npm, app-updates]
 
     - name: Ensure git-sync from the official stable branch
       ansible.builtin.command:
