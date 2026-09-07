@@ -3808,6 +3808,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("argv: [npm, install, --global", playbook)
         self.assertIn("tags: [packages, npm, app-updates]", playbook)
         self.assertIn('packages.get("npm", [])', DOT.read_text())
+        self.assertIn("if not command_exists(package)", DOT.read_text())
         package_scope = DOT.read_text().split("package_apply_selected =", 1)[1].split(
             "kde_system_apply_selected =", 1
         )[0]

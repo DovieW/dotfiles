@@ -9100,16 +9100,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         if not command_exists("npm"):
             failures += not doctor_check("npm CLI packages", False, "npm is not installed")
         else:
-            proc = run(
-                ["npm", "list", "--global", "--depth=0", "--json"],
-                check=False,
-                capture=True,
-            )
-            try:
-                installed_npm = set(json.loads(proc.stdout).get("dependencies", {}))
-            except (json.JSONDecodeError, AttributeError):
-                installed_npm = set()
-            missing_npm = [package for package in npm_packages if package not in installed_npm]
+            missing_npm = [package for package in npm_packages if not command_exists(package)]
             failures += not doctor_check(
                 "npm CLI packages",
                 not missing_npm,
