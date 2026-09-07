@@ -3808,6 +3808,10 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("argv: [npm, install, --global", playbook)
         self.assertIn("tags: [packages, npm, app-updates]", playbook)
         self.assertIn('packages.get("npm", [])', DOT.read_text())
+        package_scope = DOT.read_text().split("package_apply_selected =", 1)[1].split(
+            "kde_system_apply_selected =", 1
+        )[0]
+        self.assertNotIn('"npm"', package_scope)
 
     def test_linux_workstations_manage_herdr_with_homebrew(self):
         profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
