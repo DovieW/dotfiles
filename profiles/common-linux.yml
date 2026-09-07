@@ -58,6 +58,7 @@
       "zsh-autosuggestions",
       "zsh-syntax-highlighting"
     ],
+    "npm": ["cf"],
     "deb": [],
     "snap": [],
     "pkg": [],

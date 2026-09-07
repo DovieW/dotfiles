@@ -4893,7 +4893,7 @@ def cmd_package_add(args: argparse.Namespace) -> None:
             raise DotError("Windows packages are inventory-only; specify --provider winget, scoop, or psgallery.")
         else:
             provider = "brew"
-    allowed = {"apt", "brew", "snap", "pkg", "winget", "scoop", "psgallery"}
+    allowed = {"apt", "brew", "npm", "snap", "pkg", "winget", "scoop", "psgallery"}
     if provider not in allowed:
         raise DotError(f"Unsupported provider {provider}; choose one of {', '.join(sorted(allowed))}")
     packages = profile.setdefault("packages", {}).setdefault(provider, [])
@@ -9094,6 +9094,28 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     )
                     if part
                 ),
+            )
+    npm_packages = packages.get("npm", [])
+    if npm_packages:
+        if not command_exists("npm"):
+            failures += not doctor_check("npm CLI packages", False, "npm is not installed")
+        else:
+            proc = run(
+                ["npm", "list", "--global", "--depth=0", "--json"],
+                check=False,
+                capture=True,
+            )
+            try:
+                installed_npm = set(json.loads(proc.stdout).get("dependencies", {}))
+            except (json.JSONDecodeError, AttributeError):
+                installed_npm = set()
+            missing_npm = [package for package in npm_packages if package not in installed_npm]
+            failures += not doctor_check(
+                "npm CLI packages",
+                not missing_npm,
+                "all present"
+                if not missing_npm
+                else f"missing {', '.join(missing_npm)}",
             )
     pkg_packages = packages.get("pkg", [])
     if pkg_packages and command_exists("pkg"):

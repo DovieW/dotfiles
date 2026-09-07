@@ -416,6 +416,14 @@
       when: dot_profile_data.features.vite_plus | default(false)
       tags: [packages, config, shell]
 
+    - name: Install or upgrade managed npm CLI packages
+      ansible.builtin.command:
+        argv: [npm, install, --global, "{{ item }}@latest"]
+      changed_when: true
+      loop: "{{ dot_profile_data.packages.npm | default([]) }}"
+      when: (dot_profile_data.packages.npm | default([]) | length) > 0
+      tags: [packages, app-updates]
+
     - name: Ensure git-sync from the official stable branch
       ansible.builtin.command:
         argv:

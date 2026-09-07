@@ -3796,6 +3796,17 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bun", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
 
+    def test_linux_workstations_manage_cloudflare_cli_with_npm(self):
+        profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+
+        self.assertIn("cf", profile["packages"]["npm"])
+        self.assertEqual(catalog["tools"]["cf"]["provider"], "npm")
+        self.assertIn("Install or upgrade managed npm CLI packages", playbook)
+        self.assertIn("argv: [npm, install, --global", playbook)
+        self.assertIn('packages.get("npm", [])', DOT.read_text())
+
     def test_linux_workstations_manage_herdr_with_homebrew(self):
         profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
