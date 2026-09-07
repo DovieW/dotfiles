@@ -77,6 +77,14 @@
       when: dot_profile_data.features.memory_pressure_protection | default(false)
       tags: [packages, memory]
 
+    - name: Configure workstation recovery and crash evidence
+      ansible.builtin.include_tasks:
+        file: tasks/recovery.yml
+        apply:
+          tags: [recovery]
+      when: dot_profile_data.features.crash_recovery | default(false)
+      tags: [recovery]
+
     - name: Configure increased inotify capacity
       ansible.builtin.include_tasks:
         file: tasks/inotify.yml
@@ -469,6 +477,7 @@
         - screenshots
         - codex
         - tailscale
+        - recovery
 
     - name: Configure native application window frames
       ansible.builtin.command:

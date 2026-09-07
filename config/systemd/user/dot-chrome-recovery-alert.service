@@ -1,0 +1,6 @@
+[Unit]
+Description=Notify when Chrome recovery snapshots fail
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/notify-send --urgency=critical "Chrome recovery backup failed" "Older backups are preserved. Check: journalctl --user -u dot-chrome-recovery.service"

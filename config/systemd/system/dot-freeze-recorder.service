@@ -1,0 +1,19 @@
+[Unit]
+Description=Record pressure and blocked-thread evidence for laptop freezes
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/local/libexec/dot-freeze-recorder
+Restart=on-failure
+RestartSec=10s
+UMask=0077
+Nice=10
+StateDirectory=dot-freeze-recorder
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

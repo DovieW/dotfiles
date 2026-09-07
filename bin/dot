@@ -2802,6 +2802,13 @@ def apply_direct(
         )
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"], check=False)
+    if features.get("crash_recovery") and selected("recovery", "config"):
+        recovery = run(
+            [str(ROOT / "scripts/configure-recovery"), "--ensure"],
+            capture=True,
+        )
+        print(recovery.stdout, end="")
+        changes += recovery.stdout.count("CHANGED ")
     if features.get("factory_display_profile") and selected("display"):
         display = run(
             [str(ROOT / "scripts/configure-display"), "--ensure"],
@@ -3273,6 +3280,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "keyd",
             "meshcentral",
             "memory",
+            "recovery",
             "nomachine",
             "rustdesk",
             "tailscale",
@@ -8990,6 +8998,30 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "termux": "termux",
     }.get(profile["name"])
     actual_platform = infer_platform()
+    if profile.get("features", {}).get("crash_recovery"):
+        recovery = run(
+            [str(ROOT / "scripts/configure-recovery"), "--check"],
+            capture=True, check=False,
+        )
+        failures += not doctor_check(
+            "Chrome recovery", recovery.returncode == 0,
+            recovery.stdout.strip() or recovery.stderr.strip(),
+        )
+        recorder = run(
+            ["systemctl", "is-active", "--quiet", "dot-freeze-recorder.service"],
+            capture=True, check=False,
+        )
+        failures += not doctor_check(
+            "freeze evidence recorder", recorder.returncode == 0,
+            "30-second private samples" if recorder.returncode == 0
+            else "run dot apply --tags recovery",
+        )
+        crash_loaded = Path("/sys/kernel/kexec_crash_loaded")
+        failures += not doctor_check(
+            "kernel crash dump armed",
+            crash_loaded.exists() and crash_loaded.read_text().strip() == "1",
+            "a reboot is required after first kdump installation; confirm with sudo kdump-config show",
+        )
     failures += not doctor_check("platform", actual_platform == expected_platform, f"{actual_platform}; expected {expected_platform}")
     failures += not doctor_check("device", (CONFIG_DIR / "device.json").exists(), str(CONFIG_DIR / "device.json"))
     packages = profile.get("packages", {})

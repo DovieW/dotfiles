@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Bounded local freeze evidence, without command lines, URLs, or environment."""
+import argparse
+import datetime as dt
+import json
+import os
+from pathlib import Path
+import time
+
+
+def read(path):
+    try:
+        return Path(path).read_text()[:32768].strip()
+    except OSError as exc:
+        return f"unavailable: {exc.errno}"
+
+
+def sample():
+    blocked = []
+    # Include individual threads; a blocked worker need not be the process leader.
+    for task in Path("/proc").glob("[0-9]*/task/[0-9]*"):
+        status = read(task / "status")
+        if "State:\tD" not in status:
+            continue
+        blocked.append({"pid": task.parent.parent.name, "tid": task.name,
+                        "comm": read(task / "comm"), "wchan": read(task / "wchan"),
+                        "stack": read(task / "stack")})
+        if len(blocked) >= 100:
+            break
+    return {"utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "boot_id": read("/proc/sys/kernel/random/boot_id"),
+            "uptime": read("/proc/uptime"), "load": read("/proc/loadavg"),
+            "memory": read("/proc/meminfo"), "vmstat": read("/proc/vmstat"),
+            "diskstats": read("/proc/diskstats"),
+            "pressure": {k: read(f"/proc/pressure/{k}") for k in ("cpu", "memory", "io")},
+            "blocked_threads": blocked, "blocked_limit": 100}
+
+
+def write_sample(state, value):
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    state.chmod(0o700)
+    path = state / "samples.jsonl"
+    if path.exists() and path.stat().st_size >= 16 * 1024 * 1024:
+        (state / "samples.13.jsonl").unlink(missing_ok=True)
+        for number in range(12, 0, -1):
+            old = state / f"samples.{number}.jsonl"
+            if old.exists():
+                old.rename(state / f"samples.{number + 1}.jsonl")
+        path.rename(state / "samples.1.jsonl")
+    with path.open("a") as stream:
+        stream.write(json.dumps(value, separators=(",", ":")) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--state", type=Path, default=Path("/var/lib/dot-freeze-recorder"))
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--print", action="store_true", dest="print_only")
+    args = parser.parse_args()
+    while True:
+        value = sample()
+        if args.print_only:
+            print(json.dumps(value, indent=2))
+            return
+        write_sample(args.state, value)
+        if args.once:
+            return
+        time.sleep(30)
+
+
+if __name__ == "__main__":
+    main()

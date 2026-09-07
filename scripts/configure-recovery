@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Install/check unprivileged Chrome recovery; system setup is an Ansible task."""
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--ensure", action="store_true")
+    args = parser.parse_args()
+    mappings = {ROOT / "scripts/chrome-recovery": Path.home() / ".local/bin/dot-chrome-recovery"}
+    for name in ("dot-chrome-recovery.service", "dot-chrome-recovery.timer", "dot-chrome-recovery-alert.service"):
+        mappings[ROOT / "config/systemd/user" / name] = Path.home() / ".config/systemd/user" / name
+    failures = []
+    for source, target in mappings.items():
+        if target.is_symlink() and target.resolve() == source.resolve():
+            continue
+        if args.check:
+            failures.append(str(target))
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and not target.is_symlink():
+            raise RuntimeError(f"Refusing to overwrite unmanaged file: {target}")
+        target.unlink(missing_ok=True)
+        target.symlink_to(source)
+        print(f"CHANGED {target}")
+    unit = "dot-chrome-recovery.timer"
+    if not args.check:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "--user", "enable", "--now", unit], check=True)
+    for operation in ("is-enabled", "is-active"):
+        if subprocess.run(["systemctl", "--user", operation, "--quiet", unit], check=False).returncode:
+            failures.append(f"{unit}: {operation} failed")
+    if args.check:
+        state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles/chrome-recovery"
+        manifests = sorted(state.glob("20*T*Z/manifest.json"))
+        if not manifests or time.time() - manifests[-1].stat().st_mtime > 15 * 60:
+            failures.append("no successful Chrome snapshot in the past 15 minutes")
+        else:
+            verified = subprocess.run(
+                [str(ROOT / "scripts/chrome-recovery"), "verify", manifests[-1].parent.name,
+                 "--state", str(state)], capture_output=True, text=True, check=False,
+            )
+            if verified.returncode:
+                failures.append("latest Chrome snapshot failed checksum verification")
+    if failures:
+        print("DRIFT " + "; ".join(failures))
+        raise SystemExit(1)
+    print("OK Chrome recovery timer enabled and active" + ("; recent backup checksums verified" if args.check else ""))
+
+
+if __name__ == "__main__":
+    main()

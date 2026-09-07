@@ -1,0 +1,12 @@
+[Unit]
+Description=Preserve Chrome session and Sync recovery generations
+OnFailure=dot-chrome-recovery-alert.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dot-chrome-recovery snapshot
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+TimeoutStartSec=2min

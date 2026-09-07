@@ -11,6 +11,7 @@
     "codex_remote_control": true,
     "codex_remote_control_mode": "desktop",
     "copyq": true,
+    "crash_recovery": true,
     "copilot_right_control": true,
     "emoji_picker": true,
     "docker_engine": true,

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Private, non-disruptive Chrome recovery snapshots. Never writes to Chrome."""
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import struct
+import tempfile
+import time
+
+GENERATION = re.compile(r"\d{8}T\d{6}\.\d{6}Z")
+
+
+def snss(data):
+    """Structural check only, not a promise Chrome will restore these commands."""
+    result = {"valid": False, "commands": 0, "navigation_commands": 0}
+    if data[:8] not in (b"SNSS\x01\0\0\0", b"SNSS\x03\0\0\0"):
+        return result
+    pos = 8
+    while pos < len(data):
+        if pos + 2 > len(data):
+            return result
+        size = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        if not size or pos + size > len(data):
+            return result
+        result["commands"] += 1
+        result["navigation_commands"] += data[pos] == 6
+        pos += size
+    result["valid"] = result["commands"] > 0
+    return result
+
+
+def inventory(root):
+    found = {}
+    for profile in sorted(root.iterdir()):
+        if not re.fullmatch(r"Default|Profile \d+", profile.name) or profile.is_symlink():
+            continue
+        for name in ("Sessions", "Sync Data"):
+            folder = profile / name
+            if not folder.is_dir() or folder.is_symlink():
+                continue
+            for path in sorted(folder.rglob("*")):
+                if path.name in {"LOCK", "LOG", "LOG.old"}:
+                    continue
+                if path.is_symlink() or any(p.is_symlink() for p in path.parents if p != root):
+                    raise RuntimeError("Refusing symlink in recovery source")
+                if path.is_file():
+                    st = path.stat()
+                    found[str(path.relative_to(root))] = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    return found
+
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def generations(state):
+    return sorted(p for p in state.iterdir() if GENERATION.fullmatch(p.name) and p.is_dir() and not p.is_symlink())
+
+
+def retained(paths):
+    keep = set(paths[-72:])  # Six hours at five-minute intervals.
+    for width, count in ((11, 48), (8, 30)):
+        buckets = {}
+        for path in paths:
+            buckets[path.name[:width]] = path
+        keep.update(list(buckets.values())[-count:])
+    keep.update(p for p in paths if (p / "PINNED").is_file())
+    return keep
+
+
+def sync_dir(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def snapshot(root, state, pin=False):
+    if state == root or root in state.parents:
+        raise RuntimeError("Backups must be outside the Chrome data directory")
+    state.mkdir(parents=True, mode=0o700, exist_ok=True)
+    state.chmod(0o700)
+    with (state / ".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        # Stale unpublished attempts belong to this tool, never to Chrome.
+        for stale in state.glob(".pending-*"):
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale)
+        old = generations(state)
+        previous = old[-1] if old else None
+        for attempt in range(3):
+            pending = Path(tempfile.mkdtemp(prefix=".pending-", dir=state))
+            try:
+                before = inventory(root)
+                if not before:
+                    raise RuntimeError("No Chrome session or Sync data found")
+                records = {}
+                for relative in before:
+                    source, target = root / relative, pending / relative
+                    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    shutil.copyfile(source, target)
+                    target.chmod(0o600)
+                    sha = digest(target)
+                    prior = previous / relative if previous else None
+                    if prior and prior.is_file() and digest(prior) == sha:
+                        target.unlink()
+                        os.link(prior, target)
+                    else:
+                        with target.open("rb") as stream:
+                            os.fsync(stream.fileno())
+                    record = {"bytes": target.stat().st_size, "sha256": sha}
+                    if Path(relative).parent.name == "Sessions":
+                        record["snss"] = snss(target.read_bytes())
+                    records[relative] = record
+                if before != inventory(root):
+                    raise RuntimeError("Chrome changed files while copying")
+                for current in pending.glob("*/Sync Data/LevelDB/CURRENT"):
+                    name = current.read_text().strip()
+                    if not re.fullmatch(r"MANIFEST-\d+", name) or not (current.parent / name).is_file():
+                        raise RuntimeError("LevelDB CURRENT has no matching MANIFEST")
+                name = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+                manifest = {"version": 1, "created_utc": name, "files": records,
+                            "capture": "live-copy with unchanged file metadata across capture; NOT a transactional LevelDB backup",
+                            "validation": "SHA256 and SNSS framing only; no browser restore guarantee"}
+                with (pending / "manifest.json").open("w") as stream:
+                    json.dump(manifest, stream, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if pin:
+                    with (pending / "PINNED").open("w") as stream:
+                        stream.write("Explicitly pinned; excluded from automatic retention.\n")
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                for folder, _, _ in os.walk(pending, topdown=False):
+                    sync_dir(folder)
+                final = state / name
+                pending.rename(final)
+                sync_dir(state)
+                paths = generations(state)
+                for obsolete in set(paths) - retained(paths):
+                    shutil.rmtree(obsolete)
+                print(f"Snapshot: {final}; {len(records)} files; pinned={pin}")
+                return final
+            except (OSError, RuntimeError) as exc:
+                shutil.rmtree(pending)
+                if attempt == 2:
+                    raise RuntimeError(f"No snapshot published; older backups preserved: {exc}") from exc
+                time.sleep(0.5)
+
+
+def verify(path):
+    manifest = json.loads((path / "manifest.json").read_text())
+    for relative, record in manifest["files"].items():
+        target = path / relative
+        if Path(relative).is_absolute() or ".." in Path(relative).parts or target.resolve().is_relative_to(path.resolve()) is False:
+            raise RuntimeError("Unsafe manifest path")
+        if digest(target) != record["sha256"] or target.stat().st_size != record["bytes"]:
+            raise RuntimeError(f"Checksum mismatch: {relative}")
+    print(f"Verified {len(manifest['files'])} file checksums: {path}")
+    return manifest
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("snapshot", "list", "verify", "export"))
+    parser.add_argument("generation", nargs="?")
+    parser.add_argument("--source", type=Path, default=Path.home() / ".config/google-chrome")
+    parser.add_argument("--state", type=Path, default=Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles/chrome-recovery")
+    parser.add_argument("--pin", action="store_true", help="Keep this snapshot until manually removed")
+    parser.add_argument("--destination", type=Path, help="New, empty export directory; never a live profile")
+    args = parser.parse_args()
+    if args.action == "snapshot":
+        snapshot(args.source.resolve(), args.state.resolve(), args.pin)
+        return
+    if args.action == "list":
+        for path in generations(args.state):
+            manifest = json.loads((path / "manifest.json").read_text())
+            valid = sum(r.get("snss", {}).get("valid", False) for r in manifest["files"].values())
+            print(f"{path.name}  structurally-valid-session-files={valid}  pinned={(path / 'PINNED').exists()}")
+        return
+    if not args.generation or not GENERATION.fullmatch(args.generation):
+        parser.error("Specify an exact generation from 'list'")
+    path = args.state / args.generation
+    manifest = verify(path)
+    if args.action == "export":
+        if not args.destination:
+            parser.error("export requires --destination (must not already exist)")
+        destination = args.destination.resolve()
+        source = args.source.resolve()
+        state = args.state.resolve()
+        if destination == source or source in destination.parents or destination == state or state in destination.parents:
+            parser.error("export must be outside Chrome and the backup store")
+        destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+        for relative in manifest["files"]:
+            target = destination / relative
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copyfile(path / relative, target)  # No hardlinks to editable exports.
+        print(f"Exported recovery candidate to {destination}; Chrome was not modified")
+
+
+if __name__ == "__main__":
+    main()

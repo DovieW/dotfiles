@@ -15,7 +15,7 @@ skip_or_fail() {
 }
 
 python3 tests/validate_profiles.py
-python3 -m unittest tests/test_cli.py tests/test_krdp.py tests/test_krdp_audio.py
+python3 -m unittest tests/test_cli.py tests/test_krdp.py tests/test_krdp_audio.py tests/test_recovery.py
 
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -t shell_files < <(find bin config scripts tests \

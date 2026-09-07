@@ -1,0 +1,146 @@
+---
+- name: Validate crash-recovery platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+      - ansible_facts.system == "Linux"
+      - ansible_facts.architecture == "x86_64"
+
+- name: Create crash-evidence configuration directories
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /usr/local/libexec
+    - /etc/systemd/journald.conf.d
+
+- name: Install private freeze recorder
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/freeze-recorder"
+    dest: /usr/local/libexec/dot-freeze-recorder
+    owner: root
+    group: root
+    mode: "0755"
+  register: dot_recorder_script
+
+- name: Install freeze recorder service
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/system/dot-freeze-recorder.service"
+    dest: /etc/systemd/system/dot-freeze-recorder.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: dot_recorder_unit
+
+- name: Persist journal messages more frequently
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/60-dotfiles-crash-evidence.conf"
+    dest: /etc/systemd/journald.conf.d/60-dotfiles-crash-evidence.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: dot_crash_journal
+
+- name: Activate journal persistence policy
+  become: true
+  ansible.builtin.systemd_service:
+    name: systemd-journald.service
+    state: restarted
+  when: dot_crash_journal.changed and not ansible_check_mode
+
+- name: Enable the bounded freeze recorder
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-freeze-recorder.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if dot_recorder_script.changed or dot_recorder_unit.changed else 'started' }}"
+  when: not ansible_check_mode
+
+- name: Enable crash capture without changing normal reboot to kexec
+  become: true
+  ansible.builtin.debconf:
+    name: "{{ item.package }}"
+    question: "{{ item.question }}"
+    value: "{{ item.value }}"
+    vtype: boolean
+  loop:
+    - {package: kdump-tools, question: kdump-tools/use_kdump, value: 'true'}
+    - {package: kexec-tools, question: kexec-tools/load_kexec, value: 'false'}
+
+- name: Install Ubuntu kernel crash capture tools
+  become: true
+  ansible.builtin.apt:
+    name: kdump-tools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable kdump configuration
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/default/kdump-tools
+    regexp: '^USE_KDUMP='
+    line: USE_KDUMP=1
+    backup: true
+  when: not ansible_check_mode
+
+- name: Keep kernel dumps in a dedicated private directory
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/dot-kdump
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Set bounded private kernel dump retention
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/default/kdump-tools
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: true
+  loop:
+    - {regexp: '^KDUMP_COREDIR=', line: 'KDUMP_COREDIR="/var/lib/dot-kdump"'}
+    - {regexp: '^#?KDUMP_NUM_DUMPS=', line: 'KDUMP_NUM_DUMPS=3'}
+  when: not ansible_check_mode
+
+- name: Enable kdump at the next normal boot
+  become: true
+  ansible.builtin.systemd_service:
+    name: kdump-tools.service
+    enabled: true
+  when: not ansible_check_mode
+
+- name: Read current crash-kernel reservation
+  ansible.builtin.slurp:
+    src: /sys/kernel/kexec_crash_size
+  register: dot_crash_reservation
+
+- name: Start kdump only when boot memory is already reserved
+  become: true
+  ansible.builtin.systemd_service:
+    name: kdump-tools.service
+    state: restarted
+  when:
+    - not ansible_check_mode
+    - (dot_crash_reservation.content | b64decode | trim | int) > 0
+
+- name: Explain crash capture activation boundary
+  ansible.builtin.debug:
+    msg: >-
+      Chrome backups and the freeze recorder do not require a reboot. Ubuntu's
+      kdump package adds its crashkernel reservation to GRUB; a normal reboot is
+      required before first use. Its standard loader enables panic_on_oops when
+      armed. No panic-on-hang or panic-on-OOM policy, forced crash, reboot,
+      graphics, power-management, or SSH changes are performed by this task.
+      Verify /sys/kernel/kexec_crash_loaded is 1 after reboot. Full hardware
+      lockups may still prevent capture. Kernel dumps remain private locally.
