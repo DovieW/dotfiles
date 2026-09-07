@@ -1,0 +1,65 @@
+# Herdr replaces tmux as the default persistent workspace inside Ghostty.
+onboarding = false
+
+[theme]
+name = "terminal"
+
+[terminal]
+shell_mode = "login"
+new_cwd = "follow"
+
+[keys]
+prefix = "ctrl+space"
+detach = ["prefix+d", "prefix+q"]
+reload_config = "prefix+r"
+resize_mode = "prefix+shift+r"
+split_vertical = "prefix+shift+backslash"
+split_horizontal = "prefix+minus"
+zoom = "prefix+m"
+toggle_sidebar = "prefix+b"
+last_pane = "ctrl+backslash"
+
+# Preserve seamless Alt-h/j/k/l movement across Herdr panes and Neovim splits.
+[[keys.command]]
+key = "alt+h"
+type = "shell"
+command = "dot-herdr-navigate left alt+h"
+description = "navigate left across panes and Neovim splits"
+
+[[keys.command]]
+key = "alt+j"
+type = "shell"
+command = "dot-herdr-navigate down alt+j"
+description = "navigate down across panes and Neovim splits"
+
+[[keys.command]]
+key = "alt+k"
+type = "shell"
+command = "dot-herdr-navigate up alt+k"
+description = "navigate up across panes and Neovim splits"
+
+[[keys.command]]
+key = "alt+l"
+type = "shell"
+command = "dot-herdr-navigate right alt+l"
+description = "navigate right across panes and Neovim splits"
+
+# Open navi in a temporary popup and paste the selected command into the pane.
+[[keys.command]]
+key = "prefix+ctrl+g"
+type = "popup"
+command = "dot-herdr-navi"
+description = "insert a command from navi"
+width = "80%"
+height = "70%"
+
+[ui]
+mouse_capture = true
+copy_on_select = true
+pane_outer_borders = false
+pane_scrollbars = false
+pane_gaps = false
+hide_tab_bar_when_single_tab = true
+
+[session]
+resume_agents_on_restore = true

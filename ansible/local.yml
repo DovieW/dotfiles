@@ -452,6 +452,7 @@
         - lockscreen
         - power
         - tmux
+        - herdr
         - nvim
         - display
         - vscode

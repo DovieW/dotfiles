@@ -12,5 +12,6 @@ end
 
 require("dovie.options")
 require("dovie.autocmds")
+require("dovie.herdr").setup()
 require("dovie.lazy")
 require("dovie.keymaps")

@@ -1958,7 +1958,7 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertEqual(restored, [{"id": 149, "hiding": "autohide"}])
 
-    def test_kubuntu_manages_ghostty_as_a_minimal_tmux_frontend(self):
+    def test_kubuntu_manages_ghostty_as_a_minimal_herdr_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         config = (ROOT / "config/ghostty/config").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
@@ -1968,7 +1968,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("ghostty", profile["packages"]["apt"])
         self.assertTrue(profile["features"]["firacode_nerd_font"])
         self.assertIn(
-            'command = zsh -lic "exec tmux new-session -A -s main"',
+            'command = zsh -lic "exec herdr"',
             config,
         )
         self.assertIn("window-decoration = none", config)
@@ -3802,8 +3802,19 @@ class DotCliTests(unittest.TestCase):
     def test_linux_workstations_manage_herdr_with_homebrew(self):
         profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        config = (ROOT / "config/herdr/config.toml").read_text()
+        nvim = (ROOT / "config/nvim/lua/dovie/plugins/init.lua").read_text()
+        cli = DOT.read_text()
         self.assertIn("herdr", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["herdr"]["provider"], "brew")
+        self.assertIn('prefix = "ctrl+space"', config)
+        self.assertIn('split_vertical = "prefix+shift+backslash"', config)
+        self.assertIn('command = "dot-herdr-navigate left alt+h"', config)
+        self.assertIn('command = "dot-herdr-navi"', config)
+        self.assertIn('ROOT / "config/herdr/config.toml"', cli)
+        self.assertIn('ROOT / "scripts/configure-herdr"', cli)
+        self.assertIn('selected("shell", "tmux", "herdr")', cli)
+        self.assertIn("vim.env.HERDR_PANE_ID == nil", nvim)
 
     def test_luna_ocr_release_installer_is_managed(self):
         cli = DOT.read_text()

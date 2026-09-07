@@ -87,7 +87,7 @@ _dot_source_first \
   "$_dot_brew_prefix/share/fzf-tab/fzf-tab.zsh" || true
 
 # fzf-tab 1.3.0 drains pending input with `dd iflag=nonblock`. That read blocks
-# indefinitely on the Ghostty + tmux PTY used here, before fzf can start.
+# indefinitely on the persistent multiplexer PTY used here, before fzf can start.
 # Redirect only fzf-tab's private drain command to `true`, then restore normal
 # command resolution as soon as the widget returns.
 if (( ${+widgets[fzf-tab-complete]} )); then

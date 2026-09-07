@@ -68,9 +68,18 @@ done
 unset dot_bw_socket
 
 alias g='git'
-alias t='tmux'
-alias tls='tmux ls'
-alias ta='tmux attach'
+if command -v herdr >/dev/null 2>&1; then
+  alias t='herdr'
+  alias tls='herdr session list'
+  alias ta='herdr'
+else
+  alias t='tmux'
+  alias tls='tmux ls'
+  alias ta='tmux attach'
+fi
+alias tm='tmux'
+alias tmls='tmux ls'
+alias tma='tmux attach'
 alias repos='cd "$REPOS"'
 alias c-='cd -'
 alias c.='cd ..'

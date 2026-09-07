@@ -193,13 +193,25 @@ default branches by `dot apply` and `dot update`. Apply only this subsystem with
 dot apply --profile kubuntu-laptop --tags packages,tmux
 ```
 
-Tmux owns mouse reporting inside Ghostty. Its managed root-table binding opens
-the OSC 8 hyperlink or validated URL under Ctrl+left-click, replacing tmux's
-default marked-pane swap action.
+When tmux is used as the recovery multiplexer, it owns mouse reporting inside
+Ghostty. Its managed root-table binding opens the OSC 8 hyperlink or validated
+URL under Ctrl+left-click, replacing tmux's default marked-pane swap action.
+
+Herdr uses `~/.config/herdr/config.toml`, copied from the authoritative
+repository configuration so its settings UI cannot mutate the checkout. It is
+the default persistent Ghostty workspace and preserves the managed Ctrl-Space
+prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Apply it and the
+Codex session-identity integration with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags packages,herdr
+```
+
+Tmux and its plugins remain installed for recovery and existing sessions.
 
 Ghostty uses `~/.config/ghostty/config`, copied from the authoritative
 repository configuration. It deliberately provides no window chrome, tabs, or
-scrollbar because tmux owns those functions. FiraCode Nerd Font Mono is resolved
+scrollbar because Herdr owns those functions. FiraCode Nerd Font Mono is resolved
 from Nerd Fonts' latest stable GitHub release and checked against the release's
 published SHA-256 manifest. Apply Ghostty, the font, and its configuration with:
 

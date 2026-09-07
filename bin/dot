@@ -1877,7 +1877,7 @@ def apply_direct(
         check_kde_apply_conflicts(force=force_kde)
     elif lockscreen_only:
         check_kde_apply_conflicts(force=force_kde, only=lockscreen_files)
-    if features.get("shell") and selected("shell", "tmux"):
+    if features.get("shell") and selected("shell", "tmux", "herdr"):
         mappings = {
             ROOT / "bin/dot": Path.home() / ".local/bin/dot",
             ROOT / "config/shell/bashrc": Path.home() / ".bashrc",
@@ -1894,6 +1894,41 @@ def apply_direct(
         }
         for source, destination in mappings.items():
             changes += int(link_file(source, destination))
+        manages_herdr = "herdr" in profile.get("packages", {}).get("brew", [])
+        if manages_herdr and selected("shell", "herdr"):
+            changes += int(
+                copy_managed_file(
+                    ROOT / "config/herdr/config.toml",
+                    Path.home() / ".config/herdr/config.toml",
+                )
+            )
+            changes += int(
+                link_file(
+                    ROOT / "config/herdr/navigate",
+                    Path.home() / ".local/bin/dot-herdr-navigate",
+                )
+            )
+            changes += int(
+                link_file(
+                    ROOT / "config/herdr/navi",
+                    Path.home() / ".local/bin/dot-herdr-navi",
+                )
+            )
+            if features.get("codex_remote_control"):
+                herdr_result = run(
+                    [str(ROOT / "scripts/configure-herdr"), "--ensure"],
+                    capture=True,
+                )
+                changes += herdr_result.stdout.count("CHANGED ")
+                if herdr_result.stdout:
+                    print(herdr_result.stdout, end="")
+            if features.get("kde"):
+                changes += int(
+                    copy_managed_file(
+                        ROOT / "config/ghostty/config",
+                        Path.home() / ".config/ghostty/config",
+                    )
+                )
         transcribe_current = (
             Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
             / "dotfiles/transcribe/current/transcribe"
@@ -8038,9 +8073,10 @@ def palette_apply_menu(profile: str) -> None:
             "Lock screen",
             "Install the managed theme, private wallpaper, and fallback policy",
         ),
-        ("shell", "Shell environment", "Apply Bash, Zsh, prompt, helpers, and Tmux files"),
+        ("shell", "Shell environment", "Apply Bash, Zsh, prompt, helpers, Tmux, and Herdr files"),
         ("git", "Git configuration", "Apply identities, aliases, Delta, signing, and utilities"),
         ("tmux", "Tmux", "Apply Tmux configuration, TPM, and plugins"),
+        ("herdr", "Herdr", "Apply the persistent agent workspace and Codex integration"),
         ("nvim", "Neovim", "Apply config, locked plugins, parsers, and language tools"),
         ("docker", "Docker Engine", "Repair native engine, Compose, Buildx, and service state"),
         ("tailscale", "Tailscale", "Repair stable repository, package, and daemon"),
@@ -9522,6 +9558,36 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if not missing_tmux_plugins
             else f"missing {', '.join(missing_tmux_plugins)}; rerun dot apply",
         )
+        manages_herdr = "herdr" in profile.get("packages", {}).get("brew", [])
+        if manages_herdr:
+            herdr_config = Path.home() / ".config/herdr/config.toml"
+            herdr_source = ROOT / "config/herdr/config.toml"
+            herdr_config_ok = (
+                herdr_config.is_file()
+                and not herdr_config.is_symlink()
+                and herdr_config.read_bytes() == herdr_source.read_bytes()
+            )
+            failures += not doctor_check(
+                "Herdr configuration",
+                command_exists("herdr") and herdr_config_ok,
+                "managed persistent agent workspace configured"
+                if command_exists("herdr") and herdr_config_ok
+                else f"run dot apply --profile {profile['name']} --tags packages,herdr",
+            )
+            if profile.get("features", {}).get("codex_remote_control"):
+                herdr_integration = run(
+                    [str(ROOT / "scripts/configure-herdr"), "--check"],
+                    check=False,
+                    capture=True,
+                )
+                herdr_integration_detail = (
+                    herdr_integration.stdout or herdr_integration.stderr
+                ).strip()
+                failures += not doctor_check(
+                    "Herdr Codex integration",
+                    herdr_integration.returncode == 0,
+                    herdr_integration_detail or "integration check failed",
+                )
         login_shell = os.environ.get("SHELL", "")
         if os.name != "nt":
             try:
@@ -11100,9 +11166,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Ghostty configuration",
             command_exists("ghostty") and ghostty_matches and ghostty_default,
-            "default frameless tmux frontend installed and configured"
+            "default frameless Herdr frontend installed and configured"
             if command_exists("ghostty") and ghostty_matches and ghostty_default
-            else "run dot apply --profile kubuntu-laptop --tags packages",
+            else "run dot apply --profile kubuntu-laptop --tags herdr",
         )
         if profile.get("features", {}).get("firacode_nerd_font"):
             nerd_font_check = run(

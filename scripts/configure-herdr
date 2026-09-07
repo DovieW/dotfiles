@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+if [[ "$mode" != "--ensure" && "$mode" != "--check" ]]; then
+  printf 'usage: %s [--ensure|--check]\n' "$0" >&2
+  exit 2
+fi
+
+if ! command -v herdr >/dev/null 2>&1; then
+  printf 'Herdr is not installed.\n' >&2
+  exit 1
+fi
+
+status="$(herdr integration status)"
+if grep -Eq '^codex: (current|installed)( |$)' <<<"$status"; then
+  printf 'Herdr Codex integration is installed.\n'
+  exit 0
+fi
+
+if [[ "$mode" == "--check" ]]; then
+  printf 'Herdr Codex integration is not installed; run dot apply with the herdr tag.\n' >&2
+  exit 1
+fi
+
+herdr integration install codex
+printf 'CHANGED Herdr Codex integration installed.\n'

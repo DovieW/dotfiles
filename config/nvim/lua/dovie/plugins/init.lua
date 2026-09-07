@@ -263,6 +263,9 @@ return {
   {
     "christoomey/vim-tmux-navigator",
     lazy = false,
+    cond = function()
+      return vim.env.HERDR_PANE_ID == nil
+    end,
     init = function()
       vim.g.tmux_navigator_no_mappings = 1
     end,

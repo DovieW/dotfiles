@@ -337,6 +337,26 @@
   [[ "$output" == *"Vite+ $release is installed from the managed stable channel"* ]]
 }
 
+@test "Herdr navigation sends Alt movement into Neovim" {
+  fake_bin="$BATS_TEST_TMPDIR/herdr-bin"
+  call_log="$BATS_TEST_TMPDIR/herdr-calls"
+  mkdir -p "$fake_bin"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'if [[ "$*" == "pane process-info --pane test-pane" ]]; then' \
+    '  printf '\''{"result":{"process_info":{"foreground_processes":[{"name":"nvim"}]}}}\n'\''' \
+    'else' \
+    '  printf '\''%s\n'\'' "$*" >>"$DOT_HERDR_TEST_LOG"' \
+    'fi' >"$fake_bin/herdr"
+  chmod +x "$fake_bin/herdr"
+
+  run env PATH="$fake_bin:$PATH" DOT_HERDR_TEST_LOG="$call_log" \
+    HERDR_ACTIVE_PANE_ID=test-pane \
+    "$BATS_TEST_DIRNAME/../config/herdr/navigate" left alt+h
+  [ "$status" -eq 0 ]
+  grep -Fxq 'pane send-keys test-pane alt+h' "$call_log"
+}
+
 @test "sudo-rs become plugin recognizes the wrapped PAM prompt" {
   fake_sudo="$BATS_TEST_TMPDIR/sudo-rs"
   playbook="$BATS_TEST_TMPDIR/sudo-rs.yml"

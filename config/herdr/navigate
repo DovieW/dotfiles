@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+direction="${1:-}"
+key="${2:-}"
+pane_id="${HERDR_ACTIVE_PANE_ID:-}"
+
+case "$direction" in
+  left|right|up|down) ;;
+  *) exit 2 ;;
+esac
+
+if [[ -z "$key" || -z "$pane_id" ]]; then
+  exit 2
+fi
+
+process_info="$(herdr pane process-info --pane "$pane_id")"
+if jq -e '
+  .result.process_info.foreground_processes
+  | any(.[]; .name | test("^(g?view|lvim|n?vim|vimx|fzf)(diff)?$"; "i"))
+' >/dev/null <<<"$process_info"; then
+  herdr pane send-keys "$pane_id" "$key" >/dev/null
+else
+  herdr pane focus --pane "$pane_id" --direction "$direction" >/dev/null 2>&1 || true
+fi

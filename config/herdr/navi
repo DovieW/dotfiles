@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pane_id="${HERDR_ACTIVE_PANE_ID:-}"
+if [[ -z "$pane_id" ]]; then
+  exit 2
+fi
+
+selection="$(navi --print)" || exit $?
+if [[ -n "$selection" ]]; then
+  herdr pane send-text "$pane_id" "$selection" >/dev/null
+fi
