@@ -1,5 +1,4 @@
-# Ghostty is a minimal graphical frontend for the persistent Herdr workspace.
-command = zsh -lic "exec herdr"
+# Ghostty opens the login shell directly. Start Herdr explicitly with `herdr`.
 
 font-family = FiraCode Nerd Font Mono
 font-size = 12

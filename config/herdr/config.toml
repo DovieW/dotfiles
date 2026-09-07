@@ -1,4 +1,4 @@
-# Herdr replaces tmux as the default persistent workspace inside Ghostty.
+# Herdr provides an on-demand persistent workspace inside Ghostty.
 onboarding = false
 
 [theme]

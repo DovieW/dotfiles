@@ -199,9 +199,9 @@ URL under Ctrl+left-click, replacing tmux's default marked-pane swap action.
 
 Herdr uses `~/.config/herdr/config.toml`, copied from the authoritative
 repository configuration so its settings UI cannot mutate the checkout. It is
-the default persistent Ghostty workspace and preserves the managed Ctrl-Space
-prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Apply it and the
-Codex session-identity integration with:
+started on demand with `herdr` or `t` and preserves the managed Ctrl-Space
+prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Apply it and
+the Codex session-identity integration with:
 
 ```bash
 dot apply --profile kubuntu-laptop --tags packages,herdr

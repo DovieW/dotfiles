@@ -1958,7 +1958,7 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertEqual(restored, [{"id": 149, "hiding": "autohide"}])
 
-    def test_kubuntu_manages_ghostty_as_a_minimal_herdr_frontend(self):
+    def test_kubuntu_manages_ghostty_as_a_minimal_shell_frontend(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         config = (ROOT / "config/ghostty/config").read_text()
         kdeglobals = (ROOT / "config/kde/.config/kdeglobals").read_text()
@@ -1967,10 +1967,7 @@ class DotCliTests(unittest.TestCase):
 
         self.assertIn("ghostty", profile["packages"]["apt"])
         self.assertTrue(profile["features"]["firacode_nerd_font"])
-        self.assertIn(
-            'command = zsh -lic "exec herdr"',
-            config,
-        )
+        self.assertNotIn("command =", config)
         self.assertIn("window-decoration = none", config)
         self.assertIn("window-show-tab-bar = never", config)
         self.assertIn("gtk-titlebar = false", config)

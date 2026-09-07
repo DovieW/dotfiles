@@ -50,13 +50,13 @@ remain authoritative inside each project.
 
 Ghostty is the preferred native Kubuntu terminal and is installed from
 Ubuntu's current stable repository candidate. Its managed configuration removes
-window decorations, the tab bar, and the scrollbar, starts maximized, and
-attaches every new window to Herdr's persistent agent workspace. It uses the
-latest stable FiraCode Nerd Font Mono release with contextual programming
-ligatures explicitly disabled and a solid non-blinking bar cursor. Herdr owns
-workspaces, tabs, panes, agent status, and Ctrl-click URL handling while mouse
-reporting is active. Tmux remains installed as a recovery multiplexer. Konsole
-and Alacritty remain available as recovery and comparison frontends.
+window decorations, the tab bar, and the scrollbar, starts maximized, and opens
+the login shell directly. It uses the latest stable FiraCode Nerd Font Mono
+release with contextual programming ligatures explicitly disabled and a solid
+non-blinking bar cursor. Herdr is available on demand for persistent workspaces,
+tabs, panes, agent status, and Ctrl-click URL handling. Tmux remains installed
+as a recovery multiplexer. Konsole and Alacritty remain available as recovery
+and comparison frontends.
 
 ## Docker
 

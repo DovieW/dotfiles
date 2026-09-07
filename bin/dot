@@ -11166,7 +11166,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         failures += not doctor_check(
             "Ghostty configuration",
             command_exists("ghostty") and ghostty_matches and ghostty_default,
-            "default frameless Herdr frontend installed and configured"
+            "default frameless shell frontend installed and configured"
             if command_exists("ghostty") and ghostty_matches and ghostty_default
             else "run dot apply --profile kubuntu-laptop --tags herdr",
         )

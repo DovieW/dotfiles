@@ -60,7 +60,7 @@ flowchart LR
 | Area | What is managed |
 | --- | --- |
 | **Desktop** | Plasma panel, shortcuts, window rules, gestures, cursor, fonts, factory OLED calibration, power behavior, lock screen, screenshots, clipboard history, emoji |
-| **Terminal** | Ghostty, persistent Herdr agent workspaces, tmux recovery, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
+| **Terminal** | Ghostty, on-demand Herdr agent workspaces, tmux recovery, Zsh, full Bash, visibly minimal `mbash`, Powerlevel10k |
 | **Development** | Git, Delta, fzf, Neovim, VS Code, Docker Engine, Lazygit, Lazydocker, language tooling |
 | **Connectivity** | Tailscale and fullscreen company RDP files on native Kubuntu; Windows-host networking for WSL |
 | **Applications** | Stable-provider installs for Bitwarden, Obsidian, ChatGPT Desktop with Codex, the Codex CLI, Vite+, and the declared package catalog |
@@ -379,7 +379,7 @@ The command refuses to overwrite an existing `dotfiles/bootstrap-v1` item.
 
 ## A few favorite details
 
-- Ghostty opens directly into Herdr's persistent agent workspace.
+- Ghostty opens a clean shell; `herdr` or `t` enters the persistent agent workspace.
 - `mbash` provides an unmistakably minimal Bash with no network or plugin work;
   `fullbash` switches back to the complete environment.
 - `clip` and `cclip` provide Windows-style clipboard commands everywhere.
