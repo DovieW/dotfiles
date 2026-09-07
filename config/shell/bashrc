@@ -77,3 +77,4 @@ __dot_bash_prompt_command() {
 
 PROMPT_COMMAND=__dot_bash_prompt_command
 __dot_bash_prompt 0
+. "$HOME/.cargo/env"
