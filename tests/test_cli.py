@@ -3422,6 +3422,30 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(catalog["tools"]["adb"]["provider"], "apt")
         self.assertEqual(catalog["tools"]["scrcpy"]["provider"], "apt")
 
+    def test_kubuntu_manages_agent_friendly_game_development(self):
+        profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        task = (ROOT / "ansible/tasks/godot.yml").read_text()
+        installer = (ROOT / "scripts/install-godot").read_text()
+
+        self.assertTrue(profile["features"]["godot_engine"])
+        self.assertIn("blender", profile["packages"]["apt"])
+        self.assertIn("dotnet-sdk-10.0", profile["packages"]["apt"])
+        self.assertEqual(catalog["tools"]["blender"]["provider"], "apt")
+        self.assertEqual(catalog["tools"]["dotnet-sdk-10.0"]["provider"], "apt")
+        self.assertIn("tasks/godot.yml", playbook)
+        self.assertIn("blender", task)
+        self.assertIn("dotnet-sdk-10.0", task)
+        self.assertIn("godotengine/godot-builds", installer)
+        self.assertIn("mono_linux_${godot_arch}.zip", installer)
+        self.assertIn("mono_export_templates.tpz", installer)
+        self.assertIn("sha256sum --check --status", installer)
+        self.assertIn('cp -a "$editor_home"/. "$new_release/"', installer)
+        self.assertIn('-d "$release_dir/GodotSharp/Api/Debug"', installer)
+        self.assertIn('ln -sfn "$release_dir/godot" "$bin_home/godot"', installer)
+        self.assertIn('ln -sfn "$release_dir/godot" "$bin_home/godot4"', installer)
+
     def test_kubuntu_retires_anydesk_in_favor_of_ssh_and_nomachine(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         playbook = (ROOT / "ansible/local.yml").read_text()

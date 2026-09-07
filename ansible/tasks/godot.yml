@@ -1,0 +1,30 @@
+---
+- name: Validate Godot operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.os_family == "Debian"
+    fail_msg: Godot is supported here only for native Debian-family Linux profiles.
+
+- name: Install Godot runtime and asset-pipeline dependencies
+  become: true
+  ansible.builtin.apt:
+    name:
+      - blender
+      - ca-certificates
+      - curl
+      - dotnet-sdk-10.0
+      - jq
+      - unzip
+    state: latest  # noqa package-latest
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install or upgrade official Godot 4 .NET and export templates
+  ansible.builtin.command:
+    argv:
+      - "{{ dot_repo }}/scripts/install-godot"
+      - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+  register: dot_godot_install
+  changed_when: "' installed from ' in dot_godot_install.stdout"
+  check_mode: false

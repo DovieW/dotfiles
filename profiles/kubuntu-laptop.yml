@@ -6,6 +6,7 @@
   "features": {
     "anydesk": false,
     "chatgpt_desktop": true,
+    "godot_engine": true,
     "google_chrome": true,
     "codex_remote_control": true,
     "codex_remote_control_mode": "desktop",
@@ -39,8 +40,10 @@
     "apt": [
       "acl",
       "adb",
+      "blender",
       "calibre",
       "code",
+      "dotnet-sdk-10.0",
       "flameshot",
       "fonts-cascadia-code",
       "freerdp-sdl",

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --ensure | --check) ;;
+  *)
+    echo "Usage: install-godot [--ensure|--check]" >&2
+    exit 2
+    ;;
+esac
+
+for required in curl jq sha256sum unzip; do
+  command -v "$required" >/dev/null 2>&1 || {
+    echo "$required is required to install Godot." >&2
+    exit 1
+  }
+done
+
+case "$(uname -m)" in
+  x86_64) godot_arch="x86_64" ;;
+  aarch64 | arm64) godot_arch="arm64" ;;
+  *)
+    echo "Godot managed installation does not support architecture $(uname -m)." >&2
+    exit 1
+    ;;
+esac
+
+repo="godotengine/godot-builds"
+releases_url="https://api.github.com/repos/$repo/releases?per_page=30"
+release_json="$({
+  curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --retry 3 \
+    --connect-timeout 15 \
+    --silent \
+    --show-error \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'User-Agent: DovieW-dotfiles' \
+    "$releases_url"
+})"
+
+release="$(
+  jq -cer '
+    [
+      .[]
+      | select((.draft | not) and (.prerelease | not))
+      | select(.tag_name | test("^4\\.[0-9]+(\\.[0-9]+)?-stable$"))
+    ][0] // error("no stable Godot 4 release found")
+  ' <<<"$release_json"
+)"
+tag="$(jq -r '.tag_name' <<<"$release")"
+version="${tag%-stable}.stable"
+editor_name="Godot_v${tag}_mono_linux_${godot_arch}.zip"
+templates_name="Godot_v${tag}_mono_export_templates.tpz"
+
+asset_field() {
+  local asset_name="$1"
+  local field="$2"
+  jq -er --arg name "$asset_name" --arg field "$field" \
+    '.assets[] | select(.name == $name) | .[$field]' <<<"$release"
+}
+
+editor_url="$(asset_field "$editor_name" browser_download_url)"
+editor_digest="$(asset_field "$editor_name" digest)"
+templates_url="$(asset_field "$templates_name" browser_download_url)"
+templates_digest="$(asset_field "$templates_name" digest)"
+for digest in "$editor_digest" "$templates_digest"; do
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo "Godot release $tag does not publish a valid SHA-256 asset digest." >&2
+    exit 1
+  }
+done
+
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+install_root="$data_home/dotfiles/apps/godot"
+release_dir="$install_root/$tag"
+marker="$install_root/.release"
+templates_dir="$data_home/godot/export_templates/$version"
+desktop_file="$data_home/applications/org.godotengine.Godot.desktop"
+
+installed_release=""
+[[ -f "$marker" ]] && installed_release="$(<"$marker")"
+if [[ "$installed_release" == "$tag" && -x "$release_dir/godot" &&
+  -d "$release_dir/GodotSharp/Api/Debug" &&
+  -d "$templates_dir" && -L "$bin_home/godot" && -L "$bin_home/godot4" &&
+  -f "$desktop_file" ]]; then
+  echo "Godot ${tag%-stable} .NET and export templates are installed from the official stable channel."
+  exit 0
+fi
+
+if [[ "$mode" == --check ]]; then
+  echo "Godot requires update: ${installed_release:-missing} -> $tag" >&2
+  exit 1
+fi
+
+temporary_root="${TMPDIR:-/tmp}"
+work_dir="$(mktemp -d "$temporary_root/dotfiles-godot.XXXXXX")"
+cleanup() {
+  case "$work_dir" in
+    "$temporary_root"/dotfiles-godot.*) rm -rf -- "$work_dir" ;;
+  esac
+}
+trap cleanup EXIT INT TERM
+
+download_verified() {
+  local url="$1"
+  local digest="$2"
+  local target="$3"
+  curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --retry 3 \
+    --connect-timeout 15 \
+    --silent \
+    --show-error \
+    --output "$target" \
+    "$url"
+  printf '%s  %s\n' "${digest#sha256:}" "$target" |
+    sha256sum --check --status
+}
+
+editor_archive="$work_dir/$editor_name"
+templates_archive="$work_dir/$templates_name"
+download_verified "$editor_url" "$editor_digest" "$editor_archive"
+download_verified "$templates_url" "$templates_digest" "$templates_archive"
+
+editor_unpack="$work_dir/editor"
+templates_unpack="$work_dir/templates"
+mkdir -p "$editor_unpack" "$templates_unpack"
+unzip -q "$editor_archive" -d "$editor_unpack"
+unzip -q "$templates_archive" -d "$templates_unpack"
+editor_binary="$(find "$editor_unpack" -maxdepth 2 -type f -name 'Godot_*' -perm -u+x | head -n 1)"
+[[ -n "$editor_binary" ]] || {
+  echo "Godot editor archive did not contain the expected executable." >&2
+  exit 1
+}
+[[ -d "$templates_unpack/templates" ]] || {
+  echo "Godot export-template archive did not contain a templates directory." >&2
+  exit 1
+}
+
+new_release="$work_dir/release"
+mkdir -p "$new_release"
+editor_home="$(dirname -- "$editor_binary")"
+editor_basename="$(basename -- "$editor_binary")"
+cp -a "$editor_home"/. "$new_release/"
+mv -- "$new_release/$editor_basename" "$new_release/godot"
+chmod 0755 "$new_release/godot"
+
+mkdir -p "$install_root" "$bin_home" "$(dirname -- "$desktop_file")" \
+  "$(dirname -- "$templates_dir")"
+rm -rf -- "$release_dir" "$templates_dir"
+mv -- "$new_release" "$release_dir"
+mv -- "$templates_unpack/templates" "$templates_dir"
+ln -sfn "$release_dir/godot" "$bin_home/godot"
+ln -sfn "$release_dir/godot" "$bin_home/godot4"
+
+cat >"$desktop_file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Godot Engine
+Comment=Create 2D and 3D games
+Exec=$bin_home/godot --editor %f
+Icon=applications-development
+Terminal=false
+Categories=Development;IDE;
+MimeType=application/x-godot-project;
+StartupNotify=true
+EOF
+
+command -v update-desktop-database >/dev/null 2>&1 &&
+  update-desktop-database "$(dirname -- "$desktop_file")" >/dev/null 2>&1 || true
+
+"$release_dir/godot" --version >/dev/null
+printf '%s\n' "$tag" >"$marker"
+echo "Godot ${tag%-stable} .NET and export templates installed from the official stable channel."

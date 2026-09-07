@@ -133,6 +133,14 @@
       when: dot_profile_data.features.vscode | default(false)
       tags: [packages, vscode, app-updates]
 
+    - name: Configure Godot Engine for agent-driven game development
+      ansible.builtin.include_tasks:
+        file: tasks/godot.yml
+        apply:
+          tags: [packages, godot, game-development, app-updates]
+      when: dot_profile_data.features.godot_engine | default(false)
+      tags: [packages, godot, game-development, app-updates]
+
     - name: Configure ChatGPT desktop with Codex
       ansible.builtin.include_tasks:
         file: tasks/chatgpt.yml

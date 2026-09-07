@@ -207,6 +207,26 @@ published SHA-256 manifest. Apply Ghostty, the font, and its configuration with:
 dot apply --profile kubuntu-laptop --tags packages
 ```
 
+## Agent-driven game development
+
+The Kubuntu workstation profiles install Blender from Ubuntu and the latest
+stable official Godot 4 .NET build. The .NET editor supports both C# and
+GDScript; matching export templates are installed so terminal agents can run
+headless validation and scripted exports without opening the editor. Stable
+`godot`, `godot4`, and `blender` commands are available on `PATH`.
+
+Apply or update only this toolchain with:
+
+```bash
+dot apply --profile kubuntu-laptop --tags game-development
+godot --version
+blender --version
+```
+
+Projects should keep scenes, resources, gameplay configuration, Blender Python
+scripts, and tests in source control. Give each game repository a single
+validation command that imports the project and runs its tests headlessly.
+
 ## Customize touchpad gestures
 
 The portable gesture map is
