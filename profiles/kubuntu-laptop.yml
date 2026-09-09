@@ -58,6 +58,7 @@
       "konsole",
       "libglib2.0-bin",
       "libnotify-bin",
+      "libsecret-1-dev",
       "mpv",
       "openssh-server",
       "plasma-workspace",
@@ -76,6 +77,7 @@
       "ydotool"
     ],
     "brew": ["bun", "freerdp", "lazydocker", "lazygit"],
+    "bun": ["@stephendolan/ynab-cli"],
     "deb": ["bitwarden", "obsidian", "teams-for-linux"],
     "snap": []
   }

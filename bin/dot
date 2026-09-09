@@ -4906,7 +4906,7 @@ def cmd_package_add(args: argparse.Namespace) -> None:
             raise DotError("Windows packages are inventory-only; specify --provider winget, scoop, or psgallery.")
         else:
             provider = "brew"
-    allowed = {"apt", "brew", "npm", "snap", "pkg", "winget", "scoop", "psgallery"}
+    allowed = {"apt", "brew", "bun", "npm", "snap", "pkg", "winget", "scoop", "psgallery"}
     if provider not in allowed:
         raise DotError(f"Unsupported provider {provider}; choose one of {', '.join(sorted(allowed))}")
     packages = profile.setdefault("packages", {}).setdefault(provider, [])
@@ -8523,6 +8523,7 @@ def palette_repositories_menu(profile: str) -> None:
                     ("auto", "Automatic provider", "Use the canonical package catalog"),
                     ("apt", "APT", "System library, desktop, driver, or integration"),
                     ("brew", "Homebrew", "Modern shared Linux command-line tool"),
+                    ("bun", "Bun", "Bun-distributed command-line tool"),
                     ("snap", "Snap", "Curated desktop exception"),
                     ("pkg", "Termux pkg", "Android Termux package"),
                     ("winget", "Winget inventory", "Record a Windows package ID"),
@@ -9149,6 +9150,20 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "all present"
                 if not missing_npm
                 else f"missing {', '.join(missing_npm)}",
+            )
+    bun_packages = packages.get("bun", [])
+    if bun_packages:
+        if not command_exists("bun"):
+            failures += not doctor_check("Bun CLI packages", False, "bun is not installed")
+        else:
+            proc = run(["bun", "pm", "ls", "--global"], check=False, capture=True)
+            missing_bun = [package for package in bun_packages if package not in proc.stdout]
+            failures += not doctor_check(
+                "Bun CLI packages",
+                proc.returncode == 0 and not missing_bun,
+                "all present"
+                if proc.returncode == 0 and not missing_bun
+                else f"missing {', '.join(missing_bun)}",
             )
     pkg_packages = packages.get("pkg", [])
     if pkg_packages and command_exists("pkg"):

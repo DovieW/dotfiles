@@ -14,6 +14,7 @@
     "bats-core": {"provider": "brew"},
     "blender": {"provider": "apt"},
     "bun": {"provider": "brew"},
+    "@stephendolan/ynab-cli": {"provider": "bun"},
     "cf": {"provider": "npm"},
     "chatgpt": {"provider": "apt"},
     "code": {"provider": "apt"},

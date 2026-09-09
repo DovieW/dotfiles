@@ -3825,6 +3825,24 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("bun", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
 
+    def test_kubuntu_manages_ynab_cli_with_bun(self):
+        laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        desktop = runpy.run_path(str(DOT))["load_profile"]("kubuntu-desktop")
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+        playbook = (ROOT / "ansible/local.yml").read_text()
+        cli = DOT.read_text()
+
+        self.assertIn("@stephendolan/ynab-cli", laptop["packages"]["bun"])
+        self.assertIn("@stephendolan/ynab-cli", desktop["packages"]["bun"])
+        self.assertIn("libsecret-1-dev", laptop["packages"]["apt"])
+        self.assertEqual(
+            catalog["tools"]["@stephendolan/ynab-cli"]["provider"], "bun"
+        )
+        self.assertIn("Install or upgrade managed Bun CLI packages", playbook)
+        self.assertIn("argv: [bun, install, --global", playbook)
+        self.assertIn('packages.get("bun", [])', cli)
+        self.assertIn('["bun", "pm", "ls", "--global"]', cli)
+
     def test_linux_workstations_manage_cloudflare_cli_with_npm(self):
         profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
