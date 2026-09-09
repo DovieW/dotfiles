@@ -1638,12 +1638,12 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(manifest["installer_url"], "https://vite.plus")
         self.assertEqual(
-            manifest["package_manager_modes"], {"bun": "system_first"}
+            manifest["package_manager_modes"], {"bun": "managed"}
         )
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
         installer = (ROOT / "scripts/install-vite-plus").read_text()
-        self.assertIn('"$vp_path" env off bun', installer)
+        self.assertIn('"$vp_path" env on bun', installer)
         self.assertIn('config.get("packageManagerShimModes", {}).get("bun")', installer)
 
     def test_kubuntu_manages_chatgpt_desktop_from_openai_repository(self):
@@ -3825,11 +3825,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("Make the IdeaPad screenshot key emit Print", playbook)
         self.assertIn("--sysname-match=VPC2004:00", playbook)
 
-    def test_kubuntu_manages_bun_with_homebrew(self):
+    def test_kubuntu_manages_bun_with_vite_plus(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
-        self.assertIn("bun", profile["packages"]["brew"])
-        self.assertEqual(catalog["tools"]["bun"]["provider"], "brew")
+        manifest = json.loads((ROOT / "packages/vite-plus.yml").read_text())
+        self.assertNotIn("bun", profile["packages"]["brew"])
+        self.assertNotIn("bun", catalog["tools"])
+        self.assertEqual(manifest["package_manager_modes"]["bun"], "managed")
 
     def test_kubuntu_manages_ynab_cli_with_bun(self):
         laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

@@ -13,7 +13,6 @@
     "bat": {"provider": "brew"},
     "bats-core": {"provider": "brew"},
     "blender": {"provider": "apt"},
-    "bun": {"provider": "brew"},
     "@stephendolan/ynab-cli": {"provider": "bun", "command": "ynab"},
     "cf": {"provider": "npm"},
     "chatgpt": {"provider": "apt"},

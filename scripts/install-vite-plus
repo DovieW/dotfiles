@@ -35,10 +35,10 @@ if data.get("channel") != "stable":
 url = data.get("installer_url", "")
 if url != "https://vite.plus":
     raise SystemExit(f"{path}: installer_url must use the official HTTPS endpoint")
-if data.get("package_manager_modes") != {"bun": "system_first"}:
-    raise SystemExit(f"{path}: Bun must use the system-first Vite+ shim policy")
+if data.get("package_manager_modes") != {"bun": "managed"}:
+    raise SystemExit(f"{path}: Bun must use the managed Vite+ shim policy")
 print(url)
-print("system_first")
+print("managed")
 PY
 )
 installer_url="${manifest_values[0]}"
@@ -62,8 +62,8 @@ PY
 
 ensure_bun_policy() {
   if ! bun_policy_matches; then
-    "$vp_path" env off bun
-    echo "Vite+ Bun policy set to system-first."
+    "$vp_path" env on bun
+    echo "Vite+ Bun policy set to managed."
   fi
 }
 
@@ -93,7 +93,7 @@ if [[ "$mode" == "--check" ]]; then
     exit 1
   fi
   if ! bun_policy_matches; then
-    echo "Vite+ Bun policy is not system-first." >&2
+    echo "Vite+ Bun policy is not managed." >&2
     exit 1
   fi
   echo "Vite+ $installed_version is installed from the managed stable channel."

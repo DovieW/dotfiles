@@ -330,7 +330,7 @@
   ln -s "$fake_home/.vite-plus/$release" "$fake_home/.vite-plus/current"
   ln -s "$fake_release/vp" "$fake_home/.vite-plus/bin/vp"
   printf '#!/bin/sh\n' >"$fake_home/.vite-plus/env"
-  printf '{"packageManagerShimModes":{"bun":"system_first"}}\n' \
+  printf '{"packageManagerShimModes":{"bun":"managed"}}\n' \
     >"$fake_home/.vite-plus/config.json"
 
   run env HOME="$fake_home" VP_HOME="$fake_home/.vite-plus" \
