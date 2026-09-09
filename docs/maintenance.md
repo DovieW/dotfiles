@@ -484,3 +484,6 @@ dot vite-plus update
 managed. The installer runs with `VP_NODE_MANAGER=no`; dotfiles owns shell
 startup. `vp env setup --env-only` generates the machine-local wrapper and
 completion integration without rewriting `.bashrc` or `.zshrc`.
+Vite+'s Bun shim is kept in system-first mode because Homebrew owns Bun in the
+Kubuntu profile. This avoids an interactive package-manager selection while
+still allowing Vite+ to honor explicit project-level package-manager pins.

@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
   "channel": "stable",
-  "installer_url": "https://vite.plus"
+  "installer_url": "https://vite.plus",
+  "package_manager_modes": {
+    "bun": "system_first"
+  }
 }

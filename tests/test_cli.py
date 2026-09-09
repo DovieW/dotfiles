@@ -1637,8 +1637,14 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(manifest["installer_url"], "https://vite.plus")
+        self.assertEqual(
+            manifest["package_manager_modes"], {"bun": "system_first"}
+        )
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
+        installer = (ROOT / "scripts/install-vite-plus").read_text()
+        self.assertIn('"$vp_path" env off bun', installer)
+        self.assertIn('config.get("packageManagerShimModes", {}).get("bun")', installer)
 
     def test_kubuntu_manages_chatgpt_desktop_from_openai_repository(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
