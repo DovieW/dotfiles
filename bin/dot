@@ -2824,18 +2824,27 @@ def apply_direct(
                 or "Factory display policy failed."
             )
         changes += display.stdout.count("CHANGED ")
-    if features.get("factory_display_profile") and selected(
+    if features.get("google_chrome") and selected(
         "display", "kde", "vscode", "config"
     ):
+        chrome_launcher = (
+            ROOT / "config/chromium/google-chrome-stable"
+            if features.get("factory_display_profile")
+            else ROOT / "config/chromium/google-chrome-stable-default"
+        )
         chromium_mappings = {
-            ROOT / "config/chromium/google-chrome-stable": Path.home()
-            / ".local/bin/google-chrome-stable",
-            ROOT / "config/chromium/code": Path.home() / ".local/bin/code",
+            chrome_launcher: Path.home() / ".local/bin/google-chrome-stable",
             ROOT / "config/chromium/google-chrome.desktop": Path.home()
             / ".local/share/applications/google-chrome.desktop",
-            ROOT / "config/chromium/code.desktop": Path.home()
-            / ".local/share/applications/code.desktop",
         }
+        if features.get("factory_display_profile"):
+            chromium_mappings.update(
+                {
+                    ROOT / "config/chromium/code": Path.home() / ".local/bin/code",
+                    ROOT / "config/chromium/code.desktop": Path.home()
+                    / ".local/share/applications/code.desktop",
+                }
+            )
         for source, destination in chromium_mappings.items():
             changes += int(link_file(source, destination))
         if command_exists("update-desktop-database"):
@@ -3020,33 +3029,30 @@ def apply_direct(
                         changes += 1
 
         unit_name = "codex-remote-control.service"
-        source = ROOT / "config/systemd/user" / unit_name
         destination = systemd_user / unit_name
-        if remote_mode == "headless":
-            changes += int(link_file(source, destination))
-        elif destination.is_symlink():
+        # The headless daemon is now a system unit so its cgroup remains
+        # root-owned and systemd-oomd honors its swap-kill avoidance hint.
+        if destination.is_symlink():
             destination.unlink()
             changes += 1
         managed_codex = (
             Path.home() / ".codex/packages/standalone/current/codex"
         )
         if command_exists("systemctl") and managed_codex.exists():
-            run(["systemctl", "--user", "daemon-reload"])
+            run(["systemctl", "--user", "daemon-reload"], check=False)
             enabled = run(
-                ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+                ["systemctl", "is-enabled", "--quiet", unit_name],
                 check=False,
             ).returncode == 0
             active = run(
-                ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                ["systemctl", "is-active", "--quiet", unit_name],
                 check=False,
             ).returncode == 0
             if remote_mode == "desktop":
-                if enabled or active:
-                    run(
-                        ["systemctl", "--user", "disable", "--now", unit_name],
-                        check=False,
-                    )
-                    changes += 1
+                # The privileged Ansible phase removes a stale system unit.
+                # Direct applies deliberately do not attempt privilege changes.
+                enabled = False
+                active = False
             desktop_running = remote_mode == "headless" and run(
                 ["pgrep", "-u", str(os.getuid()), "-x", "ChatGPT"],
                 check=False,
@@ -3071,9 +3077,6 @@ def apply_direct(
                     )
                 except json.JSONDecodeError:
                     pass
-            if remote_mode == "headless" and not enabled:
-                run(["systemctl", "--user", "enable", unit_name])
-                changes += 1
             if remote_mode == "headless":
                 changes += int(
                     refresh_codex_remote_control_daemon(
@@ -3081,7 +3084,7 @@ def apply_direct(
                     )
                 )
                 active = run(
-                    ["systemctl", "--user", "is-active", "--quiet", unit_name],
+                    ["systemctl", "is-active", "--quiet", unit_name],
                     check=False,
                 ).returncode == 0
                 daemon_running = (
@@ -3092,8 +3095,10 @@ def apply_direct(
                 or not daemon_running
                 or not daemon_settings.is_file()
             ):
-                run(["systemctl", "--user", "restart", unit_name])
-                changes += 1
+                raise DotError(
+                    "Protected Codex Remote Control system service is not ready; "
+                    "rerun through the privileged Ansible apply path."
+                )
             if remote_mode == "headless" and command_exists("loginctl"):
                 linger = run(
                     ["loginctl", "show-user", getpass.getuser(), "--property=Linger", "--value"],
@@ -5263,15 +5268,15 @@ def refresh_codex_remote_control_daemon(
     unit_name = "codex-remote-control.service"
     if command_exists("systemctl"):
         enabled = run(
-            ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+            ["systemctl", "is-enabled", "--quiet", unit_name],
             check=False,
         ).returncode == 0
         active = run(
-            ["systemctl", "--user", "is-active", "--quiet", unit_name],
+            ["systemctl", "is-active", "--quiet", unit_name],
             check=False,
         ).returncode == 0
         if enabled and not active:
-            run(["systemctl", "--user", "start", unit_name])
+            run(["systemctl", "start", unit_name])
             changed = True
     return changed
 
@@ -5288,6 +5293,11 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
         profile.get("features", {}).get("codex_remote_control")
         and profile.get("features", {}).get("codex_remote_control_mode") == "headless"
     ):
+        if not command_exists("ansible-playbook"):
+            raise DotError(
+                "Updating headless Codex Remote Control requires ansible-playbook."
+            )
+        palette_apply(profile_name, "codex")
         refresh_codex_remote_control_daemon()
     if profile.get("features", {}).get("chatgpt_desktop"):
         refresh_chatgpt_desktop_codex_server()
@@ -9982,6 +9992,32 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             kde_session,
             session or ("plasma-plasmashell.service active" if plasma_session_active else "unknown"),
         )
+        if profile.get("features", {}).get("google_chrome"):
+            chrome_launcher_source = (
+                ROOT / "config/chromium/google-chrome-stable"
+                if profile.get("features", {}).get("factory_display_profile")
+                else ROOT / "config/chromium/google-chrome-stable-default"
+            )
+            chrome_launcher = Path.home() / ".local/bin/google-chrome-stable"
+            chrome_desktop = (
+                Path.home() / ".local/share/applications/google-chrome.desktop"
+            )
+            chrome_desktop_source = ROOT / "config/chromium/google-chrome.desktop"
+            chrome_priority_ok = (
+                chrome_launcher.is_symlink()
+                and chrome_launcher.resolve() == chrome_launcher_source.resolve()
+                and "/proc/self/oom_score_adj"
+                in chrome_launcher_source.read_text(encoding="utf-8")
+                and chrome_desktop.is_symlink()
+                and chrome_desktop.resolve() == chrome_desktop_source.resolve()
+            )
+            failures += not doctor_check(
+                "Chrome OOM priority",
+                chrome_priority_ok,
+                "new Chrome processes are preferred for emergency recovery"
+                if chrome_priority_ok
+                else f"run dot apply --profile {profile['name']} --tags display",
+            )
         if profile.get("features", {}).get("factory_display_profile"):
             display_policy = run(
                 [str(ROOT / "scripts/configure-display"), "--check"],
@@ -11274,11 +11310,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         )
         unit_name = "codex-remote-control.service"
         enabled = run(
-            ["systemctl", "--user", "is-enabled", "--quiet", unit_name],
+            ["systemctl", "is-enabled", "--quiet", unit_name],
             check=False,
         ).returncode == 0
         active = run(
-            ["systemctl", "--user", "is-active", "--quiet", unit_name],
+            ["systemctl", "is-active", "--quiet", unit_name],
             check=False,
         ).returncode == 0
         service_ok = (

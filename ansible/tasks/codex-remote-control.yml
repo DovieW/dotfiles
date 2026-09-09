@@ -1,0 +1,78 @@
+---
+- name: Read the Codex Remote Control ownership mode
+  ansible.builtin.set_fact:
+    dot_codex_remote_control_headless: >-
+      {{ (dot_profile_data.features.codex_remote_control_mode | default('headless')) == 'headless' }}
+
+- name: Inspect the managed system service
+  ansible.builtin.stat:
+    path: /etc/systemd/system/codex-remote-control.service
+  register: dot_codex_remote_system_unit
+
+- name: Install the protected headless Codex Remote Control service
+  become: true
+  ansible.builtin.template:
+    src: "{{ dot_repo }}/config/systemd/system/codex-remote-control.service.j2"
+    dest: /etc/systemd/system/codex-remote-control.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: dot_codex_remote_system_unit_install
+  when: dot_codex_remote_control_headless
+
+- name: Disable the legacy user-owned Codex Remote Control service
+  ansible.builtin.command:
+    argv: [systemctl, --user, disable, --now, codex-remote-control.service]
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+  register: dot_codex_remote_legacy_disable
+  changed_when: dot_codex_remote_legacy_disable.rc == 0
+  failed_when: false
+  when:
+    - dot_codex_remote_control_headless
+    - not ansible_check_mode
+
+- name: Reload systemd after installing Codex Remote Control protection
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - dot_codex_remote_control_headless
+    - not ansible_check_mode
+
+- name: Enable and start the protected Codex Remote Control service
+  become: true
+  ansible.builtin.systemd_service:
+    name: codex-remote-control.service
+    enabled: true
+    state: "{{ 'restarted' if dot_codex_remote_system_unit_install.changed else 'started' }}"
+  when:
+    - dot_codex_remote_control_headless
+    - not ansible_check_mode
+
+- name: Stop a system-owned Remote Control service on desktop-owned profiles
+  become: true
+  ansible.builtin.systemd_service:
+    name: codex-remote-control.service
+    enabled: false
+    state: stopped
+  when:
+    - not dot_codex_remote_control_headless
+    - dot_codex_remote_system_unit.stat.exists
+    - not ansible_check_mode
+
+- name: Remove the system-owned service from desktop-owned profiles
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/system/codex-remote-control.service
+    state: absent
+  register: dot_codex_remote_system_unit_remove
+  when: not dot_codex_remote_control_headless
+
+- name: Reload systemd after removing a stale Codex service
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - dot_codex_remote_system_unit_remove.changed | default(false)
+    - not ansible_check_mode

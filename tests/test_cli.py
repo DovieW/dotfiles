@@ -122,6 +122,7 @@ class DotCliTests(unittest.TestCase):
                 "update_profile": mock.Mock(return_value="selected"),
                 "load_profile": mock.Mock(
                     return_value={
+                        "name": "selected",
                         "features": {
                             "chatgpt_desktop": False,
                             "codex_remote_control": True,
@@ -130,6 +131,8 @@ class DotCliTests(unittest.TestCase):
                     }
                 ),
                 "run": calls.run,
+                "command_exists": mock.Mock(return_value=True),
+                "palette_apply": calls.apply,
                 "refresh_codex_remote_control_daemon": calls.refresh,
             },
         ), contextlib.redirect_stdout(io.StringIO()):
@@ -140,6 +143,7 @@ class DotCliTests(unittest.TestCase):
                 mock.call.run(
                     [str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT
                 ),
+                mock.call.apply("selected", "codex"),
                 mock.call.refresh(),
             ],
         )
@@ -953,9 +957,9 @@ class DotCliTests(unittest.TestCase):
 
     def test_codex_remote_control_uses_native_daemon_lifecycle(self):
         service = (
-            ROOT / "config/systemd/user/codex-remote-control.service"
+            ROOT / "config/systemd/system/codex-remote-control.service.j2"
         ).read_text()
-        managed = "%h/.codex/packages/standalone/current/codex"
+        managed = "{{ ansible_facts.user_dir }}/.codex/packages/standalone/current/codex"
 
         self.assertIn(f"ConditionFileIsExecutable={managed}", service)
         self.assertIn(
@@ -965,7 +969,15 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(f"ExecStop={managed} app-server daemon stop", service)
         self.assertIn("Type=oneshot", service)
         self.assertIn("RemainAfterExit=yes", service)
-        self.assertIn("ExecStartPre=-/usr/bin/pkill -TERM -u %U", service)
+        self.assertIn(
+            "ExecStartPre=-/usr/bin/pkill -TERM -u {{ ansible_facts.user_uid }}",
+            service,
+        )
+        self.assertIn("ManagedOOMPreference=avoid", service)
+        self.assertIn("OOMScoreAdjust=-500", service)
+        self.assertIn("MemoryHigh=70%", service)
+        self.assertIn("CPUWeight=200", service)
+        self.assertIn("IOWeight=200", service)
         self.assertIn("Restart=on-failure", service)
         self.assertIn("RestartSec=1s", service)
         self.assertIn("StartLimitIntervalSec=5min", service)
@@ -994,6 +1006,14 @@ class DotCliTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "config/systemd/user/codex-remote-control-refresh.service").exists()
         )
+        self.assertFalse(
+            (ROOT / "config/systemd/user/codex-remote-control.service").exists()
+        )
+
+        role = (ROOT / "ansible/tasks/codex-remote-control.yml").read_text()
+        self.assertIn("/etc/systemd/system/codex-remote-control.service", role)
+        self.assertIn("disable, --now, codex-remote-control.service", role)
+        self.assertIn("dot_codex_remote_system_unit_install.changed", role)
 
         cli = DOT.read_text()
         self.assertIn('"app-server", "daemon", "version"', cli)
@@ -3269,6 +3289,9 @@ class DotCliTests(unittest.TestCase):
             self.assertIn(f"- {tag}", portable_apply)
 
         chrome_wrapper = (ROOT / "config/chromium/google-chrome-stable").read_text()
+        default_chrome_wrapper = (
+            ROOT / "config/chromium/google-chrome-stable-default"
+        ).read_text()
         code_wrapper = (ROOT / "config/chromium/code").read_text()
         obsidian_wrapper = (ROOT / "config/obsidian/obsidian").read_text()
         chrome_desktop = (ROOT / "config/chromium/google-chrome.desktop").read_text()
@@ -3289,6 +3312,11 @@ class DotCliTests(unittest.TestCase):
         self.assertIn(".local/bin/google-chrome-stable", cli)
         self.assertIn("scripts/configure-native-frames", chrome_wrapper)
         self.assertIn('"$frame_tool" --ensure', chrome_wrapper)
+        self.assertIn("/proc/self/oom_score_adj", chrome_wrapper)
+        self.assertIn("printf '500\\n'", chrome_wrapper)
+        self.assertIn("/proc/self/oom_score_adj", default_chrome_wrapper)
+        self.assertIn("printf '500\\n'", default_chrome_wrapper)
+        self.assertIn("google-chrome-stable-default", cli)
         self.assertIn(
             "Exec=/home/dovie/.local/bin/google-chrome-stable %U",
             chrome_desktop,

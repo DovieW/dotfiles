@@ -12,6 +12,13 @@ if [[ -x "$frame_tool" ]]; then
   # every known profile immediately before the next browser session starts.
   "$frame_tool" --ensure >/dev/null 2>&1 || true
 fi
+
+# Chrome is recoverable; long-running Codex work is not. Prefer Chrome when the
+# kernel must choose a process during an out-of-memory emergency. systemd-oomd
+# uses cgroup policy instead, so the headless Codex service is protected there.
+if [[ -w /proc/self/oom_score_adj ]]; then
+  printf '500\n' > /proc/self/oom_score_adj || true
+fi
 exec /usr/bin/google-chrome-stable \
   --disable-features=WaylandWpColorManagerV1 \
   "$@"

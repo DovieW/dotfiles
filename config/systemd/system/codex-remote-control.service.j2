@@ -1,0 +1,40 @@
+[Unit]
+Description=Codex app-server with Remote Control
+Documentation=https://github.com/openai/codex/blob/main/codex-rs/app-server-daemon/README.md
+Wants=network-online.target user-runtime-dir@{{ ansible_facts.user_uid }}.service
+After=network-online.target user-runtime-dir@{{ ansible_facts.user_uid }}.service
+ConditionFileIsExecutable={{ ansible_facts.user_dir }}/.codex/packages/standalone/current/codex
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User={{ ansible_facts.user_id }}
+Group={{ ansible_facts.user_gid }}
+WorkingDirectory={{ ansible_facts.user_dir }}
+Environment=HOME={{ ansible_facts.user_dir }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ ansible_facts.user_uid }}
+
+# Keep the daemon in a root-owned cgroup: systemd-oomd ignores avoidance hints
+# on user-owned candidates when it chooses a victim because swap is exhausted.
+ManagedOOMPreference=avoid
+OOMScoreAdjust=-500
+MemoryHigh=70%
+CPUWeight=200
+IOWeight=200
+
+# A connected Desktop SSH client can launch this fallback after an abrupt daemon
+# loss. The headless profile has one owner, so reclaim only that exact shape.
+ExecStartPre=-/usr/bin/pkill -TERM -u {{ ansible_facts.user_uid }} -f "^.*codex( .*)? app-server --listen unix://$"
+ExecStartPre=/usr/bin/sleep 1
+ExecStart={{ ansible_facts.user_dir }}/.codex/packages/standalone/current/codex app-server daemon bootstrap --remote-control
+ExecReload={{ ansible_facts.user_dir }}/.codex/packages/standalone/current/codex app-server daemon enable-remote-control
+ExecStop={{ ansible_facts.user_dir }}/.codex/packages/standalone/current/codex app-server daemon stop
+TimeoutStartSec=120s
+TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=1s
+
+[Install]
+WantedBy=multi-user.target

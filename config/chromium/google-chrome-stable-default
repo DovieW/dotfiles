@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Browser state is recoverable; long-running agent work is not. A process may
+# make itself easier (but not harder) for the kernel OOM killer to select.
+if [[ -w /proc/self/oom_score_adj ]]; then
+  printf '500\n' > /proc/self/oom_score_adj || true
+fi
+
+exec /usr/bin/google-chrome-stable "$@"

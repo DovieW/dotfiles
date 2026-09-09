@@ -44,6 +44,27 @@ not flushed to disk. The copied Sync files are an additional forensic fallback.
 A failed capture does not replace or prune older published generations.
 A failed scheduled capture also requests a desktop notification.
 
+## Memory-pressure priorities
+
+The headless Codex Remote Control daemon runs as the normal desktop user inside
+a root-owned system-service cgroup. That ownership boundary is intentional:
+systemd-oomd ignores `ManagedOOMPreference=avoid` for a user-owned candidate
+when swap exhaustion triggers victim selection. The service also uses a soft
+70% `MemoryHigh` throttle, elevated CPU and I/O weights, and a negative kernel
+OOM score. None of these settings makes Codex unkillable; they preserve an
+emergency path when it is the only viable process left.
+
+The managed Chrome launcher sets a positive kernel OOM score so a new Chrome
+process is preferred over Codex during a kernel OOM. Existing Chrome processes
+keep the score with which they started. systemd-oomd does not use that per-process
+score; its corresponding protection comes from the root-owned Codex cgroup.
+
+Desktop-owned Codex app servers remain in the graphical login session and are
+not moved into the headless system service. This avoids two app-server owners
+fighting over one control socket. On those profiles the policy still makes new
+Chrome launches easier for the kernel to reclaim, while the normal desktop app
+continues to own Remote Control.
+
 Exports require a new directory outside the live Chrome profile and backup store.
 They do not restore automatically. If recovery is needed, first preserve the
 failure state, choose a pre-failure generation, and test its session files in

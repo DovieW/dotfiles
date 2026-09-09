@@ -409,7 +409,15 @@
       changed_when: "'installed and verified' in dot_codex_install.stdout"
       check_mode: false
       when: dot_profile_data.features.codex_remote_control | default(false)
-      tags: [packages, config]
+      tags: [packages, config, codex]
+
+    - name: Configure Codex Remote Control process protection
+      ansible.builtin.include_tasks:
+        file: tasks/codex-remote-control.yml
+        apply:
+          tags: [config, codex]
+      when: dot_profile_data.features.codex_remote_control | default(false)
+      tags: [config, codex]
 
     - name: Ensure Vite+ CLI from stable channel
       ansible.builtin.command:
