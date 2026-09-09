@@ -55,6 +55,19 @@
   [ "$status" -eq 0 ]
 }
 
+@test "terminal aliases remain owned by tmux" {
+  run bash --noprofile --norc -c \
+    'source "$1"; alias t; alias tls; alias ta' bash \
+    "$BATS_TEST_DIRNAME/../config/shell/common.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"alias t='tmux'"* ]]
+  [[ "$output" == *"alias tls='tmux ls'"* ]]
+  [[ "$output" == *"alias ta='tmux attach'"* ]]
+
+  run grep -F "alias t='herdr'" "$BATS_TEST_DIRNAME/../config/shell/common.sh"
+  [ "$status" -eq 1 ]
+}
+
 @test "cat renders one Markdown file with Glow and preserves Bat otherwise" {
   fake_bin="$BATS_TEST_TMPDIR/cat-bin"
   call_log="$BATS_TEST_TMPDIR/cat-calls"
