@@ -3843,6 +3843,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('packages.get("bun", [])', cli)
         self.assertIn('["bun", "pm", "ls", "--global"]', cli)
 
+    def test_ansible_reports_task_timing_during_long_updates(self):
+        config = (ROOT / "ansible/ansible.cfg").read_text()
+
+        self.assertIn("callbacks_enabled = ansible.posix.profile_tasks", config)
+        self.assertIn("[callback_profile_tasks]", config)
+        self.assertIn("summary_only = False", config)
+
     def test_linux_workstations_manage_cloudflare_cli_with_npm(self):
         profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
         catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
