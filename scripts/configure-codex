@@ -15,6 +15,10 @@ SETTINGS = {
     "approval_policy": 'approval_policy = "never"',
 }
 
+FEATURE_SETTINGS = {
+    "default_mode_request_user_input": False,
+}
+
 
 def config_path() -> Path:
     explicit = os.environ.get("CODEX_CONFIG_FILE")
@@ -42,6 +46,44 @@ def managed_text(current: str) -> str:
                 del lines[index]
         else:
             lines.insert(0, setting)
+    features_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^\s*\[features\]\s*$", line)
+        ),
+        None,
+    )
+    if features_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append("[features]")
+        features_start = len(lines) - 1
+    features_end = next(
+        (
+            index
+            for index, line in enumerate(lines[features_start + 1 :], features_start + 1)
+            if re.match(r"^\s*\[", line)
+        ),
+        len(lines),
+    )
+    for key, enabled in FEATURE_SETTINGS.items():
+        setting = f"{key} = {'true' if enabled else 'false'}"
+        matches = [
+            index
+            for index, line in enumerate(
+                lines[features_start + 1 : features_end], features_start + 1
+            )
+            if re.match(rf"^\s*{re.escape(key)}\s*=", line)
+        ]
+        if matches:
+            lines[matches[0]] = setting
+            for index in reversed(matches[1:]):
+                del lines[index]
+                features_end -= 1
+        else:
+            lines.insert(features_end, setting)
+            features_end += 1
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -73,17 +115,17 @@ def main() -> int:
     if args.check:
         if current != expected:
             print(
-                "Codex defaults are not Full Access without approvals; "
+                "Codex managed settings differ; "
                 "run dot apply --profile kubuntu-laptop --tags codex."
             )
             return 1
-        print("Codex defaults: Full Access without approvals.")
+        print("Codex managed settings are configured.")
         return 0
     if current == expected:
-        print("Codex defaults already use Full Access without approvals.")
+        print("Codex managed settings are already configured.")
         return 0
     write_atomic(path, expected)
-    print("Configured Codex defaults: Full Access without approvals.")
+    print("Configured Codex managed settings.")
     return 0
 
 

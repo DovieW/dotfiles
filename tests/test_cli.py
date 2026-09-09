@@ -2392,10 +2392,34 @@ class DotCliTests(unittest.TestCase):
             self.assertIn('approval_policy = "never"', text)
             self.assertIn('model = "gpt-5.6-terra"', text)
             self.assertIn("[plugins]\nenabled = true", text)
+            self.assertIn(
+                "[features]\ndefault_mode_request_user_input = false", text
+            )
             checked = subprocess.run(
                 [str(script), "--check"], text=True, capture_output=True, env=environment
             )
             self.assertEqual(checked.returncode, 0, checked.stderr)
+
+    def test_codex_disables_unstable_request_user_input_feature(self):
+        script = ROOT / "scripts/configure-codex"
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                "[features]\n"
+                "hooks = true\n"
+                "default_mode_request_user_input = true\n"
+                "memories = true\n"
+            )
+            environment = os.environ.copy()
+            environment["CODEX_CONFIG_FILE"] = str(config)
+            applied = subprocess.run(
+                [str(script)], text=True, capture_output=True, env=environment
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            text = config.read_text()
+            self.assertIn("default_mode_request_user_input = false", text)
+            self.assertIn("hooks = true", text)
+            self.assertIn("memories = true", text)
 
     def test_update_metadata_preserves_installed_and_available_versions(self):
         module = runpy.run_path(str(DOT))
