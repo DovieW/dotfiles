@@ -35,35 +35,37 @@ if data.get("channel") != "stable":
 url = data.get("installer_url", "")
 if url != "https://vite.plus":
     raise SystemExit(f"{path}: installer_url must use the official HTTPS endpoint")
-if data.get("package_manager_modes") != {"bun": "managed"}:
-    raise SystemExit(f"{path}: Bun must use the managed Vite+ shim policy")
+modes = data.get("package_manager_modes")
+expected_modes = {name: "managed" for name in ("bun", "npm", "pnpm", "yarn")}
+if modes != expected_modes:
+    raise SystemExit(f"{path}: every Vite+ package-manager shim must be managed")
 print(url)
-print("managed")
+print(json.dumps(expected_modes, sort_keys=True))
 PY
 )
 installer_url="${manifest_values[0]}"
-bun_mode="${manifest_values[1]}"
+package_manager_modes="${manifest_values[1]}"
 
-bun_policy_matches() {
-  python3 - "$vp_home/config.json" "$bun_mode" <<'PY'
+package_manager_policy_matches() {
+  python3 - "$vp_home/config.json" "$package_manager_modes" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-expected = sys.argv[2]
+expected = json.loads(sys.argv[2])
 try:
     config = json.loads(path.read_text())
 except (OSError, json.JSONDecodeError):
     raise SystemExit(1)
-raise SystemExit(config.get("packageManagerShimModes", {}).get("bun") != expected)
+raise SystemExit(config.get("packageManagerShimModes") != expected)
 PY
 }
 
-ensure_bun_policy() {
-  if ! bun_policy_matches; then
-    "$vp_path" env on bun
-    echo "Vite+ Bun policy set to managed."
+ensure_package_manager_policy() {
+  if ! package_manager_policy_matches; then
+    "$vp_path" env on pm
+    echo "Vite+ package-manager policy set to managed."
   fi
 }
 
@@ -92,8 +94,8 @@ if [[ "$mode" == "--check" ]]; then
     echo "Vite+ shell integration is missing at $vp_home/env." >&2
     exit 1
   fi
-  if ! bun_policy_matches; then
-    echo "Vite+ Bun policy is not managed." >&2
+  if ! package_manager_policy_matches; then
+    echo "Vite+ package-manager policy is not fully managed." >&2
     exit 1
   fi
   echo "Vite+ $installed_version is installed from the managed stable channel."
@@ -101,7 +103,7 @@ if [[ "$mode" == "--check" ]]; then
 fi
 
 if [[ "$mode" == "--ensure" && "$is_managed" == true && -n "$installed_version" ]]; then
-  ensure_bun_policy
+  ensure_package_manager_policy
   if [[ ! -r "$vp_home/env" ]]; then
     "$vp_path" env setup --env-only
     echo "Vite+ $installed_version shell integration generated."
@@ -157,7 +159,7 @@ else
     bash "$installer"
 fi
 
-ensure_bun_policy
+ensure_package_manager_policy
 "$vp_path" env setup --env-only
 version_output="$("$vp_path" --version 2>/dev/null || true)"
 installed_version="$(sed -n '1s/^vp v//p' <<<"$version_output")"

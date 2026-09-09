@@ -484,6 +484,8 @@ dot vite-plus update
 managed. The installer runs with `VP_NODE_MANAGER=no`; dotfiles owns shell
 startup. `vp env setup --env-only` generates the machine-local wrapper and
 completion integration without rewriting `.bashrc` or `.zshrc`.
-Vite+ owns Bun in managed mode, choosing the configured global/default release
-outside projects and honoring explicit project-level Bun pins. Bun-distributed
-global CLIs retain `~/.bun` as their stable command location.
+Vite+ owns npm, pnpm, Yarn, and Bun in managed mode, choosing configured
+global/default releases outside projects and honoring explicit project-level
+package-manager pins. Bun-distributed global CLIs retain `~/.bun` as their
+stable command location. Deno is outside Vite+'s environment scope and remains
+an explicitly managed Homebrew runtime.

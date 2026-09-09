@@ -32,6 +32,7 @@
       "bat",
       "bats-core",
       "bitwarden-cli",
+      "deno",
       "eza",
       "fd",
       "fzf",

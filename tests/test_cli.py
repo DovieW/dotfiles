@@ -1638,13 +1638,19 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(manifest["installer_url"], "https://vite.plus")
         self.assertEqual(
-            manifest["package_manager_modes"], {"bun": "managed"}
+            manifest["package_manager_modes"],
+            {
+                "bun": "managed",
+                "npm": "managed",
+                "pnpm": "managed",
+                "yarn": "managed",
+            },
         )
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
         installer = (ROOT / "scripts/install-vite-plus").read_text()
-        self.assertIn('"$vp_path" env on bun', installer)
-        self.assertIn('config.get("packageManagerShimModes", {}).get("bun")', installer)
+        self.assertIn('"$vp_path" env on pm', installer)
+        self.assertIn('config.get("packageManagerShimModes")', installer)
 
     def test_kubuntu_manages_chatgpt_desktop_from_openai_repository(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
@@ -3832,6 +3838,13 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("bun", profile["packages"]["brew"])
         self.assertNotIn("bun", catalog["tools"])
         self.assertEqual(manifest["package_manager_modes"]["bun"], "managed")
+
+    def test_linux_workstations_explicitly_manage_deno_with_homebrew(self):
+        profile = json.loads((ROOT / "profiles/common-linux.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+
+        self.assertIn("deno", profile["packages"]["brew"])
+        self.assertEqual(catalog["tools"]["deno"]["provider"], "brew")
 
     def test_kubuntu_manages_ynab_cli_with_bun(self):
         laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

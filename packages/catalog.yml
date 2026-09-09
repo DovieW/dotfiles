@@ -18,6 +18,7 @@
     "chatgpt": {"provider": "apt"},
     "code": {"provider": "apt"},
     "curl": {"provider": "apt"},
+    "deno": {"provider": "brew"},
     "dotnet-sdk-10.0": {"provider": "apt"},
     "fd": {"provider": "brew"},
     "ffmpeg": {"provider": "apt"},

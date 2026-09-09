@@ -3,6 +3,9 @@
   "channel": "stable",
   "installer_url": "https://vite.plus",
   "package_manager_modes": {
-    "bun": "managed"
+    "bun": "managed",
+    "npm": "managed",
+    "pnpm": "managed",
+    "yarn": "managed"
   }
 }
