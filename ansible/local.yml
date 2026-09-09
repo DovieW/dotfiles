@@ -443,6 +443,8 @@
     - name: Install or upgrade managed Bun CLI packages
       ansible.builtin.command:
         argv: [bun, install, --global, "{{ item }}@latest"]
+      environment:
+        BUN_INSTALL: "{{ ansible_facts.env.HOME }}/.bun"
       changed_when: true
       loop: "{{ dot_profile_data.packages.bun | default([]) }}"
       when: (dot_profile_data.packages.bun | default([]) | length) > 0

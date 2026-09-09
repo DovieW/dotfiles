@@ -3838,10 +3838,15 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(
             catalog["tools"]["@stephendolan/ynab-cli"]["provider"], "bun"
         )
+        self.assertEqual(
+            catalog["tools"]["@stephendolan/ynab-cli"]["command"], "ynab"
+        )
         self.assertIn("Install or upgrade managed Bun CLI packages", playbook)
         self.assertIn("argv: [bun, install, --global", playbook)
+        self.assertIn('BUN_INSTALL: "{{ ansible_facts.env.HOME }}/.bun"', playbook)
         self.assertIn('packages.get("bun", [])', cli)
         self.assertIn('["bun", "pm", "ls", "--global"]', cli)
+        self.assertIn('bun_env["BUN_INSTALL"]', cli)
 
     def test_ansible_reports_task_timing_during_long_updates(self):
         config = (ROOT / "ansible/ansible.cfg").read_text()

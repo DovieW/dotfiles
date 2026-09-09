@@ -9156,8 +9156,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         if not command_exists("bun"):
             failures += not doctor_check("Bun CLI packages", False, "bun is not installed")
         else:
-            proc = run(["bun", "pm", "ls", "--global"], check=False, capture=True)
-            missing_bun = [package for package in bun_packages if package not in proc.stdout]
+            bun_env = os.environ.copy()
+            bun_env["BUN_INSTALL"] = str(Path.home() / ".bun")
+            proc = run(
+                ["bun", "pm", "ls", "--global"],
+                check=False,
+                capture=True,
+                env=bun_env,
+            )
+            catalog = load_json(ROOT / "packages/catalog.yml").get("tools", {})
+            missing_bun = [
+                package
+                for package in bun_packages
+                if package not in proc.stdout
+                or not command_exists(catalog.get(package, {}).get("command", package))
+            ]
             failures += not doctor_check(
                 "Bun CLI packages",
                 proc.returncode == 0 and not missing_bun,
