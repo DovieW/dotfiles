@@ -1604,6 +1604,30 @@ def sync_managed_kglobal_shortcuts() -> None:
         "KWin",
         "Open Dotfiles Emoji Picker",
     )
+    brightness_down = (
+        "kwin",
+        "dot-brightness-down",
+        "KWin",
+        "Decrease Screen Brightness by 10%",
+    )
+    brightness_up = (
+        "kwin",
+        "dot-brightness-up",
+        "KWin",
+        "Increase Screen Brightness by 10%",
+    )
+    stock_brightness_down = (
+        "org_kde_powerdevil",
+        "Decrease Screen Brightness",
+        "Power Management",
+        "Decrease Screen Brightness",
+    )
+    stock_brightness_up = (
+        "org_kde_powerdevil",
+        "Increase Screen Brightness",
+        "Power Management",
+        "Increase Screen Brightness",
+    )
     clipboard_history_meta = (
         "kwin",
         "dot-copyq-history-meta",
@@ -1669,6 +1693,12 @@ def sync_managed_kglobal_shortcuts() -> None:
         clipboard_history_meta: [268435542],
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
+        # PowerDevil uses a fixed 5% step. Managed KWin actions set relative
+        # 10-point jumps through PowerDevil's brightness interface instead.
+        stock_brightness_down: [0],
+        stock_brightness_up: [0],
+        brightness_down: [16777395],
+        brightness_up: [16777394],
         clipboard_probe: [0],
         # Qt::META | Qt::SHIFT | V and C.
         safe_keystroke_paste: [301989974],
@@ -2325,6 +2355,7 @@ def apply_direct(
         # update restarts plasmashell.
         changes += provision_lockscreen_assets()
         powerdevil_changed = False
+        audio_changed = False
         candidates = [
             (relative, kde_source(relative), Path.home() / relative)
             for relative in KDE_FILES
@@ -2387,6 +2418,8 @@ def apply_direct(
                 changes += int(file_changed)
                 if relative == ".config/powerdevilrc" and file_changed:
                     powerdevil_changed = True
+                if relative == ".config/plasmaparc" and file_changed:
+                    audio_changed = True
             if plasma_stopped:
                 started = run(
                     ["systemctl", "--user", "start", "plasma-plasmashell.service"],
@@ -2556,6 +2589,11 @@ def apply_direct(
                 ["systemctl", "--user", "restart", "plasma-powerdevil.service"],
                 check=False,
             )
+        if audio_changed and command_exists("systemctl"):
+            run(
+                ["systemctl", "--user", "restart", "plasma-kded6.service"],
+                check=False,
+            )
         changes += provision_lockscreen_assets()
         native_frames = run(
             [str(ROOT / "scripts/configure-native-frames"), "--ensure"],
@@ -2574,6 +2612,8 @@ def apply_direct(
             ROOT / "scripts/obsidian-launch": Path.home() / ".local/bin/dot-obsidian-launch",
             ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
             ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+            ROOT / "config/kwin/dot-hardware-keys/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-hardware-keys/metadata.json",
+            ROOT / "config/kwin/dot-hardware-keys/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-hardware-keys/contents/code/main.js",
             ROOT / "config/kwin/dot-obsidian/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-obsidian/metadata.json",
             ROOT / "config/kwin/dot-obsidian/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-obsidian/contents/code/main.js",
             ROOT / "config/kwin/dot-window-desktop/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-window-desktop/metadata.json",
@@ -2628,6 +2668,8 @@ def apply_direct(
             kwin_scripts = {
                 "dot-dolphin": Path.home()
                 / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
+                "dot-hardware-keys": Path.home()
+                / ".local/share/kwin/scripts/dot-hardware-keys/contents/code/main.js",
                 "dot-obsidian": Path.home()
                 / ".local/share/kwin/scripts/dot-obsidian/contents/code/main.js",
                 "dot-window-desktop": Path.home()
@@ -2635,6 +2677,10 @@ def apply_direct(
             }
             kwin_script_actions = {
                 "dot-dolphin": ("dot-dolphin",),
+                "dot-hardware-keys": (
+                    "dot-brightness-down",
+                    "dot-brightness-up",
+                ),
                 "dot-obsidian": (),
                 "dot-window-desktop": (
                     "dot-window-desktop-left",

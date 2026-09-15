@@ -49,6 +49,8 @@ dot-dolphin=Meta+E,none,Open or Focus Dolphin
 dot-copyq-history-ctrl=Ctrl+`,none,Open Clipboard History (Ctrl+Grave)
 dot-copyq-history-meta=Meta+V,none,Open Clipboard History (Meta+V)
 dot-emoji-picker=Meta+.,none,Open Dotfiles Emoji Picker
+dot-brightness-down=Monitor Brightness Down,none,Decrease Screen Brightness by 10%
+dot-brightness-up=Monitor Brightness Up,none,Increase Screen Brightness by 10%
 dot-safe-keystroke-paste=Meta+Shift+V,none,Open Safe Keystroke Paste
 dot-safe-keystroke-paste-cancel=Meta+Shift+C,none,Cancel Safe Keystroke Paste
 dot-active-window-clipboard=Alt+Print\tMeta+Print,none,Copy Active Window Screenshot
@@ -242,11 +244,11 @@ stopmedia=Media Stop,Media Stop,Stop media playback
 
 [org_kde_powerdevil]
 Decrease Keyboard Brightness=Keyboard Brightness Down,Keyboard Brightness Down,Decrease Keyboard Brightness
-Decrease Screen Brightness=Monitor Brightness Down,Monitor Brightness Down,Decrease Screen Brightness
+Decrease Screen Brightness=none,Monitor Brightness Down,Decrease Screen Brightness
 Decrease Screen Brightness Small=Shift+Monitor Brightness Down,Shift+Monitor Brightness Down,Decrease Screen Brightness by 1%
 Hibernate=Hibernate,Hibernate,Hibernate
 Increase Keyboard Brightness=Keyboard Brightness Up,Keyboard Brightness Up,Increase Keyboard Brightness
-Increase Screen Brightness=Monitor Brightness Up,Monitor Brightness Up,Increase Screen Brightness
+Increase Screen Brightness=none,Monitor Brightness Up,Increase Screen Brightness
 Increase Screen Brightness Small=Shift+Monitor Brightness Up,Shift+Monitor Brightness Up,Increase Screen Brightness by 1%
 PowerDown=Power Down,Power Down,Power Down
 PowerOff=Power Off,Power Off,Power Off

@@ -2827,7 +2827,27 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"plasma-apply-cursortheme"', cli)
         self.assertIn('"Breeze_Light"', cli)
         self.assertIn("AudioFeedback=false", plasma_pa)
+        self.assertIn("VolumeStep=10", plasma_pa)
+        self.assertIn(
+            "dot-brightness-up=Monitor Brightness Up,none,Increase Screen Brightness by 10%",
+            shortcuts,
+        )
+        self.assertIn(
+            "Increase Screen Brightness=none,Monitor Brightness Up,Increase Screen Brightness",
+            shortcuts,
+        )
+        hardware_keys = (
+            ROOT / "config/kwin/dot-hardware-keys/contents/code/main.js"
+        ).read_text()
+        self.assertIn('"brightnessMax"', hardware_keys)
+        self.assertIn("direction * maximum / 10", hardware_keys)
+        self.assertIn("dot-hardware-keysEnabled=true", kwin)
+        self.assertIn('"dot-hardware-keys": Path.home()', cli)
         self.assertIn('".config/plasmaparc"', cli)
+        self.assertIn(
+            '["systemctl", "--user", "restart", "plasma-kded6.service"]',
+            cli,
+        )
         self.assertIn('"Updates", "PlasmaViews][Panel 2][Defaults"', cli)
         self.assertIn("plasma_evaluate(panel_profile_script(selected_panel))", cli)
         self.assertIn(

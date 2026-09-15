@@ -13,6 +13,7 @@ blendchangesEnabled=false
 desktopchangeosdEnabled=true
 dot-dolphinEnabled=true
 dot-clipboardEnabled=true
+dot-hardware-keysEnabled=true
 dot-obsidianEnabled=true
 dot-screenshotsEnabled=true
 dot-window-desktopEnabled=true
