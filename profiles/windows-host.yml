@@ -21,7 +21,7 @@
       "Python.Python.3.13",
       "Tailscale.Tailscale"
     ],
-    "scoop": ["autohotkey", "bat", "fd", "fzf", "jq", "ripgrep", "zoxide"],
+    "scoop": ["autohotkey", "bat", "fd", "fzf", "jq", "ripgrep", "tailcat", "zoxide"],
     "psgallery": ["posh-git", "PSFzf", "Terminal-Icons"]
   }
 }

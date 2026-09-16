@@ -41,6 +41,7 @@
     "scrcpy": {"provider": "apt"},
     "shellcheck": {"provider": "brew"},
     "stylua": {"provider": "brew"},
+    "tailcat": {"provider": "brew"},
     "tailscale": {"provider": "apt"},
     "tmux": {"provider": "brew"},
     "tree": {"provider": "brew"},

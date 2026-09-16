@@ -76,7 +76,7 @@
       "xclip",
       "ydotool"
     ],
-    "brew": ["freerdp", "lazydocker", "lazygit"],
+    "brew": ["freerdp", "lazydocker", "lazygit", "tailcat"],
     "bun": ["@stephendolan/ynab-cli"],
     "deb": ["bitwarden", "obsidian", "teams-for-linux"],
     "snap": []

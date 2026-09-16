@@ -3890,6 +3890,17 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("deno", profile["packages"]["brew"])
         self.assertEqual(catalog["tools"]["deno"]["provider"], "brew")
 
+    def test_tailcat_is_managed_on_kubuntu_and_windows(self):
+        laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
+        desktop = runpy.run_path(str(DOT))["load_profile"]("kubuntu-desktop")
+        windows = json.loads((ROOT / "profiles/windows-host.yml").read_text())
+        catalog = json.loads((ROOT / "packages/catalog.yml").read_text())
+
+        self.assertIn("tailcat", laptop["packages"]["brew"])
+        self.assertIn("tailcat", desktop["packages"]["brew"])
+        self.assertIn("tailcat", windows["packages"]["scoop"])
+        self.assertEqual(catalog["tools"]["tailcat"]["provider"], "brew")
+
     def test_kubuntu_manages_ynab_cli_with_bun(self):
         laptop = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())
         desktop = runpy.run_path(str(DOT))["load_profile"]("kubuntu-desktop")
