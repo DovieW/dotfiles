@@ -3175,6 +3175,11 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("[LowBattery][Performance]", powerdevil)
         self.assertIn("[BatteryManagement]\nBatteryLowLevel=20", powerdevil)
         self.assertIn(
+            "[Inhibitions]\n"
+            "BlockedInhibitions=/opt/teams-for-linux/teams-for-linux:Electron",
+            powerdevil,
+        )
+        self.assertIn(
             "[AC][Display]\nDisplayBrightness=100\nUseProfileSpecificDisplayBrightness=false",
             powerdevil,
         )

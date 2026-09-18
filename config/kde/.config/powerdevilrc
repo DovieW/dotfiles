@@ -23,6 +23,9 @@ PowerButtonAction=1
 [BatteryManagement]
 BatteryLowLevel=20
 
+[Inhibitions]
+BlockedInhibitions=/opt/teams-for-linux/teams-for-linux:Electron
+
 [LowBattery][Display]
 DisplayBrightness=40
 UseProfileSpecificDisplayBrightness=false
