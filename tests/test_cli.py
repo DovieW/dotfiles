@@ -1575,37 +1575,45 @@ class DotCliTests(unittest.TestCase):
             env["PATH"] = os.pathsep.join(
                 [str(fake_bin), "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin"]
             )
-            pid, fd = pty.fork()
-            if pid == 0:
-                os.execve(
-                    str(DOT),
-                    [
-                        str(DOT),
-                        "apply",
-                        "--profile",
-                        "kubuntu-desktop",
-                        "--tags",
-                        "memory",
-                    ],
-                    env,
-                )
-            output = bytearray()
-            while True:
-                try:
-                    chunk = os.read(fd, 4096)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                output.extend(chunk)
-            _, status = os.waitpid(pid, 0)
-            os.close(fd)
-            self.assertEqual(os.waitstatus_to_exitcode(status), 0, output.decode(errors="replace"))
-            self.assertTrue(ansible_marker.exists())
-            arguments = ansible_args.read_text().splitlines()
-            self.assertIn("--ask-become-pass", arguments)
-            self.assertIn("sudo_rs", arguments)
-            self.assertIn(b"Administrator access is required", output)
+            for tag in ("memory", "codex"):
+                with self.subTest(tag=tag):
+                    ansible_marker.unlink(missing_ok=True)
+                    ansible_args.unlink(missing_ok=True)
+                    pid, fd = pty.fork()
+                    if pid == 0:
+                        os.execve(
+                            str(DOT),
+                            [
+                                str(DOT),
+                                "apply",
+                                "--profile",
+                                "kubuntu-desktop",
+                                "--tags",
+                                tag,
+                            ],
+                            env,
+                        )
+                    output = bytearray()
+                    while True:
+                        try:
+                            chunk = os.read(fd, 4096)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        output.extend(chunk)
+                    _, status = os.waitpid(pid, 0)
+                    os.close(fd)
+                    self.assertEqual(
+                        os.waitstatus_to_exitcode(status),
+                        0,
+                        output.decode(errors="replace"),
+                    )
+                    self.assertTrue(ansible_marker.exists())
+                    arguments = ansible_args.read_text().splitlines()
+                    self.assertIn("--ask-become-pass", arguments)
+                    self.assertIn("sudo_rs", arguments)
+                    self.assertIn(b"Administrator access is required", output)
 
     def test_sudo_rs_become_plugin_matches_wrapped_prompt_prefix(self):
         plugin = (ROOT / "ansible/become_plugins/sudo_rs.py").read_text()

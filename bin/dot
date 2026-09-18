@@ -3324,6 +3324,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             "gestures",
             "clipboard",
             "chatgpt",
+            "codex",
             "emoji",
             "rdp",
             "krdp",
