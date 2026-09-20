@@ -1,5 +1,15 @@
 # Repository agent instructions
 
+## Desktop wallet and remote recovery
+
+Do not create temporary SDDM autologin as a remote-recovery shortcut. A
+passwordless session leaves KDE Wallet locked, which can stall Bitwarden,
+Git signing, and GitHub CLI. Use an existing session or a normal interactive
+password login. If Bitwarden spins or authentication hangs, first run
+`scripts/desktop-wallet` on the affected computer. A locked wallet requires
+the user to unlock `kdewallet` in KWalletManager; do not remove its password,
+delete wallet data, or store an unlock password in scripts.
+
 ## “Finalize this computer” protocol
 
 When the user says **“finalize this computer”**, **“finish setting up this

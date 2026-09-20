@@ -504,3 +504,11 @@ the Bitwarden socket in its wrapper and desktop-aware service so every launch
 path is deterministic. Bitwarden starts at login and must remain running and
 unlocked for SSH authentication or commit signing; the private key is never
 materialized on Kubuntu.
+
+`dot-desktop-wallet.service` checks the default Secret Service collection after
+graphical login and warns once if KDE Wallet stays locked. Its read-only probe
+never reads secrets or requests an unlock. Dotfiles checks this dependency
+before desktop credential setup and in `dot doctor`, so a locked wallet is
+reported directly instead of looking like a Bitwarden or GitHub failure.
+Passwordless SDDM login cannot unlock an encrypted wallet; normal password
+login remains the supported path.

@@ -1,0 +1,14 @@
+[Unit]
+Description=Warn when KDE Wallet is blocking Bitwarden after login
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/dot-desktop-wallet --notify
+RemainAfterExit=yes
+TimeoutStartSec=5s
+RuntimeMaxSec=60s
+
+[Install]
+WantedBy=graphical-session.target

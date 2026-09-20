@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Check Secret Service lock state without reading secrets or prompting to unlock."""
+
+import argparse
+import re
+import shutil
+import subprocess
+import time
+
+
+RECOVERY = (
+    "KDE Wallet is locked. Open KWalletManager and unlock kdewallet, then retry "
+    "Bitwarden. Automatic login does not supply the password needed to unlock "
+    "the wallet; use a normal password login for automatic wallet unlocking."
+)
+
+
+def wallet_status():
+    """Return 0 for unlocked, 1 for locked, or 2 when state is unknown."""
+    if not shutil.which("busctl"):
+        return 2, "Desktop wallet status unavailable: busctl is not installed."
+    command = ["busctl", "--user", "--auto-start=no", "--timeout=2s"]
+
+    def query(arguments):
+        return subprocess.run(
+            command + arguments, capture_output=True, text=True,
+            check=False, timeout=3,
+        )
+
+    try:
+        alias = query([
+            "call", "org.freedesktop.secrets", "/org/freedesktop/secrets",
+            "org.freedesktop.Secret.Service", "ReadAlias", "s", "default",
+        ])
+        match = re.fullmatch(r'o "(/[A-Za-z0-9_/]*)"', alias.stdout.strip())
+        if alias.returncode != 0 or not match:
+            return 2, "Desktop wallet status unavailable: Secret Service did not respond."
+        collection = match.group(1)
+        if collection == "/":
+            return 2, "Desktop wallet status unavailable: no default wallet is configured."
+        locked = query([
+            "get-property", "org.freedesktop.secrets", collection,
+            "org.freedesktop.Secret.Collection", "Locked",
+        ])
+        if locked.returncode == 0:
+            if locked.stdout.strip() == "b true":
+                return 1, RECOVERY
+            if locked.stdout.strip() == "b false":
+                return 0, "Desktop wallet is unlocked."
+        return 2, "Desktop wallet status unavailable: could not read its lock state."
+    except (OSError, subprocess.TimeoutExpired):
+        return 2, "Desktop wallet status unavailable: session bus query failed or timed out."
+
+
+def notify_when_locked():
+    # Give PAM and the desktop time to finish opening the wallet. Never launch
+    # a second unlock prompt, restart Bitwarden, or weaken wallet protection.
+    time.sleep(15)
+    for attempt in range(3):
+        status, detail = wallet_status()
+        if status == 0:
+            return 0
+        if attempt < 2:
+            time.sleep(5)
+    print(detail)
+    if status == 1 and shutil.which("notify-send"):
+        try:
+            subprocess.run([
+                "notify-send", "--app-name=Desktop wallet", "--icon=wallet-closed",
+                "--urgency=critical", "Unlock KDE Wallet for Bitwarden",
+                "Open KWalletManager and unlock kdewallet. Bitwarden and Git "
+                "may wait until it is unlocked. Automatic login skips wallet unlocking.",
+            ], check=False, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # The actionable message remains in the user service journal.
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--notify", action="store_true", help="warn once after desktop login")
+    args = parser.parse_args()
+    if args.notify:
+        return notify_when_locked()
+    status, detail = wallet_status()
+    print(detail)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

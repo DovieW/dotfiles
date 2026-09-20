@@ -283,6 +283,39 @@ Ubuntu.
 
 ## A graphical Git client cannot find the private signing key
 
+If Bitwarden stays on its loading screen or Git authentication hangs, check
+the desktop wallet first, on the affected computer:
+
+```bash
+dot-desktop-wallet
+```
+
+This reads only Secret Service's lock state and has a short timeout. If it
+reports a locked wallet, open **KWalletManager**, open **kdewallet**, and unlock
+it. Retry Bitwarden after unlocking; if its loading screen persists, quit it
+from the tray and reopen it. Do not delete the wallet or reset Bitwarden.
+
+A normal SDDM password login can unlock `kdewallet` through `pam_kwallet5`
+when its password matches the login password. Automatic login (including a
+one-time remote-recovery login) cannot do that because it supplies no password.
+Logging into an already running remote desktop does not change that. Use a
+normal password login, or unlock the wallet manually in that session.
+
+The Kubuntu configuration checks once after graphical login and warns if the
+wallet stays locked. `dot doctor` reports the wallet state before querying
+Bitwarden or GitHub credentials and skips those queries while it is locked.
+GitHub authentication checks also have a timeout. A missing or unresponsive
+Secret Service is reported as unknown, rather than as unlocked.
+
+To install just this guard without applying other desktop settings:
+
+```bash
+dot apply --profile kubuntu-desktop --direct --tags wallet
+```
+
+Use `kubuntu-laptop` on the laptop. The guard keeps wallet encryption and
+password prompts intact; it does not unlock the wallet for you.
+
 Kubuntu deliberately stores only the public device key under `~/.ssh`; the
 private key remains in Bitwarden. Confirm Bitwarden Desktop is running,
 unlocked, and has its SSH agent enabled. Then verify the managed desktop
@@ -290,7 +323,7 @@ environment and restart the affected graphical application completely:
 
 ```bash
 systemctl --user show-environment | grep SSH_AUTH_SOCK
-SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock" ssh-add -L
+SSH_AUTH_SOCK="$HOME/.bitwarden-ssh-agent.sock" timeout 5s ssh-add -L
 ```
 
 The first command should report
