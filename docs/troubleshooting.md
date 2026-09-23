@@ -224,6 +224,40 @@ lid before waking gives a normal resume; waking it while still closed is
 intentionally treated as the hot-bag signature and sends it to hibernation.
 The hibernation image is written to this laptop's unencrypted swapfile.
 
+### IdeaPad Pro 5 16IAH10 ACPI errors after waking
+
+On the finalized `dovie-ideapad-linux` (firmware PZCN55WW), waking from
+`s2idle` can print a long stream of `AE_NOT_FOUND` errors for
+`EC0._Q37.PNOT` and `EC0._Q38.PNOT`. These occurred with both the 7.0.0-30
+and 7.0.0-31 Ubuntu kernels in September 2026. On later wakes, all five
+`PNP0C0B` ACPI fan devices also reported `failed to resume: error -19`;
+reading their thermal cooling state after wake returned `No such device`.
+This establishes a broken ACPI fan *interface*, not whether the physical fans
+are stopped. Check fan operation and temperatures in person before relying on
+another suspend. A normal reboot is the recovery path if cooling is suspect.
+
+Collect the evidence before rebooting:
+
+```bash
+journalctl -k -b --no-pager | rg 'PM: suspend|ACPI BIOS Error|acpi-fan.*failed to resume'
+sensors
+for device in /sys/class/thermal/cooling_device*; do
+  [ "$(cat "$device/type")" = Fan ] || continue
+  printf '%s: ' "$device"
+  cat "$device/cur_state"
+done
+```
+
+Lenovo's published PZCN55WW BIOS is already installed and `fwupdmgr`
+reported no update on September 23, 2026. A Linux fix for fan wake on the
+*different* Yoga Slim 15ILL9 added the Microsoft LPS0 Function 9 notification
+in kernel 6.19; do not transplant its model-specific EC calls here. Avoid
+`acpi=off`, ACPI event masking, or reducing console log level as a purported
+fan fix. A future firmware or kernel change needs an attended suspend/resume
+test with fan and thermal checks before this incident can be marked resolved.
+See [Lenovo's BIOS release page](https://support.lenovo.com/et/sk/downloads/ds572743-bios-update-for-windows-11-64-bit-ideapad-pro-5-16iah10)
+and the [upstream kernel patch](https://lists.openwall.net/linux-kernel/2026/02/28/814).
+
 ## Custom touchpad gestures fail or destabilize KWin
 
 Check the managed build, configuration, and live effect:
