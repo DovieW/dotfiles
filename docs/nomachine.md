@@ -8,7 +8,8 @@ access.
 On the `kubuntu-desktop` profile, the managed SDDM **greeter** uses X11 so
 NoMachine can present the normal password login after a reboot. The logged-in
 Plasma **session** still uses Wayland. Reboot after first applying the
-`nomachine` tag to activate the greeter change.
+`nomachine` tag to activate the greeter change. That tag installs the X11 server
+and input driver on Kubuntu machines, plus the AMD X11 driver on the desktop.
 
 NoMachine is private to the tailnet:
 

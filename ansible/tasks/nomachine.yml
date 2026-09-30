@@ -66,13 +66,19 @@
     state: present
   when: dot_nomachine_tailscale_ready
 
-- name: Install X11 greeter support for remote SDDM login
+- name: Install X11 server and input support on Kubuntu
   become: true
   ansible.builtin.apt:
     name:
       - xserver-xorg-core
       - xserver-xorg-input-libinput
-      - xserver-xorg-video-amdgpu
+    state: present
+  when: dot_nomachine_tailscale_ready
+
+- name: Install the desktop's AMD X11 display driver
+  become: true
+  ansible.builtin.apt:
+    name: xserver-xorg-video-amdgpu
     state: present
   when:
     - dot_nomachine_tailscale_ready
