@@ -52,8 +52,34 @@ if [[ -z "$client" ]]; then
   exit 1
 fi
 
-password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
 ssh_options=(-T -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2)
+if ! ssh "${ssh_options[@]}" "${user}@${host}" true; then
+  kdialog --error "Could not reach ${host} through key-only SSH. Check its Tailscale and SSH connection."
+  exit 1
+fi
+
+# KRdp shares a logged-in Plasma session. NoMachine's system service can show
+# SDDM so the user can perform a normal password login (and unlock KWallet).
+if ! ssh "${ssh_options[@]}" "${user}@${host}" \
+    systemctl --user --quiet is-active plasma-kwin_wayland.service; then
+  recovery_session="${DOT_KRDP_RECOVERY_SESSION:-$HOME/Documents/NoMachine/desktop.nxs}"
+  recovery_client="${DOT_KRDP_RECOVERY_CLIENT:-$HOME/.local/bin/nomachine-client}"
+  if [[ ( "$host" == dovie-desktop-linux || -n "${DOT_KRDP_RECOVERY_SESSION:-}" ) \
+      && -f "$recovery_session" && -x "$recovery_client" ]]; then
+    kdialog --msgbox "${host} is at its login screen. NoMachine will open so you can sign in to Plasma with your normal password. Close NoMachine after login to continue with KRdp."
+    "$recovery_client" --session "$recovery_session" || exit 1
+    if ! ssh "${ssh_options[@]}" "${user}@${host}" \
+        systemctl --user --quiet is-active plasma-kwin_wayland.service; then
+      kdialog --error "${host} is still at its login screen. Sign in to Plasma through NoMachine, then retry Desktop (KRdp)."
+      exit 1
+    fi
+  else
+    kdialog --error "${host} has no active Plasma session. Sign in at its login screen first. To enable remote login, install NoMachine and save a connection to ${host} as ${recovery_session}."
+    exit 1
+  fi
+fi
+
+password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
 client_pid=""
 audio_pid=""
 cleanup_session() {

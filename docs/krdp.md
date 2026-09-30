@@ -4,6 +4,13 @@ The `kubuntu-desktop` profile uses Plasma's native KRdp server as its preferred
 interactive remote desktop. It deliberately does not enable SDDM autologin.
 After a reboot, graphical access therefore becomes available after the user
 logs into Plasma; ordinary key-only SSH remains available earlier.
+On the managed IdeaPad, **Desktop (KRdp)** detects when the desktop is still at
+the login screen and opens the saved NoMachine connection
+(`~/Documents/NoMachine/desktop.nxs`). Sign in at SDDM with the normal password,
+then close NoMachine; the launcher continues into KRdp automatically. This
+normal SDDM login also allows KDE Wallet to unlock through PAM. The launcher reports an SSH error
+separately if it cannot reach the desktop. The NoMachine server must remain
+installed for remote login after a reboot.
 
 Apply and inspect the managed server with:
 
