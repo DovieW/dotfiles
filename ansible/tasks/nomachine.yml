@@ -66,6 +66,30 @@
     state: present
   when: dot_nomachine_tailscale_ready
 
+- name: Install X11 greeter support for remote SDDM login
+  become: true
+  ansible.builtin.apt:
+    name:
+      - xserver-xorg-core
+      - xserver-xorg-input-libinput
+      - xserver-xorg-video-amdgpu
+    state: present
+  when:
+    - dot_nomachine_tailscale_ready
+    - dot_profile_data.features.krdp_server | default(false)
+
+- name: Use an X11 SDDM greeter for NoMachine login after reboot
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/sddm/90-dotfiles-remote-login.conf"
+    dest: /etc/sddm.conf.d/90-dotfiles-remote-login.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - dot_nomachine_tailscale_ready
+    - dot_profile_data.features.krdp_server | default(false)
+
 - name: Install the HiDPI NoMachine client compositor
   become: true
   ansible.builtin.apt:

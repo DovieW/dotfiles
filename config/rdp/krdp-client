@@ -62,6 +62,10 @@ fi
 # SDDM so the user can perform a normal password login (and unlock KWallet).
 if ! ssh "${ssh_options[@]}" "${user}@${host}" \
     systemctl --user --quiet is-active plasma-kwin_wayland.service; then
+  if ! ssh "${ssh_options[@]}" "${user}@${host}" pgrep -x Xorg >/dev/null; then
+    kdialog --error "${host} has no Plasma session, and its SDDM login screen is still using Wayland. NoMachine cannot capture this greeter. Apply the managed NoMachine setup on ${host} and reboot it before retrying."
+    exit 1
+  fi
   recovery_session="${DOT_KRDP_RECOVERY_SESSION:-$HOME/Documents/NoMachine/desktop.nxs}"
   recovery_client="${DOT_KRDP_RECOVERY_CLIENT:-$HOME/.local/bin/nomachine-client}"
   if [[ ( "$host" == dovie-desktop-linux || -n "${DOT_KRDP_RECOVERY_SESSION:-}" ) \

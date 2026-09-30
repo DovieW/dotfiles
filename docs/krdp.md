@@ -8,9 +8,17 @@ On the managed IdeaPad, **Desktop (KRdp)** detects when the desktop is still at
 the login screen and opens the saved NoMachine connection
 (`~/Documents/NoMachine/desktop.nxs`). Sign in at SDDM with the normal password,
 then close NoMachine; the launcher continues into KRdp automatically. This
-normal SDDM login also allows KDE Wallet to unlock through PAM. The launcher reports an SSH error
-separately if it cannot reach the desktop. The NoMachine server must remain
+normal SDDM login also allows KDE Wallet to unlock through PAM. The launcher
+reports an SSH error separately if it cannot reach the desktop. The NoMachine server must remain
 installed for remote login after a reboot.
+
+The managed desktop uses an **X11 SDDM greeter** so NoMachine can capture the
+login screen. The user session selected at SDDM remains **Plasma Wayland**.
+Apply `dot apply --profile kubuntu-desktop --tags nomachine` and reboot the
+desktop after the first greeter setup; the display-server change takes effect
+only when SDDM starts again. The launcher refuses to open NoMachine while the
+Wayland greeter is still running, because that combination repeatedly resets
+the connection.
 
 Apply and inspect the managed server with:
 

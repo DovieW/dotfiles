@@ -5,6 +5,10 @@ access to the existing Plasma Wayland desktop. It mirrors the physical session,
 but can adapt that desktop to the client window instead of stretching a fixed
 capture. MeshCentral remains installed for management, terminal, and file
 access.
+On the `kubuntu-desktop` profile, the managed SDDM **greeter** uses X11 so
+NoMachine can present the normal password login after a reboot. The logged-in
+Plasma **session** still uses Wayland. Reboot after first applying the
+`nomachine` tag to activate the greeter change.
 
 NoMachine is private to the tailnet:
 

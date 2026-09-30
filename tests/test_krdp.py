@@ -215,6 +215,7 @@ case "$action" in
       exit 0
     fi
     exit "${KRDP_TEST_PLASMA_EXIT:-0}" ;;
+  Xorg) exit "${KRDP_TEST_XORG_EXIT:-0}" ;;
   prepare) exit "${KRDP_TEST_PREPARE_EXIT:-0}" ;;
   release) exit "${KRDP_TEST_RELEASE_EXIT:-0}" ;;
   *) exit 92 ;;
@@ -294,8 +295,18 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
         result, events = self.run_client(KRDP_TEST_PLASMA_EXIT="3")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(events, [
-            "ssh:true", "ssh:plasma-kwin_wayland.service", "login-dialog",
+            "ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:Xorg", "login-dialog",
             "nomachine:--session", "ssh:plasma-kwin_wayland.service",
+            "error-dialog",
+        ])
+
+    def test_wayland_greeter_does_not_start_a_reconnect_loop(self):
+        result, events = self.run_client(
+            KRDP_TEST_PLASMA_EXIT="3", KRDP_TEST_XORG_EXIT="1",
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(events, [
+            "ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:Xorg",
             "error-dialog",
         ])
 
@@ -305,7 +316,7 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(events, [
-            "ssh:true", "ssh:plasma-kwin_wayland.service", "login-dialog",
+            "ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:Xorg", "login-dialog",
             "nomachine:--session", "ssh:plasma-kwin_wayland.service",
             "prompt", "ssh:prepare", "client", "ssh:release",
         ])
