@@ -207,6 +207,48 @@ the Codex session-identity integration with:
 dot apply --profile kubuntu-laptop --tags packages,herdr
 ```
 
+For local and remote Codex work in the same window, save the desktop as a
+Herdr SSH machine. Use normal OpenSSH over Tailscale; verify
+`ssh dovie-desktop-linux` works first. On the desktop, update the existing Homebrew
+installation with `brew upgrade herdr`, then run:
+
+```bash
+dot apply --profile kubuntu-desktop --tags herdr
+herdr config check
+```
+
+Back on the laptop, register the desktop once:
+
+```bash
+herdr machine add dovie-desktop-linux --label Desktop --remote-session default
+herdr machine list
+```
+
+Open Herdr normally with `herdr` or `t`. Its sidebar contains Local and Desktop;
+click Desktop and create a workspace there, then start `codex` in its pane.
+Click Local to return to local work. With the managed prefix, Ctrl-Space then
+`w` opens workspace navigation; arrows and Enter select a workspace across
+connected machines. Each machine owns its own workspaces, panes, and processes;
+one window can switch between them, but a split layout belongs to one machine.
+
+For a clipboard image in a Desktop pane, press Ctrl-V (Herdr's default
+`remote_image_paste` binding). The local client reads the image and transfers it
+to a temporary file on the desktop, then inserts its remote path. Running
+`ssh` inside a Local pane does not provide this bridge. Local Codex panes use
+Codex's own clipboard support. Verify an actual image attachment in the remote
+Codex prompt after setup; successful SSH and machine registration alone do not
+prove the desktop clipboard path works.
+
+Saved machines are Herdr-owned local state, separate from the managed
+`config.toml`; do not replace the catalog during `dot apply`. The explicit
+`default` session avoids accidentally targeting another remote session.
+Registration prepares the remote server, so run it separately from routine
+configuration apply. If Herdr requests replacement of a running incompatible
+server, inspect its sessions first: replacement can stop its agents. Disabling
+or removing a saved machine disconnects the client without stopping remote
+processes. See the upstream [connecting machines guide](https://herdr.dev/docs/connecting-machines/)
+and [remote access guide](https://herdr.dev/docs/persistence-remote/).
+
 Tmux and its plugins remain installed for recovery and existing sessions.
 
 Ghostty uses `~/.config/ghostty/config`, copied from the authoritative
