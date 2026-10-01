@@ -1,0 +1,6 @@
+[Unit]
+Description=Launch the singleton Nemo window
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/nemo

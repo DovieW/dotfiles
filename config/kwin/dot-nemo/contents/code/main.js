@@ -1,10 +1,12 @@
-let waitingForDolphin = false;
+let waitingForNemo = false;
 
-function isDolphin(window) {
-    return window.desktopFileName === "org.kde.dolphin";
+function isNemo(window) {
+    return window.desktopFileName === "nemo"
+        || window.desktopFileName === "org.Nemo"
+        || String(window.resourceClass).toLowerCase() === "nemo";
 }
 
-function focusDolphin(window) {
+function focusNemo(window) {
     if (!window.onAllDesktops && window.desktops.length > 0) {
         workspace.currentDesktop = window.desktops[0];
     }
@@ -13,36 +15,36 @@ function focusDolphin(window) {
     workspace.activeWindow = window;
 }
 
-function openOrFocusDolphin() {
+function openOrFocusNemo() {
     const windows = workspace.stackingOrder;
     for (let index = windows.length - 1; index >= 0; index -= 1) {
-        if (isDolphin(windows[index])) {
-            focusDolphin(windows[index]);
+        if (isNemo(windows[index])) {
+            focusNemo(windows[index]);
             return;
         }
     }
 
-    waitingForDolphin = true;
+    waitingForNemo = true;
     callDBus(
         "org.freedesktop.systemd1",
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",
         "StartUnit",
-        "dot-dolphin-launch.service",
+        "dot-nemo-launch.service",
         "replace"
     );
 }
 
 workspace.windowAdded.connect((window) => {
-    if (waitingForDolphin && isDolphin(window)) {
-        waitingForDolphin = false;
-        focusDolphin(window);
+    if (waitingForNemo && isNemo(window)) {
+        waitingForNemo = false;
+        focusNemo(window);
     }
 });
 
 registerShortcut(
-    "dot-dolphin",
-    "Open or Focus Dolphin",
+    "dot-nemo",
+    "Open or Focus Nemo",
     "Meta+E",
-    openOrFocusDolphin
+    openOrFocusNemo
 );

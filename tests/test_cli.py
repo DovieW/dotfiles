@@ -2873,7 +2873,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"KWin screen edges"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
-    def test_meta_e_uses_one_taskbar_hidden_dolphin_window(self):
+    def test_meta_e_uses_one_taskbar_hidden_nemo_window(self):
         cli = DOT.read_text()
         shortcuts = (
             ROOT / "config/kde/.config/kglobalshortcutsrc"
@@ -2881,31 +2881,33 @@ class DotCliTests(unittest.TestCase):
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         rules = (ROOT / "config/kde/.config/kwinrulesrc").read_text()
         script = (
-            ROOT / "config/kwin/dot-dolphin/contents/code/main.js"
+            ROOT / "config/kwin/dot-nemo/contents/code/main.js"
         ).read_text()
         service = (
-            ROOT / "config/systemd/user/dot-dolphin-launch.service"
+            ROOT / "config/systemd/user/dot-nemo-launch.service"
         ).read_text()
         metadata = (
-            ROOT / "config/kwin/dot-dolphin/metadata.json"
+            ROOT / "config/kwin/dot-nemo/metadata.json"
         ).read_text()
 
-        self.assertIn("dot-dolphinEnabled=true", kwin)
-        self.assertIn("dot-dolphin=Meta+E", shortcuts)
+        self.assertIn("dot-nemoEnabled=true", kwin)
+        self.assertIn("dot-nemo=Meta+E", shortcuts)
         self.assertIn("_launch=none,Meta+E,Dolphin", shortcuts)
-        self.assertIn("wmclass=org.kde.dolphin", rules)
+        self.assertIn("dot-dolphinEnabled=false", kwin)
+        self.assertIn("dot-dolphin=none,none", shortcuts)
+        self.assertIn("wmclass=nemo", rules)
         self.assertIn("wmclassmatch=1", rules)
-        dolphin_rule = rules.split("[dolphin-skip-taskbar]", 1)[1].split(
+        nemo_rule = rules.split("[nemo-skip-taskbar]", 1)[1].split(
             "[emoji-selector-ephemeral]", 1
         )[0]
-        self.assertIn("skippager=true", dolphin_rule)
-        self.assertIn("skippagerrule=2", dolphin_rule)
-        self.assertIn("skipswitcher=true", dolphin_rule)
-        self.assertIn("skipswitcherrule=2", dolphin_rule)
+        self.assertIn("skippager=true", nemo_rule)
+        self.assertIn("skippagerrule=2", nemo_rule)
+        self.assertIn("skipswitcher=true", nemo_rule)
+        self.assertIn("skipswitcherrule=2", nemo_rule)
         self.assertIn("skiptaskbar=true", rules)
         self.assertIn("skiptaskbarrule=2", rules)
         self.assertIn(
-            "rules=dolphin-skip-taskbar,emoji-selector-ephemeral,"
+            "rules=nemo-skip-taskbar,emoji-selector-ephemeral,"
             "emoji-picker-ephemeral,flameshot-ephemeral,"
             "system-settings-ephemeral,"
             "bitwarden-ephemeral,system-monitor-ephemeral",
@@ -2933,19 +2935,19 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclass=org.kde.plasma-systemmonitor", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
-        self.assertIn("dot-dolphin-launch.service", script)
+        self.assertIn("dot-nemo-launch.service", script)
         self.assertIn('plugin_key = f"{script_name}Enabled"', cli)
         self.assertIn("registerShortcut(", script)
         self.assertIn('"KPackageStructure": "KWin/Script"', metadata)
-        self.assertIn("ExecStart=/usr/bin/dolphin", service)
+        self.assertIn("ExecStart=/usr/bin/nemo", service)
         self.assertIn('".config/kwinrulesrc"', cli)
-        self.assertIn('"config/kwin/dot-dolphin/metadata.json"', cli)
-        self.assertIn('"config/kwin/dot-dolphin/contents/code/main.js"', cli)
+        self.assertIn('"config/kwin/dot-nemo/metadata.json"', cli)
+        self.assertIn('"config/kwin/dot-nemo/contents/code/main.js"', cli)
         self.assertIn('"systemctl", "--user", "daemon-reload"', cli)
         self.assertIn('"org.kde.KGlobalAccel.unregister"', cli)
         self.assertIn('"dot-obsidian": ()', cli)
-        self.assertIn('"Dolphin singleton shortcut"', cli)
-        self.assertIn('"Dolphin taskbar rule"', cli)
+        self.assertIn('"Nemo singleton shortcut"', cli)
+        self.assertIn('"Nemo taskbar rule"', cli)
 
     def test_obsidian_launcher_is_desktop_aware(self):
         cli = DOT.read_text()

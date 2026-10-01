@@ -1,6 +1,6 @@
 [General]
 count=7
-rules=dolphin-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
+rules=nemo-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
 
 [bitwarden-ephemeral]
 Description=Keep Bitwarden out of persistent window lists
@@ -13,15 +13,15 @@ skiptaskbarrule=2
 wmclass=bitwarden
 wmclassmatch=1
 
-[dolphin-skip-taskbar]
-Description=Keep Dolphin out of persistent window lists
+[nemo-skip-taskbar]
+Description=Keep Nemo out of persistent window lists
 skippager=true
 skippagerrule=2
 skipswitcher=true
 skipswitcherrule=2
 skiptaskbar=true
 skiptaskbarrule=2
-wmclass=org.kde.dolphin
+wmclass=nemo
 wmclassmatch=1
 
 [emoji-selector-ephemeral]

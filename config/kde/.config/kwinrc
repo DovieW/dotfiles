@@ -11,7 +11,8 @@ Rows=1
 [Plugins]
 blendchangesEnabled=false
 desktopchangeosdEnabled=true
-dot-dolphinEnabled=true
+dot-dolphinEnabled=false
+dot-nemoEnabled=true
 dot-clipboardEnabled=true
 dot-hardware-keysEnabled=true
 dot-obsidianEnabled=true
