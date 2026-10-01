@@ -54,6 +54,9 @@ is unchanged. Scale therefore stays fixed throughout the connection. The
 watcher restores the original scale on disconnect, and failed or abandoned
 preparations expire after 60 seconds. The launcher also requests cleanup on exit.
 The client needs working key-only SSH to the same host and Linux user as RDP.
+Preparation also restores any display mode left behind by the NoMachine login
+connection before applying KRdp scaling. It refuses to change that display
+while a NoMachine connection is still active.
 Clients launched without this preparation use the output's existing scale.
 FreeRDP's own DPI negotiation flags are omitted because KRdp ignores them for
 the existing physical output and they can distort pointer mapping.

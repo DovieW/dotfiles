@@ -37,6 +37,7 @@ class KrdpScaleTests(unittest.TestCase):
             "set_scale": self.set_scale,
             "time": self.clock,
             "log": mock.Mock(),
+            "restore_nomachine_display": mock.Mock(),
         })
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -130,6 +131,41 @@ class KrdpScaleTests(unittest.TestCase):
             self.module["restore_if_idle"]()
         self.assertEqual(self.outputs["HDMI-A-1"], 2.35)
         self.assertTrue(self.state.exists())
+
+
+class NoMachineHandoffTests(unittest.TestCase):
+    def test_stale_display_is_restored_using_its_actual_session(self):
+        module = runpy.run_path(str(ROOT / "scripts/krdp-scale"))
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "nomachine-display.json"
+            state.write_text(json.dumps({
+                "original": {"mode": "3840x2160@120"},
+                "active_session": "last-session",
+            }))
+            with mock.patch.dict(module["restore_nomachine_display"].__globals__,
+                                 {"STATE_DIR": Path(directory)}), \
+                 mock.patch("subprocess.run", side_effect=[
+                     subprocess.CompletedProcess([], 0, "", ""),
+                     subprocess.CompletedProcess([], 0, "", ""),
+                 ]) as run:
+                module["restore_nomachine_display"]()
+                self.assertEqual(run.call_args_list[1].args[0], [
+                    "/usr/local/libexec/nomachine-display", "disconnect", "last-session",
+                ])
+
+    def test_live_nomachine_connection_cannot_have_its_display_changed(self):
+        module = runpy.run_path(str(ROOT / "scripts/krdp-scale"))
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "nomachine-display.json").write_text(
+                json.dumps({"original": {"mode": "3840x2160@120"}})
+            )
+            with mock.patch.dict(module["restore_nomachine_display"].__globals__,
+                                 {"STATE_DIR": Path(directory)}), \
+                 mock.patch("subprocess.run", return_value=
+                            subprocess.CompletedProcess([], 0, "live socket", "")) as run:
+                with self.assertRaisesRegex(RuntimeError, "close the NoMachine"):
+                    module["restore_nomachine_display"]()
+                self.assertEqual(run.call_count, 1)
 
 
 class KrdpWatcherTests(unittest.TestCase):

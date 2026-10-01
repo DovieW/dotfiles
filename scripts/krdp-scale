@@ -158,6 +158,32 @@ def prepared_until() -> float:
     return float(payload.get("prepared_until", 0))
 
 
+def restore_nomachine_display() -> None:
+    state_file = STATE_DIR / "nomachine-display.json"
+    if not state_file.is_file():
+        return
+    state = json.loads(state_file.read_text())
+    if not state.get("original"):
+        return
+    sockets = subprocess.run(
+        ["ss", "-Htn", "state", "established", "sport", "=", ":4000"],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=5,
+    )
+    if sockets.stdout.strip():
+        raise RuntimeError("close the NoMachine connection before starting KRdp")
+    result = subprocess.run(
+        ["/usr/local/libexec/nomachine-display", "disconnect",
+         str(state.get("active_session") or "manual")],
+        check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "cannot restore the display after NoMachine: " + result.stderr.strip()
+        )
+
+
 def prepare() -> None:
     # KRdp snapshots logical dimensions when the portal opens. Changing scale
     # after that produces incorrect absolute pointer coordinates, even though
@@ -168,6 +194,7 @@ def prepare() -> None:
         return
     if prepared_until() > time.time():
         raise RuntimeError("another KRdp connection is already being prepared")
+    restore_nomachine_display()
     activate()
     current = enabled_outputs()
     if not current or any(
