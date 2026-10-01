@@ -5,6 +5,9 @@
   vars:
     dot_repo: "{{ playbook_dir | dirname }}"
     dot_device_manifest: {}
+    dot_file_manager_packages: >-
+      {{ ['nemo', 'nautilus', 'thunar']
+         if dot_profile_data.features.kde | default(false) else [] }}
   pre_tasks:
     - name: Validate runtime profile
       ansible.builtin.assert:
@@ -19,17 +22,20 @@
       tags: [always]
 
   tasks:
-    - name: Install Kubuntu file managers
+    - name: Install or upgrade Kubuntu file managers  # noqa package-latest
       become: true
       ansible.builtin.apt:
-        name: "{{ dot_profile_data.packages.apt | intersect(['nemo', 'nautilus', 'thunar']) }}"
-        state: present
+        name: "{{ dot_profile_data.packages.apt | default([]) | intersect(dot_file_manager_packages) }}"
+        state: latest
+        # Nautilus recommends a GNOME portal that in turn pulls in GNOME Shell
+        # and GDM. Kubuntu already owns the desktop, portal, and login manager.
+        install_recommends: false
         update_cache: true
         cache_valid_time: 3600
       when:
         - ansible_facts.os_family == "Debian"
         - dot_profile_data.features.kde | default(false)
-      tags: [file-manager]
+      tags: [packages, file-manager, app-updates]
 
     - name: Upgrade all installed APT packages
       become: true
@@ -189,13 +195,13 @@
     - name: Install or upgrade APT packages to latest repository candidates  # noqa package-latest
       become: true
       ansible.builtin.apt:
-        name: "{{ dot_profile_data.packages.apt | default([]) }}"
+        name: "{{ dot_profile_data.packages.apt | default([]) | difference(dot_file_manager_packages) }}"
         state: latest
         update_cache: true
         cache_valid_time: 3600
       when:
         - ansible_facts.os_family == "Debian"
-        - (dot_profile_data.packages.apt | default([]) | length) > 0
+        - (dot_profile_data.packages.apt | default([]) | difference(dot_file_manager_packages) | length) > 0
       tags: [packages]
 
     - name: Install or upgrade Google Chrome from its signed stable repository
