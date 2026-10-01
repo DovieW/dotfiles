@@ -18,6 +18,19 @@ installation. If GitHub's releases collection is temporarily empty, resolution
 falls back to the newest matching stable Git tag and its tag-specific release
 metadata rather than reporting an installed package as missing.
 
+## Apply only file-manager settings
+
+To install the Kubuntu file managers and make Nemo the folder and Meta+E
+default without replacing other live KDE settings:
+
+```bash
+dot apply --profile kubuntu-desktop --tags file-manager
+```
+
+Use `kubuntu-laptop` on a laptop. This targeted apply backs up and updates only
+the file-manager keys, launcher, and window rule. Unrelated KDE drift remains
+available for review with `dot diff kde`; a full apply still protects it.
+
 ## Version policy
 
 Machine-level programs follow the latest stable release offered by their

@@ -1930,6 +1930,94 @@ def configure_nemo_default() -> int:
     return int(current != "nemo.desktop")
 
 
+def configure_nemo_file_manager() -> int:
+    """Apply only file-manager settings, preserving other live KDE choices."""
+    require_commands(
+        ["nemo", "kwriteconfig6", "qdbus6", "gdbus", "systemctl"],
+        "Run dot apply --profile PROFILE --tags file-manager to install prerequisites.",
+    )
+    files = [Path.home() / ".config" / name for name in (
+        "kwinrc", "kwinrulesrc", "kglobalshortcutsrc", "mimeapps.list", "kde-mimeapps.list",
+    )]
+    original_files = {path: path.read_bytes() if path.exists() else None for path in files}
+    backup_id = backup_paths(files)
+    print(f"File-manager backup created: {backup_id}")
+    changes = 0
+
+    def write_key(name: str, group: str, key: str, value: str) -> None:
+        path = Path.home() / ".config" / name
+        content = path.read_bytes() if path.exists() else b""
+        if kconfig_get(content, group, key) == value:
+            return
+        run([
+            "kwriteconfig6", "--file", str(path), "--group", group,
+            "--key", key, value,
+        ])
+
+    for relative in (
+        "config/kwin/dot-nemo/metadata.json",
+        "config/kwin/dot-nemo/contents/code/main.js",
+        "config/systemd/user/dot-nemo-launch.service",
+    ):
+        destination = (
+            Path.home() / ".local/share/kwin/scripts" / relative.removeprefix("config/kwin/")
+            if relative.startswith("config/kwin/")
+            else Path.home() / ".config/systemd/user/dot-nemo-launch.service"
+        )
+        changes += int(copy_managed_file(ROOT / relative, destination))
+    run(["systemctl", "--user", "daemon-reload"])
+    for script_name in ("dot-dolphin", "dot-nemo"):
+        run([
+            "qdbus6", "org.kde.KWin", "/Scripting",
+            "org.kde.kwin.Scripting.unloadScript", script_name,
+        ], check=False, capture=True)
+    # Reconfigure through a disabled state so an already enabled plugin is
+    # recreated after its files change, even after a manual raw-script unload.
+    write_key("kwinrc", "Plugins", "dot-nemoEnabled", "false")
+    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+    write_key("kwinrc", "Plugins", "dot-dolphinEnabled", "false")
+    write_key("kwinrc", "Plugins", "dot-nemoEnabled", "true")
+    write_key("kglobalshortcutsrc", "kwin", "dot-dolphin", "none,none,Open or Focus Dolphin")
+    write_key("kglobalshortcutsrc", "kwin", "dot-nemo", "Meta+E,none,Open or Focus Nemo")
+    rules_path = Path.home() / ".config/kwinrulesrc"
+    rules_content = rules_path.read_bytes() if rules_path.exists() else b""
+    rule_names = (kconfig_get(rules_content, "General", "rules") or "").split(",")
+    rule_names = list(dict.fromkeys(
+        name for name in rule_names if name and name != "dolphin-skip-taskbar"
+    ))
+    if "nemo-skip-taskbar" not in rule_names:
+        rule_names.append("nemo-skip-taskbar")
+    write_key("kwinrulesrc", "General", "rules", ",".join(rule_names))
+    write_key("kwinrulesrc", "General", "count", str(len(rule_names)))
+    source_rule = kde_section_blocks(kde_source(".config/kwinrulesrc").read_bytes())["nemo-skip-taskbar"]
+    for line in source_rule:
+        if "=" in line:
+            key, value = line.strip().split("=", 1)
+            write_key("kwinrulesrc", "nemo-skip-taskbar", key, value)
+    configure_nemo_default()
+    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        loaded = run([
+            "qdbus6", "org.kde.KWin", "/Scripting",
+            "org.kde.kwin.Scripting.isScriptLoaded", "dot-nemo",
+        ], capture=True).stdout.strip()
+        if loaded == "true":
+            break
+        time.sleep(0.1)
+    else:
+        raise DotError("KWin did not load Nemo's Meta+E script; log out and back in.")
+    activate_kglobal_shortcuts({
+        ("org.kde.dolphin.desktop", "_launch", "Dolphin", "Dolphin"): [0],
+        ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin"): [0],
+        ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo"): [268435525],
+    })
+    return changes + sum(
+        (path.read_bytes() if path.exists() else None) != original
+        for path, original in original_files.items()
+    )
+
+
 def apply_direct(
     profile_name: str,
     *,
@@ -1944,6 +2032,9 @@ def apply_direct(
 
     def selected(*tags: str) -> bool:
         return apply_all or bool(selected_tags.intersection(tags))
+
+    if features.get("kde") and selected("file-manager") and not selected("kde"):
+        changes += configure_nemo_file_manager()
 
     if features.get("kde") and selected("kde", "git", "wallet"):
         changes += configure_desktop_wallet_check()
@@ -3405,6 +3496,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         selected_tags
         & {
             "packages",
+            "file-manager",
             "docker",
             "gpu",
             "gestures",

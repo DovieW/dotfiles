@@ -19,6 +19,18 @@
       tags: [always]
 
   tasks:
+    - name: Install Kubuntu file managers
+      become: true
+      ansible.builtin.apt:
+        name: "{{ dot_profile_data.packages.apt | intersect(['nemo', 'nautilus', 'thunar']) }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when:
+        - ansible_facts.os_family == "Debian"
+        - dot_profile_data.features.kde | default(false)
+      tags: [file-manager]
+
     - name: Upgrade all installed APT packages
       become: true
       ansible.builtin.apt:
@@ -483,6 +495,7 @@
         - shell
         - git
         - kde
+        - file-manager
         - lockscreen
         - power
         - tmux
