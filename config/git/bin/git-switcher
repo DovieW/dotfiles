@@ -1,30 +1,108 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+list_branches() {
+  local scope=refs/heads
+  [[ "${1:-${FZF_PROMPT:-}}" == remote || "${1:-${FZF_PROMPT:-}}" == 'Remote › ' ]] && scope=refs/remotes
+  git for-each-ref --format='%(refname)' "$scope" \
+    | sed -e '/\/HEAD$/d' -e 's|^refs/heads/||' -e 's|^refs/remotes/||' \
+    | sort -u
+}
+
+confirm() {
+  local answer
+  printf '%s [y/N] ' "$1"
+  IFS= read -r answer || return 1
+  [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]]
+}
+
+delete_branch() {
+  local branch="$1" remote='' remote_branch='' candidate upstream
+  if [[ "${2:-}" != 'Remote › ' ]] && git show-ref --verify --quiet "refs/heads/$branch"; then
+    # Capture the upstream before deleting the local branch and its config.
+    remote="$(git config --get "branch.$branch.remote" || true)"
+    upstream="$(git config --get "branch.$branch.merge" || true)"
+    if [[ -n "$remote" && "$remote" != '.' && "$upstream" == refs/heads/* ]]; then
+      remote_branch="${upstream#refs/heads/}"
+    else
+      remote=''
+    fi
+    confirm "Delete local branch '$branch'?" || return 0
+    git branch -d -- "$branch" || return 0
+    if [[ -n "$remote" ]]; then
+      confirm "Also delete '$remote_branch' on remote '$remote'?" || return 0
+    else
+      printf 'No tracked remote branch; no remote deletion offered.\n'
+      return 0
+    fi
+  else
+    # Match a configured remote rather than assuming the first path component.
+    while IFS= read -r candidate; do
+      if [[ "$branch" == "$candidate/"* && ${#candidate} -gt ${#remote} ]]; then
+        remote="$candidate"
+        remote_branch="${branch#"$candidate/"}"
+      fi
+    done < <(git remote)
+    if [[ -z "$remote" ]] || ! git show-ref --verify --quiet "refs/remotes/$branch"; then
+      printf "Branch '%s' no longer exists.\n" "$branch"
+      return 0
+    fi
+    confirm "Delete '$remote_branch' on remote '$remote'?" || return 0
+  fi
+  git push -- "$remote" ":refs/heads/$remote_branch" || return 0
+}
+
+case "${1:-}" in
+  --list)
+    list_branches "${2:-${FZF_PROMPT:-}}"
+    exit
+    ;;
+  --delete)
+    [[ -n "${2:-}" ]] || exit 0
+    # fzf execute temporarily returns the terminal to this helper.
+    exec </dev/tty >/dev/tty 2>&1
+    delete_branch "$2" "${3:-}"
+    printf 'Press Enter to return to branches. '
+    IFS= read -r _ || true
+    exit 0
+    ;;
+  --switch)
+    selection="${2:-}"
+    [[ -n "$selection" ]] || exit 0
+    if [[ "${3:-}" != 'Remote › ' ]]; then
+      exec git switch -- "$selection"
+    fi
+    # Configured remote names can themselves contain slashes.
+    remote=''
+    while IFS= read -r candidate; do
+      if [[ "$selection" == "$candidate/"* && ${#candidate} -gt ${#remote} ]]; then
+        remote="$candidate"
+      fi
+    done < <(git remote)
+    [[ -n "$remote" ]] || exit 1
+    local_name="${selection#"$remote/"}"
+    if git show-ref --verify --quiet "refs/heads/$local_name"; then
+      exec git switch -- "$local_name"
+    fi
+    exec git switch --track -- "$selection"
+    ;;
+esac
+
 command -v fzf >/dev/null 2>&1 || {
   echo "git-switcher requires fzf." >&2
   exit 1
 }
 
-selection="$(
-  git for-each-ref --format='%(refname:short)' refs/heads refs/remotes \
-    | sed '/\\/HEAD$/d' \
-    | sort -u \
+# Pass our actual path through the environment; fzf shell-quotes {} for us.
+export DOTFILES_GIT_SWITCHER="$(realpath -- "$0")"
+list_branches local \
     | fzf --height=70% --layout=reverse \
-        --input-label=' Git branches ' --list-label=' Branches ' --prompt='Switch › ' \
-        --preview='git log --graph --decorate --color=always --oneline -60 {}' \
+        --input-label=' Git branches ' --list-label=' Local branches ' --prompt='Local › ' \
+        --header='Enter: switch · Ctrl+R: local/remote · Ctrl+D: delete · Ctrl+/: preview' \
+        --preview='git log --graph --decorate --color=always --format="%C(auto)%h %C(dim white)(%cr)%C(auto) %d %s%C(reset)" -60 {}' \
         --preview-window='right,55%,border-left,<50(down,45%,border-top)' \
         --preview-label=' Recent commits ' \
-        --bind='ctrl-/:toggle-preview'
-)"
-[[ -n "$selection" ]] || exit 0
-
-if git show-ref --verify --quiet "refs/heads/$selection"; then
-  exec git switch "$selection"
-fi
-
-local_name="${selection#*/}"
-if git show-ref --verify --quiet "refs/heads/$local_name"; then
-  exec git switch "$local_name"
-fi
-exec git switch --track "$selection"
+        --bind='ctrl-/:toggle-preview' \
+        --bind='ctrl-d:execute("$DOTFILES_GIT_SWITCHER" --delete {} "$FZF_PROMPT")+reload("$DOTFILES_GIT_SWITCHER" --list)' \
+        --bind='ctrl-r:transform:if [ "$FZF_PROMPT" = "Local › " ]; then printf '\''change-prompt(Remote › )+change-list-label( Remote branches )+reload("$DOTFILES_GIT_SWITCHER" --list remote)'\''; else printf '\''change-prompt(Local › )+change-list-label( Local branches )+reload("$DOTFILES_GIT_SWITCHER" --list local)'\''; fi' \
+        --bind='enter:become("$DOTFILES_GIT_SWITCHER" --switch {} "$FZF_PROMPT")'
