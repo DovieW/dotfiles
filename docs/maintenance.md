@@ -217,10 +217,22 @@ dot apply --profile kubuntu-desktop --tags herdr
 herdr config check
 ```
 
-Back on the laptop, register the desktop once:
+The laptop profile enables `herdr_desktop_machine`; the desktop profile disables
+it. `config/herdr/machines.json` declares the SSH target, sidebar label, and
+remote session. Laptop provisioning and `dot apply --tags herdr` register this
+connection automatically through Herdr's CLI, preserving other saved machines
+and avoiding duplicates. An existing matching disabled entry is enabled.
+
+Registration requires working key-only SSH, a previously trusted host key, and
+a compatible remote Herdr installation. Offline or unprepared desktops produce
+a `DEFERRED` notice without failing laptop setup. Once those prerequisites are
+ready, rerun the laptop apply step; `dot doctor` reports missing or disabled
+managed connections without contacting the desktop.
+
+Back on the laptop, apply and inspect the connection:
 
 ```bash
-herdr machine add dovie-desktop-linux --label Desktop --remote-session default
+dot apply --profile kubuntu-laptop --tags herdr
 herdr machine list
 ```
 
@@ -242,9 +254,10 @@ prove the desktop clipboard path works.
 Saved machines are Herdr-owned local state, separate from the managed
 `config.toml`; do not replace the catalog during `dot apply`. The explicit
 `default` session avoids accidentally targeting another remote session.
-Registration prepares the remote server, so run it separately from routine
-configuration apply. If Herdr requests replacement of a running incompatible
-server, inspect its sessions first: replacement can stop its agents. Disabling
+Registration prepares the remote server noninteractively during laptop apply;
+it never approves remote software installation or server replacement. If manual
+Herdr setup requests replacement of a running incompatible server, inspect its
+sessions first: replacement can stop its agents. Disabling
 or removing a saved machine disconnects the client without stopping remote
 processes. See the upstream [connecting machines guide](https://herdr.dev/docs/connecting-machines/)
 and [remote access guide](https://herdr.dev/docs/persistence-remote/).

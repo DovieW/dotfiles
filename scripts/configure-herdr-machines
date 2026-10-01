@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Reconcile declared machines using Herdr's catalog API, without remote upgrades."""
+import argparse
+import json
+import subprocess
+from pathlib import Path
+
+
+def command(arguments, timeout=30):
+    return subprocess.run(
+        arguments, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        timeout=timeout, check=False,
+    )
+
+
+def reconcile(source, check=False):
+    desired = json.loads(Path(source).read_text())
+    result = command(["herdr", "machine", "list", "--json"])
+    if result.returncode:
+        raise RuntimeError("Cannot read Herdr's machine catalog; leaving it unchanged.")
+    saved = json.loads(result.stdout)
+    missing = False
+    for machine in desired:
+        label, target, session = (machine[key] for key in ("label", "target", "session"))
+        # Accept the existing SSH alias used before the explicit username was declared.
+        targets = {target}
+        if target.startswith("dovie@"):
+            targets.add(target.removeprefix("dovie@"))
+        matches = [item for item in saved
+                   if item["target"] in targets and item["session"] == session]
+        if matches:
+            if any(item["enabled"] for item in matches):
+                print(f"Herdr machine {label} is configured.")
+                continue
+            if check:
+                print(f"Herdr machine {label} is disabled; rerun dot apply --tags herdr.")
+                missing = True
+                continue
+            result = command(["herdr", "machine", "enable", matches[0]["id"]])
+            if result.returncode:
+                raise RuntimeError(f"Cannot enable Herdr machine {label}.")
+            print(f"CHANGED Herdr machine {label} enabled.")
+            continue
+        if check:
+            print(f"Herdr machine {label} is missing; rerun dot apply --tags herdr.")
+            missing = True
+            continue
+        if any(item["label"] == label for item in saved):
+            raise RuntimeError(f"Herdr label {label} belongs to another target; leaving it unchanged.")
+        try:
+            # Never prompt for passwords or accept a new host key during provisioning.
+            ready = command([
+                "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+                "-o", "ConnectTimeout=5", target, "true",
+            ], timeout=10)
+            result = command([
+                "herdr", "machine", "add", target, "--label", label,
+                "--remote-session", session,
+            ]) if ready.returncode == 0 else None
+        except subprocess.TimeoutExpired:
+            result = None
+        if result is None or result.returncode:
+            print(f"DEFERRED Herdr machine {label}: verify ssh {target} and a compatible "
+                  "remote Herdr installation, then rerun dot apply --tags herdr. "
+                  "Registration was not confirmed.")
+            continue
+        print(f"CHANGED Herdr machine {label} registered.")
+    return 1 if missing else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    try:
+        return reconcile(args.source, args.check)
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
+        print(f"Herdr machines: {error}")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2018,6 +2018,15 @@ def apply_direct(
                 changes += herdr_result.stdout.count("CHANGED ")
                 if herdr_result.stdout:
                     print(herdr_result.stdout, end="")
+            if features.get("herdr_desktop_machine"):
+                machines_result = run(
+                    [str(ROOT / "scripts/configure-herdr-machines"),
+                     str(ROOT / "config/herdr/machines.json")],
+                    capture=True,
+                )
+                changes += machines_result.stdout.count("CHANGED ")
+                if machines_result.stdout:
+                    print(machines_result.stdout, end="")
             if features.get("kde"):
                 changes += int(
                     copy_managed_file(
@@ -9826,6 +9835,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     "Herdr Codex integration",
                     herdr_integration.returncode == 0,
                     herdr_integration_detail or "integration check failed",
+                )
+            if profile.get("features", {}).get("herdr_desktop_machine"):
+                machines_result = run(
+                    [str(ROOT / "scripts/configure-herdr-machines"),
+                     str(ROOT / "config/herdr/machines.json"), "--check"],
+                    check=False,
+                    capture=True,
+                )
+                failures += not doctor_check(
+                    "Herdr machines",
+                    machines_result.returncode == 0,
+                    (machines_result.stdout or machines_result.stderr).strip(),
                 )
         login_shell = os.environ.get("SHELL", "")
         if os.name != "nt":

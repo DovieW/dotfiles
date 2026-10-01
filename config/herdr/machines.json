@@ -1,0 +1,7 @@
+[
+  {
+    "label": "Desktop",
+    "target": "dovie@dovie-desktop-linux",
+    "session": "default"
+  }
+]

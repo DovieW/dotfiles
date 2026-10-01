@@ -497,6 +497,14 @@
         - tailscale
         - recovery
 
+    - name: Report deferred portable setup
+      ansible.builtin.debug:
+        var: dot_direct_apply.stdout_lines
+      when:
+        - dot_direct_apply is defined
+        - "'DEFERRED ' in (dot_direct_apply.stdout | default(''))"
+      tags: [config, shell, herdr]
+
     - name: Configure native application window frames
       ansible.builtin.command:
         argv:

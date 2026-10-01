@@ -6,6 +6,7 @@
   "features": {
     "anydesk": false,
     "chatgpt_desktop": false,
+    "herdr_desktop_machine": false,
     "codex_remote_control_mode": "headless",
     "factory_display_profile": false,
     "ideapad_fn_lock": false,
