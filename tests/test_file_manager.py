@@ -30,7 +30,13 @@ class FileManagerTests(unittest.TestCase):
             apps.mkdir(parents=True)
             fixtures = {
                 "kwinrc": "[Desktops]\nNumber=2\n[Xwayland]\nScale=2.35\n[Plugins]\ndot-dolphinEnabled=true\notherEnabled=true\n",
-                "kwinrulesrc": "[General]\ncount=2\nrules=other-rule,dolphin-skip-taskbar\n[other-rule]\nwmclass=keep-me\n",
+                "kwinrulesrc": (
+                    "[General]\ncount=4\nrules=other-rule,dolphin-skip-taskbar,nemo-skip-taskbar,bitwarden-ephemeral\n"
+                    "[other-rule]\nwmclass=keep-me\n"
+                    "[dolphin-skip-taskbar]\nwmclass=org.kde.dolphin\nskiptaskbar=true\n"
+                    "[nemo-skip-taskbar]\nwmclass=nemo\nskipswitcher=true\n"
+                    "[bitwarden-ephemeral]\nwmclass=bitwarden\nskippager=true\n"
+                ),
                 "kglobalshortcutsrc": "[kwin]\nCustom=Ctrl+Alt+F,none,Keep this\ndot-dolphin=Meta+E,none,Open or Focus Dolphin\n",
                 "mimeapps.list": "[Default Applications]\ninode/directory=org.kde.dolphin.desktop;\ntext/plain=editor.desktop;\n",
                 "kde-mimeapps.list": "[Default Applications]\ninode/directory=org.kde.dolphin.desktop;\napplication/pdf=reader.desktop;\n",
@@ -81,7 +87,10 @@ class FileManagerTests(unittest.TestCase):
             ):
                 self.assertEqual(get((config / "kwinrc").read_bytes(), section, key), value)
             self.assertEqual(get((config / "kwinrulesrc").read_bytes(), "other-rule", "wmclass"), "keep-me")
-            self.assertEqual(get((config / "kwinrulesrc").read_bytes(), "General", "rules"), "other-rule,nemo-skip-taskbar")
+            self.assertEqual(get((config / "kwinrulesrc").read_bytes(), "General", "rules"), "other-rule")
+            self.assertEqual(get((config / "kwinrulesrc").read_bytes(), "General", "count"), "1")
+            for name in module["RETIRED_WINDOW_HIDING_RULES"]:
+                self.assertNotIn(f"[{name}]", (config / "kwinrulesrc").read_text())
             self.assertIn("Custom=Ctrl+Alt+F,none,Keep this", (config / "kglobalshortcutsrc").read_text())
             self.assertIn("text/plain=editor.desktop;", (config / "mimeapps.list").read_text())
             self.assertIn("application/pdf=reader.desktop;", (config / "kde-mimeapps.list").read_text())

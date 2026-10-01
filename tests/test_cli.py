@@ -1411,7 +1411,7 @@ class DotCliTests(unittest.TestCase):
                 "org.kde.plasma.battery",
             ],
         )
-        self.assertIn(
+        self.assertNotIn(
             "Bitwarden_status_icon_1",
             manifest["tray"]["hidden_items"],
         )
@@ -2873,7 +2873,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"KWin screen edges"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
-    def test_meta_e_uses_one_taskbar_hidden_nemo_window(self):
+    def test_meta_e_uses_one_normally_visible_nemo_window(self):
         cli = DOT.read_text()
         shortcuts = (
             ROOT / "config/kde/.config/kglobalshortcutsrc"
@@ -2895,22 +2895,13 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("_launch=none,Meta+E,Dolphin", shortcuts)
         self.assertIn("dot-dolphinEnabled=false", kwin)
         self.assertIn("dot-dolphin=none,none", shortcuts)
-        self.assertIn("wmclass=nemo", rules)
-        self.assertIn("wmclassmatch=1", rules)
-        nemo_rule = rules.split("[nemo-skip-taskbar]", 1)[1].split(
-            "[emoji-selector-ephemeral]", 1
-        )[0]
-        self.assertIn("skippager=true", nemo_rule)
-        self.assertIn("skippagerrule=2", nemo_rule)
-        self.assertIn("skipswitcher=true", nemo_rule)
-        self.assertIn("skipswitcherrule=2", nemo_rule)
-        self.assertIn("skiptaskbar=true", rules)
-        self.assertIn("skiptaskbarrule=2", rules)
+        self.assertNotIn("wmclass=nemo", rules)
+        self.assertNotIn("wmclass=org.kde.dolphin", rules)
+        self.assertNotIn("wmclass=bitwarden", rules)
         self.assertIn(
-            "rules=nemo-skip-taskbar,emoji-selector-ephemeral,"
+            "rules=emoji-selector-ephemeral,"
             "emoji-picker-ephemeral,flameshot-ephemeral,"
-            "system-settings-ephemeral,"
-            "bitwarden-ephemeral,system-monitor-ephemeral",
+            "system-settings-ephemeral,system-monitor-ephemeral",
             rules,
         )
         self.assertIn("[emoji-selector-ephemeral]", rules)
@@ -2929,8 +2920,7 @@ class DotCliTests(unittest.TestCase):
         self.assertNotIn("wmclass=com.mitchellh.ghostty", rules)
         self.assertIn("[system-settings-ephemeral]", rules)
         self.assertIn("wmclass=systemsettings", rules)
-        self.assertIn("[bitwarden-ephemeral]", rules)
-        self.assertIn("wmclass=bitwarden", rules)
+        self.assertNotIn("[bitwarden-ephemeral]", rules)
         self.assertIn("[system-monitor-ephemeral]", rules)
         self.assertIn("wmclass=org.kde.plasma-systemmonitor", rules)
         self.assertIn("workspace.stackingOrder", script)
@@ -2947,7 +2937,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"org.kde.KGlobalAccel.unregister"', cli)
         self.assertIn('"dot-obsidian": ()', cli)
         self.assertIn('"Nemo singleton shortcut"', cli)
-        self.assertIn('"Nemo taskbar rule"', cli)
+        self.assertIn('"Bitwarden and file manager visibility"', cli)
 
     def test_obsidian_launcher_is_desktop_aware(self):
         cli = DOT.read_text()

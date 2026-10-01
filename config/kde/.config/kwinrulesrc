@@ -1,28 +1,6 @@
 [General]
-count=7
-rules=nemo-skip-taskbar,emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,system-settings-ephemeral,bitwarden-ephemeral,system-monitor-ephemeral
-
-[bitwarden-ephemeral]
-Description=Keep Bitwarden out of persistent window lists
-skippager=true
-skippagerrule=2
-skipswitcher=true
-skipswitcherrule=2
-skiptaskbar=true
-skiptaskbarrule=2
-wmclass=bitwarden
-wmclassmatch=1
-
-[nemo-skip-taskbar]
-Description=Keep Nemo out of persistent window lists
-skippager=true
-skippagerrule=2
-skipswitcher=true
-skipswitcherrule=2
-skiptaskbar=true
-skiptaskbarrule=2
-wmclass=nemo
-wmclassmatch=1
+count=5
+rules=emoji-selector-ephemeral,emoji-picker-ephemeral,flameshot-ephemeral,system-settings-ephemeral,system-monitor-ephemeral
 
 [emoji-selector-ephemeral]
 Description=Keep Emoji Selector out of persistent window lists

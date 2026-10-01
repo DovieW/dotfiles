@@ -38,7 +38,6 @@
     "hidden_items": [
       "org.kde.plasma.notifications",
       "org.kde.plasma.brightness",
-      "Bitwarden_status_icon_1",
       "org.kde.plasma.devicenotifier",
       "org.kde.kscreen",
       "org.kde.kdeconnect",

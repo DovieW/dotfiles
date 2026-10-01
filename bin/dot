@@ -1930,6 +1930,39 @@ def configure_nemo_default() -> int:
     return int(current != "nemo.desktop")
 
 
+RETIRED_WINDOW_HIDING_RULES = (
+    "bitwarden-ephemeral", "nemo-skip-taskbar", "dolphin-skip-taskbar",
+)
+
+
+def remove_retired_window_hiding_rules() -> int:
+    """Remove only the old Bitwarden and file-manager window exclusions."""
+    path = Path.home() / ".config/kwinrulesrc"
+    if not path.is_file():
+        return 0
+    original = path.read_bytes()
+    names = (kconfig_get(original, "General", "rules") or "").split(",")
+    names = [name for name in names if name and name not in RETIRED_WINDOW_HIDING_RULES]
+    section = ""
+    lines = []
+    for line in original.decode("utf-8").splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+        if section in RETIRED_WINDOW_HIDING_RULES:
+            continue
+        if section == "General" and stripped.startswith("rules="):
+            line = "rules=" + ",".join(names) + "\n"
+        elif section == "General" and stripped.startswith("count="):
+            line = f"count={len(names)}\n"
+        lines.append(line)
+    content = "".join(lines).encode("utf-8")
+    if content == original:
+        return 0
+    backup_paths([path])
+    return int(atomic_bytes(path, content))
+
+
 def configure_nemo_file_manager() -> int:
     """Apply only file-manager settings, preserving other live KDE choices."""
     require_commands(
@@ -1979,21 +2012,7 @@ def configure_nemo_file_manager() -> int:
     write_key("kwinrc", "Plugins", "dot-nemoEnabled", "true")
     write_key("kglobalshortcutsrc", "kwin", "dot-dolphin", "none,none,Open or Focus Dolphin")
     write_key("kglobalshortcutsrc", "kwin", "dot-nemo", "Meta+E,none,Open or Focus Nemo")
-    rules_path = Path.home() / ".config/kwinrulesrc"
-    rules_content = rules_path.read_bytes() if rules_path.exists() else b""
-    rule_names = (kconfig_get(rules_content, "General", "rules") or "").split(",")
-    rule_names = list(dict.fromkeys(
-        name for name in rule_names if name and name != "dolphin-skip-taskbar"
-    ))
-    if "nemo-skip-taskbar" not in rule_names:
-        rule_names.append("nemo-skip-taskbar")
-    write_key("kwinrulesrc", "General", "rules", ",".join(rule_names))
-    write_key("kwinrulesrc", "General", "count", str(len(rule_names)))
-    source_rule = kde_section_blocks(kde_source(".config/kwinrulesrc").read_bytes())["nemo-skip-taskbar"]
-    for line in source_rule:
-        if "=" in line:
-            key, value = line.strip().split("=", 1)
-            write_key("kwinrulesrc", "nemo-skip-taskbar", key, value)
+    remove_retired_window_hiding_rules()
     configure_nemo_default()
     run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
     deadline = time.monotonic() + 5
@@ -10966,25 +10985,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if window_desktop_shortcuts_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
-        nemo_taskbar_ok = all(
-            value in nemo_rules
-            for value in (
-                "wmclass=nemo",
-                "wmclassmatch=1",
-                "skippager=true",
-                "skippagerrule=2",
-                "skipswitcher=true",
-                "skipswitcherrule=2",
-                "skiptaskbar=true",
-                "skiptaskbarrule=2",
-            )
+        normal_visibility_ok = all(
+            f"[{name}]" not in nemo_rules for name in RETIRED_WINDOW_HIDING_RULES
         )
         failures += not doctor_check(
-            "Nemo taskbar rule",
-            nemo_taskbar_ok,
-            "hidden from the taskbar, pager, and Alt+Tab"
-            if nemo_taskbar_ok
-            else "run dot apply --profile kubuntu-laptop --tags kde",
+            "Bitwarden and file manager visibility",
+            normal_visibility_ok,
+            "normal taskbar, pager, and Alt+Tab visibility"
+            if normal_visibility_ok
+            else "run dot apply --profile kubuntu-laptop --direct --tags file-manager",
         )
         emoji_ephemeral_ok = all(
             value in nemo_rules
@@ -11046,26 +11055,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             system_settings_ephemeral_ok,
             "absent from the taskbar, pager, and Alt+Tab"
             if system_settings_ephemeral_ok
-            else "run dot apply --profile kubuntu-laptop --tags kde",
-        )
-        bitwarden_ephemeral_ok = all(
-            value in nemo_rules
-            for value in (
-                "[bitwarden-ephemeral]",
-                "wmclass=bitwarden",
-                "skippager=true",
-                "skippagerrule=2",
-                "skipswitcher=true",
-                "skipswitcherrule=2",
-                "skiptaskbar=true",
-                "skiptaskbarrule=2",
-            )
-        )
-        failures += not doctor_check(
-            "Bitwarden window rule",
-            bitwarden_ephemeral_ok,
-            "absent from the taskbar, pager, and Alt+Tab"
-            if bitwarden_ephemeral_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         system_monitor_ephemeral_ok = all(

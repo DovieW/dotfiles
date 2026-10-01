@@ -28,7 +28,8 @@ dot apply --profile kubuntu-desktop --tags file-manager
 ```
 
 Use `kubuntu-laptop` on a laptop. This targeted apply backs up and updates only
-the file-manager keys, launcher, and window rule. Unrelated KDE drift remains
+the file-manager keys and launcher, and removes retired window-hiding rules
+for Bitwarden and file managers. Unrelated KDE drift remains
 available for review with `dot diff kde`; a full apply still protects it.
 File-manager packages install without APT's optional recommended packages,
 keeping Nautilus's recommendations from pulling in another desktop and login
