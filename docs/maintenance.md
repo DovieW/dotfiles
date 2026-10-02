@@ -20,7 +20,7 @@ metadata rather than reporting an installed package as missing.
 
 ## Apply only file-manager settings
 
-To install the Kubuntu file managers and make Nemo the folder and Meta+E
+To install the Kubuntu file managers and make Dolphin the folder and Meta+E
 default without replacing other live KDE settings:
 
 ```bash

@@ -2904,7 +2904,7 @@ class DotCliTests(unittest.TestCase):
         self.assertIn('"KWin screen edges"', cli)
         self.assertIn('"KRunner application palette"', cli)
 
-    def test_meta_e_uses_one_normally_visible_nemo_window(self):
+    def test_meta_e_uses_one_normally_visible_dolphin_window(self):
         cli = DOT.read_text()
         shortcuts = (
             ROOT / "config/kde/.config/kglobalshortcutsrc"
@@ -2912,21 +2912,21 @@ class DotCliTests(unittest.TestCase):
         kwin = (ROOT / "config/kde/.config/kwinrc").read_text()
         rules = (ROOT / "config/kde/.config/kwinrulesrc").read_text()
         script = (
-            ROOT / "config/kwin/dot-nemo/contents/code/main.js"
+            ROOT / "config/kwin/dot-dolphin/contents/code/main.js"
         ).read_text()
         service = (
-            ROOT / "config/systemd/user/dot-nemo-launch.service"
+            ROOT / "config/systemd/user/dot-dolphin-launch.service"
         ).read_text()
         metadata = (
-            ROOT / "config/kwin/dot-nemo/metadata.json"
+            ROOT / "config/kwin/dot-dolphin/metadata.json"
         ).read_text()
 
-        self.assertIn("dot-nemoEnabled=true", kwin)
-        self.assertIn("dot-nemo=Meta+E", shortcuts)
+        self.assertIn("dot-dolphinEnabled=true", kwin)
+        self.assertIn("dot-dolphin=Meta+E", shortcuts)
         self.assertIn("_launch=none,Meta+E,Dolphin", shortcuts)
-        self.assertIn("dot-dolphinEnabled=false", kwin)
-        self.assertIn("dot-dolphin=none,none", shortcuts)
-        self.assertNotIn("wmclass=nemo", rules)
+        self.assertIn("dot-nemoEnabled=false", kwin)
+        self.assertIn("dot-nemo=none,none", shortcuts)
+        self.assertNotIn("wmclass=dolphin", rules)
         self.assertNotIn("wmclass=org.kde.dolphin", rules)
         self.assertNotIn("wmclass=bitwarden", rules)
         self.assertIn(
@@ -2956,18 +2956,18 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("wmclass=org.kde.plasma-systemmonitor", rules)
         self.assertIn("workspace.stackingOrder", script)
         self.assertIn("workspace.activeWindow = window", script)
-        self.assertIn("dot-nemo-launch.service", script)
+        self.assertIn("dot-dolphin-launch.service", script)
         self.assertIn('plugin_key = f"{script_name}Enabled"', cli)
         self.assertIn("registerShortcut(", script)
         self.assertIn('"KPackageStructure": "KWin/Script"', metadata)
-        self.assertIn("ExecStart=/usr/bin/nemo", service)
+        self.assertIn("ExecStart=/usr/bin/dolphin", service)
         self.assertIn('".config/kwinrulesrc"', cli)
-        self.assertIn('"config/kwin/dot-nemo/metadata.json"', cli)
-        self.assertIn('"config/kwin/dot-nemo/contents/code/main.js"', cli)
+        self.assertIn('"config/kwin/dot-dolphin/metadata.json"', cli)
+        self.assertIn('"config/kwin/dot-dolphin/contents/code/main.js"', cli)
         self.assertIn('"systemctl", "--user", "daemon-reload"', cli)
         self.assertIn('"org.kde.KGlobalAccel.unregister"', cli)
         self.assertIn('"dot-obsidian": ()', cli)
-        self.assertIn('"Nemo singleton shortcut"', cli)
+        self.assertIn('"Dolphin singleton shortcut"', cli)
         self.assertIn('"Bitwarden and file manager visibility"', cli)
 
     def test_obsidian_launcher_is_desktop_aware(self):

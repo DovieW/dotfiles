@@ -14,12 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FileManagerTests(unittest.TestCase):
-    def test_first_full_apply_installs_and_runs_nemo_before_activating_its_shortcut(self):
+    def test_first_full_apply_installs_and_runs_dolphin_before_activating_its_shortcut(self):
         module = runpy.run_path(str(ROOT / "bin/dot"))
         apply = module["apply_direct"]
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            script = home / ".local/share/kwin/scripts/dot-nemo/contents/code/main.js"
+            script = home / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js"
             loaded = set()
             activations = []
 
@@ -44,10 +44,10 @@ class FileManagerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, returncode, output, "")
 
             def activate(desired, **kwargs):
-                if any(action[1] == "dot-nemo" for action in desired):
-                    self.assertTrue(script.is_file(), "Nemo's script has not been installed yet")
-                    self.assertIn("dot-nemo", loaded, "Nemo's script has not registered its shortcut yet")
-                    activations.append("nemo")
+                if any(action[1] == "dot-dolphin" for action in desired):
+                    self.assertTrue(script.is_file(), "Dolphin's script has not been installed yet")
+                    self.assertIn("dot-dolphin", loaded, "Dolphin's script has not registered its shortcut yet")
+                    activations.append("dolphin")
                 else:
                     activations.append("other")
 
@@ -65,7 +65,7 @@ class FileManagerTests(unittest.TestCase):
                     "record_kde_baseline": mock.Mock(),
                     "configure_desktop_wallet_check": mock.Mock(return_value=0),
                     "provision_lockscreen_assets": mock.Mock(return_value=0),
-                    "configure_nemo_default": mock.Mock(return_value=0),
+                    "configure_dolphin_default": mock.Mock(return_value=0),
                     "managed_clipboard_callback_ok": mock.Mock(return_value=True),
                     "managed_screenshot_callback_ok": mock.Mock(return_value=True),
                     "activate_kglobal_shortcuts": activate,
@@ -76,8 +76,8 @@ class FileManagerTests(unittest.TestCase):
             ):
                 self.assertFalse(script.exists())
                 apply("kubuntu-laptop")
-            self.assertIn("nemo", activations)
-            self.assertNotEqual(activations[0], "nemo")
+            self.assertIn("dolphin", activations)
+            self.assertNotEqual(activations[0], "dolphin")
 
     def test_clipboard_shortcuts_do_not_require_desktop_scripts(self):
         module = runpy.run_path(str(ROOT / "bin/dot"))
@@ -88,6 +88,7 @@ class FileManagerTests(unittest.TestCase):
         actions = {action[1] for action in activate.call_args.args[0]}
         self.assertIn("dot-copyq-history-meta", actions)
         self.assertIn("dot-clipboard-probe", actions)
+        self.assertNotIn("dot-dolphin", actions)
         self.assertNotIn("dot-nemo", actions)
         self.assertNotIn("dot-brightness-up", actions)
         self.assertNotIn("dot-window-desktop-left", actions)
@@ -98,7 +99,7 @@ class FileManagerTests(unittest.TestCase):
     )
     def test_targeted_apply_preserves_other_settings_and_is_repeatable(self):
         module = runpy.run_path(str(ROOT / "bin/dot"))
-        configure = module["configure_nemo_file_manager"]
+        configure = module["configure_dolphin_file_manager"]
         native_run = module["run"]
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -107,7 +108,7 @@ class FileManagerTests(unittest.TestCase):
             config.mkdir()
             apps.mkdir(parents=True)
             fixtures = {
-                "kwinrc": "[Desktops]\nNumber=2\n[Xwayland]\nScale=2.35\n[Plugins]\ndot-dolphinEnabled=true\notherEnabled=true\n",
+                "kwinrc": "[Desktops]\nNumber=2\n[Xwayland]\nScale=2.35\n[Plugins]\ndot-dolphinEnabled=false\ndot-nemoEnabled=true\notherEnabled=true\n",
                 "kwinrulesrc": (
                     "[General]\ncount=4\nrules=other-rule,dolphin-skip-taskbar,nemo-skip-taskbar,bitwarden-ephemeral\n"
                     "[other-rule]\nwmclass=keep-me\n"
@@ -115,9 +116,9 @@ class FileManagerTests(unittest.TestCase):
                     "[nemo-skip-taskbar]\nwmclass=nemo\nskipswitcher=true\n"
                     "[bitwarden-ephemeral]\nwmclass=bitwarden\nskippager=true\n"
                 ),
-                "kglobalshortcutsrc": "[kwin]\nCustom=Ctrl+Alt+F,none,Keep this\ndot-dolphin=Meta+E,none,Open or Focus Dolphin\n",
-                "mimeapps.list": "[Default Applications]\ninode/directory=org.kde.dolphin.desktop;\ntext/plain=editor.desktop;\n",
-                "kde-mimeapps.list": "[Default Applications]\ninode/directory=org.kde.dolphin.desktop;\napplication/pdf=reader.desktop;\n",
+                "kglobalshortcutsrc": "[kwin]\nCustom=Ctrl+Alt+F,none,Keep this\ndot-nemo=Meta+E,none,Open or Focus Nemo\n",
+                "mimeapps.list": "[Default Applications]\ninode/directory=nemo.desktop;\ntext/plain=editor.desktop;\n",
+                "kde-mimeapps.list": "[Default Applications]\ninode/directory=nemo.desktop;\napplication/pdf=reader.desktop;\n",
                 "kcminputrc": "[Touchpad]\nDisableWhileTyping=false\n",
                 "powerdevilrc": "[AC][Performance]\nPowerProfile=performance\n",
             }
@@ -160,8 +161,8 @@ class FileManagerTests(unittest.TestCase):
                 ("Desktops", "Number", "2"),
                 ("Xwayland", "Scale", "2.35"),
                 ("Plugins", "otherEnabled", "true"),
-                ("Plugins", "dot-dolphinEnabled", "false"),
-                ("Plugins", "dot-nemoEnabled", "true"),
+                ("Plugins", "dot-dolphinEnabled", "true"),
+                ("Plugins", "dot-nemoEnabled", "false"),
             ):
                 self.assertEqual(get((config / "kwinrc").read_bytes(), section, key), value)
             self.assertEqual(get((config / "kwinrulesrc").read_bytes(), "other-rule", "wmclass"), "keep-me")
@@ -170,6 +171,10 @@ class FileManagerTests(unittest.TestCase):
             for name in module["RETIRED_WINDOW_HIDING_RULES"]:
                 self.assertNotIn(f"[{name}]", (config / "kwinrulesrc").read_text())
             self.assertIn("Custom=Ctrl+Alt+F,none,Keep this", (config / "kglobalshortcutsrc").read_text())
+            self.assertEqual(get((config / "kglobalshortcutsrc").read_bytes(), "kwin", "dot-dolphin"), "Meta+E,none,Open or Focus Dolphin")
+            self.assertEqual(get((config / "kglobalshortcutsrc").read_bytes(), "kwin", "dot-nemo"), "none,none,Open or Focus Nemo")
+            for name in ("mimeapps.list", "kde-mimeapps.list"):
+                self.assertEqual(get((config / name).read_bytes(), "Default Applications", "inode/directory").rstrip(";"), "org.kde.dolphin.desktop")
             self.assertIn("text/plain=editor.desktop;", (config / "mimeapps.list").read_text())
             self.assertIn("application/pdf=reader.desktop;", (config / "kde-mimeapps.list").read_text())
             for name in ("kcminputrc", "powerdevilrc"):
@@ -181,7 +186,7 @@ class FileManagerTests(unittest.TestCase):
         configure = mock.Mock(return_value=3)
         with (
             mock.patch.dict(apply.__globals__, {
-                "configure_nemo_file_manager": configure,
+                "configure_dolphin_file_manager": configure,
                 "check_kde_apply_conflicts": mock.Mock(side_effect=AssertionError("full KDE preflight")),
                 "copy_managed_kde_file": mock.Mock(side_effect=AssertionError("full KDE copy")),
             }),

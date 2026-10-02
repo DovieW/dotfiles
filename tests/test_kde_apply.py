@@ -180,13 +180,13 @@ class KdeApplyTests(unittest.TestCase):
                 path.write_bytes(live)
                 self.assertEqual(self.module["kde_destination_content"](relative, source, path), live)
 
-    def test_retired_dolphin_binding_migrates_to_nemo(self):
-        source = b"[kwin]\ndot-dolphin=none,none,Open or Focus Dolphin\ndot-nemo=Meta+E,none,Open or Focus Nemo\n"
-        live = b"[kwin]\ndot-dolphin=Meta+E,none,Open or Focus Dolphin\n"
+    def test_retired_nemo_binding_migrates_to_dolphin(self):
+        source = b"[kwin]\ndot-nemo=none,none,Open or Focus Nemo\ndot-dolphin=Meta+E,none,Open or Focus Dolphin\n"
+        live = b"[kwin]\ndot-nemo=Meta+E,none,Open or Focus Nemo\n"
         merged, review = self.module["kde_merge_plan"](".config/kglobalshortcutsrc", source, live)
         self.assertEqual(review, [])
-        self.assertEqual(merged[("kwin", "dot-dolphin")], "none,none,Open or Focus Dolphin")
-        self.assertEqual(merged[("kwin", "dot-nemo")], "Meta+E,none,Open or Focus Nemo")
+        self.assertEqual(merged[("kwin", "dot-nemo")], "none,none,Open or Focus Nemo")
+        self.assertEqual(merged[("kwin", "dot-dolphin")], "Meta+E,none,Open or Focus Dolphin")
 
     def test_preserving_one_preference_does_not_acknowledge_changes_to_other_keys(self):
         self.fixture("[General]\nAnimation=0\nA=1\n", "[General]\nAnimation=0.1\nA=1\n", "[General]\nAnimation=0\nA=1\n")

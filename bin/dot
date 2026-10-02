@@ -1409,8 +1409,8 @@ def kde_merge_plan(
                 if not all(current.get(entry) == value for entry, value in palette.items()):
                     review.append(key)
                 continue
-        if relative == ".config/kglobalshortcutsrc" and key == ("kwin", "dot-dolphin") and wanted == "none,none,Open or Focus Dolphin":
-            # This is the explicitly requested Dolphin-to-Nemo migration,
+        if relative == ".config/kglobalshortcutsrc" and key == ("kwin", "dot-nemo") and wanted == "none,none,Open or Focus Nemo":
+            # This is the explicitly requested Nemo-to-Dolphin migration,
             # not a user preference to revive the retired script's binding.
             merged[key] = wanted
             continue
@@ -1831,12 +1831,12 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         "Dolphin",
         "Dolphin",
     )
-    retired_dolphin = ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin")
-    nemo = (
+    retired_nemo = ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo")
+    dolphin = (
         "kwin",
-        "dot-nemo",
+        "dot-dolphin",
         "KWin",
-        "Open or Focus Nemo",
+        "Open or Focus Dolphin",
     )
     stock_switch_window_left = (
         "kwin",
@@ -1952,10 +1952,10 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         # KWin scripts register after the static shortcut file is loaded. Move
         # their bindings from the stock actions into the live script actions.
         stock_dolphin: [0],
-        retired_dolphin: [0],
+        retired_nemo: [0],
         stock_switch_window_left: [0],
         stock_switch_window_right: [0],
-        nemo: [268435525],
+        dolphin: [268435525],
         window_desktop_left: [419430418],
         window_desktop_right: [419430420],
         # CopyQ replaces Klipper; the dedicated picker inserts emoji directly.
@@ -2173,17 +2173,17 @@ def configure_desktop_wallet_check() -> int:
     return changes
 
 
-def configure_nemo_default() -> int:
+def configure_dolphin_default() -> int:
     """Set the folder handler without replacing unrelated MIME preferences."""
     if not command_exists("xdg-mime"):
-        raise DotError("xdg-mime is required to set Nemo as the default file manager.")
+        raise DotError("xdg-mime is required to set Dolphin as the default file manager.")
     current = run(
         ["xdg-mime", "query", "default", "inode/directory"],
         check=False,
         capture=True,
     ).stdout.strip()
-    # Write an explicit preference even if the MIME cache already favors Nemo.
-    run(["xdg-mime", "default", "nemo.desktop", "inode/directory"])
+    # Write an explicit preference even if the MIME cache already favors Dolphin.
+    run(["xdg-mime", "default", "org.kde.dolphin.desktop", "inode/directory"])
     # Desktop-specific preferences take precedence over the generic file that
     # xdg-mime writes. Reconcile this one key if KDE has its own preferences.
     kde_mimeapps = Path(
@@ -2196,16 +2196,16 @@ def configure_nemo_default() -> int:
             [
                 "kwriteconfig6", "--file", str(kde_mimeapps),
                 "--group", "Default Applications", "--key", "inode/directory",
-                "nemo.desktop;",
+                "org.kde.dolphin.desktop;",
             ]
         )
     actual = run(
         ["xdg-mime", "query", "default", "inode/directory"],
         capture=True,
     ).stdout.strip()
-    if actual != "nemo.desktop":
-        raise DotError(f"Nemo's folder default did not activate (reported {actual!r}).")
-    return int(current != "nemo.desktop")
+    if actual != "org.kde.dolphin.desktop":
+        raise DotError(f"Dolphin's folder default did not activate (reported {actual!r}).")
+    return int(current != "org.kde.dolphin.desktop")
 
 
 RETIRED_WINDOW_HIDING_RULES = (
@@ -2241,10 +2241,10 @@ def remove_retired_window_hiding_rules() -> int:
     return int(atomic_bytes(path, content))
 
 
-def configure_nemo_file_manager() -> int:
+def configure_dolphin_file_manager() -> int:
     """Apply only file-manager settings, preserving other live KDE choices."""
     require_commands(
-        ["nemo", "kwriteconfig6", "qdbus6", "gdbus", "systemctl"],
+        ["dolphin", "kwriteconfig6", "qdbus6", "gdbus", "systemctl"],
         "Run dot apply --profile PROFILE --tags file-manager to install prerequisites.",
     )
     files = [Path.home() / ".config" / name for name in (
@@ -2266,48 +2266,48 @@ def configure_nemo_file_manager() -> int:
         ])
 
     for relative in (
-        "config/kwin/dot-nemo/metadata.json",
-        "config/kwin/dot-nemo/contents/code/main.js",
-        "config/systemd/user/dot-nemo-launch.service",
+        "config/kwin/dot-dolphin/metadata.json",
+        "config/kwin/dot-dolphin/contents/code/main.js",
+        "config/systemd/user/dot-dolphin-launch.service",
     ):
         destination = (
             Path.home() / ".local/share/kwin/scripts" / relative.removeprefix("config/kwin/")
             if relative.startswith("config/kwin/")
-            else Path.home() / ".config/systemd/user/dot-nemo-launch.service"
+            else Path.home() / ".config/systemd/user/dot-dolphin-launch.service"
         )
         changes += int(copy_managed_file(ROOT / relative, destination))
     run(["systemctl", "--user", "daemon-reload"])
-    for script_name in ("dot-dolphin", "dot-nemo"):
+    for script_name in ("dot-nemo", "dot-dolphin"):
         run([
             "qdbus6", "org.kde.KWin", "/Scripting",
             "org.kde.kwin.Scripting.unloadScript", script_name,
         ], check=False, capture=True)
     # Reconfigure through a disabled state so an already enabled plugin is
     # recreated after its files change, even after a manual raw-script unload.
-    write_key("kwinrc", "Plugins", "dot-nemoEnabled", "false")
-    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
     write_key("kwinrc", "Plugins", "dot-dolphinEnabled", "false")
-    write_key("kwinrc", "Plugins", "dot-nemoEnabled", "true")
-    write_key("kglobalshortcutsrc", "kwin", "dot-dolphin", "none,none,Open or Focus Dolphin")
-    write_key("kglobalshortcutsrc", "kwin", "dot-nemo", "Meta+E,none,Open or Focus Nemo")
+    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+    write_key("kwinrc", "Plugins", "dot-nemoEnabled", "false")
+    write_key("kwinrc", "Plugins", "dot-dolphinEnabled", "true")
+    write_key("kglobalshortcutsrc", "kwin", "dot-nemo", "none,none,Open or Focus Nemo")
+    write_key("kglobalshortcutsrc", "kwin", "dot-dolphin", "Meta+E,none,Open or Focus Dolphin")
     remove_retired_window_hiding_rules()
-    configure_nemo_default()
+    configure_dolphin_default()
     run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         loaded = run([
             "qdbus6", "org.kde.KWin", "/Scripting",
-            "org.kde.kwin.Scripting.isScriptLoaded", "dot-nemo",
+            "org.kde.kwin.Scripting.isScriptLoaded", "dot-dolphin",
         ], capture=True).stdout.strip()
         if loaded == "true":
             break
         time.sleep(0.1)
     else:
-        raise DotError("KWin did not load Nemo's Meta+E script; log out and back in.")
+        raise DotError("KWin did not load Dolphin's Meta+E script; log out and back in.")
     activate_kglobal_shortcuts({
         ("org.kde.dolphin.desktop", "_launch", "Dolphin", "Dolphin"): [0],
-        ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin"): [0],
-        ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo"): [268435525],
+        ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo"): [0],
+        ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin"): [268435525],
     })
     return changes + sum(
         (path.read_bytes() if path.exists() else None) != original
@@ -2332,7 +2332,7 @@ def apply_direct(
         return apply_all or bool(selected_tags.intersection(tags))
 
     if features.get("kde") and selected("file-manager") and not selected("kde"):
-        changes += configure_nemo_file_manager()
+        changes += configure_dolphin_file_manager()
 
     if features.get("kde") and selected("kde", "git", "wallet"):
         changes += configure_desktop_wallet_check()
@@ -3079,8 +3079,8 @@ def apply_direct(
             ROOT / "config/ghostty/config": Path.home() / ".config/ghostty/config",
             ROOT / "scripts/kscreen-doctor": Path.home() / ".local/bin/kscreen-doctor",
             ROOT / "scripts/obsidian-launch": Path.home() / ".local/bin/dot-obsidian-launch",
-            ROOT / "config/kwin/dot-nemo/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-nemo/metadata.json",
-            ROOT / "config/kwin/dot-nemo/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-nemo/contents/code/main.js",
+            ROOT / "config/kwin/dot-dolphin/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-dolphin/metadata.json",
+            ROOT / "config/kwin/dot-dolphin/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
             ROOT / "config/kwin/dot-hardware-keys/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-hardware-keys/metadata.json",
             ROOT / "config/kwin/dot-hardware-keys/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-hardware-keys/contents/code/main.js",
             ROOT / "config/kwin/dot-obsidian/metadata.json": Path.home() / ".local/share/kwin/scripts/dot-obsidian/metadata.json",
@@ -3089,7 +3089,7 @@ def apply_direct(
             ROOT / "config/kwin/dot-window-desktop/contents/code/main.js": Path.home() / ".local/share/kwin/scripts/dot-window-desktop/contents/code/main.js",
             ROOT / "config/kwin/tabbox-large-list/metadata.json": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/metadata.json",
             ROOT / "config/kwin/tabbox-large-list/contents/ui/main.qml": Path.home() / ".local/share/kwin/tabbox/io.github.doview.dotfiles.large-list/contents/ui/main.qml",
-            ROOT / "config/systemd/user/dot-nemo-launch.service": Path.home() / ".config/systemd/user/dot-nemo-launch.service",
+            ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/systemd/user/dot-obsidian-launch.service": Path.home() / ".config/systemd/user/dot-obsidian-launch.service",
             ROOT / "config/obsidian/dot-obsidian.desktop": Path.home() / ".local/share/applications/dot-obsidian.desktop",
             ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
@@ -3134,19 +3134,19 @@ def apply_direct(
         if command_exists("systemctl"):
             run(["systemctl", "--user", "daemon-reload"], check=False)
         if command_exists("qdbus6"):
-            # Retire the old live script before Nemo claims Meta+E. The false
-            # plugin setting also prevents Dolphin's script returning at login.
+            # Retire the old live script before Dolphin claims Meta+E. The false
+            # plugin setting also prevents Nemo's script returning at login.
             run(
                 [
                     "qdbus6", "org.kde.KWin", "/Scripting",
-                    "org.kde.kwin.Scripting.unloadScript", "dot-dolphin",
+                    "org.kde.kwin.Scripting.unloadScript", "dot-nemo",
                 ],
                 check=False,
                 capture=True,
             )
             kwin_scripts = {
-                "dot-nemo": Path.home()
-                / ".local/share/kwin/scripts/dot-nemo/contents/code/main.js",
+                "dot-dolphin": Path.home()
+                / ".local/share/kwin/scripts/dot-dolphin/contents/code/main.js",
                 "dot-hardware-keys": Path.home()
                 / ".local/share/kwin/scripts/dot-hardware-keys/contents/code/main.js",
                 "dot-obsidian": Path.home()
@@ -3155,7 +3155,7 @@ def apply_direct(
                 / ".local/share/kwin/scripts/dot-window-desktop/contents/code/main.js",
             }
             kwin_script_actions = {
-                "dot-nemo": ("dot-dolphin", "dot-nemo"),
+                "dot-dolphin": ("dot-nemo", "dot-dolphin"),
                 "dot-hardware-keys": (
                     "dot-brightness-down",
                     "dot-brightness-up",
@@ -3287,7 +3287,7 @@ def apply_direct(
             # desktop shortcuts only now that their actions exist.
             if command_exists("gdbus"):
                 sync_managed_kglobal_shortcuts()
-        changes += configure_nemo_default()
+        changes += configure_dolphin_default()
     if features.get("kde") and selected("kde", "display", "vscode", "config"):
         bitwarden_agent = Path.home() / ".bitwarden-ssh-agent.sock"
         os.environ["SSH_AUTH_SOCK"] = str(bitwarden_agent)
@@ -11117,47 +11117,49 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if nemo_rules_path.exists()
             else ""
         )
-        nemo_script_loaded = False
+        dolphin_script_loaded = False
         if command_exists("qdbus6"):
-            nemo_script = run(
+            dolphin_script = run(
                 [
                     "qdbus6",
                     "org.kde.KWin",
                     "/Scripting",
                     "org.kde.kwin.Scripting.isScriptLoaded",
-                    "dot-nemo",
+                    "dot-dolphin",
                 ],
                 check=False,
                 capture=True,
             )
-            nemo_script_loaded = (
-                nemo_script.returncode == 0
-                and nemo_script.stdout.strip() == "true"
+            dolphin_script_loaded = (
+                dolphin_script.returncode == 0
+                and dolphin_script.stdout.strip() == "true"
             )
         try:
-            nemo_shortcuts_ok = (
+            dolphin_shortcuts_ok = (
                 kglobal_shortcut(
-                    ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo")
+                    ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin")
                 )
                 == [268435525]
-                and kglobal_shortcut(
+                and not any(kglobal_shortcut(
                     ("org.kde.dolphin.desktop", "_launch", "Dolphin", "Dolphin")
-                )
-                == [0]
+                ))
+                and not any(kglobal_shortcut(
+                    ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo")
+                ))
             )
         except DotError:
-            nemo_shortcuts_ok = False
-        nemo_singleton_ok = (
-            nemo_shortcuts_ok
-            and "dot-nemoEnabled=true" in kwin
-            and "dot-dolphinEnabled=false" in kwin
-            and nemo_script_loaded
+            dolphin_shortcuts_ok = False
+        dolphin_singleton_ok = (
+            dolphin_shortcuts_ok
+            and "dot-dolphinEnabled=true" in kwin
+            and "dot-nemoEnabled=false" in kwin
+            and dolphin_script_loaded
         )
         failures += not doctor_check(
-            "Nemo singleton shortcut",
-            nemo_singleton_ok,
-            "Meta+E focuses one Nemo window"
-            if nemo_singleton_ok
+            "Dolphin singleton shortcut",
+            dolphin_singleton_ok,
+            "Meta+E focuses one Dolphin window"
+            if dolphin_singleton_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         folder_handler = (
@@ -11167,11 +11169,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ).stdout.strip()
             if command_exists("xdg-mime") else ""
         )
-        nemo_default_ok = command_exists("nemo") and folder_handler == "nemo.desktop"
+        dolphin_default_ok = command_exists("dolphin") and folder_handler == "org.kde.dolphin.desktop"
         failures += not doctor_check(
             "default file manager",
-            nemo_default_ok,
-            "Nemo opens folders" if nemo_default_ok
+            dolphin_default_ok,
+            "Dolphin opens folders" if dolphin_default_ok
             else "run dot apply --profile kubuntu-laptop --tags packages,kde",
         )
         obsidian_script_loaded = False

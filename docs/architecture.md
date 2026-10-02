@@ -421,11 +421,11 @@ manifest, and keeps the tray and locale-driven 12-hour clock on the right.
 After a scripted panel rebuild, apply restarts only Plasma Shell before
 validation; Plasma's Icon Tasks model otherwise may retain a launcher list in
 configuration while displaying only currently running windows.
-Nemo is the default folder handler on both Kubuntu profiles. Meta+E opens Nemo
+Dolphin is the default folder handler on both Kubuntu profiles. Meta+E opens Dolphin
 or focuses its existing window, switching to that window's virtual desktop.
 Bitwarden and file managers use normal taskbar, pager, and Alt+Tab visibility.
 Bitwarden's tray icon uses normal automatic visibility.
-Dolphin remains available, alongside Thunar and GNOME Files (Nautilus).
+Nemo remains available, alongside Thunar and GNOME Files (Nautilus).
 Meta opens Kickoff. Alt+Space opens a centered KRunner
 instance whose Applications provider is the only enabled runner. The panel's
 screen-edge highlight is disabled and its pointer activation delay is zero.

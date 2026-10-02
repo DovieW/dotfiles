@@ -1,0 +1,6 @@
+[Unit]
+Description=Launch the singleton Dolphin window
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/dolphin
