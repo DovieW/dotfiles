@@ -47,10 +47,16 @@ List backups under `~/.local/state/dotfiles/backups`, then run:
 dot rollback RUN_ID
 ```
 
-### KDE apply refuses local drift
+### KDE apply asks about different settings
 
-This means an allowlisted KDE file changed through System Settings or an
-application after its last deployment. Review it before choosing a direction:
+Interactive apply shows this computer's settings alongside the dotfiles
+settings before doing package upgrades. Choose **Keep** to remember local
+preferences, **Use** to apply the shared preferences, or **Skip** to leave that
+file for a later run. Routine KDE bookkeeping does not trigger a review.
+Non-interactive apply preserves local preferences and warns rather than
+stopping the other updates.
+
+To inspect changes or intentionally share a local preference:
 
 ```bash
 dot diff kde

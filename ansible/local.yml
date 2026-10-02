@@ -489,9 +489,13 @@
           - --direct
           - --tags
           - "{{ ansible_run_tags | join(',') }}"
-          # The outer dot process has already performed the authoritative KDE
-          # drift check. Do not repeat it in this nested direct-apply process.
-          - --force-kde
+      # The outer dot process has already reviewed local KDE preferences.
+      # Bypass a second review without forcing a replacement of local values.
+      environment:
+        DOTFILES_KDE_PREFLIGHT_OK: "1"
+        DOTFILES_KDE_CHOICES: "{{ lookup('env', 'DOTFILES_KDE_CHOICES') | default('{}', true) }}"
+        DOTFILES_KDE_REVIEW_VALUES: "{{ lookup('env', 'DOTFILES_KDE_REVIEW_VALUES') | default('{}', true) }}"
+        DOTFILES_FORCE_KDE: "{{ lookup('env', 'DOTFILES_FORCE_KDE') | default('0', true) }}"
       register: dot_direct_apply
       changed_when: >-
         'Applied ' in dot_direct_apply.stdout and

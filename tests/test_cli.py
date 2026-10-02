@@ -554,8 +554,8 @@ class DotCliTests(unittest.TestCase):
         task = playbook.split("- name: Apply portable configuration", 1)[1]
         task = task.split("- name: Configure native application window frames", 1)[0]
         self.assertIn("- --direct", task)
-        self.assertIn("- --force-kde", task)
-        self.assertNotIn("DOTFILES_KDE_PREFLIGHT_OK", task)
+        self.assertNotIn("- --force-kde", task)
+        self.assertIn('DOTFILES_KDE_PREFLIGHT_OK: "1"', task)
 
     def test_live_kde_shortcuts_retry_asynchronous_action_registration(self):
         module = runpy.run_path(str(DOT))
@@ -2225,32 +2225,26 @@ class DotCliTests(unittest.TestCase):
         self.assertIn("state: absent", playbook)
         self.assertIn("purge: true", playbook)
 
-    def test_kde_apply_refuses_uncaptured_local_drift(self):
+    def test_kde_apply_preserves_uncaptured_local_settings_without_a_terminal(self):
+        module = runpy.run_path(str(DOT))
+        check = module["check_kde_apply_conflicts"]
         with tempfile.TemporaryDirectory() as directory:
             fake_home = Path(directory)
             config = fake_home / ".config"
             config.mkdir()
-            shutil.copy2(ROOT / "config/kde/.config/kdeglobals", config / "kdeglobals")
             shortcuts = config / "kglobalshortcutsrc"
-            shortcuts.write_text("[local-change]\nshortcut=Meta+S\n")
-            env = os.environ.copy()
-            env["HOME"] = str(fake_home)
-            env["XDG_STATE_HOME"] = str(fake_home / ".local/state")
-            result = subprocess.run(
-                [
-                    str(DOT),
-                    "apply",
-                    "--profile",
-                    "kubuntu-laptop",
-                    "--direct",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Refusing to overwrite KDE configuration drift", result.stderr)
-            self.assertEqual(shortcuts.read_text(), "[local-change]\nshortcut=Meta+S\n")
+            shortcuts.write_text("[kwin]\nWindow Close=Meta+S,none,Close Window\n")
+            output = io.StringIO()
+            with (
+                mock.patch.object(Path, "home", return_value=fake_home),
+                mock.patch.dict(check.__globals__, {"KDE_BASELINE": fake_home / "baseline.json"}),
+                mock.patch.dict(os.environ, {"DOTFILES_KDE_CHOICES": "{}", "DOTFILES_KDE_REVIEW_VALUES": "{}"}),
+                mock.patch("sys.stdin.isatty", return_value=False),
+                contextlib.redirect_stderr(output),
+            ):
+                check(only={".config/kglobalshortcutsrc"})
+            self.assertIn("Keeping local Keyboard shortcuts preferences", output.getvalue())
+            self.assertEqual(shortcuts.read_text(), "[kwin]\nWindow Close=Meta+S,none,Close Window\n")
 
     def test_linux_shell_profile_installs_dot_command(self):
         source = (ROOT / "bin/dot").resolve()

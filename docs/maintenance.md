@@ -439,10 +439,26 @@ To capture only reviewed files, repeat `--only` with allowlisted basenames:
 dot capture kde --only spectaclerc --only kglobalshortcutsrc
 ```
 
-`dot apply` records the last deployed KDE hashes. If a managed live file has
-changed since that deployment, apply stops instead of overwriting it. Review
-with `dot diff kde` and capture the intended file. `--force-kde` is reserved
-for an intentional repository-to-machine replacement; backups are still made.
+`dot apply` reviews changed desktop preferences before upgrading packages or
+requesting administrator access. It shows this computer's setting alongside
+the dotfiles setting in plain language, then asks what to do with that file:
+
+- **Keep** preserves local preferences and remembers the choice on this computer.
+- **Use** applies the dotfiles preferences, with a backup of the replaced values.
+- **Skip** leaves the file's settings for a later run and does not remember a choice.
+
+Unrelated repository updates still apply when you keep a local preference.
+Key ordering, file-dialog history, notification bookkeeping, and generated
+shortcut names do not need review. A later change to either a kept preference
+or its dotfiles default asks again. Without an interactive terminal, local
+preferences are preserved with a warning; non-conflicting updates continue.
+Source snapshots and local choices stay under `~/.local/state/dotfiles` and
+are never captured into Git automatically. Existing hash-only baselines are
+migrated using local Git history when it is available.
+
+Review with `dot diff kde` and capture an intended shared preference explicitly
+with `dot capture kde --only NAME`. `--force-kde` remains an intentional
+repository-to-machine replacement; backups are still made.
 In an interactive terminal, `dot diff kde` uses Delta as its pager; redirected
 output remains a standard unified diff suitable for logs and automation.
 

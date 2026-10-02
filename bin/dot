@@ -145,6 +145,9 @@ KDE_IGNORED_KEYS = {
     ".config/spectaclerc": {
         ("ImageSave", "lastImageSaveLocation"),
     },
+    ".config/kdeglobals": {
+        ("General", "ColorSchemeHash"),
+    },
     ".config/plasmashellrc": {
         ("PlasmaViews][Panel 2", "alignment"),
         ("PlasmaViews][Panel 2", "floating"),
@@ -156,10 +159,12 @@ KDE_IGNORED_KEYS = {
     },
 }
 KDE_IGNORED_SECTIONS = {
+    ".config/kdeglobals": {"KFileDialog Settings"},
     ".config/kglobalshortcutsrc": {
         "services][com.mitchellh.ghostty.desktop",
         "services][org.kde.dolphin.desktop",
         "services][org.kde.krunner.desktop",
+        "services][org.kde.spectacle.desktop",
     },
     ".config/plasma-org.kde.plasma.desktop-appletsrc": {"ScreenMapping"},
     ".config/plasmashellrc": {"Updates", "PlasmaViews][Panel 2][Defaults"},
@@ -1188,6 +1193,10 @@ def portable_kde_content(relative: str, content: bytes) -> bytes:
         key = stripped.split("=", 1)[0] if "=" in stripped else ""
         if (section, key) in ignored_keys:
             continue
+        if relative == ".config/plasmanotifyrc" and section.startswith("Applications][") and key == "Seen":
+            continue
+        if relative == ".config/kglobalshortcutsrc" and key == "_k_friendly_name":
+            continue
         if (
             relative == ".config/kglobalshortcutsrc"
             and section == "plasmashell"
@@ -1246,7 +1255,7 @@ def kde_section_blocks(content: bytes) -> dict[str, list[str]]:
     return blocks
 
 
-def kde_destination_content(relative: str, source: bytes, destination: Path) -> bytes:
+def kde_replacement_content(relative: str, source: bytes, destination: Path) -> bytes:
     """Combine managed KDE state with host-local runtime residue."""
     managed = portable_kde_content(relative, source)
     if not destination.is_file() or destination.is_symlink():
@@ -1311,6 +1320,191 @@ def kde_digest(relative: str, path: Path) -> str:
     return hashlib.sha256(portable_kde_content(relative, path.read_bytes())).hexdigest()
 
 
+_KDE_LEGACY_SOURCES: dict[tuple[str, str], bytes | None] = {}
+
+
+def kde_values(content: bytes) -> dict[tuple[str, str], str]:
+    values: dict[tuple[str, str], str] = {}
+    section = ""
+    for line in content.decode("utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+        elif "=" in line and not stripped.startswith(("#", ";")):
+            key, value = line.split("=", 1)
+            values[(section, key.strip())] = value.strip()
+    return values
+
+
+def kde_previous_source(relative: str, source: bytes) -> bytes | None:
+    payload = load_json(KDE_BASELINE) if KDE_BASELINE.exists() else {}
+    snapshot = payload.get("sources", {}).get(relative)
+    if isinstance(snapshot, str):
+        return snapshot.encode("utf-8")
+    digest = payload.get("files", {}).get(relative)
+    if not digest:
+        return None
+    if hashlib.sha256(source).hexdigest() == digest:
+        return source
+    cache_key = (relative, str(digest))
+    if cache_key not in _KDE_LEGACY_SOURCES:
+        # Older installs saved hashes rather than content. Recover their last
+        # source from local Git history once; no network or live state is used.
+        recovered = None
+        try:
+            path = str(kde_source(relative).relative_to(ROOT))
+            history = run(
+                ["git", "log", "-n", "200", "--format=%H", "--", path],
+                cwd=ROOT, capture=True, check=False, timeout=5,
+            )
+            for commit in history.stdout.splitlines() if history.returncode == 0 else []:
+                previous = run(
+                    ["git", "show", f"{commit}:{path}"],
+                    cwd=ROOT, capture=True, check=False, timeout=5,
+                )
+                if previous.returncode:
+                    continue
+                candidate = portable_kde_content(relative, previous.stdout.encode("utf-8"))
+                if hashlib.sha256(candidate).hexdigest() == digest:
+                    recovered = candidate
+                    break
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        _KDE_LEGACY_SOURCES[cache_key] = recovered
+    return _KDE_LEGACY_SOURCES[cache_key]
+
+
+def kde_apply_choices() -> dict[str, str]:
+    return json.loads(os.environ.get("DOTFILES_KDE_CHOICES", "{}"))
+
+
+def kde_review_values(relative: str) -> dict[tuple[str, str], str | None]:
+    records = json.loads(os.environ.get("DOTFILES_KDE_REVIEW_VALUES", "{}"))
+    return {(section, key): value for section, key, value in records.get(relative, [])}
+
+
+def kde_merge_plan(
+    relative: str, source: bytes, live: bytes,
+) -> tuple[dict[tuple[str, str], str], list[tuple[str, str]]]:
+    """Apply repository changes while preserving independent local changes."""
+    source = portable_kde_content(relative, source)
+    desired = kde_values(source)
+    current = kde_values(portable_kde_content(relative, live))
+    previous_content = kde_previous_source(relative, source)
+    previous = kde_values(previous_content) if previous_content is not None else None
+    payload = load_json(KDE_BASELINE) if KDE_BASELINE.exists() else {}
+    kept_content = payload.get("preserved", {}).get(relative)
+    kept = {(section, key): value for section, key, value in kept_content} if isinstance(kept_content, list) else {}
+    merged = dict(current)
+    review = []
+    for key in sorted(set(desired) | set(previous or {})):
+        wanted, actual = desired.get(key), current.get(key)
+        if actual == wanted:
+            continue
+        if relative == ".config/kdeglobals" and key == ("General", "ColorScheme") and actual is None:
+            palette = {entry: value for entry, value in desired.items() if entry[0].startswith("Colors:")}
+            if palette and kconfig_get(live, "General", "ColorSchemeHash"):
+                # KDE can retain the palette and its hash without retaining
+                # the theme-name pointer. Review only a genuinely new palette.
+                if not all(current.get(entry) == value for entry, value in palette.items()):
+                    review.append(key)
+                continue
+        if relative == ".config/kglobalshortcutsrc" and key == ("kwin", "dot-dolphin") and wanted == "none,none,Open or Focus Dolphin":
+            # This is the explicitly requested Dolphin-to-Nemo migration,
+            # not a user preference to revive the retired script's binding.
+            merged[key] = wanted
+            continue
+        if previous is None:
+            if key not in current:
+                merged[key] = wanted
+                continue
+            acknowledged = False
+        else:
+            old = previous.get(key)
+            if actual == old:
+                if wanted is None:
+                    merged.pop(key, None)
+                else:
+                    merged[key] = wanted
+                continue
+            acknowledged = key in kept and kept[key] == actual and old == wanted
+        if not acknowledged:
+            review.append(key)
+    return merged, review
+
+
+def kde_edit_values(content: bytes, changes: dict[tuple[str, str], str | None]) -> bytes:
+    """Edit owned keys without replacing unrelated sections or comments."""
+    remaining = dict(changes)
+    lines = []
+    section = ""
+    for line in content.decode("utf-8").splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+        elif "=" in line and not stripped.startswith(("#", ";")):
+            key = (section, line.split("=", 1)[0].strip())
+            if key in changes:
+                if key in remaining and changes[key] is not None:
+                    lines.append(f"{key[1]}={changes[key]}\n")
+                remaining.pop(key, None)
+                continue
+        lines.append(line)
+    section = None
+    for (group, key), value in sorted(remaining.items()):
+        if value is None:
+            continue
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        if group != section:
+            lines.append(f"\n[{group}]\n" if group else "\n")
+            section = group
+        lines.append(f"{key}={value}\n")
+    return "".join(lines).encode("utf-8")
+
+
+def kde_preferences_match(relative: str) -> bool:
+    source = kde_source(relative)
+    live = Path.home() / relative
+    if not source.is_file() or not live.is_file():
+        return False
+    content = live.read_bytes()
+    merged, review = kde_merge_plan(relative, source.read_bytes(), content)
+    return not review and merged == kde_values(portable_kde_content(relative, content))
+
+
+def kde_destination_content(
+    relative: str, source: bytes, destination: Path, *, force: bool = False,
+) -> bytes:
+    if force or not destination.is_file() or destination.is_symlink():
+        return kde_replacement_content(relative, source, destination)
+    live = destination.read_bytes()
+    choice = kde_apply_choices().get(relative)
+    if choice == "skip":
+        protected = kde_review_values(relative)
+        current = kde_values(portable_kde_content(relative, live))
+        changes = {key: protected.get(key) for key in set(current) | set(protected) if current.get(key) != protected.get(key)}
+        return kde_edit_values(live, changes)
+    merged, _ = kde_merge_plan(relative, source, live)
+    current = kde_values(portable_kde_content(relative, live))
+    if choice == "replace":
+        managed = kde_values(portable_kde_content(relative, source))
+        previous = kde_previous_source(relative, portable_kde_content(relative, source))
+        for key in set(managed) | set(kde_values(previous) if previous is not None else {}):
+            if key in managed:
+                merged[key] = managed[key]
+            else:
+                merged.pop(key, None)
+    if choice != "replace":
+        for key, value in kde_review_values(relative).items():
+            if value is None:
+                merged.pop(key, None)
+            else:
+                merged[key] = value
+    changes = {key: merged.get(key) for key in set(current) | set(merged) if current.get(key) != merged.get(key)}
+    return kde_edit_values(live, changes)
+
+
 def copy_managed_kde_file(
     relative: str,
     source: Path,
@@ -1318,13 +1512,14 @@ def copy_managed_kde_file(
     *,
     backup: bool = True,
     profile_name: str | None = None,
+    force: bool = False,
 ) -> bool:
     source_content = (
         expected_kde_content(relative, profile_name)
         if source == kde_source(relative)
         else source.read_bytes()
     )
-    content = kde_destination_content(relative, source_content, destination)
+    content = kde_destination_content(relative, source_content, destination, force=force)
     mode = source.stat().st_mode & 0o777
     if (
         not destination.is_symlink()
@@ -1351,8 +1546,12 @@ def kde_baseline() -> dict[str, str]:
 
 
 def record_kde_baseline(panel_profile: str | None = None) -> None:
-    """Record only files whose repository and live copies currently agree."""
-    files: dict[str, str] = {}
+    """Remember applied source values and explicitly preserved preferences."""
+    payload = load_json(KDE_BASELINE) if KDE_BASELINE.exists() else {}
+    files = payload.get("files", {})
+    sources = payload.get("sources", {})
+    preserved = payload.get("preserved", {})
+    choices = kde_apply_choices()
     for relative in KDE_FILES:
         expected = kde_source(relative)
         actual = Path.home() / relative
@@ -1361,15 +1560,24 @@ def record_kde_baseline(panel_profile: str | None = None) -> None:
             and actual.is_file()
             and not actual.is_symlink()
         ):
-            expected_content = expected_kde_content(relative, panel_profile)
-            if portable_kde_content(
-                relative, expected_content
-            ) != portable_kde_content(relative, actual.read_bytes()):
+            if choices.get(relative) == "skip":
                 continue
-            files[relative] = hashlib.sha256(
-                portable_kde_content(relative, expected_content)
-            ).hexdigest()
-    payload = {"schema_version": 1, "files": files}
+            expected_content = portable_kde_content(relative, expected_kde_content(relative, panel_profile))
+            live = portable_kde_content(relative, actual.read_bytes())
+            if kde_values(expected_content) == kde_values(live):
+                preserved.pop(relative, None)
+            else:
+                merged, review = kde_merge_plan(relative, expected_content, live)
+                if merged != kde_values(live) or (review and choices.get(relative) != "keep"):
+                    continue
+                if choices.get(relative) == "keep":
+                    current, desired = kde_values(live), kde_values(expected_content)
+                    previous = kde_previous_source(relative, expected_content)
+                    owned = set(desired) | set(kde_values(previous) if previous is not None else {})
+                    preserved[relative] = [[section, key, current.get((section, key))] for section, key in sorted(owned) if current.get((section, key)) != desired.get((section, key))]
+            sources[relative] = expected_content.decode("utf-8")
+            files[relative] = hashlib.sha256(live).hexdigest()
+    payload = {"schema_version": 2, "files": files, "sources": sources, "preserved": preserved}
     atomic_text(KDE_BASELINE, json.dumps(payload, indent=2) + "\n", 0o600)
 
 
@@ -1380,8 +1588,7 @@ def check_kde_apply_conflicts(
 ) -> None:
     if force:
         return
-    baseline = kde_baseline()
-    conflicts: list[str] = []
+    choices = kde_apply_choices()
     for relative in KDE_FILES:
         if only is not None and relative not in only:
             continue
@@ -1389,31 +1596,74 @@ def check_kde_apply_conflicts(
         actual = Path.home() / relative
         if not expected.is_file() or not actual.is_file() or actual.is_symlink():
             continue
-        expected_digest = hashlib.sha256(
-            portable_kde_content(relative, expected_kde_content(relative))
-        ).hexdigest()
-        actual_digest = kde_digest(relative, actual)
-        if expected_digest == actual_digest:
+        if relative in choices:
             continue
-        previous_digest = baseline.get(relative)
-        if previous_digest is None:
-            reason = "has uncaptured local state"
-        elif actual_digest == previous_digest:
+        source = expected_kde_content(relative)
+        merged, review = kde_merge_plan(relative, source, actual.read_bytes())
+        desired = kde_values(portable_kde_content(relative, source))
+        current = kde_values(portable_kde_content(relative, actual.read_bytes()))
+        records = json.loads(os.environ.get("DOTFILES_KDE_REVIEW_VALUES", "{}"))
+        # Honor choices remembered by an earlier apply during live shortcut
+        # activation too, before helpers have a chance to rewrite the file.
+        acknowledged = {key: current.get(key) for key in desired if current.get(key) != desired.get(key) and key not in review and merged.get(key) == current.get(key)}
+        if acknowledged:
+            records[relative] = [[section, key, value] for (section, key), value in acknowledged.items()]
+            os.environ["DOTFILES_KDE_REVIEW_VALUES"] = json.dumps(records)
+        if not review:
             continue
-        elif expected_digest == previous_digest:
-            reason = "has newer local changes"
+        if not sys.stdin.isatty():
+            print(f"dot: Keeping local {KDE_LABELS.get(relative, Path(relative).name)} preferences. Run apply in a terminal to choose which settings to use.", file=sys.stderr)
+            records = json.loads(os.environ.get("DOTFILES_KDE_REVIEW_VALUES", "{}"))
+            current = kde_values(portable_kde_content(relative, actual.read_bytes()))
+            protected = {**acknowledged, **{key: current.get(key) for key in review}}
+            records[relative] = [[section, key, value] for (section, key), value in protected.items()]
+            os.environ["DOTFILES_KDE_REVIEW_VALUES"] = json.dumps(records)
+            continue
+        print(f"\n{KDE_LABELS.get(relative, Path(relative).name)}")
+        for section, key in review:
+            label = {
+                ("KDE", "AnimationDurationFactor"): "Desktop animations",
+                ("General", "ColorScheme"): "Color theme",
+                ("Xwayland", "Scale"): "Scale for older applications",
+                ("Plugins", "dot-dolphinEnabled"): "Dolphin file-manager shortcut",
+                ("Plugins", "dot-nemoEnabled"): "Nemo file-manager shortcut",
+            }.get((section, key), re.sub(r"(?<=[a-z])(?=[A-Z])", " ", key).replace("_", " "))
+            if relative == ".config/kglobalshortcutsrc":
+                value = desired.get((section, key)) or current.get((section, key)) or ""
+                application = section.removeprefix("services][").removeprefix("org.kde.").removesuffix(".desktop").replace("_", " ")
+                label = value.rsplit(",", 1)[-1] if "," in value else f"Open {application}" if key == "_launch" else f"{application}: {key}"
+            def display(value: str | None) -> str:
+                if value is None:
+                    return "not set"
+                if key == "AnimationDurationFactor":
+                    try:
+                        duration = float(value)
+                        return "animations off" if duration == 0 else "very short animations" if duration < 0.2 else "short animations" if duration < 1 else "normal animations" if duration == 1 else "longer animations"
+                    except ValueError:
+                        return value
+                if relative == ".config/kglobalshortcutsrc":
+                    shortcut = " or ".join(part for part in value.split(",", 1)[0].split("\\t") if part)
+                    return "no shortcut" if shortcut in {"", "none"} else shortcut
+                if value in {"true", "false"}:
+                    return "on" if value == "true" else "off"
+                return value or "empty"
+            print(f"  {label}\n    This computer: {display(current.get((section, key)))}\n    Dotfiles:      {display(desired.get((section, key)))}")
+        print("Keep remembers your choice on this computer. Use applies the dotfiles settings. Skip leaves these settings alone for this run.")
+        while True:
+            answer = input("[k] Keep this computer's settings / [u] Use dotfiles settings / [s] Skip for now [k]: ").strip().lower()
+            if answer in {"", "k", "keep", "u", "use", "s", "skip"}:
+                choices[relative] = "replace" if answer in {"u", "use"} else "skip" if answer in {"s", "skip"} else "keep"
+                break
+            print("Enter k, u, or s.")
+        os.environ["DOTFILES_KDE_CHOICES"] = json.dumps(choices)
+        if choices[relative] != "replace":
+            records = json.loads(os.environ.get("DOTFILES_KDE_REVIEW_VALUES", "{}"))
+            protected = current if choices[relative] == "skip" else {**acknowledged, **{key: current.get(key) for key in review}}
+            records[relative] = [[section, key, value] for (section, key), value in protected.items()]
+            os.environ["DOTFILES_KDE_REVIEW_VALUES"] = json.dumps(records)
         else:
-            reason = "changed both locally and in dotfiles"
-        conflicts.append(f"{actual} {reason}")
-    if conflicts:
-        detail = "\n  ".join(conflicts)
-        raise DotError(
-            "Refusing to overwrite KDE configuration drift:\n"
-            f"  {detail}\n"
-            "Review with `dot diff kde`, then capture the intended files with "
-            "`dot capture kde --only NAME`; use --force-kde only for an "
-            "intentional repository-to-machine replacement."
-        )
+            records.pop(relative, None)
+            os.environ["DOTFILES_KDE_REVIEW_VALUES"] = json.dumps(records)
 
 
 def kglobal_shortcut(action_id: tuple[str, str, str, str]) -> list[int]:
@@ -1481,6 +1731,16 @@ def activate_kglobal_shortcuts(
     timeout: float = 5.0,
 ) -> None:
     """Apply live shortcuts after asynchronous KWin action registration."""
+    if os.environ.get("DOTFILES_FORCE_KDE") != "1":
+        protected = kde_review_values(".config/kglobalshortcutsrc")
+        if kde_apply_choices().get(".config/kglobalshortcutsrc") == "skip":
+            return
+        desired = {
+            action: keys for action, keys in desired.items()
+            if not any((section, action[1]) in protected for section in (
+                action[0], action[0].replace(".", "_"), f"services][{action[0]}",
+            ))
+        }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
     deadline = time.monotonic() + timeout
     pending = list(desired)
@@ -2042,6 +2302,7 @@ def apply_direct(
     *,
     force_kde: bool = False,
     selected_tags: set[str] | None = None,
+    kde_preflight_done: bool = False,
 ) -> int:
     profile = load_profile(profile_name)
     features = profile.get("features", {})
@@ -2069,7 +2330,7 @@ def apply_direct(
             print(result.stdout, end="")
         changes += result.stdout.count("CHANGED ")
 
-    force_kde = force_kde or os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") == "1"
+    force_kde = force_kde or os.environ.get("DOTFILES_FORCE_KDE") == "1"
     lockscreen_files = {
         ".config/kscreenlockerrc",
         ".config/plasmashellrc",
@@ -2079,9 +2340,9 @@ def apply_direct(
         and selected("lockscreen")
         and not selected("kde")
     )
-    if features.get("kde") and selected("kde"):
+    if features.get("kde") and selected("kde") and not kde_preflight_done and os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") != "1":
         check_kde_apply_conflicts(force=force_kde)
-    elif lockscreen_only:
+    elif lockscreen_only and not kde_preflight_done and os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") != "1":
         check_kde_apply_conflicts(force=force_kde, only=lockscreen_files)
     if features.get("shell") and selected("shell", "tmux", "herdr"):
         mappings = {
@@ -2530,6 +2791,7 @@ def apply_direct(
                     relative,
                     kde_source(relative),
                     Path.home() / relative,
+                    force=force_kde,
                 )
             )
         changes += provision_lockscreen_assets()
@@ -2551,8 +2813,8 @@ def apply_direct(
             for relative, source, destination in candidates
             if destination.is_symlink()
             or not destination.exists()
-            or portable_kde_content(relative, destination.read_bytes())
-            != portable_kde_content(relative, source.read_bytes())
+            or destination.read_bytes()
+            != kde_destination_content(relative, source.read_bytes(), destination, force=force_kde)
         ]
         panel_files = {
             ".config/plasma-org.kde.plasma.desktop-appletsrc",
@@ -2599,6 +2861,7 @@ def apply_direct(
                     source,
                     destination,
                     backup=False,
+                    force=force_kde,
                 )
                 changes += int(file_changed)
                 if relative == ".config/powerdevilrc" and file_changed:
@@ -2640,6 +2903,8 @@ def apply_direct(
                         + (reconfigured.stderr.strip() or f"exit code {reconfigured.returncode}")
                     )
                 for effect_name in KWIN_DISABLED_EFFECTS:
+                    if kconfig_get((Path.home() / ".config/kwinrc").read_bytes(), "Plugins", f"{effect_name}Enabled") != "false":
+                        continue
                     run(
                         [
                             "qdbus6",
@@ -2650,6 +2915,8 @@ def apply_direct(
                         ]
                     )
                 for effect_name in KWIN_ENABLED_EFFECTS:
+                    if kconfig_get((Path.home() / ".config/kwinrc").read_bytes(), "Plugins", f"{effect_name}Enabled") != "true":
+                        continue
                     run(
                         [
                             "qdbus6",
@@ -2665,12 +2932,15 @@ def apply_direct(
                 # Plasma skips a same-theme request even when only its size
                 # changed. Toggle through the stock dark variant so both the
                 # theme and size are refreshed in the running Wayland session.
-                for cursor_theme in ("breeze_cursors", "Breeze_Light"):
+                mouse_config = (Path.home() / ".config/kcminputrc").read_bytes()
+                selected_cursor = kconfig_get(mouse_config, "Mouse", "cursorTheme") or "Breeze_Light"
+                selected_size = kconfig_get(mouse_config, "Mouse", "cursorSize") or "32"
+                for cursor_theme in ("breeze_cursors" if selected_cursor != "breeze_cursors" else "Breeze_Light", selected_cursor):
                     cursor_applied = run(
                         [
                             "plasma-apply-cursortheme",
                             "--size",
-                            "32",
+                            selected_size,
                             cursor_theme,
                         ],
                         check=False,
@@ -3418,6 +3688,23 @@ def upgrade_ansible_controller(
 
 
 def cmd_apply(args: argparse.Namespace) -> None:
+    """Keep per-run decisions from leaking into a later palette action."""
+    names = ("DOTFILES_KDE_CHOICES", "DOTFILES_KDE_REVIEW_VALUES", "DOTFILES_FORCE_KDE")
+    previous = {name: os.environ.get(name) for name in names}
+    try:
+        if os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") != "1":
+            for name in names:
+                os.environ.pop(name, None)
+        _cmd_apply(args)
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
     device_manifest: dict[str, Any] = {}
     device_config = CONFIG_DIR / "device.json"
@@ -3429,11 +3716,20 @@ def cmd_apply(args: argparse.Namespace) -> None:
             if loaded_manifest and loaded_manifest["profile"] == profile["name"]:
                 device_manifest = loaded_manifest
     selected_tags = set((args.tags or "").replace(",", " ").split())
-    upgrade_ansible_controller(profile, selected_tags, check=args.check)
     if profile.get("features", {}).get("kde"):
         inherit_graphical_session_environment()
     force_kde = getattr(args, "force_kde", False)
+    if force_kde:
+        os.environ["DOTFILES_FORCE_KDE"] = "1"
     skip_tags = getattr(args, "skip_tags", None)
+    # Review desktop preferences before upgrades or an administrator prompt.
+    kde_requested = profile.get("features", {}).get("kde") and (
+        not selected_tags or bool(selected_tags & {"all", "config", "kde", "lockscreen"})
+    ) and not args.check
+    if kde_requested and os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") != "1":
+        only = {".config/kscreenlockerrc", ".config/plasmashellrc"} if selected_tags == {"lockscreen"} else None
+        check_kde_apply_conflicts(force=force_kde, only=only)
+    upgrade_ansible_controller(profile, selected_tags, check=args.check)
     if args.direct or not command_exists("ansible-playbook"):
         direct_tags = set((args.tags or "").replace(",", " ").split())
         sleep_safety_selected = (
@@ -3456,20 +3752,6 @@ def cmd_apply(args: argparse.Namespace) -> None:
                 "rerun with Ansible to apply privileged power policy.",
                 file=sys.stderr,
             )
-        direct_kde_selected = (
-            not direct_tags
-            or "all" in direct_tags
-            or "config" in direct_tags
-            or "kde" in direct_tags
-            or "lockscreen" in direct_tags
-        )
-        if profile.get("features", {}).get("kde") and direct_kde_selected and not args.check:
-            only = (
-                {".config/kscreenlockerrc", ".config/plasmashellrc"}
-                if direct_tags == {"lockscreen"}
-                else None
-            )
-            check_kde_apply_conflicts(force=force_kde, only=only)
         if profile["name"] == "termux" and not args.check:
             packages = profile.get("packages", {}).get("pkg", [])
             if packages:
@@ -3509,6 +3791,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
             args.profile,
             force_kde=force_kde,
             selected_tags=direct_tags,
+            kde_preflight_done=bool(kde_requested),
         )
         return
     package_apply_selected = not selected_tags or bool(
@@ -3575,13 +3858,6 @@ def cmd_apply(args: argparse.Namespace) -> None:
         )
         and not args.check
     )
-    if kde_apply_selected:
-        only = (
-            {".config/kscreenlockerrc", ".config/plasmashellrc"}
-            if selected_tags == {"lockscreen"}
-            else None
-        )
-        check_kde_apply_conflicts(force=force_kde, only=only)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     runtime_profile = STATE_DIR / "runtime-profile.json"
     atomic_text(
@@ -3616,8 +3892,10 @@ def cmd_apply(args: argparse.Namespace) -> None:
     apply_env = os.environ.copy()
     apply_env["ANSIBLE_CONFIG"] = str(ROOT / "ansible/ansible.cfg")
     apply_env["ANSIBLE_BECOME_PLUGINS"] = str(ROOT / "ansible/become_plugins")
-    if force_kde:
+    if kde_apply_selected:
         apply_env["DOTFILES_KDE_PREFLIGHT_OK"] = "1"
+    if force_kde:
+        apply_env["DOTFILES_FORCE_KDE"] = "1"
     run(command, cwd=ROOT, env=apply_env)
     if kde_apply_selected:
         record_kde_baseline()
@@ -11099,17 +11377,19 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             else ""
         )
         animations_disabled = (
-            "AnimationDurationFactor=0" in kdeglobals
+            kconfig_get(kdeglobals.encode("utf-8"), "KDE", "AnimationDurationFactor") == "0"
             and all(
                 f"{effect}Enabled=false" in kwin
                 for effect in KWIN_DISABLED_EFFECTS
             )
         )
+        animations_preserved = kde_preferences_match(".config/kdeglobals") and kde_preferences_match(".config/kwinrc")
         failures += not doctor_check(
             "KDE window animations",
-            animations_disabled,
+            animations_disabled or animations_preserved,
             "disabled for movement, switching, opening, closing, and snapping"
             if animations_disabled
+            else "using reviewed local animation preferences" if animations_preserved
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         if profile.get("features", {}).get("inputactions"):
@@ -11225,11 +11505,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             and "ColorScheme=GitHubDark" in kdeglobals
             and "LookAndFeelPackage=org.kde.breezedark.desktop" in kdeglobals
         )
+        appearance_preserved = kde_preferences_match(".config/kdeglobals")
         failures += not doctor_check(
             "GitHub Dark KDE theme",
-            github_scheme_ok,
+            github_scheme_ok or appearance_preserved,
             "GitHub Dark colors with native Breeze desktop components"
             if github_scheme_ok
+            else "using reviewed local appearance preferences" if appearance_preserved
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
         if command_exists("systemctl"):
@@ -11240,19 +11522,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 if plasma_session_active
                 else "plasma-plasmashell.service is not active",
             )
-        powerdevil_source = ROOT / "config/kde/.config/powerdevilrc"
-        powerdevil_live = Path.home() / ".config/powerdevilrc"
-        powerdevil_matches = (
-            powerdevil_live.exists()
-            and kde_digest(".config/powerdevilrc", powerdevil_live)
-            == kde_digest(".config/powerdevilrc", powerdevil_source)
-        )
+        powerdevil_matches = kde_preferences_match(".config/powerdevilrc")
         failures += not doctor_check(
             "automatic sleep policy",
             powerdevil_matches,
-            "debounced 100% brightness on AC and battery; at 20% battery or below, "
-            "40% brightness and power-saver; AC performance and battery balanced; "
-            "lid ignored and automatic sleep disabled; power button sleeps"
+            "matches shared power settings or reviewed local preferences"
             if powerdevil_matches
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
