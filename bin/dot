@@ -12051,8 +12051,108 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+STARTUP_GIT_TIMEOUT = 15
+
+
+def startup_git(arguments: list[str], environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Bound startup checks, including SSH children waiting on authentication."""
+    command = ["git", *arguments]
+    with subprocess.Popen(
+        command, cwd=ROOT, env=environment, text=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=os.name == "posix",
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=STARTUP_GIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            stdout, stderr = process.communicate()
+            return subprocess.CompletedProcess(command, 124, stdout, "startup Git check timed out")
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def update_dotfiles_before_run() -> bool:
+    """Fetch the current branch's upstream and fast-forward before doing work."""
+    def warn(message: str) -> None:
+        print(
+            f"dot: warning: {message} Continuing with the local dotfiles checkout.",
+            file=sys.stderr,
+        )
+
+    if not command_exists("git"):
+        warn("Cannot check for upstream commits because Git is unavailable.")
+        return False
+    environment = os.environ.copy()
+    environment.update({"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"})
+
+    def git(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return startup_git(list(arguments), environment)
+
+    try:
+        checkout = git("rev-parse", "--show-toplevel")
+        if checkout.returncode or Path(checkout.stdout.strip()).resolve() != ROOT:
+            warn("Cannot check upstream commits outside a dotfiles Git checkout.")
+            return False
+        branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
+        if branch.returncode:
+            warn("Detached HEAD has no branch to update; switch to a tracking branch to pull updates.")
+            return False
+        branch_name = branch.stdout.strip()
+        remote = git("config", "--get", f"branch.{branch_name}.remote").stdout.strip()
+        merge_ref = git("config", "--get", f"branch.{branch_name}.merge").stdout.strip()
+        if not remote or not merge_ref:
+            warn(f"Branch {branch_name!r} has no configured upstream to check.")
+            return False
+        configured_ssh = git("config", "--get", "core.sshCommand").stdout.strip()
+        if not configured_ssh and not environment.get("GIT_SSH"):
+            environment.setdefault(
+                "GIT_SSH_COMMAND",
+                "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1",
+            )
+        fetched = git("fetch", "--quiet", "--no-tags", "--no-prune", "--no-recurse-submodules", remote)
+        if fetched.returncode:
+            reason = "timed out" if fetched.returncode == 124 else "failed"
+            warn(f"Fetching {remote!r} {reason}; check network/authentication and run git pull --ff-only in {ROOT}.")
+            return False
+        counts = git("rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+        if counts.returncode:
+            warn("Could not compare the current branch with its upstream after fetching.")
+            return False
+        ahead, behind = map(int, counts.stdout.split())
+        if not behind:
+            return False
+        print(f"dot: {behind} upstream commit(s) missing; pulling a fast-forward update.", file=sys.stderr)
+        pulled = git("pull", "--ff-only", "--no-rebase", "--no-autostash", "--no-recurse-submodules", remote, merge_ref)
+        if pulled.returncode:
+            reason = (
+                "the branches have diverged" if ahead else
+                "the pull timed out" if pulled.returncode == 124 else
+                "local changes or a Git error prevented the pull"
+            )
+            warn(f"Could not pull {behind} missing commit(s): {reason}. Review git status and run git pull --ff-only in {ROOT}.")
+            return False
+        print("dot: dotfiles updated; restarting with the updated CLI.", file=sys.stderr)
+        return True
+    except (OSError, ValueError) as error:
+        warn(f"Could not check for upstream commits ({type(error).__name__}).")
+        return False
+
+
 def main() -> int:
     try:
+        # Propagate this marker to nested Ansible/direct invocations and the
+        # refreshed process, so one user command checks the repository once.
+        if (
+            os.environ.get("DOTFILES_TESTING") != "1"
+            and os.environ.get("DOTFILES_STARTUP_CHECKED") != str(ROOT)
+            and not {"--help", "-h"}.intersection(sys.argv[1:])
+        ):
+            os.environ["DOTFILES_STARTUP_CHECKED"] = str(ROOT)
+            if update_dotfiles_before_run():
+                os.execv(sys.executable, [sys.executable, str(ROOT / "bin/dot"), *sys.argv[1:]])
         args = build_parser().parse_args()
         if hasattr(args, "func"):
             args.func(args)

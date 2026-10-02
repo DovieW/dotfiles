@@ -82,6 +82,19 @@ with the current package manifest.
 
 ## Automatic repository sync
 
+Before a `dot` command or the command palette starts, the CLI fetches the
+current dotfiles branch's configured upstream. If remote commits are missing,
+it attempts a fast-forward-only pull and restarts the updated CLI with the
+same arguments. Nested invocations share the startup check; help stays offline.
+
+Fetch and pull operations have a 15-second timeout and do not request terminal
+credentials. An unavailable remote, missing upstream, detached HEAD, or failed
+pull produces a warning and the requested command continues with the local
+checkout. Startup updates never merge divergent branches or stash local edits;
+Git preserves local changes and refuses a pull that would overwrite them.
+
+## Git sync
+
 `g sync` is `git sync`: Git discovers the managed `git-sync` executable on
 `PATH`, commits ordinary local changes, fetches, integrates a safe
 non-divergent upstream update, and pushes. The primary `master` and `main`
