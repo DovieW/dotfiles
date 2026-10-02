@@ -360,7 +360,7 @@ native gamut. The managed KScreen policy therefore sets **sRGB color
 intensity** to 100%. Chrome and Electron normally opt into Wayland's explicit
 color-management protocol, which deliberately keeps their tagged SDR surfaces
 inside accurate sRGB and bypasses that perceptual Windows-style expansion.
-Managed Chrome, VS Code, and Obsidian launchers disable
+Managed Chrome, VS Code, Obsidian, and ChatGPT launchers disable
 `WaylandWpColorManagerV1` so their UI follows the same native-gamut presentation
 as Plasma. This is an intentional appearance preference, not a color-accurate
 workflow; switch to `factory-accurate` when restrained sRGB rendering matters.

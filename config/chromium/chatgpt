@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Match the OLED native-gamut policy used by Chrome, VS Code, and Obsidian.
+exec /usr/bin/chatgpt \
+  --disable-features=WaylandWpColorManagerV1 \
+  "$@"

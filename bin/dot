@@ -3368,6 +3368,9 @@ def apply_direct(
                     ROOT / "config/chromium/code": Path.home() / ".local/bin/code",
                     ROOT / "config/chromium/code.desktop": Path.home()
                     / ".local/share/applications/code.desktop",
+                    ROOT / "config/chromium/chatgpt": Path.home() / ".local/bin/chatgpt",
+                    ROOT / "config/chromium/chatgpt.desktop": Path.home()
+                    / ".local/share/applications/chatgpt.desktop",
                 }
             )
         for source, destination in chromium_mappings.items():
@@ -10664,6 +10667,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 / "config/obsidian/obsidian",
                 Path.home() / ".local/share/applications/code.desktop": ROOT
                 / "config/chromium/code.desktop",
+                Path.home() / ".local/bin/chatgpt": ROOT / "config/chromium/chatgpt",
             }
             chromium_policy_ok = all(
                 destination.is_symlink()
