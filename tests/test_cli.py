@@ -583,6 +583,43 @@ class DotCliTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         self.assertEqual(state[action], [123])
 
+    def test_removed_and_disabled_shortcuts_are_already_inactive(self):
+        function = runpy.run_path(str(DOT))["activate_kglobal_shortcuts"]
+        action = ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin")
+        for current in ([], [0]):
+            with self.subTest(current=current):
+                setter = mock.Mock()
+                with mock.patch.dict(function.__globals__, {
+                    "kglobal_shortcut": lambda _: current,
+                    "set_kglobal_shortcut": setter,
+                }):
+                    function({action: [0]}, timeout=0)
+                setter.assert_not_called()
+
+    def test_disabling_an_active_shortcut_can_return_an_empty_array(self):
+        function = runpy.run_path(str(DOT))["activate_kglobal_shortcuts"]
+        action = ("kwin", "dot-dolphin", "KWin", "Open or Focus Dolphin")
+        state = {action: [268435525]}
+        def clear(action_id, _keys):
+            state[action_id] = []
+        with mock.patch.dict(function.__globals__, {
+            "kglobal_shortcut": lambda action_id: state[action_id],
+            "set_kglobal_shortcut": clear,
+        }):
+            function({action: [0]}, timeout=0)
+        self.assertEqual(state[action], [])
+
+    def test_enabling_an_unregistered_shortcut_still_fails(self):
+        module = runpy.run_path(str(DOT))
+        function = module["activate_kglobal_shortcuts"]
+        action = ("kwin", "dot-nemo", "KWin", "Open or Focus Nemo")
+        with mock.patch.dict(function.__globals__, {
+            "kglobal_shortcut": lambda _: [],
+            "set_kglobal_shortcut": mock.Mock(),
+        }):
+            with self.assertRaisesRegex(module["DotError"], "did not activate.*dot-nemo"):
+                function({action: [268435525]}, timeout=0)
+
     def test_ssh_apply_inherits_only_safe_plasma_session_environment(self):
         module = runpy.run_path(str(DOT))
         function = module["inherit_graphical_session_environment"]

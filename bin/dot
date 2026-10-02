@@ -1742,6 +1742,14 @@ def activate_kglobal_shortcuts(
             ))
         }
     original = {action_id: kglobal_shortcut(action_id) for action_id in desired}
+    # KGlobalAccel reports no binding as either [] (removed/unregistered
+    # action) or [0] (registered but disabled). Do not recreate removed actions
+    # merely to disable them, and accept both representations after clearing.
+    desired = {
+        action_id: keys for action_id, keys in desired.items()
+        if any(keys) or any(original[action_id])
+    }
+    original = {action_id: keys for action_id, keys in original.items() if action_id in desired}
     deadline = time.monotonic() + timeout
     pending = list(desired)
     try:
@@ -1753,7 +1761,8 @@ def activate_kglobal_shortcuts(
             pending = [
                 action_id
                 for action_id, keys in desired.items()
-                if kglobal_shortcut(action_id) != keys
+                if [key for key in kglobal_shortcut(action_id) if key]
+                != [key for key in keys if key]
             ]
             if not pending:
                 return
