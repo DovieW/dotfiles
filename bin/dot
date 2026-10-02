@@ -1773,7 +1773,7 @@ def activate_kglobal_shortcuts(
         raise
 
 
-def sync_managed_kglobal_shortcuts() -> None:
+def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
     """Apply shortcuts that KWin otherwise keeps cached until the next login."""
     if not command_exists("gdbus"):
         raise DotError("gdbus is required to activate managed KDE shortcuts.")
@@ -1966,6 +1966,15 @@ def sync_managed_kglobal_shortcuts() -> None:
         safe_keystroke_paste: [301989974],
         safe_keystroke_paste_cancel: [301989955],
     }
+    if clipboard_only:
+        # Clipboard setup precedes installation of the desktop scripts on a
+        # fresh machine. Activate only actions registered by this stage.
+        clipboard_actions = {
+            klipper_popup, stock_emoji_picker, clipboard_history_meta,
+            clipboard_history_ctrl, emoji_picker, clipboard_probe,
+            safe_keystroke_paste, safe_keystroke_paste_cancel,
+        }
+        desired = {action: keys for action, keys in desired.items() if action in clipboard_actions}
     activate_kglobal_shortcuts(desired)
 
 
@@ -2777,13 +2786,13 @@ def apply_direct(
                 time.sleep(0.1)
             else:
                 raise DotError("KWin did not reload the managed clipboard script.")
-            sync_managed_kglobal_shortcuts()
+            sync_managed_kglobal_shortcuts(clipboard_only=True)
             if not managed_clipboard_callback_ok():
                 raise DotError(
                     "KWin registered clipboard action names without live callbacks."
                 )
         else:
-            sync_managed_kglobal_shortcuts()
+            sync_managed_kglobal_shortcuts(clipboard_only=True)
     if lockscreen_only:
         for relative in sorted(lockscreen_files):
             changes += int(
@@ -2826,10 +2835,6 @@ def apply_direct(
         panel_changed = any(relative in panel_files for relative, _, _ in pending)
         krunner_changed = any(
             relative in {".config/krunnerrc", ".config/kglobalshortcutsrc"}
-            for relative, _, _ in pending
-        )
-        shortcuts_changed = any(
-            relative == ".config/kglobalshortcutsrc"
             for relative, _, _ in pending
         )
         kwin_changed = any(
@@ -2926,8 +2931,8 @@ def apply_direct(
                             effect_name,
                         ]
                     )
-            if shortcuts_changed:
-                sync_managed_kglobal_shortcuts()
+            # Reconcile desktop shortcuts after the script packages below
+            # have been installed and their actions have registered.
             if cursor_changed and command_exists("plasma-apply-cursortheme"):
                 # Plasma skips a same-theme request even when only its size
                 # changed. Toggle through the stock dark variant so both the
@@ -3269,9 +3274,8 @@ def apply_direct(
                                 "org.kde.KWin.reconfigure",
                             ]
                         )
-            # registerShortcut() happens when the scripts run, after the
-            # static kglobalshortcutsrc synchronization above. Reconcile once
-            # more now that every managed KWin action exists.
+            # registerShortcut() happens when these scripts run. Reconcile
+            # desktop shortcuts only now that their actions exist.
             if command_exists("gdbus"):
                 sync_managed_kglobal_shortcuts()
         changes += configure_nemo_default()
@@ -3746,7 +3750,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
                 "Device sleep safety requires the privileged Ansible apply path; "
                 "install Ansible and rerun without --direct."
             )
-        if sleep_safety_selected:
+        if sleep_safety_selected and os.environ.get("DOTFILES_KDE_PREFLIGHT_OK") != "1":
             print(
                 "dot: Device sleep safety was not changed by the portable direct path; "
                 "rerun with Ansible to apply privileged power policy.",

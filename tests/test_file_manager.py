@@ -14,6 +14,84 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FileManagerTests(unittest.TestCase):
+    def test_first_full_apply_installs_and_runs_nemo_before_activating_its_shortcut(self):
+        module = runpy.run_path(str(ROOT / "bin/dot"))
+        apply = module["apply_direct"]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            script = home / ".local/share/kwin/scripts/dot-nemo/contents/code/main.js"
+            loaded = set()
+            activations = []
+
+            def run(command, **kwargs):
+                output = ""
+                returncode = 0
+                if "org.kde.kwin.Scripting.loadScript" in command:
+                    loaded.add(command[-1])
+                    output = "17\n"
+                elif "org.kde.kwin.Scripting.unloadScript" in command:
+                    loaded.discard(command[-1])
+                elif "org.kde.kwin.Scripting.isScriptLoaded" in command:
+                    output = "true\n" if command[-1] in loaded or command[-1] == "dot-clipboard" else "false\n"
+                elif command[0] == "kwriteconfig6" and command[-2].endswith("Enabled"):
+                    name = command[-2].removesuffix("Enabled")
+                    if command[-1] == "true":
+                        loaded.add(name)
+                    else:
+                        loaded.discard(name)
+                elif command[:3] == ["systemctl", "--user", "is-active"]:
+                    returncode = 1
+                return subprocess.CompletedProcess(command, returncode, output, "")
+
+            def activate(desired, **kwargs):
+                if any(action[1] == "dot-nemo" for action in desired):
+                    self.assertTrue(script.is_file(), "Nemo's script has not been installed yet")
+                    self.assertIn("dot-nemo", loaded, "Nemo's script has not registered its shortcut yet")
+                    activations.append("nemo")
+                else:
+                    activations.append("other")
+
+            with (
+                mock.patch.object(Path, "home", return_value=home),
+                mock.patch.dict(os.environ),
+                mock.patch.dict(apply.__globals__, {
+                    "STATE_DIR": home / "state",
+                    "CONFIG_DIR": home / "config",
+                    "BACKUP_DIR": home / "backups",
+                    "KDE_FILES": (),
+                    "load_profile": lambda _: {"features": {"kde": True, "copyq": True}},
+                    "command_exists": lambda command: command in {"qdbus6", "gdbus", "systemctl", "kwriteconfig6"},
+                    "check_kde_apply_conflicts": mock.Mock(),
+                    "record_kde_baseline": mock.Mock(),
+                    "configure_desktop_wallet_check": mock.Mock(return_value=0),
+                    "provision_lockscreen_assets": mock.Mock(return_value=0),
+                    "configure_nemo_default": mock.Mock(return_value=0),
+                    "managed_clipboard_callback_ok": mock.Mock(return_value=True),
+                    "managed_screenshot_callback_ok": mock.Mock(return_value=True),
+                    "activate_kglobal_shortcuts": activate,
+                    "run": run,
+                }),
+                mock.patch("time.sleep"),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertFalse(script.exists())
+                apply("kubuntu-laptop")
+            self.assertIn("nemo", activations)
+            self.assertNotEqual(activations[0], "nemo")
+
+    def test_clipboard_shortcuts_do_not_require_desktop_scripts(self):
+        module = runpy.run_path(str(ROOT / "bin/dot"))
+        sync = module["sync_managed_kglobal_shortcuts"]
+        activate = mock.Mock()
+        with mock.patch.dict(sync.__globals__, {"activate_kglobal_shortcuts": activate, "command_exists": lambda _: True}):
+            sync(clipboard_only=True)
+        actions = {action[1] for action in activate.call_args.args[0]}
+        self.assertIn("dot-copyq-history-meta", actions)
+        self.assertIn("dot-clipboard-probe", actions)
+        self.assertNotIn("dot-nemo", actions)
+        self.assertNotIn("dot-brightness-up", actions)
+        self.assertNotIn("dot-window-desktop-left", actions)
+
     @unittest.skipUnless(
         shutil.which("kwriteconfig6") and shutil.which("xdg-mime"),
         "KDE and XDG tools are required for native preference testing",
