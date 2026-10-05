@@ -21,6 +21,64 @@ os.environ["DOTFILES_TESTING"] = "1"
 
 
 class DotCliTests(unittest.TestCase):
+    def test_headless_apply_chatgpt_close_choices(self):
+        module = runpy.run_path(str(DOT))
+        ensure = module["ensure_chatgpt_closed_for_headless_apply"]
+        for choices, states, closes in (
+            (["c"], [0, 1], 1),
+            (["m", "m"], [0, 0, 1], 0),
+            ([], [1], 0),
+        ):
+            with self.subTest(choices=choices):
+                states_iter = iter(states)
+                def fake_run(command, **kwargs):
+                    return subprocess.CompletedProcess(command, next(states_iter) if command[0] == "pgrep" else 0)
+                with mock.patch.dict(ensure.__globals__, {"run": mock.Mock(side_effect=fake_run)}), \
+                     mock.patch("sys.stdin.isatty", return_value=True), \
+                     mock.patch("builtins.input", side_effect=choices) as prompt:
+                    ensure()
+                    calls = ensure.__globals__["run"].call_args_list
+                    self.assertEqual(sum(call.args[0][0] == "pkill" for call in calls), closes)
+                    self.assertEqual(prompt.call_count, len(choices))
+
+    def test_headless_apply_chatgpt_still_running_prompts_again(self):
+        module = runpy.run_path(str(DOT))
+        ensure = module["ensure_chatgpt_closed_for_headless_apply"]
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+        with mock.patch.dict(ensure.__globals__, {"run": runner}), \
+             mock.patch("sys.stdin.isatty", return_value=True), \
+             mock.patch("builtins.input", side_effect=["c", "q"]) as prompt, \
+             mock.patch("time.sleep"):
+            with self.assertRaisesRegex(module["DotError"], "cancelled"):
+                ensure()
+        self.assertIn("has not exited", prompt.call_args.args[0])
+        self.assertEqual(sum(call.args[0][0] == "pkill" for call in runner.call_args_list), 1)
+
+    def test_headless_apply_chatgpt_quit_does_not_close(self):
+        module = runpy.run_path(str(DOT))
+        ensure = module["ensure_chatgpt_closed_for_headless_apply"]
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+        with mock.patch.dict(ensure.__globals__, {"run": runner}), \
+             mock.patch("sys.stdin.isatty", return_value=True), \
+             mock.patch("builtins.input", return_value="q"):
+            with self.assertRaisesRegex(module["DotError"], "cancelled"):
+                ensure()
+        self.assertEqual(runner.call_count, 1)
+
+    def test_headless_apply_chatgpt_ansible_uses_desktop_dialog(self):
+        module = runpy.run_path(str(DOT))
+        ensure = module["ensure_chatgpt_closed_for_headless_apply"]
+        def fake_run(command, **kwargs):
+            if command[0] == "kdialog":
+                return subprocess.CompletedProcess(command, 0, "q\n")
+            return subprocess.CompletedProcess(command, 0)
+        with mock.patch.dict(ensure.__globals__, {"run": mock.Mock(side_effect=fake_run), "command_exists": lambda name: name == "kdialog"}), \
+             mock.patch("sys.stdin.isatty", return_value=False), \
+             mock.patch("builtins.open", side_effect=OSError("no controlling terminal")), \
+             mock.patch.dict(os.environ, {"DISPLAY": ":0"}):
+            with self.assertRaisesRegex(module["DotError"], "cancelled"):
+                ensure()
+
     def test_codex_update_includes_desktop_only_for_managed_profiles(self):
         function = runpy.run_path(str(DOT))["cmd_codex_update"]
         for desktop in (True, False):
@@ -1676,6 +1734,55 @@ class DotCliTests(unittest.TestCase):
         )
         self.assertNotIn("release", manifest)
         self.assertNotIn("installer_sha256", manifest)
+
+    def test_vite_plus_ensure_upgrades_legacy_cli_before_setting_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            vp_home = home / ".vite-plus"
+            release = vp_home / "0.3.0/bin"
+            release.mkdir(parents=True)
+            (vp_home / "bin").mkdir()
+            vp = release / "vp"
+            vp.write_text("""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+home = Path(os.environ['VP_HOME'])
+args = sys.argv[1:]
+with (home / 'calls').open('a') as log:
+    log.write(' '.join(args) + '\\n')
+upgraded = (home / 'upgraded').exists()
+if args == ['--version']:
+    print('vp v1.0.0' if upgraded else 'vp v0.3.0')
+elif args == ['env', 'on', '--help']:
+    print('Usage: vp env on [node|pm]' if upgraded else 'Usage: vp env on')
+elif args == ['upgrade', '--tag', 'latest']:
+    (home / 'upgraded').touch()
+elif args == ['env', 'on', 'pm'] and upgraded:
+    config = json.loads((home / 'config.json').read_text())
+    config['packageManagerShimModes'] = dict.fromkeys(['bun', 'npm', 'pnpm', 'yarn'], 'managed')
+    (home / 'config.json').write_text(json.dumps(config))
+else:
+    sys.exit(2)
+""")
+            vp.chmod(0o755)
+            (vp_home / "bin/vp").symlink_to(vp)
+            (vp_home / "env").touch()
+            (vp_home / "config.json").write_text('{"shimMode":"system","other":true}')
+            env = dict(os.environ, HOME=str(home), VP_HOME=str(vp_home))
+            installer = ROOT / "scripts/install-vite-plus"
+            first = subprocess.run([installer, "--ensure"], env=env, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            calls = (vp_home / "calls").read_text().splitlines()
+            self.assertLess(calls.index("upgrade --tag latest"), calls.index("env on pm"))
+            config = json.loads((vp_home / "config.json").read_text())
+            self.assertEqual(config["shimMode"], "system")
+            self.assertTrue(config["other"])
+            (vp_home / "calls").write_text("")
+            for mode in ("--ensure", "--check"):
+                result = subprocess.run([installer, mode], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("upgrade", (vp_home / "calls").read_text())
+            self.assertNotIn("env on", (vp_home / "calls").read_text())
 
     def test_vite_plus_manifest_tracks_official_stable_channel(self):
         manifest = json.loads((ROOT / "packages/vite-plus.yml").read_text())

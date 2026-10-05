@@ -64,7 +64,19 @@ PY
 
 ensure_package_manager_policy() {
   if ! package_manager_policy_matches; then
+    # Older stable releases only support Node.js mode and reject the pm selector.
+    # Upgrade before applying package-manager policy; unscoped `env on` would
+    # also change the user's Node.js mode.
+    if ! "$vp_path" env on --help | grep -qw pm; then
+      echo "Upgrading Vite+ for package-manager environment support."
+      "$vp_path" upgrade --tag latest
+      installed_version="$("$vp_path" --version | sed -n '1s/^vp v//p')"
+    fi
     "$vp_path" env on pm
+    if ! package_manager_policy_matches; then
+      echo "Vite+ did not save the managed package-manager policy." >&2
+      exit 1
+    fi
     echo "Vite+ package-manager policy set to managed."
   fi
 }

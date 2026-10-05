@@ -453,6 +453,7 @@
       register: dot_vite_plus_install
       changed_when: >-
         'installed and verified' in dot_vite_plus_install.stdout or
+        'package-manager policy set to managed' in dot_vite_plus_install.stdout or
         'shell integration generated' in dot_vite_plus_install.stdout
       check_mode: false
       when: dot_profile_data.features.vite_plus | default(false)

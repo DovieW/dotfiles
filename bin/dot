@@ -3581,16 +3581,8 @@ def apply_direct(
                 # Direct applies deliberately do not attempt privilege changes.
                 enabled = False
                 active = False
-            desktop_running = remote_mode == "headless" and run(
-                ["pgrep", "-u", str(os.getuid()), "-x", "ChatGPT"],
-                check=False,
-                capture=True,
-            ).returncode == 0
-            if desktop_running:
-                raise DotError(
-                    "ChatGPT Desktop is running on a headless Remote Control host. "
-                    "Close it before applying the codex configuration."
-                )
+            if remote_mode == "headless":
+                ensure_chatgpt_closed_for_headless_apply()
             daemon_settings = Path.home() / ".codex/app-server-daemon/settings.json"
             daemon_state = run(
                 [str(managed_codex), "app-server", "daemon", "version"],
@@ -3703,6 +3695,56 @@ def upgrade_ansible_controller(
         run(["brew", "upgrade", *pending])
 
 
+def ensure_chatgpt_closed_for_headless_apply() -> None:
+    def running() -> bool:
+        return run(
+            ["pgrep", "-u", str(os.getuid()), "-x", "ChatGPT"],
+            check=False, capture=True,
+        ).returncode == 0
+
+    def ask(message: str) -> str:
+        prompt = message + "\n[c] Close ChatGPT automatically / [m] I've closed it; continue / [q] Quit [q]: "
+        try:
+            if sys.stdin.isatty():
+                return input(prompt).strip().lower() or "q"
+            # Ansible captures stdin/stdout; use the controlling terminal when
+            # available, or a desktop dialog when its module has no terminal.
+            with open("/dev/tty", "r+") as terminal:
+                terminal.write(prompt)
+                terminal.flush()
+                return terminal.readline().strip().lower() or "q"
+        except (EOFError, OSError):
+            if command_exists("kdialog") and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+                result = run(
+                    ["kdialog", "--title", "dot apply", "--menu", message,
+                     "c", "Close ChatGPT and continue",
+                     "m", "I have closed ChatGPT; continue",
+                     "q", "Quit"],
+                    check=False, capture=True,
+                )
+                return result.stdout.strip() if result.returncode == 0 else "q"
+            raise DotError(
+                "ChatGPT Desktop must be closed for headless Remote Control. "
+                "Run dot apply in an interactive terminal to choose how to continue."
+            )
+
+    message = "ChatGPT Desktop is running. Headless Remote Control requires it to be closed."
+    while running():
+        choice = ask(message)
+        if choice == "q":
+            raise DotError("Apply cancelled; ChatGPT Desktop was left running.")
+        if choice == "c":
+            run(["pkill", "-TERM", "-u", str(os.getuid()), "-x", "ChatGPT"],
+                check=False, capture=True)
+            for _ in range(50):
+                if not running():
+                    return
+                time.sleep(0.2)
+            message = "ChatGPT has not exited. Close it manually or choose another action."
+        elif choice == "m":
+            message = "ChatGPT is still running. Close it, then choose continue again."
+
+
 def cmd_apply(args: argparse.Namespace) -> None:
     """Keep per-run decisions from leaking into a later palette action."""
     names = ("DOTFILES_KDE_CHOICES", "DOTFILES_KDE_REVIEW_VALUES", "DOTFILES_FORCE_KDE")
@@ -3738,6 +3780,16 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     if force_kde:
         os.environ["DOTFILES_FORCE_KDE"] = "1"
     skip_tags = getattr(args, "skip_tags", None)
+    features = profile.get("features", {})
+    skipped = set((skip_tags or "").replace(",", " ").split())
+    if (
+        not args.check
+        and features.get("codex_remote_control")
+        and features.get("codex_remote_control_mode", "headless") == "headless"
+        and (not selected_tags or bool(selected_tags & {"all", "config", "codex"}))
+        and not skipped.intersection({"all", "config", "codex"})
+    ):
+        ensure_chatgpt_closed_for_headless_apply()
     # Review desktop preferences before upgrades or an administrator prompt.
     kde_requested = profile.get("features", {}).get("kde") and (
         not selected_tags or bool(selected_tags & {"all", "config", "kde", "lockscreen"})

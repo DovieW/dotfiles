@@ -399,6 +399,19 @@ Normal NVIDIA acceleration and runtime D3 battery savings remain enabled. A
 future driver or firmware update should be tested before removing the
 workaround.
 
+## Apply needs ChatGPT Desktop closed on a headless Remote Control host
+
+`dot apply` prompts before upgrades when ChatGPT Desktop conflicts with the
+selected headless Remote Control configuration. Choose automatic close, close
+the app yourself and then choose continue, or quit. Automatic close requests
+normal termination and verifies that the app exited; if it remains running,
+the prompt returns. It does not force-kill the app.
+
+The Codex configuration step checks again, including when resuming Ansible.
+It uses the controlling terminal or a KDE dialog when Ansible captures input.
+Without either, close ChatGPT manually before retrying from an interactive
+terminal. Desktop Remote Control profiles do not require closing ChatGPT.
+
 ## Shell startup is slow
 
 Profile Zsh with:
