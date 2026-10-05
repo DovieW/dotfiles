@@ -187,6 +187,7 @@ class FileManagerTests(unittest.TestCase):
         with (
             mock.patch.dict(apply.__globals__, {
                 "configure_dolphin_file_manager": configure,
+                "configure_dolphin_network_places": mock.Mock(return_value=0),
                 "check_kde_apply_conflicts": mock.Mock(side_effect=AssertionError("full KDE preflight")),
                 "copy_managed_kde_file": mock.Mock(side_effect=AssertionError("full KDE copy")),
             }),

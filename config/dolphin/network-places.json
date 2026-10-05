@@ -1,0 +1,4 @@
+[
+  {"id": "dotfiles-network-nas", "label": "NAS", "url": "smb://truenas-scale/"},
+  {"id": "dotfiles-network-desktop", "label": "Desktop (SSH)", "url": "sftp://dovie@dovie-desktop-linux/home/dovie/"}
+]

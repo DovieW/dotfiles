@@ -6,7 +6,7 @@
     dot_repo: "{{ playbook_dir | dirname }}"
     dot_device_manifest: {}
     dot_file_manager_packages: >-
-      {{ ['dolphin', 'nemo', 'nautilus', 'thunar']
+      {{ ['dolphin', 'nemo', 'nautilus', 'thunar', 'kio-extras']
          if dot_profile_data.features.kde | default(false) else [] }}
   pre_tasks:
     - name: Validate runtime profile

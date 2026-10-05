@@ -35,6 +35,19 @@ File-manager packages install without APT's optional recommended packages,
 keeping Nautilus's recommendations from pulling in another desktop and login
 manager on Kubuntu.
 
+Both Kubuntu profiles also merge **NAS** (`smb://truenas-scale/`) and
+**Desktop (SSH)** (`sftp://dovie@dovie-desktop-linux/home/dovie/`) into Dolphin's
+Places sidebar. The NAS entry lists its SMB shares; the desktop entry browses
+Dovie's home over SFTP. Connections open on demand and use normal Dolphin/KDE
+Wallet SMB authentication or the existing Bitwarden SSH agent. No credentials
+are stored in the tracked connection definitions.
+
+Full, KDE, config, and targeted file-manager applies back up and merge the
+Places file, preserving existing bookmarks, labels, icons, and ordering.
+`dot doctor` checks the entries locally; successful network access still
+requires reachable hosts and authentication. If SMB authentication hangs, run
+`scripts/desktop-wallet` and unlock `kdewallet` in KWalletManager if needed.
+
 ## Version policy
 
 Machine-level programs follow the latest stable release offered by their

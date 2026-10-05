@@ -29,6 +29,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from urllib.parse import parse_qs, urlencode, urlparse
+from xml.dom import minidom
+from xml.parsers.expat import ExpatError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2315,6 +2317,97 @@ def configure_dolphin_file_manager() -> int:
     )
 
 
+def dolphin_places_path() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "user-places.xbel"
+
+
+def dolphin_network_places() -> list[dict[str, str]]:
+    return load_json(ROOT / "config/dolphin/network-places.json")
+
+
+def read_dolphin_places(content: bytes) -> minidom.Document:
+    try:
+        document = minidom.parseString(content)
+    except ExpatError as exc:
+        raise DotError(f"Dolphin Places XML is malformed; leaving it unchanged: {exc}") from exc
+    if document.documentElement.tagName != "xbel":
+        raise DotError("Dolphin Places must have an xbel root; leaving it unchanged.")
+    return document
+
+
+def configure_dolphin_network_places() -> int:
+    """Merge network shortcuts without replacing KDE's per-user Places data."""
+    path = dolphin_places_path()
+    original = path.read_bytes() if path.exists() else None
+    document = read_dolphin_places(original if original is not None else b"<xbel/>")
+    root = document.documentElement
+    changed = False
+    for place in dolphin_network_places():
+        existing = next((node for node in root.childNodes
+                         if node.nodeType == node.ELEMENT_NODE
+                         and node.tagName == "bookmark"
+                         and node.getAttribute("href") == place["url"]), None)
+        if existing is not None:
+            # Keep user labels, icons and ordering; make the connection visible.
+            for hidden in existing.getElementsByTagName("isHidden"):
+                if hidden.firstChild and hidden.firstChild.nodeValue == "true":
+                    hidden.firstChild.nodeValue = "false"
+                    changed = True
+            continue
+        bookmark = document.createElement("bookmark")
+        bookmark.setAttribute("href", place["url"])
+        title = document.createElement("title")
+        title.appendChild(document.createTextNode(place["label"]))
+        bookmark.appendChild(title)
+        info = document.createElement("info")
+        metadata = document.createElement("metadata")
+        metadata.setAttribute("owner", "http://freedesktop.org")
+        icon = document.createElementNS(
+            "http://www.freedesktop.org/standards/desktop-bookmarks", "bookmark:icon"
+        )
+        icon.setAttribute("xmlns:bookmark", "http://www.freedesktop.org/standards/desktop-bookmarks")
+        icon.setAttribute("name", "folder-network")
+        metadata.appendChild(icon)
+        info.appendChild(metadata)
+        kde = document.createElement("metadata")
+        kde.setAttribute("owner", "http://www.kde.org")
+        for name, value in (("ID", place["id"]), ("isSystemItem", "false"), ("isHidden", "false")):
+            element = document.createElement(name)
+            element.appendChild(document.createTextNode(value))
+            kde.appendChild(element)
+        info.appendChild(kde)
+        bookmark.appendChild(info)
+        root.appendChild(bookmark)
+        changed = True
+    if not changed:
+        return 0
+    backup_id = backup_paths([path])
+    if (path.read_bytes() if path.exists() else None) != original:
+        raise DotError("Dolphin Places changed during apply; rerun to merge the latest bookmarks.")
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    atomic_bytes(path, document.toxml(encoding="UTF-8"), mode)
+    print(f"Dolphin network Places backup created: {backup_id}")
+    return 1
+
+
+def dolphin_network_places_ok() -> bool:
+    path = dolphin_places_path()
+    if not path.is_file():
+        return False
+    try:
+        document = read_dolphin_places(path.read_bytes())
+    except (DotError, OSError):
+        return False
+    visible_urls = {
+        node.getAttribute("href")
+        for node in document.documentElement.childNodes
+        if node.nodeType == node.ELEMENT_NODE and node.tagName == "bookmark"
+        and not any(hidden.firstChild and hidden.firstChild.nodeValue == "true"
+                    for hidden in node.getElementsByTagName("isHidden"))
+    }
+    return all(place["url"] in visible_urls for place in dolphin_network_places())
+
+
 def apply_direct(
     profile_name: str,
     *,
@@ -3634,6 +3727,8 @@ def apply_direct(
                 "native Remote Control was not bootstrapped.",
                 file=sys.stderr,
             )
+    if features.get("dolphin_network_places") and selected("file-manager", "kde"):
+        changes += configure_dolphin_network_places()
     print(f"Applied {profile_name}: {changes} configuration change(s)")
     return changes
 
@@ -11226,6 +11321,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if command_exists("xdg-mime") else ""
         )
         dolphin_default_ok = command_exists("dolphin") and folder_handler == "org.kde.dolphin.desktop"
+        if profile.get("features", {}).get("dolphin_network_places"):
+            failures += not doctor_check(
+                "Dolphin network Places",
+                dolphin_network_places_ok(),
+                f"NAS and Desktop (SSH) bookmarks; repair with dot apply --profile {args.profile} --tags file-manager",
+            )
         failures += not doctor_check(
             "default file manager",
             dolphin_default_ok,

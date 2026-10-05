@@ -94,7 +94,10 @@ command -v fzf >/dev/null 2>&1 || {
 }
 
 # Pass our actual path through the environment; fzf shell-quotes {} for us.
-export DOTFILES_GIT_SWITCHER="$(realpath -- "$0")"
+DOTFILES_GIT_SWITCHER="$(realpath -- "$0")"
+export DOTFILES_GIT_SWITCHER
+# fzf evaluates these shell expressions when an action runs, not at startup.
+# shellcheck disable=SC2016
 list_branches local \
     | fzf --height=70% --layout=reverse \
         --input-label=' Git branches ' --list-label=' Local branches ' --prompt='Local › ' \
