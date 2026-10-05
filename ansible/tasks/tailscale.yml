@@ -112,6 +112,9 @@
     state: started
   when: not ansible_check_mode
 
+- name: Refresh Tailscale tray after the Tailscale package update
+  ansible.builtin.include_tasks: refresh-tailscale-tray.yml
+
 - name: Read the Tailscale desktop operator
   become: true
   ansible.builtin.command:

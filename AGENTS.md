@@ -1,5 +1,24 @@
 # Repository agent instructions
 
+## Package updates must activate running code
+
+A successful package transaction does not mean running programs use the new
+code. On 2026-10-02, an update restarted tailscaled but left its tray on the old
+binary; the tray and daemon versions differed and exit-node controls were
+confusing. The version mismatch was confirmed; its causal role in the incorrect
+exit-node action was not proven.
+
+For every new or modified updater, review executable replacement, loaded shared
+libraries, daemon/client version alignment, and persisted settings. Reuse the
+post-update process audit and add targeted activation handling where appropriate.
+Automatically refresh only processes with verified ownership and safe restart
+behavior; preserve user settings and do not start inactive apps. Protect unsaved
+work, clipboard state, active containers, and remote-access sessions. Report
+remaining reopen/restart/reboot requirements explicitly. Test current, stale,
+inactive, and unavailable-process cases. Check mode must never restart programs.
+Do not claim every process is current when audit access is incomplete or when
+interpreted code, plugins, bundled assets, or changed libraries evade detection.
+
 ## Desktop wallet and remote recovery
 
 Do not create temporary SDDM autologin as a remote-recovery shortcut. A

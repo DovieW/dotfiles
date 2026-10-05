@@ -46,6 +46,14 @@
       when: ansible_facts.os_family == "Debian"
       tags: [system-updates]
 
+    - name: Refresh Tailscale tray after system upgrades
+      ansible.builtin.include_tasks:
+        file: tasks/refresh-tailscale-tray.yml
+        apply:
+          tags: [system-updates]
+      when: ansible_facts.os_family == "Debian"
+      tags: [system-updates]
+
     - name: Check whether Snap is installed
       ansible.builtin.stat:
         path: /usr/bin/snap
@@ -985,6 +993,32 @@
         - ansible_facts.system != "Windows"
         - ansible_facts.user_shell != "/usr/bin/zsh"
       tags: [shell]
+
+  post_tasks:
+    - name: Audit running code after package updates
+      become: true
+      ansible.builtin.command:
+        argv: [python3, "{{ dot_repo }}/scripts/audit-updated-processes.py"]
+      register: dot_updated_process_audit
+      changed_when: false
+      when:
+        - ansible_facts.system == "Linux"
+        - not ansible_check_mode
+      tags: [system-updates, app-updates, packages]
+
+    - name: Report remaining update activation work
+      ansible.builtin.debug:
+        msg:
+          - "Running code audit: {{ dot_updated_process_audit.stdout | from_json }}"
+          - >-
+            Reopen listed desktop applications after saving work. Review listed
+            services before restarting, especially remote-access services.
+            A reboot activates remaining system changes. Unreadable processes
+            mean the audit is incomplete. No listed process was stopped.
+      when:
+        - dot_updated_process_audit is defined
+        - dot_updated_process_audit.stdout | default('') | length > 0
+      tags: [system-updates, app-updates, packages]
 
   handlers:
     - name: Restart KRdp after private-network configuration

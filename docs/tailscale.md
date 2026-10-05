@@ -7,6 +7,10 @@ validates the repository signing-key fingerprint, installs the latest stable
 package, and enables the `tailscaled` system service.
 On KDE, the same profile starts `tailscale systray` after Plasma's panel so
 status and controls remain available from the system tray after every login.
+After system or Tailscale package updates, `dot` checks the active tray's
+executable and restarts it if it is still running the replaced binary. This
+does not start a tray in a headless session or change exit-node preferences.
+Updates performed outside `dot` still require a tray restart or a new login.
 The role grants the signed-in Linux user local operator access, which lets the
 tray control this node without granting general administrator privileges.
 

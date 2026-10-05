@@ -80,6 +80,25 @@ The application update also installs any managed Homebrew formulae newly added
 to the active profile, keeping a previously configured workstation reconciled
 with the current package manifest.
 
+## Running programs after package updates
+
+Package installation and activation are separate steps. An update can leave an
+old executable or shared library loaded, even when its background service has
+restarted. This happened with the Tailscale tray on October 2, 2026.
+
+Linux package and application applies now audit running processes after their
+tasks and handlers. The report lists replaced executables, deleted shared-library
+mappings, unreadable processes, and the system reboot marker. Tailscale's active
+stale tray is refreshed automatically; Codex retains its targeted server refresh.
+Other desktop apps should be reopened after saving work. Service restarts need
+review of active containers and remote sessions; use a reboot when appropriate.
+
+This is a detection check, not proof that all running code is current: overwritten
+files, interpreted code, plugins, and bundled assets may not produce deleted
+mappings. Outside-`dot` updates do not run this audit. Run it manually with
+`python3 scripts/audit-updated-processes.py`; without administrator access,
+unreadable processes are reported as an explicit coverage limit.
+
 ## Automatic repository sync
 
 Before a `dot` command or the command palette starts, the CLI fetches the

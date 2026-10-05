@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# APT replaces the binary and restarts tailscaled, but the desktop tray can
+# keep running the old executable. Do not start a tray in a headless session.
+unit='app-tailscale\x2dsystray@autostart.service'
+pid=$(systemctl --user show "$unit" --property=MainPID --value 2>/dev/null) || exit 0
+[[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit 0
+[[ -e /proc/"$pid"/exe && -e /usr/bin/tailscale ]] || exit 0
+[[ /proc/"$pid"/exe -ef /usr/bin/tailscale ]] && exit 0
+
+systemctl --user try-restart "$unit"
+echo 'Restarted stale Tailscale tray'
