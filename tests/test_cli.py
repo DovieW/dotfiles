@@ -1654,6 +1654,9 @@ class DotCliTests(unittest.TestCase):
             ansible_marker = root / "ansible-ran"
             ansible_args = root / "ansible-args"
             (fake_bin / "sudo-rs").write_text("#!/bin/sh\nexit 99\n")
+            # This privilege-routing test must not inspect or close real apps.
+            (fake_bin / "pgrep").write_text("#!/bin/sh\nexit 1\n")
+            (fake_bin / "pgrep").chmod(0o755)
             (fake_bin / "sudo").symlink_to(fake_bin / "sudo-rs")
             (fake_bin / "ansible-playbook").write_text(
                 "#!/bin/sh\n"
