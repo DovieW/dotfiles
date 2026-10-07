@@ -503,6 +503,19 @@ locking the session:
 dot lockscreen preview
 ```
 
+The managed field is always visible and ready for typing. The Qt interaction
+tests exercise focus, the first character, Escape, inactivity, shared display
+input, and delayed PAM retries without locking or using real credentials:
+
+```bash
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
+```
+
+These tests require the local Plasma QML modules and Qt's QML test tools. After
+changing the theme, also check an actual lock/unlock and suspend/wake locally;
+test mode cannot validate compositor routing or the real PAM conversation.
+
 Apply only its shell package, private wallpaper, and two KDE configuration
 files with:
 

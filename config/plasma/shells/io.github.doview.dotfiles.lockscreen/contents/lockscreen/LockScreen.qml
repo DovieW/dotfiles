@@ -6,8 +6,6 @@ import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
 
 import org.kde.breeze.components as Breeze
-import org.kde.kirigami as Kirigami
-import org.kde.kscreenlocker as ScreenLocker
 import org.kde.plasma.clock as PlasmaClock
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.networkmanagement as PlasmaNM
@@ -26,16 +24,13 @@ Item {
     property bool suspendToRamSupported: false
     property bool suspendToDiskSupported: false
     property string notification: ""
-    property string queuedPassword: ""
 
     signal clearPassword()
     signal notificationRepeated()
     signal suspendToDisk()
     signal suspendToRam()
 
-    readonly property bool activeView:
-        (Window.window && Window.window.active) || interaction.containsMouse
-    readonly property bool loginVisible: interaction.uiVisible && activeView
+    readonly property bool activeView: !Window.window || Window.window.active
     readonly property color foreground: "#f7f8fa"
     readonly property string displayName: "Dovie Weinstock"
     readonly property string uiFont: "Segoe UI Variable"
@@ -76,175 +71,83 @@ Item {
         trackSeconds: false
     }
 
-    Connections {
-        target: authenticator
-
-        function onFailed(kind) {
-            if (kind === 0) {
-                root.queuedPassword = "";
-                root.notification = i18nd(
-                    "plasma_shell_org.kde.plasma.desktop",
-                    "Unlocking failed"
-                );
-                PasswordState.password = "";
-                passwordField.text = "";
-                passwordField.forceActiveFocus();
-                graceLockTimer.restart();
-                messageTimer.restart();
-                rejectAnimation.restart();
-            }
+    function focusPassword() {
+        if (root.activeView && !keyboardMenu.visible && !powerMenu.visible) {
+            passwordField.forceActiveFocus();
         }
+    }
 
-        function onSucceeded() {
-            Qt.quit();
+    onActiveViewChanged: {
+        if (activeView) {
+            Qt.callLater(focusPassword);
         }
-
-        function onInfoMessageChanged() {
-            root.notification = authenticator.infoMessage;
+    }
+    onViewVisibleChanged: {
+        if (viewVisible) {
+            Qt.callLater(focusPassword);
         }
-
-        function onErrorMessageChanged() {
-            root.notification = authenticator.errorMessage;
-        }
-
-        function onPromptChanged(message) {
-            root.notification = message;
-        }
-
-        function onPromptForSecretChanged() {
-            interaction.showLogin();
-            if (root.queuedPassword.length > 0
-                    && !authenticator.graceLocked) {
-                const password = root.queuedPassword;
-                root.queuedPassword = "";
-                PasswordState.password = "";
-                passwordField.text = "";
-                authenticator.respond(password);
-            }
+    }
+    onLockedChanged: {
+        if (locked && PasswordState.backend) {
+            PasswordState.backend.startAuthenticating();
         }
     }
 
     Connections {
-        target: root
+        target: PasswordState
+        function onAuthenticated() { Qt.quit(); }
+        function onPromptReadyChanged() { root.focusPassword(); }
+    }
 
+    Connections {
+        target: root
         function onClearPassword() {
-            PasswordState.password = "";
-            passwordField.text = "";
-            passwordField.forceActiveFocus();
+            PasswordState.clear();
+            root.focusPassword();
         }
+    }
+
+    Connections {
+        target: sessionManagement
+        function onAboutToSuspend() { root.clearPassword(); }
     }
 
     FastBlur {
         anchors.fill: parent
         source: wallpaper
-        radius: root.loginVisible ? 42 : 0
-        opacity: root.loginVisible ? 1 : 0
-
-        Behavior on radius {
-            NumberAnimation {
-                duration: 180
-                easing.type: Easing.OutCubic
-            }
-        }
-
-        Behavior on opacity {
-            NumberAnimation {
-                duration: 160
-            }
-        }
+        radius: 24
+        // GraphicalEffects cannot blur with Qt's software renderer. The
+        // wallpaper and dark overlay still provide a usable fallback.
+        visible: GraphicsInfo.api !== GraphicsInfo.Software
     }
 
     Rectangle {
         anchors.fill: parent
         color: "#000000"
-        opacity: root.loginVisible ? 0.32 : 0.08
-
-        Behavior on opacity {
-            NumberAnimation {
-                duration: 180
-                easing.type: Easing.OutCubic
-            }
-        }
+        opacity: 0.28
     }
 
     MouseArea {
         id: interaction
-
-        property bool uiVisible: false
-        property bool pointerMoved: false
-        property bool keyboardRevealArmed: false
-
-        function showLogin() {
-            uiVisible = true;
-            fadeTimer.restart();
-            passwordField.forceActiveFocus();
-        }
-
-        function reveal() {
-            const shouldStartAuthentication = !uiVisible;
-            showLogin();
-            if (shouldStartAuthentication) {
-                authenticator.startAuthenticating();
-            }
-        }
-
         anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: uiVisible ? Qt.ArrowCursor : Qt.BlankCursor
+        onPressed: root.focusPassword()
+    }
 
-        onPressed: reveal()
-        onPositionChanged: {
-            if (pointerMoved) {
-                reveal();
-            }
-            pointerMoved = true;
+    // Escape clears a queued retry without putting another screen in front of
+    // the field. Let KDE receive it too, preserving its screen-off behavior.
+    Keys.onEscapePressed: event => {
+        root.clearPassword();
+        if (virtualKeyboard.keyboardActive) {
+            virtualKeyboard.showHide();
         }
-        onExited: {
-            if (!PasswordState.password) {
-                uiVisible = false;
-            }
-        }
-
-        Keys.onEscapePressed: {
-            PasswordState.password = "";
-            passwordField.text = "";
-            uiVisible = false;
-            if (virtualKeyboard.keyboardActive) {
-                virtualKeyboard.showHide();
-            }
-        }
-
-        Keys.onPressed: event => {
-            if (!keyboardRevealArmed) {
-                event.accepted = true;
-                return;
-            }
-            reveal();
-            event.accepted = false;
-        }
-
-        Timer {
-            id: initialShortcutGuard
-            interval: 500
-            onTriggered: interaction.keyboardRevealArmed = true
-        }
-
-        Timer {
-            id: fadeTimer
-            interval: 10000
-            onTriggered: {
-                if (!PasswordState.password && !virtualKeyboard.keyboardActive) {
-                    interaction.uiVisible = false;
-                }
-            }
-        }
+        event.accepted = false;
     }
 
     ColumnLayout {
         id: clock
 
         anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.max(52, parent.height * 0.18)
+        y: Math.max(24, parent.height * 0.16)
         spacing: 2
         opacity: 1
 
@@ -274,35 +177,28 @@ Item {
         }
     }
 
-    QQC2.StackView {
+    Item {
         id: loginStack
 
         anchors.fill: parent
-        focus: true
 
-        initialItem: Item {
+        Item {
             id: mainBlock
+            anchors.fill: parent
 
-            property int visibleBoundary: loginCard.y + loginCard.height
-
-            Item {
+            Rectangle {
                 id: loginCard
 
-                width: Math.max(360, Math.min(420, root.width - 48))
-                height: 196
+                width: Math.min(420, Math.max(0, root.width - 32))
+                height: loginContents.implicitHeight + 48
                 anchors.horizontalCenter: parent.horizontalCenter
-                y: Math.min(parent.height - height - 84, parent.height * 0.49)
-                opacity: root.loginVisible ? 1 : 0
-                enabled: root.loginVisible
-                visible: opacity > 0
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 170
-                    }
-                }
+                y: Math.max(clock.y + clock.height + 16,
+                    Math.min(parent.height - height - 72, parent.height * 0.48))
+                radius: 16
+                color: "#660d1117"
 
                 ColumnLayout {
+                    id: loginContents
                     anchors.fill: parent
                     anchors.margins: 24
                     spacing: 12
@@ -318,6 +214,9 @@ Item {
 
                     PlasmaComponents3.TextField {
                         id: passwordField
+                        objectName: "passwordField"
+                        focus: true
+                        Accessible.name: placeholderText
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 48
@@ -337,8 +236,7 @@ Item {
                         )
                         echoMode: TextInput.Password
                         enabled: true
-                        readOnly: root.queuedPassword.length > 0
-                        text: PasswordState.password
+                        readOnly: PasswordState.submitting
 
                         background: Rectangle {
                             radius: 8
@@ -355,23 +253,22 @@ Item {
                             }
                         }
 
-                        onTextEdited: {
-                            PasswordState.password = text;
-                            fadeTimer.restart();
+                        onTextEdited: PasswordState.password = text
+                        onAccepted: PasswordState.submit()
+                        Keys.onPressed: event => {
+                            // The Meta+L shortcut must not become password text.
+                            if (event.modifiers & Qt.MetaModifier) {
+                                event.accepted = true;
+                            }
                         }
 
-                        onAccepted: {
-                            fadeTimer.stop();
-                            if (graceLockTimer.running
-                                    || authenticator.graceLocked) {
-                                root.queuedPassword = text;
-                                root.notification = i18nd(
-                                    "plasma_shell_org.kde.plasma.desktop",
-                                    "Retrying…"
-                                );
-                            } else {
-                                authenticator.respond(text);
-                            }
+                        // Assigning text on clear destroys its binding. Keep an
+                        // explicit Binding so all displays stay synchronized.
+                        Binding {
+                            target: passwordField
+                            property: "text"
+                            value: PasswordState.password
+                            restoreMode: Binding.RestoreNone
                         }
                     }
 
@@ -379,49 +276,30 @@ Item {
                         id: statusMessage
 
                         text: {
-                            if (capsLockState.locked && root.notification) {
-                                return root.notification + "  •  "
-                                    + i18nd(
-                                        "plasma_shell_org.kde.plasma.desktop",
-                                        "Caps Lock is on"
-                                    );
+                            const messages = [];
+                            if (PasswordState.retrying && PasswordState.submitting) {
+                                messages.push(i18nd("plasma_shell_org.kde.plasma.desktop", "Retrying…"));
+                            } else if (PasswordState.submitting) {
+                                messages.push(i18nd("plasma_shell_org.kde.plasma.desktop", "Unlocking…"));
+                            } else if (PasswordState.message === "Unlocking failed") {
+                                messages.push(i18nd("plasma_shell_org.kde.plasma.desktop", "Unlocking failed"));
+                            } else if (PasswordState.message || root.notification) {
+                                messages.push(PasswordState.message || root.notification);
                             }
                             if (capsLockState.locked) {
-                                return i18nd(
-                                    "plasma_shell_org.kde.plasma.desktop",
-                                    "Caps Lock is on"
-                                );
+                                messages.push(i18nd("plasma_shell_org.kde.plasma.desktop", "Caps Lock is on"));
                             }
-                            if (root.notification) {
-                                return root.notification;
-                            }
-                            return "";
+                            return messages.join("  •  ");
                         }
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        Layout.minimumHeight: implicitHeight
+
                         color: "#d9ffffff"
                         font.family: root.uiFont
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
                         Layout.fillWidth: true
-
-                        SequentialAnimation {
-                            id: rejectAnimation
-
-                            NumberAnimation {
-                                target: statusMessage
-                                property: "opacity"
-                                from: 1
-                                to: 0.25
-                                duration: 80
-                            }
-                            NumberAnimation {
-                                target: statusMessage
-                                property: "opacity"
-                                from: 0.25
-                                to: 1
-                                duration: 120
-                            }
-                        }
                     }
                 }
             }
@@ -454,14 +332,6 @@ Item {
             margins: 18
         }
         spacing: 6
-        opacity: root.loginVisible ? 1 : 0
-        visible: opacity > 0
-
-        Behavior on opacity {
-            NumberAnimation {
-                duration: 160
-            }
-        }
 
         Breeze.Battery {
             fontSize: 11
@@ -474,7 +344,7 @@ Item {
                 "Network status"
             )
             display: QQC2.AbstractButton.IconOnly
-            focusPolicy: Qt.TabFocus
+            enabled: false
         }
 
         PlasmaComponents3.ToolButton {
@@ -490,6 +360,7 @@ Item {
             QQC2.Menu {
                 id: keyboardMenu
                 y: -height
+                onClosed: Qt.callLater(root.focusPassword)
 
                 QQC2.MenuItem {
                     text: virtualKeyboard.keyboardActive
@@ -532,6 +403,7 @@ Item {
             QQC2.Menu {
                 id: powerMenu
                 y: -height
+                onClosed: Qt.callLater(root.focusPassword)
 
                 QQC2.MenuItem {
                     text: i18nd(
@@ -563,24 +435,9 @@ Item {
         }
     }
 
-    Timer {
-        id: graceLockTimer
-        interval: 3000
-        onTriggered: {
-            authenticator.startAuthenticating();
-            passwordField.forceActiveFocus();
-        }
-    }
-
-    Timer {
-        id: messageTimer
-        interval: 3000
-        onTriggered: root.notification = ""
-    }
-
     Component.onCompleted: {
+        PasswordState.initialize(authenticator);
         entranceFade.start();
-        interaction.forceActiveFocus();
-        initialShortcutGuard.start();
+        Qt.callLater(root.focusPassword);
     }
 }

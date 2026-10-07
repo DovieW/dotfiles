@@ -17,6 +17,13 @@ skip_or_fail() {
 python3 tests/validate_profiles.py
 python3 -m unittest tests/test_cli.py tests/test_kde_apply.py tests/test_file_manager.py tests/test_dolphin_places.py tests/test_startup_sync.py tests/test_krdp.py tests/test_krdp_audio.py tests/test_recovery.py tests/test_desktop_wallet.py tests/test_herdr_machines.py
 
+if [[ -x /usr/lib/qt6/bin/qmltestrunner && -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreen.qml ]]; then
+  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+    /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
+else
+  echo "SKIP lock-screen interaction tests: local Plasma QML modules and Qt QML test tools are required"
+fi
+
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -t shell_files < <(find bin config scripts tests \
     -path '*/node_modules/*' -prune -o -type f \

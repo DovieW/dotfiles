@@ -2921,10 +2921,9 @@ else:
         self.assertIn("PasswordState.password", lock_qml)
         self.assertIn("Keyboards.KWinVirtualKeyboard", lock_qml)
         self.assertIn("PlasmaNM.ConnectionIcon", lock_qml)
-        self.assertIn(
-            "(Window.window && Window.window.active) || interaction.containsMouse",
-            lock_qml,
-        )
+        self.assertIn("Window.window.active", lock_qml)
+        self.assertNotIn("uiVisible", lock_qml)
+        self.assertNotIn("fadeTimer", lock_qml)
         self.assertNotIn("Fingerprint", lock_qml)
         self.assertNotIn("unlockButton", lock_qml)
         self.assertNotIn("go-next-symbolic", lock_qml)
@@ -2933,25 +2932,15 @@ else:
         self.assertIn('selectionColor: "#55ffffff"', lock_qml)
         self.assertIn('Qt.formatTime(clockSource.dateTime, "h:mm AP")', lock_qml)
         self.assertIn("Layout.preferredHeight: 48", lock_qml)
-        self.assertIn("graceLockTimer.restart();", lock_qml)
-        self.assertIn("id: graceLockTimer", lock_qml)
-        self.assertIn("authenticator.startAuthenticating();", lock_qml)
-        self.assertIn('property string queuedPassword: ""', lock_qml)
-        self.assertIn("root.queuedPassword = text;", lock_qml)
-        self.assertIn("authenticator.respond(password);", lock_qml)
-        self.assertNotIn("enabled: !authenticator.graceLocked", lock_qml)
-        self.assertIn("property bool keyboardRevealArmed: false", lock_qml)
-        self.assertIn("id: initialShortcutGuard", lock_qml)
-        self.assertIn("interaction.showLogin();", lock_qml)
-        self.assertIn("initialShortcutGuard.start();", lock_qml)
-        self.assertIn(
-            "Component.onCompleted: {\n"
-            "        entranceFade.start();\n"
-            "        interaction.forceActiveFocus();\n"
-            "        initialShortcutGuard.start();\n"
-            "    }",
-            lock_qml,
-        )
+        password_state = (lock_package / "contents/lockscreen/PasswordState.qml").read_text()
+        self.assertIn("PasswordState.initialize(authenticator);", lock_qml)
+        self.assertIn("PasswordState.submit()", lock_qml)
+        self.assertIn("Qt.callLater(root.focusPassword);", lock_qml)
+        self.assertIn("onAboutToSuspend()", lock_qml)
+        self.assertNotIn("initialShortcutGuard", lock_qml)
+        self.assertNotIn("authenticator.graceLocked", lock_qml)
+        self.assertIn("backend.respond(response);", password_state)
+        self.assertIn("onLoginFailedDelayStarted", password_state)
 
         native_frames = (ROOT / "scripts/configure-native-frames").read_text()
         self.assertIn('"custom_chrome_frame"', native_frames)

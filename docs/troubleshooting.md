@@ -175,14 +175,19 @@ The custom QML omits media controls entirely. KDE's stock fallback also reads
 under `[Greeter]` has no effect. Use `dot lockscreen stock` to select KDE's
 complete stock shell while diagnosing a Plasma compatibility problem.
 
-After a rejected password, the managed theme mirrors KScreenLocker's stock
-three-second retry lifecycle: it clears the rejected secret and restarts the
-authenticator when the grace period expires. Unlike the stock field, it remains
-editable during that interval: pressing Enter queues the new password in memory
-and submits it as soon as authentication is ready. The queued secret is never
-written to disk. If the field remains unresponsive for longer than three
-seconds, reapply the `lockscreen` tag before investigating PAM; an older managed
-theme could leave the authenticator stopped indefinitely.
+The password field should appear immediately and stay visible after inactivity,
+pointer movement, and Escape. Escape clears input and cancels a queued retry;
+KDE may also turn off the display. On wake, the field is ready again.
+
+After a rejected password, the shared controller clears the rejected secret
+and restarts authentication after at least three seconds (longer if PAM requests
+it). The field remains editable during that interval. Pressing Enter queues the
+new password in memory and submits it once the new PAM prompt arrives; repeated
+Enter presses and additional displays cannot duplicate that response. The
+queued secret is cleared on Escape, suspension, failure, or success and is never
+written to disk. If the field still hides or loses synchronization, reapply the
+`lockscreen` tag. A persistent authentication delay then needs investigation of
+PAM and greeter logs rather than a reduction in authentication protections.
 
 ## Closing the lid or a suspend behaves unexpectedly
 

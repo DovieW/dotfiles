@@ -442,11 +442,15 @@ pointer after one second without pointer motion, including after Meta+D, and
 while typing ordinary text. Pointer movement restores it immediately.
 The lock screen uses the public, user-local
 `io.github.doview.dotfiles.lockscreen` Plasma shell package. It presents a
-sharp leaves wallpaper and centered Segoe clock while idle, then follows the
-active display with a blurred background, glass password card, and compact
-status controls. Meta+L lands on that idle clock view; the password UI and PAM
-authentication begin only after a subsequent click or keypress, with the
-launching shortcut itself ignored. It never instantiates Plasma's media
+leaves wallpaper, centered Segoe clock, glass password card, and compact status
+controls. The password field is always visible, focuses on the active display,
+and accepts the first typed character immediately. Meta+L never inserts shortcut
+text; Escape clears input without hiding the card, while preserving KDE's
+screen-off behavior. One in-memory controller shares input across displays,
+starts PAM immediately, and sends each submitted secret once a real prompt is
+ready. A failed attempt retains KDE's minimum three-second retry interval and
+honors longer PAM delays; a retry entered during the delay is queued in memory.
+The software-rendering fallback omits blur. It never instantiates Plasma's media
 component or an avatar.
 The package declares the installed `org.kde.plasma.desktop` shell as its
 fallback, while KScreenLocker retains its compiled emergency unlock UI.
