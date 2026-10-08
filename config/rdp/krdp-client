@@ -105,6 +105,8 @@ fi
 trap cleanup_session EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# KRdp authenticates the Linux account through PAM after the TLS handshake.
+# NLA/NTLM requires a separate SAM credential and cannot validate that password.
 printf '%s\n' "$password" | "$client" \
   "/v:${host}:3389" \
   "/u:${user}" \
@@ -114,6 +116,7 @@ printf '%s\n' "$password" | "$client" \
   /smart-sizing:2880x1800 \
   +clipboard \
   /cert:tofu \
+  /sec:tls \
   /network:auto \
   /gfx &
 client_pid=$!
@@ -125,4 +128,12 @@ if [[ -x "$audio_helper" ]]; then
 else
   echo "KRdp audio helper is missing; reapply the managed RDP configuration." >&2
 fi
-wait "$client_pid"
+client_status=0
+wait "$client_pid" || client_status=$?
+if (( client_status != 0 )); then
+  # Restore the desktop display and audio before waiting on an error dialog.
+  cleanup_session
+  trap - EXIT
+  kdialog --error "Could not open Desktop (KRdp) on ${host} (client exit ${client_status}). Use ${user}'s normal desktop login password. Connection details are in the laptop's user journal; the desktop's KRdp journal shows authentication and session errors."
+fi
+exit "$client_status"

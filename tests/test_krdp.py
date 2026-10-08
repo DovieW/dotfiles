@@ -269,6 +269,7 @@ read -r input
 for argument in "$@"; do
   [[ "$argument" != /p:* && "$argument" != *simulated-input* ]] || exit 94
 done
+[[ " $* " == *" /sec:tls "* ]] || exit 96
 if [[ "${KRDP_TEST_AUDIO_TRACE:-0}" == 1 ]]; then sleep 0.3; fi
 exit "${KRDP_TEST_CLIENT_EXIT:-0}"
 """,
@@ -317,7 +318,7 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
             KRDP_TEST_CLIENT_EXIT="42", KRDP_TEST_RELEASE_EXIT="1",
         )
         self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt", "ssh:prepare", "client", "ssh:release"])
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt", "ssh:prepare", "client", "ssh:release", "error-dialog"])
 
     def test_audio_tracks_the_client_and_stops_before_display_cleanup(self):
         result, events = self.run_client(KRDP_TEST_AUDIO_TRACE="1")

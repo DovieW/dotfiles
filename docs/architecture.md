@@ -126,6 +126,10 @@ the desktop portal. Its TLS private key is mode `0600` local state; neither it
 nor an account password is committed. The laptop uses Homebrew's H.264-capable
 XFreeRDP client in fullscreen smart-sizing mode. A KDE password dialog feeds
 the password over an anonymous pipe, never a process argument or file.
+The client explicitly selects TLS RDP security for KRdp's PAM login;
+NLA/NTLM negotiation expects a SAM credential rather than the Linux password.
+Client failures show an error dialog after restoring the display and audio,
+with connection details available in the laptop's user journal.
 
 NoMachine and KRdp share one reference-counted panel manager. It discovers
 current Plasma panel IDs on every connection, keeps all panels visible while
