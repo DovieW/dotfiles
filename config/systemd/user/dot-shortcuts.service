@@ -1,0 +1,6 @@
+[Unit]
+Description=Show searchable keyboard shortcut reference
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/dot-shortcuts

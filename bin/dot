@@ -1930,6 +1930,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         "KWin",
         "Cancel Safe Keystroke Paste",
     )
+    shortcut_reference = ("kwin", "dot-shortcuts", "KWin", "Show Keyboard Shortcuts")
     klipper_popup = (
         "plasmashell",
         "show-on-mouse-pos",
@@ -1976,6 +1977,8 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         # Qt::META | Qt::SHIFT | V and C.
         safe_keystroke_paste: [301989974],
         safe_keystroke_paste_cancel: [301989955],
+        # Qt matches the shifted question-mark keysym (Meta+Shift+/ on US).
+        shortcut_reference: [268435519],
     }
     if clipboard_only:
         # Clipboard setup precedes installation of the desktop scripts on a
@@ -1984,6 +1987,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
             klipper_popup, stock_emoji_picker, clipboard_history_meta,
             clipboard_history_ctrl, emoji_picker, clipboard_probe,
             safe_keystroke_paste, safe_keystroke_paste_cancel,
+            shortcut_reference,
         }
         desired = {action: keys for action, keys in desired.items() if action in clipboard_actions}
     activate_kglobal_shortcuts(desired)
@@ -2574,6 +2578,8 @@ def apply_direct(
             )
     if features.get("copyq") and selected("clipboard", "safe-keystroke-paste"):
         copyq_mappings = {
+            ROOT / "scripts/dot-shortcuts": Path.home() / ".local/bin/dot-shortcuts",
+            ROOT / "config/systemd/user/dot-shortcuts.service": Path.home() / ".config/systemd/user/dot-shortcuts.service",
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",
             ROOT / "config/copyq/dot-copyq-history": Path.home() / ".local/bin/dot-copyq-history",
             ROOT / "scripts/test-copyq-paste": Path.home() / ".local/bin/dot-test-copyq-paste",
@@ -6365,6 +6371,7 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],
         ("kwin", "dot-safe-keystroke-paste", "KWin", "Open Safe Keystroke Paste"): [301989974],
         ("kwin", "dot-safe-keystroke-paste-cancel", "KWin", "Cancel Safe Keystroke Paste"): [301989955],
+        ("kwin", "dot-shortcuts", "KWin", "Show Keyboard Shortcuts"): [268435519],
         ("org.kde.plasma.emojier.desktop", "_launch", "Emoji Selector", "Emoji Selector"): [0],
         ("plasmashell", "show-on-mouse-pos", "plasmashell", "Show Clipboard Items at Mouse Position"): [0],
     }

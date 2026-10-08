@@ -215,6 +215,13 @@ Credentials come only from `GROQ_API_KEY`, `OPENAI_API_KEY`, or
 `FIREWORKS_API_KEY` in the current process environment. The program never
 prompts for, stores, or retrieves keys from Bitwarden.
 
+### Keyboard shortcut reference
+
+`Meta+Shift+/` (Windows+Shift+/, the `?` key on a US keyboard) opens a
+searchable shortcut reference. It reads this computer's assigned KDE shortcuts
+and Remmina host-key shortcuts each time it opens. Search by action, key, or
+application; press Escape to close. The popup is installed with clipboard setup.
+
 ### Clipboard and emoji that behave naturally
 
 CopyQ replaces Klipper for searchable clipboard history; it is deliberately

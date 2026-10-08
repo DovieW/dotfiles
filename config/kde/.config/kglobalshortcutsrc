@@ -53,6 +53,7 @@ dot-emoji-picker=Meta+.,none,Open Dotfiles Emoji Picker
 dot-brightness-down=Monitor Brightness Down,none,Decrease Screen Brightness by 10%
 dot-brightness-up=Monitor Brightness Up,none,Increase Screen Brightness by 10%
 dot-safe-keystroke-paste=Meta+Shift+V,none,Open Safe Keystroke Paste
+dot-shortcuts=Meta+?,none,Show Keyboard Shortcuts
 dot-safe-keystroke-paste-cancel=Meta+Shift+C,none,Cancel Safe Keystroke Paste
 dot-active-window-clipboard=Alt+Print\tMeta+Print,none,Copy Active Window Screenshot
 dot-flameshot-full-clipboard=Print,none,Copy Full Screen Screenshot

@@ -1,0 +1,147 @@
+#!/usr/bin/python3
+"""Search the current desktop and Remmina keyboard shortcuts."""
+
+import configparser
+import os
+import re
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QHeaderView, QLabel, QLineEdit,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+)
+
+
+def read_config(path):
+    config = configparser.ConfigParser(interpolation=None, strict=False)
+    config.optionxform = str
+    config.read(path, encoding="utf-8")
+    return config
+
+
+def shortcut_rows(config_home):
+    config = read_config(config_home / "kglobalshortcutsrc")
+    rows = []
+    for section in config.sections():
+        group = config[section].get("_k_friendly_name", section)
+        for key, value in config[section].items():
+            if key.startswith("_k_"):
+                continue
+            parts = re.split(r"(?<!\\),", value, maxsplit=2)
+            if len(parts) != 3 or parts[0] in ("", "none"):
+                continue
+            binding = " or ".join(parts[0].replace("\\t", "\t").replace("\\,", ",").replace("\\\\", "\\").split("\t"))
+            action = parts[2] or key
+            category = group
+            if key.startswith("dot-"):
+                if any(word in key for word in ("flameshot", "clipboard", "luna")) and "copyq" not in key:
+                    category = "Screenshots & screen text"
+                elif any(word in key for word in ("copyq", "paste", "emoji")):
+                    category = "Clipboard & typing"
+                else:
+                    category = "Desktop"
+            rows.append((category, action, binding))
+
+    remmina = read_config(config_home / "remmina/remmina.pref")
+    if remmina.has_section("remmina_pref"):
+        prefs = remmina["remmina_pref"]
+        # Remmina stores GDK/X11 keysyms, including modifier keys.
+        def key_name(value):
+            code = int(value)
+            if code == 65508:
+                return "Right Ctrl"
+            if code == 65507:
+                return "Left Ctrl"
+            if 65470 <= code <= 65504:
+                return f"F{code - 65469}"
+            if 32 <= code <= 126:
+                return chr(code).upper()
+            return {65293: "Enter", 65307: "Esc", 65361: "Left", 65362: "Up", 65363: "Right", 65364: "Down", 65365: "Page Up", 65366: "Page Down", 65505: "Left Shift", 65506: "Right Shift", 65513: "Left Alt", 65514: "Right Alt"}.get(code, f"Key {code}")
+        host = prefs.get("hostkey", "")
+        if host.isdigit() and int(host):
+            host = key_name(host)
+            rows.append(("Remmina", "Release / restore keyboard grab", host))
+            labels = {
+                "clipboard": "Send clipboard as keystrokes",
+                "minimize": "Minimize connection",
+                "viewonly": "Toggle view-only mode",
+                "screenshot": "Save screenshot and copy to clipboard",
+                "fullscreen": "Toggle fullscreen",
+                "autofit": "Fit window to remote desktop",
+                "nexttab": "Next connection tab",
+                "prevtab": "Previous connection tab",
+                "scale": "Toggle scaled display",
+                "multimon": "Toggle multiple monitors",
+                "disconnect": "Disconnect connection",
+                "toolbar": "Toggle toolbar",
+            }
+            for key, value in prefs.items():
+                if key.startswith("shortcutkey_") and key != "shortcutkey_grab" and value.isdigit() and int(value):
+                    name = key.removeprefix("shortcutkey_")
+                    rows.append(("Remmina", labels.get(name, name.replace("_", " ").capitalize()), f"{host}+{key_name(value)}"))
+    return sorted(set(rows))
+
+
+class ShortcutDialog(QDialog):
+    def __init__(self, config_home):
+        super().__init__()
+        self.setWindowTitle("Keyboard shortcuts")
+        self.resize(850, 650)
+        layout = QVBoxLayout(self)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search actions, keys, or applications…")
+        self.search.setClearButtonEnabled(True)
+        layout.addWidget(self.search)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Action", "Shortcut"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.tree)
+        note = QLabel("Meta = Windows key · Esc to close\nIn Remmina, release the keyboard grab with its host key before using desktop shortcuts.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.rows = shortcut_rows(config_home)
+        self.search.textChanged.connect(self.filter_rows)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search.setFocus)
+        self.filter_rows("")
+        self.search.setFocus()
+
+    def filter_rows(self, query):
+        self.tree.clear()
+        groups = {}
+        words = query.casefold().split()
+        for category, action, binding in self.rows:
+            if not all(word in f"{category} {action} {binding}".casefold() for word in words):
+                continue
+            if category not in groups:
+                group = QTreeWidgetItem(self.tree, [category])
+                group.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                font = group.font(0)
+                font.setBold(True)
+                group.setFont(0, font)
+                groups[category] = group
+            QTreeWidgetItem(groups[category], [action, binding])
+        self.tree.expandAll()
+        if not groups:
+            QTreeWidgetItem(self.tree, ["No matching shortcuts"])
+
+
+def main():
+    app = QApplication(["dot-shortcuts"])
+    app.setApplicationName("dot-shortcuts")
+    app.setDesktopFileName("dot-shortcuts")
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    dialog = ShortcutDialog(config_home)
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    dialog.windowHandle().requestActivate()
+    app.exec()
+
+
+if __name__ == "__main__":
+    main()

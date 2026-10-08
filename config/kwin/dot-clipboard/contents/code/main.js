@@ -10,6 +10,7 @@ function reopenUserUnit(unit) {
 }
 
 var requestedCopyQDesktop = null;
+var requestedShortcutsDesktop = null;
 
 function isCopyQ(window) {
     return window.resourceClass === "com.github.hluk.copyq" ||
@@ -61,6 +62,16 @@ registerShortcut(
 );
 
 registerShortcut(
+    "dot-shortcuts",
+    "Show Keyboard Shortcuts",
+    "Meta+?",
+    function () {
+        requestedShortcutsDesktop = workspace.currentDesktop;
+        reopenUserUnit("dot-shortcuts.service");
+    }
+);
+
+registerShortcut(
     "dot-safe-keystroke-paste",
     "Open Safe Keystroke Paste",
     "Meta+Shift+V",
@@ -82,6 +93,13 @@ registerShortcut(
 );
 
 workspace.windowAdded.connect(function (window) {
+    if (requestedShortcutsDesktop !== null && window.desktopFileName === "dot-shortcuts") {
+        window.desktops = [requestedShortcutsDesktop];
+        requestedShortcutsDesktop = null;
+        window.minimized = false;
+        workspace.raiseWindow(window);
+        workspace.activeWindow = window;
+    }
     if (requestedCopyQDesktop !== null && isCopyQ(window)) {
         focusCopyQ(window);
     }
