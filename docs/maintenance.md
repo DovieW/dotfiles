@@ -112,18 +112,17 @@ mappings. Outside-`dot` updates do not run this audit. Run it manually with
 `python3 scripts/audit-updated-processes.py`; without administrator access,
 unreadable processes are reported as an explicit coverage limit.
 
-KRdp also has a user timer that checks for replaced executables and shared
-libraries every five minutes, including after updates outside `dot`. It refreshes
-only the verified, already-running KRdp service with an active Plasma session.
-Refresh waits while KRdp or NoMachine has an established connection or a managed
-KRdp display preparation is pending; inactive services are not started. Unknown
-process ownership, unreadable state, and failed socket checks prevent refresh.
-It preserves KRdp settings and credentials and does not restart Plasma.
+Managed package updates also check KRdp for replaced executables and shared
+libraries. There is no periodic KRdp polling. The update hook refreshes only
+the verified, already-running KRdp service with an idle Plasma session; active
+remote viewing and pending display preparation defer refresh. Inactive services
+are not started, and unknown or unreadable state prevents refresh. Updates
+outside `dot` require a manual inspection. Settings and credentials are preserved.
 
 Inspect KRdp without changing anything using
 `python3 scripts/refresh-krdp --check`. `--refresh` applies the idle refresh rule.
 `dot doctor --profile kubuntu-desktop` checks the Plasma session, loaded code,
-private listener, and refresh timer separately. These checks cannot prove a
+and private listener separately. These checks cannot prove a
 successful password login or visible video; a client connection still verifies
 those. NoMachine and key-only SSH remain separate recovery paths.
 

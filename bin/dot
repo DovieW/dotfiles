@@ -10162,15 +10162,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             json.dumps(krdp_health_data) if krdp_health_data
             else "Cannot inspect KRdp executable and libraries",
         )
-        refresh_ready = all(run(
-            ["systemctl", "--user", action, "--quiet", "dot-krdp-refresh.timer"],
-            check=False,
-        ).returncode == 0 for action in ("is-enabled", "is-active"))
-        failures += not doctor_check(
-            "KRdp idle update activation", refresh_ready,
-            "Idle refresh timer enabled and active" if refresh_ready
-            else f"run dot apply --profile {profile['name']} --tags krdp",
-        )
         krdp_package = run(
             ["dpkg-query", "-W", "-f=${db:Status-Status}", "krdp"],
             check=False,
