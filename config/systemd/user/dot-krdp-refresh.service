@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh replaced KRdp code when remote viewing is idle
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/libexec/refresh-krdp --refresh

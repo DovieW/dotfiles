@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for replaced KRdp executables and libraries
+
+[Timer]
+OnStartupSec=2min
+OnUnitInactiveSec=5min
+Unit=dot-krdp-refresh.service
+
+[Install]
+WantedBy=timers.target

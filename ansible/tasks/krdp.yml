@@ -140,6 +140,36 @@
   notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
 
+- name: Install KRdp update activation helpers
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/{{ item }}"
+    dest: "{{ ansible_facts.env.HOME }}/.local/libexec/{{ item }}"
+    mode: "0755"
+  loop: [refresh-krdp, audit-updated-processes.py]
+  when: dot_krdp_tailscale_ready
+
+- name: Install the idle KRdp refresh timer
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/{{ item }}"
+    dest: "{{ ansible_facts.env.HOME }}/.config/systemd/user/{{ item }}"
+    mode: "0644"
+  loop: [dot-krdp-refresh.service, dot-krdp-refresh.timer]
+  when: dot_krdp_tailscale_ready
+
+- name: Enable periodic idle KRdp activation after updates
+  ansible.builtin.systemd_service:
+    name: dot-krdp-refresh.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.user_uid }}/bus"
+  when:
+    - dot_krdp_tailscale_ready
+    - not ansible_check_mode
+
 - name: Install the shared remote-session panel manager for KRdp
   become: true
   ansible.builtin.copy:

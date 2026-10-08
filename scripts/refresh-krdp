@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Inspect KRdp and activate replaced code only in an idle Plasma session."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import runpy
+import subprocess
+import time
+
+
+UNIT = "app-org.kde.krdpserver.service"
+PROC = Path("/proc")
+STATE = Path.home() / ".local/state/dotfiles"
+stale_reasons = runpy.run_path(str(Path(__file__).with_name("audit-updated-processes.py")))["stale_reasons"]
+
+
+def run(*args):
+    return subprocess.run(args, text=True, capture_output=True, timeout=20, check=False)
+
+
+def inspect():
+    result = run("systemctl", "--user", "show", UNIT, "-p", "MainPID", "-p", "ActiveState")
+    if result.returncode:
+        return {"status": "unknown", "detail": "Cannot inspect KRdp user service"}
+    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    if properties.get("ActiveState") != "active":
+        return {"status": "inactive", "detail": "KRdp is not running; no automatic start"}
+    try:
+        pid = int(properties["MainPID"])
+        if pid <= 0:
+            raise ValueError("no main PID")
+        process = PROC / str(pid)
+        executable = os.readlink(process / "exe")
+        if process.stat().st_uid != os.getuid() or executable.removesuffix(" (deleted)") != "/usr/bin/krdpserver":
+            return {"status": "unknown", "detail": "KRdp process ownership or executable does not match"}
+        reasons = stale_reasons(executable, (process / "maps").read_text())
+        identity = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, ValueError, KeyError, IndexError):
+        return {"status": "unknown", "detail": "Cannot inspect KRdp executable and loaded libraries"}
+    plasma = run("systemctl", "--user", "is-active", "--quiet", "plasma-kwin_wayland.service").returncode == 0
+    sockets = run("ss", "-Htn", "state", "established", "( sport = :3389 or sport = :4000 )")
+    if sockets.returncode:
+        return {"status": "unknown", "detail": "Cannot inspect remote-viewing connections"}
+    try:
+        lease = STATE / "krdp-scale.json"
+        data = json.loads(lease.read_text()) if lease.exists() else {}
+        if not isinstance(data, dict):
+            raise ValueError("invalid lease")
+        preparing = float(data.get("prepared_until", 0)) > time.time()
+    except (OSError, ValueError, TypeError):
+        return {"status": "unknown", "detail": "Cannot inspect pending KRdp display preparation"}
+    return {"status": "stale" if reasons else "current", "pid": pid, "start_time": identity,
+            "reasons": reasons, "plasma_session": plasma,
+            "remote_viewing": bool(sockets.stdout.strip()), "preparing": preparing}
+
+
+def refresh():
+    # Use the same lock as display preparation: do not restart in the gap
+    # between the managed client's preparation and its RDP connection.
+    STATE.mkdir(parents=True, exist_ok=True)
+    with (STATE / "krdp-scale.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {"status": "deferred", "detail": "Display preparation is busy"}
+        before = inspect()
+        if before["status"] != "stale":
+            return before
+        if before["remote_viewing"] or before["preparing"] or not before["plasma_session"]:
+            return {**before, "status": "deferred", "detail": "Waiting for an idle Plasma session before refreshing stale KRdp"}
+        # Recheck immediately before acting; never target a replacement PID.
+        latest = inspect()
+        if latest != before:
+            return {"status": "deferred", "detail": "KRdp state changed during inspection"}
+        result = run("systemctl", "--user", "try-restart", UNIT)
+        if result.returncode:
+            return {"status": "unknown", "detail": "KRdp refresh failed; inspect its user journal"}
+        after = inspect()
+        if after["status"] != "current":
+            return {**after, "detail": "KRdp did not return with current executable and libraries"}
+        return {**after, "status": "refreshed"}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="Read-only inspection; never restart")
+    mode.add_argument("--refresh", action="store_true", help="Refresh only verified stale, idle KRdp")
+    args = parser.parse_args()
+    try:
+        result = refresh() if args.refresh else inspect()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = {"status": "unknown", "detail": f"KRdp inspection unavailable: {type(exc).__name__}"}
+    print(json.dumps(result))
+    return int(result["status"] == "unknown")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

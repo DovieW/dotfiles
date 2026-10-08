@@ -83,6 +83,12 @@ if ! ssh "${ssh_options[@]}" "${user}@${host}" \
   fi
 fi
 
+if ! ssh "${ssh_options[@]}" "${user}@${host}" \
+    systemctl --user --quiet is-active app-org.kde.krdpserver.service; then
+  kdialog --error "${host} has a Plasma session, but its KRdp service is not running. Run dot apply --profile kubuntu-desktop --tags krdp on the desktop, or use NoMachine."
+  exit 1
+fi
+
 password="$(kdialog --password "Password for ${user}@${host}")" || exit 1
 client_pid=""
 audio_pid=""

@@ -252,6 +252,7 @@ case "$action" in
     fi
     exit "${KRDP_TEST_PLASMA_EXIT:-0}" ;;
   Xorg) exit "${KRDP_TEST_XORG_EXIT:-0}" ;;
+  app-org.kde.krdpserver.service) exit "${KRDP_TEST_SERVER_EXIT:-0}" ;;
   prepare) exit "${KRDP_TEST_PREPARE_EXIT:-0}" ;;
   release) exit "${KRDP_TEST_RELEASE_EXIT:-0}" ;;
   *) exit 92 ;;
@@ -301,24 +302,29 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
     def test_preparation_finishes_before_client_launch_and_releases_on_exit(self):
         result, events = self.run_client()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt", "ssh:prepare", "client", "ssh:release"])
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:app-org.kde.krdpserver.service", "prompt", "ssh:prepare", "client", "ssh:release"])
 
     def test_failed_preparation_never_connects_or_releases_another_preparation(self):
         result, events = self.run_client(KRDP_TEST_PREPARE_EXIT="1")
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt", "ssh:prepare", "error-dialog"])
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:app-org.kde.krdpserver.service", "prompt", "ssh:prepare", "error-dialog"])
 
     def test_cancelled_password_prompt_never_changes_the_display(self):
         result, events = self.run_client(KRDP_TEST_PROMPT_EXIT="1")
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt"])
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:app-org.kde.krdpserver.service", "prompt"])
 
     def test_failed_client_still_releases_and_preserves_its_exit_status(self):
         result, events = self.run_client(
             KRDP_TEST_CLIENT_EXIT="42", KRDP_TEST_RELEASE_EXIT="1",
         )
         self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "prompt", "ssh:prepare", "client", "ssh:release", "error-dialog"])
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:app-org.kde.krdpserver.service", "prompt", "ssh:prepare", "client", "ssh:release", "error-dialog"])
+
+    def test_inactive_server_is_reported_before_requesting_password(self):
+        result, events = self.run_client(KRDP_TEST_SERVER_EXIT="3")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(events, ["ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:app-org.kde.krdpserver.service", "error-dialog"])
 
     def test_audio_tracks_the_client_and_stops_before_display_cleanup(self):
         result, events = self.run_client(KRDP_TEST_AUDIO_TRACE="1")
@@ -355,7 +361,7 @@ exit "${KRDP_TEST_CLIENT_EXIT:-0}"
         self.assertEqual(events, [
             "ssh:true", "ssh:plasma-kwin_wayland.service", "ssh:Xorg", "login-dialog",
             "nomachine:--session", "ssh:plasma-kwin_wayland.service",
-            "prompt", "ssh:prepare", "client", "ssh:release",
+            "ssh:app-org.kde.krdpserver.service", "prompt", "ssh:prepare", "client", "ssh:release",
         ])
 
     def test_ssh_failure_does_not_claim_desktop_is_at_login_screen(self):

@@ -996,6 +996,28 @@
       tags: [shell]
 
   post_tasks:
+    - name: Activate replaced KRdp code only when remote viewing is idle
+      ansible.builtin.command:
+        argv: [python3, "{{ dot_repo }}/scripts/refresh-krdp", --refresh]
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.user_uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.user_uid }}/bus"
+      register: dot_krdp_refresh
+      changed_when: "'\"status\": \"refreshed\"' in dot_krdp_refresh.stdout"
+      failed_when: false
+      when:
+        - dot_profile_data.features.krdp_server | default(false)
+        - not ansible_check_mode
+      tags: [system-updates, app-updates, packages, krdp]
+
+    - name: Report KRdp activation state
+      ansible.builtin.debug:
+        msg: "{{ dot_krdp_refresh.stdout | default('KRdp inspection unavailable') }}"
+      when:
+        - dot_krdp_refresh is defined
+        - dot_krdp_refresh.stdout is defined
+      tags: [system-updates, app-updates, packages, krdp]
+
     - name: Audit running code after package updates
       become: true
       ansible.builtin.command:
