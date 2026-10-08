@@ -14,6 +14,51 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FileManagerTests(unittest.TestCase):
+    def test_clipboard_apply_restores_loaded_screenshot_key_dispatch(self):
+        module = runpy.run_path(str(ROOT / "bin/dot"))
+        apply = module["apply_direct"]
+        for script_name in ("dot-screenshots", "dot-screenshots-runtime", None):
+            with self.subTest(script_name=script_name), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                state = home / "state"
+                state.mkdir()
+                (state / "kwin-dot-screenshots-runtime").write_text("dot-screenshots-runtime\n")
+                dispatch = {"ready": True}
+
+                def run(command, **kwargs):
+                    output = ""
+                    if "org.kde.KWin.reconfigure" in command:
+                        dispatch["ready"] = False
+                    if "org.kde.kwin.Scripting.isScriptLoaded" in command:
+                        output = "true\n" if command[-1] in ("dot-clipboard", script_name) else "false\n"
+                    return subprocess.CompletedProcess(command, 0, output, "")
+
+                def restore():
+                    dispatch["ready"] = True
+
+                screenshot_sync = mock.Mock(side_effect=restore)
+                with (
+                    mock.patch.object(Path, "home", return_value=home),
+                    mock.patch.dict(apply.__globals__, {
+                        "STATE_DIR": state,
+                        "CONFIG_DIR": home / "config",
+                        "BACKUP_DIR": home / "backups",
+                        "load_profile": lambda _: {"features": {"copyq": True}},
+                        "command_exists": lambda command: command in {"qdbus6", "kwriteconfig6"},
+                        "run": run,
+                        "sync_managed_kglobal_shortcuts": mock.Mock(),
+                        "managed_clipboard_callback_ok": mock.Mock(return_value=True),
+                        "sync_managed_screenshot_shortcuts": screenshot_sync,
+                    }),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    apply("kubuntu-laptop", selected_tags={"clipboard"})
+                if script_name:
+                    screenshot_sync.assert_called_once()
+                    self.assertTrue(dispatch["ready"])
+                else:
+                    screenshot_sync.assert_not_called()
+
     def test_first_full_apply_installs_and_runs_dolphin_before_activating_its_shortcut(self):
         module = runpy.run_path(str(ROOT / "bin/dot"))
         apply = module["apply_direct"]

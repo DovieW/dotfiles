@@ -2901,6 +2901,25 @@ def apply_direct(
                 )
         else:
             sync_managed_kglobal_shortcuts(clipboard_only=True)
+        if command_exists("qdbus6"):
+            # Reconfiguring KWin can retain screenshot action callbacks while
+            # dropping their physical key dispatch. Reapply bindings for an
+            # already loaded screenshot script after clipboard activation.
+            screenshot_runtime = STATE_DIR / "kwin-dot-screenshots-runtime"
+            screenshot_names = ["dot-screenshots"]
+            if screenshot_runtime.exists():
+                screenshot_names.append(screenshot_runtime.read_text(encoding="utf-8").strip())
+            for screenshot_name in screenshot_names:
+                if not screenshot_name:
+                    continue
+                loaded = run(
+                    ["qdbus6", "org.kde.KWin", "/Scripting",
+                     "org.kde.kwin.Scripting.isScriptLoaded", screenshot_name],
+                    check=False, capture=True,
+                )
+                if loaded.stdout.strip() == "true":
+                    sync_managed_screenshot_shortcuts()
+                    break
     if lockscreen_only:
         for relative in sorted(lockscreen_files):
             changes += int(
