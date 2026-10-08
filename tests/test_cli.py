@@ -2424,7 +2424,7 @@ else:
         self.assertTrue(installer.stat().st_mode & 0o111)
         installer_text = installer.read_text()
         self.assertIn("DovieW/transcribe-cli", installer_text)
-        self.assertIn('VERSION="2.0.0"', installer_text)
+        self.assertIn('VERSION="${TRANSCRIBE_VERSION:-latest}"', installer_text)
         self.assertIn("EXPECTED_SHA256", installer_text)
         self.assertIn("sha256sum --check", installer_text)
         self.assertNotIn("npm", installer_text)

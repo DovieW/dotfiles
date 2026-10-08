@@ -5,20 +5,59 @@ DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 INSTALL_ROOT="$DATA_HOME/dotfiles/transcribe"
 CURRENT="$INSTALL_ROOT/current/transcribe"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
-VERSION="2.0.0"
+VERSION="${TRANSCRIBE_VERSION:-latest}"
 REPOSITORY="DovieW/transcribe-cli"
 ASSET="transcribe-linux-x64"
-RELEASE_URL="${TRANSCRIBE_RELEASE_URL:-https://github.com/$REPOSITORY/releases/download/v$VERSION/$ASSET}"
-EXPECTED_SHA256="${TRANSCRIBE_EXPECTED_SHA256:-cbb07c0e491165ae092e05ca55a501e4398278a526f11443b81556efec76baf6}"
+RELEASE_URL=""
+EXPECTED_SHA256=""
+
+resolve_release() {
+  local tag metadata checksum
+  TEMP_DIR="$(mktemp -d)"
+  if [[ "$VERSION" == "latest" ]]; then
+    metadata="${TRANSCRIBE_RELEASE_METADATA_URL:-https://api.github.com/repos/$REPOSITORY/releases/latest}"
+    curl --fail --location --silent --show-error --retry 3 --output "$TEMP_DIR/release.json" "$metadata"
+    tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag_name"])' "$TEMP_DIR/release.json")"
+  else
+    tag="v${VERSION#v}"
+  fi
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || { printf 'Invalid transcribe release tag.\n' >&2; return 1; }
+  VERSION="${tag#v}"
+  RELEASE_URL="${TRANSCRIBE_RELEASE_URL:-https://github.com/$REPOSITORY/releases/download/$tag/$ASSET}"
+  if [[ -n "${TRANSCRIBE_EXPECTED_SHA256:-}" ]]; then
+    EXPECTED_SHA256="$TRANSCRIBE_EXPECTED_SHA256"
+  else
+    checksum="${TRANSCRIBE_CHECKSUM_URL:-$RELEASE_URL.sha256}"
+    curl --fail --location --silent --show-error --retry 3 --output "$TEMP_DIR/checksum" "$checksum"
+    read -r EXPECTED_SHA256 _ <"$TEMP_DIR/checksum"
+  fi
+  [[ "$EXPECTED_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] || { printf 'Invalid transcribe release checksum.\n' >&2; return 1; }
+}
+
+report_running_versions() {
+  local process executable active_inode running_inode
+  active_inode="$(stat -Lc '%d:%i' "$CURRENT")"
+  for process in /proc/[0-9]*; do
+    executable="$(readlink "$process/exe" 2>/dev/null || true)"
+    case "$executable" in */transcribe|*/transcribe\ \(deleted\)) ;;
+      *) continue ;;
+    esac
+    running_inode="$(stat -Lc '%d:%i' "$process/exe" 2>/dev/null || true)"
+    if [[ -n "$running_inode" && "$running_inode" != "$active_inode" ]]; then
+      printf 'Running transcribe PID %s uses an older binary; safely pause any job and reopen it to use the update.\n' "${process##*/}"
+    fi
+  done
+}
 
 usage() {
   printf 'Usage: install-transcribe --install|--update|--check\n'
 }
 
 check_install() {
-  local installed=""
+  local installed="" launcher=""
   [[ -x "$CURRENT" ]] && installed="$(sha256sum "$CURRENT" | cut -d' ' -f1)"
-  if [[ "$installed" == "$EXPECTED_SHA256" ]] \
+  [[ -x "$BIN_HOME/transcribe" ]] && launcher="$(sha256sum "$BIN_HOME/transcribe" | cut -d' ' -f1)"
+  if [[ "$installed" == "$EXPECTED_SHA256" && "$launcher" == "$EXPECTED_SHA256" ]] \
     && "$CURRENT" version | grep -qx "transcribe $VERSION"; then
     printf 'transcribe %s public release is current\n' "$VERSION"
     return 0
@@ -39,7 +78,6 @@ install_app() {
   }
   release="$INSTALL_ROOT/releases/$VERSION"
   if [[ ! -x "$release/transcribe" ]]; then
-    TEMP_DIR="$(mktemp -d)"
     curl --fail --location --silent --show-error --retry 3 \
       --output "$TEMP_DIR/transcribe" "$RELEASE_URL"
     printf '%s  %s\n' "$EXPECTED_SHA256" "$TEMP_DIR/transcribe" | sha256sum --check --status - || {
@@ -53,11 +91,14 @@ install_app() {
     return 1
   fi
   mkdir -p "$INSTALL_ROOT" "$BIN_HOME"
-  ln -sfn "$release" "$INSTALL_ROOT/current"
+  temp_link="$INSTALL_ROOT/.current-link-$$"
+  ln -s "$release" "$temp_link"
+  mv -Tf "$temp_link" "$INSTALL_ROOT/current"
   temp_link="$BIN_HOME/.transcribe-link-$$"
   ln -s "$CURRENT" "$temp_link"
   mv -Tf "$temp_link" "$BIN_HOME/transcribe"
   printf 'Installed transcribe %s from https://github.com/%s\n' "$VERSION" "$REPOSITORY"
+  report_running_versions
 }
 
 TEMP_DIR=""
@@ -67,7 +108,7 @@ cleanup() {
 trap cleanup EXIT
 
 case "${1:-}" in
-  --check) check_install ;;
-  --install|--update) install_app ;;
+  --check) resolve_release; check_install ;;
+  --install|--update) resolve_release; install_app ;;
   *) usage; exit 2 ;;
 esac

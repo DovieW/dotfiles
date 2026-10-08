@@ -270,8 +270,12 @@ highlighting.
 
 The managed `transcribe` program is a compiled Bun/TypeScript application using
 OpenTUI and SolidJS. The common shell feature links a bootstrap entry point;
-`dot transcribe install` builds a pinned standalone release and atomically makes
-it current. Bun, Node, and `node_modules` are build-time concerns only.
+`dot transcribe install` and `dot transcribe update` resolve the latest published
+GitHub release, verify its accompanying SHA-256 checksum, and atomically make
+it current. `TRANSCRIBE_VERSION` provides an explicit version override. Check
+mode compares against the latest release without changing files or restarting
+programs. Existing transcription jobs keep running; reopen older processes
+after safely pausing their jobs to activate the new binary. Bun, Node, and `node_modules` are build-time concerns only.
 
 One domain layer serves both the action-oriented TUI and the clean CLI. A
 SQLite library owns source, named-run, chunk, playlist, and lifecycle state in

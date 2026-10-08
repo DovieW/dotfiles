@@ -282,18 +282,20 @@
   [[ "$output" == *"Codex CLI $release is installed"* ]]
 }
 
-@test "transcribe installer downloads and verifies the pinned public release" {
+@test "transcribe installer downloads and verifies the latest public release" {
   fake_home="$BATS_TEST_TMPDIR/transcribe-home"
   fake_release="$BATS_TEST_TMPDIR/transcribe-linux-x64"
   mkdir -p "$fake_home"
   printf '#!/bin/sh\nprintf "transcribe 2.0.0\\n"\n' >"$fake_release"
   chmod +x "$fake_release"
   release_hash="$(sha256sum "$fake_release" | cut -d' ' -f1)"
+  printf '{"tag_name":"v2.0.0"}\n' >"$fake_home/latest.json"
 
   run env HOME="$fake_home" \
     XDG_DATA_HOME="$fake_home/data" \
     XDG_BIN_HOME="$fake_home/bin" \
     TRANSCRIBE_RELEASE_URL="file://$fake_release" \
+    TRANSCRIBE_RELEASE_METADATA_URL="file://$fake_home/latest.json" \
     TRANSCRIBE_EXPECTED_SHA256="$release_hash" \
     "$BATS_TEST_DIRNAME/../scripts/install-transcribe" --install
   [ "$status" -eq 0 ]
@@ -303,10 +305,71 @@
   run env HOME="$fake_home" \
     XDG_DATA_HOME="$fake_home/data" \
     XDG_BIN_HOME="$fake_home/bin" \
+    TRANSCRIBE_RELEASE_METADATA_URL="file://$fake_home/latest.json" \
     TRANSCRIBE_EXPECTED_SHA256="$release_hash" \
     "$BATS_TEST_DIRNAME/../scripts/install-transcribe" --check
   [ "$status" -eq 0 ]
   [[ "$output" == *"public release is current"* ]]
+}
+
+@test "transcribe latest updates reject corrupt downloads and preserve the current release" {
+  fake_home="$BATS_TEST_TMPDIR/transcribe-latest-home"
+  fake_release="$fake_home/transcribe-linux-x64"
+  mkdir -p "$fake_home"
+  printf '#!/bin/sh\nprintf "transcribe 9.0.0\\n"\n' >"$fake_release"
+  printf '{"tag_name":"v9.0.0"}\n' >"$fake_home/latest.json"
+  printf '%s  transcribe-linux-x64\n' "$(sha256sum "$fake_release" | cut -d' ' -f1)" >"$fake_release.sha256"
+  export XDG_DATA_HOME="$fake_home/data" XDG_BIN_HOME="$fake_home/bin"
+  export TRANSCRIBE_RELEASE_METADATA_URL="file://$fake_home/latest.json"
+  export TRANSCRIBE_RELEASE_URL="file://$fake_release"
+  installer="$BATS_TEST_DIRNAME/../scripts/install-transcribe"
+  run "$installer" --check
+  [ "$status" -ne 0 ]
+  [ ! -e "$fake_home/bin/transcribe" ]
+  run "$installer" --update
+  [ "$status" -eq 0 ]
+  run "$installer" --check
+  [ "$status" -eq 0 ]
+  printf '{"tag_name":"v9.0.1"}\n' >"$fake_home/latest.json"
+  run "$installer" --check
+  [ "$status" -ne 0 ]
+  printf 'corrupt download\n' >"$fake_release"
+  run "$installer" --update
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed checksum verification"* ]]
+  [ "$("$fake_home/bin/transcribe" version)" = "transcribe 9.0.0" ]
+  printf '#!/bin/sh\nprintf "transcribe 9.0.1\\n"\n' >"$fake_release"
+  printf '%s  transcribe-linux-x64\n' "$(sha256sum "$fake_release" | cut -d' ' -f1)" >"$fake_release.sha256"
+  run "$installer" --update
+  [ "$status" -eq 0 ]
+  [ "$("$fake_home/bin/transcribe" version)" = "transcribe 9.0.1" ]
+  run "$installer" --check
+  [ "$status" -eq 0 ]
+  export TRANSCRIBE_RELEASE_METADATA_URL="file://$fake_home/missing.json"
+  run "$installer" --check
+  [ "$status" -ne 0 ]
+  [ "$("$fake_home/bin/transcribe" version)" = "transcribe 9.0.1" ]
+}
+
+@test "transcribe activation audit reports stale processes without restarting jobs" {
+  audit_root="$BATS_TEST_TMPDIR/transcribe-audit"
+  mkdir -p "$audit_root/current" "$audit_root/older" "$audit_root/proc/11" "$audit_root/proc/12" "$audit_root/proc/13"
+  printf 'current binary' >"$audit_root/current/transcribe"
+  printf 'older binary' >"$audit_root/older/transcribe"
+  ln -s "$audit_root/current/transcribe" "$audit_root/proc/11/exe"
+  ln -s "$audit_root/older/transcribe" "$audit_root/proc/12/exe"
+  ln -s "$audit_root/unavailable/transcribe" "$audit_root/proc/13/exe"
+  sed '/^case "${1:-}"/,$d' "$BATS_TEST_DIRNAME/../scripts/install-transcribe" | \
+    sed "s|/proc/\\[0-9\\]\\*|$audit_root/proc/[0-9]*|" >"$audit_root/audit.sh"
+  run bash -c 'source "$1"; CURRENT="$2/current/transcribe"; report_running_versions' _ "$audit_root/audit.sh" "$audit_root"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PID 12 uses an older binary"* ]]
+  [[ "$output" != *"PID 11"* ]]
+  [[ "$output" != *"PID 13"* ]]
+  rm "$audit_root/proc/12/exe"
+  run bash -c 'source "$1"; CURRENT="$2/current/transcribe"; report_running_versions' _ "$audit_root/audit.sh" "$audit_root"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "Codex installer check does not download when the CLI is missing" {

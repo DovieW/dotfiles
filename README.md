@@ -169,8 +169,9 @@ dot repos sync --profile kubuntu-laptop
 
 The Linux shell profile installs
 [`transcribe`](https://github.com/DovieW/transcribe-cli), the standalone public
-TypeScript/OpenTUI application for Linux and WSL. Dotfiles downloads a pinned,
-checksum-verified GitHub release; running it needs neither Node nor Bun. Use the
+TypeScript/OpenTUI application for Linux and WSL. Dotfiles downloads the latest published,
+checksum-verified GitHub release on install and update (`dot transcribe update`
+or `dot update`). Set `TRANSCRIBE_VERSION` to explicitly pin a release; running it needs neither Node nor Bun. Use the
 action launcher without arguments or its clean scriptable interface:
 
 ```bash
