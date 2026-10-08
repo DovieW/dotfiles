@@ -442,10 +442,10 @@ pointer after one second without pointer motion, including after Meta+D, and
 while typing ordinary text. Pointer movement restores it immediately.
 The lock screen uses the public, user-local
 `io.github.doview.dotfiles.lockscreen` Plasma shell package. It presents a
-leaves wallpaper, centered Segoe clock, glass password card, and compact status
+leaves wallpaper, centered Segoe clock, password field, and compact status
 controls. The password field is always visible, focuses on the active display,
 and accepts the first typed character immediately. Meta+L never inserts shortcut
-text; Escape clears input without hiding the card, while preserving KDE's
+text; Escape clears input without hiding the field, while preserving KDE's
 screen-off behavior. One in-memory controller shares input across displays,
 starts PAM immediately, and sends each submitted secret once a real prompt is
 ready. A failed attempt retains KDE's minimum three-second retry interval and

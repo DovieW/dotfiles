@@ -186,7 +186,7 @@ Item {
             id: mainBlock
             anchors.fill: parent
 
-            Rectangle {
+            Item {
                 id: loginCard
 
                 width: Math.min(420, Math.max(0, root.width - 32))
@@ -194,8 +194,6 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: Math.max(clock.y + clock.height + 16,
                     Math.min(parent.height - height - 72, parent.height * 0.48))
-                radius: 16
-                color: "#660d1117"
 
                 ColumnLayout {
                     id: loginContents
