@@ -2578,6 +2578,7 @@ def apply_direct(
             )
     if features.get("copyq") and selected("clipboard", "safe-keystroke-paste"):
         copyq_mappings = {
+            ROOT / "scripts/dot-safe-keystroke-paste": Path.home() / ".local/bin/dot-safe-keystroke-paste",
             ROOT / "scripts/dot-shortcuts": Path.home() / ".local/bin/dot-shortcuts",
             ROOT / "config/systemd/user/dot-shortcuts.service": Path.home() / ".config/systemd/user/dot-shortcuts.service",
             ROOT / "config/copyq/dot-copyq-paste": Path.home() / ".local/bin/dot-copyq-paste",

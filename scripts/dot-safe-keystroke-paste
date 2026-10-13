@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Make failures visible when skpaste is launched without a terminal.
+set -uo pipefail
+
+error="$("$HOME/.local/bin/skpaste" send 2>&1)"
+status=$?
+if (( status != 0 && status != 130 )); then
+  printf '%s\n' "$error" >&2
+  message='Could not paste. See the dot-safe-keystroke-paste service log for details.'
+  if [[ "$error" == *'Clipboard text contains prohibited line breaks.'* ]]; then
+    message='Clipboard text contains line breaks. These can send Enter and submit commands or forms. Copy a single line without a trailing newline.'
+  fi
+  # Never include clipboard text or arbitrary subprocess output in notifications.
+  notify-send --app-name='Safe Keystroke Paste' --urgency=critical \
+    'Safe Keystroke Paste' "$message" || true
+fi
+exit "$status"
