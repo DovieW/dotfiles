@@ -92,6 +92,12 @@ managed setup enables NoMachine EGL capture because its DRM and compositor
 fallbacks do not capture Plasma Wayland reliably. Reboot once after the first
 installation so Plasma starts with NoMachine's EGL interposer available.
 
+The built-in update checks and update popups are disabled with
+`UpdateFrequency 0` in `/usr/NX/etc/server.cfg`. Package updates are managed
+through dotfiles instead. Apply the `nomachine` tag to enforce this setting;
+the existing NoMachine restart handler activates configuration changes, so
+apply it after closing active NoMachine remote sessions.
+
 The package version and SHA-256 are pinned in `ansible/tasks/nomachine.yml`.
 Update both only after checking the release and provider-published digest on
 the official NoMachine download page, then calculating the package SHA-256.

@@ -66,6 +66,15 @@
     state: present
   when: dot_nomachine_tailscale_ready
 
+- name: Disable NoMachine's built-in update checks and popups
+  become: true
+  ansible.builtin.lineinfile:
+    path: /usr/NX/etc/server.cfg
+    regexp: '(?i)^#?UpdateFrequency\s+'
+    line: 'UpdateFrequency 0'
+  notify: Restart NoMachine after private-network configuration
+  when: dot_nomachine_tailscale_ready
+
 - name: Install X11 server and input support on Kubuntu
   become: true
   ansible.builtin.apt:
