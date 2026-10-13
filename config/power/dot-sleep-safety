@@ -27,9 +27,9 @@ def load_policy(path: Path = POLICY_PATH) -> dict[str, object]:
     }
     if set(policy) != required:
         raise ValueError("sleep-safety policy has unexpected fields")
-    if policy["closed_lid_resume_action"] != "hibernate":
+    if policy["closed_lid_resume_action"] != "suspend":
         raise ValueError("unsupported closed-lid resume action")
-    if policy["hibernate_failure_action"] != "poweroff":
+    if policy["hibernate_failure_action"] != "suspend":
         raise ValueError("unsupported hibernation failure action")
     for key in ("closed_lid_awake_timeout_sec", "suspend_hibernate_delay_sec"):
         if isinstance(policy[key], bool) or not isinstance(policy[key], int) or policy[key] < 60:
@@ -99,13 +99,13 @@ def arm_closed_lid_timer(delay: int) -> subprocess.CompletedProcess[str]:
     )
 
 
-def hibernate_or_poweroff(reason: str) -> int:
+def hibernate_or_suspend(reason: str) -> int:
     logging.critical("requesting hibernation: %s", reason)
     result = systemctl("--no-block", "hibernate")
     if result.returncode == 0:
         return 0
-    logging.critical("hibernation failed (%s); powering off", result.stdout.strip())
-    return systemctl("poweroff").returncode
+    logging.critical("hibernation failed (%s); returning to suspend", result.stdout.strip())
+    return systemctl("--no-block", "suspend").returncode
 
 
 class SafetyController:
@@ -141,7 +141,7 @@ class SafetyController:
         def worker() -> None:
             try:
                 if action == "hibernate":
-                    hibernate_or_poweroff(reason)
+                    hibernate_or_suspend(reason)
                 elif action == "suspend":
                     logging.warning("requesting suspend: %s", reason)
                     result = systemctl("--no-block", "suspend")
@@ -189,7 +189,7 @@ class SafetyController:
             logging.exception("cannot read lid after resume; taking no automatic action")
             return
         if closed:
-            self.start_action("hibernate", "system resumed while lid remained closed")
+            self.start_action("suspend", "system resumed while lid remained closed")
 
 
 def status(policy: dict[str, object]) -> int:
@@ -286,7 +286,7 @@ def main() -> int:
             return status(policy)
         if command == "hibernate-deadline":
             logging.basicConfig(level=logging.INFO)
-            return hibernate_or_poweroff("configured suspend duration elapsed")
+            return hibernate_or_suspend("configured suspend duration elapsed")
         if command == "suspend-deadline":
             logging.basicConfig(level=logging.INFO)
             return suspend_if_closed()

@@ -744,8 +744,8 @@ class DotCliTests(unittest.TestCase):
             manifest["sleep_safety"] = {
                 "closed_lid_awake_timeout_sec": 18000,
                 "suspend_hibernate_delay_sec": 54000,
-                "closed_lid_resume_action": "hibernate",
-                "hibernate_failure_action": "poweroff",
+                "closed_lid_resume_action": "suspend",
+                "hibernate_failure_action": "suspend",
             }
             (Path(directory) / "test-device.yml").write_text(json.dumps(manifest))
             self.assertEqual(function("test-device"), manifest)
@@ -773,8 +773,8 @@ class DotCliTests(unittest.TestCase):
             {
                 "closed_lid_awake_timeout_sec": 18000,
                 "suspend_hibernate_delay_sec": 54000,
-                "closed_lid_resume_action": "hibernate",
-                "hibernate_failure_action": "poweroff",
+                "closed_lid_resume_action": "suspend",
+                "hibernate_failure_action": "suspend",
             },
         )
         self.assertEqual(desktop["device_id"], "dovie-desktop-linux")
@@ -792,8 +792,8 @@ class DotCliTests(unittest.TestCase):
         policy = {
             "closed_lid_awake_timeout_sec": 18000,
             "suspend_hibernate_delay_sec": 54000,
-            "closed_lid_resume_action": "hibernate",
-            "hibernate_failure_action": "poweroff",
+            "closed_lid_resume_action": "suspend",
+            "hibernate_failure_action": "suspend",
         }
         controller = module["SafetyController"](policy)
         globals_dict = controller.refresh_lid.__globals__
@@ -821,10 +821,10 @@ class DotCliTests(unittest.TestCase):
         }), mock.patch.object(controller, "start_action") as action:
             controller.prepare_for_sleep(False)
             action.assert_called_once_with(
-                "hibernate", "system resumed while lid remained closed"
+                "suspend", "system resumed while lid remained closed"
             )
 
-    def test_sleep_safety_hibernate_failure_powers_off(self):
+    def test_sleep_safety_hibernate_failure_returns_to_suspend(self):
         module = runpy.run_path(str(ROOT / "config/power/dot-sleep-safety"))
         calls = []
 
@@ -832,9 +832,33 @@ class DotCliTests(unittest.TestCase):
             calls.append(arguments)
             return subprocess.CompletedProcess([], 1 if "hibernate" in arguments else 0, "failed", "")
 
-        with mock.patch.dict(module["hibernate_or_poweroff"].__globals__, {"systemctl": fake_systemctl}):
-            self.assertEqual(module["hibernate_or_poweroff"]("test"), 0)
-        self.assertEqual(calls, [("--no-block", "hibernate"), ("poweroff",)])
+        with mock.patch.dict(module["hibernate_or_suspend"].__globals__, {"systemctl": fake_systemctl}):
+            self.assertEqual(module["hibernate_or_suspend"]("test"), 0)
+        self.assertEqual(calls, [("--no-block", "hibernate"), ("--no-block", "suspend")])
+
+    def test_sleep_safety_hibernation_success_does_not_suspend(self):
+        module = runpy.run_path(str(ROOT / "config/power/dot-sleep-safety"))
+        command = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        with mock.patch.dict(module["hibernate_or_suspend"].__globals__, {"systemctl": command}):
+            self.assertEqual(module["hibernate_or_suspend"]("test"), 0)
+        command.assert_called_once_with("--no-block", "hibernate")
+
+    def test_sleep_safety_open_lid_resume_does_not_sleep(self):
+        module = runpy.run_path(str(ROOT / "config/power/dot-sleep-safety"))
+        controller = module["SafetyController"]({})
+        with mock.patch.dict(controller.refresh_lid.__globals__, {
+            "lid_is_closed": lambda: False,
+            "systemctl": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", "")),
+        }), mock.patch.object(controller, "start_action") as action:
+            controller.prepare_for_sleep(False)
+            action.assert_not_called()
+
+    def test_sleep_safety_async_hibernate_failure_preserves_session(self):
+        fallback = (ROOT / "config/systemd/system/dot-sleep-safety-suspend.service").read_text()
+        dropin = (ROOT / "config/systemd/system/60-dotfiles-hibernate-safety.conf").read_text()
+        self.assertIn("OnFailure=dot-sleep-safety-suspend.service", dropin)
+        self.assertIn("ExecStart=/usr/bin/systemctl --no-block suspend", fallback)
+        self.assertNotIn("poweroff", fallback)
 
     def test_device_identity_rejects_path_traversal(self):
         module = runpy.run_path(str(DOT))
@@ -3357,7 +3381,7 @@ else:
         sleep_safety = (ROOT / "config/power/dot-sleep-safety").read_text()
         self.assertIn("closed_lid_awake_timeout_sec", sleep_safety)
         self.assertIn("system resumed while lid remained closed", sleep_safety)
-        self.assertIn("hibernate_or_poweroff", sleep_safety)
+        self.assertIn("hibernate_or_suspend", sleep_safety)
         self.assertIn("WakeSystem=true", sleep_safety)
         safety_unit = (
             ROOT / "config/systemd/system/dot-sleep-safety.service"

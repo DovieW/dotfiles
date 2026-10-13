@@ -830,6 +830,13 @@
       when: dot_device_manifest.sleep_safety is defined
       tags: [config, power]
 
+    - name: Remove the obsolete hibernation poweroff fallback
+      become: true
+      ansible.builtin.file:
+        path: /etc/systemd/system/dot-sleep-safety-poweroff.service
+        state: absent
+      tags: [config, power]
+
     - name: Install the hibernation failure safety units
       become: true
       ansible.builtin.copy:
@@ -837,8 +844,8 @@
         dest: "{{ item.dest }}"
         mode: "0644"
       loop:
-        - src: "{{ dot_repo }}/config/systemd/system/dot-sleep-safety-poweroff.service"
-          dest: /etc/systemd/system/dot-sleep-safety-poweroff.service
+        - src: "{{ dot_repo }}/config/systemd/system/dot-sleep-safety-suspend.service"
+          dest: /etc/systemd/system/dot-sleep-safety-suspend.service
         - src: "{{ dot_repo }}/config/systemd/system/60-dotfiles-hibernate-safety.conf"
           dest: /etc/systemd/system/systemd-hibernate.service.d/60-dotfiles-safety.conf
       when: dot_device_manifest.sleep_safety is defined
@@ -894,7 +901,7 @@
         state: absent
       loop:
         - /etc/systemd/system/dot-sleep-safety.service
-        - /etc/systemd/system/dot-sleep-safety-poweroff.service
+        - /etc/systemd/system/dot-sleep-safety-suspend.service
         - /etc/systemd/system/systemd-hibernate.service.d/60-dotfiles-safety.conf
         - /etc/dotfiles/sleep-safety.json
         - /etc/dotfiles/hibernate-state.json

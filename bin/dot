@@ -383,8 +383,8 @@ def load_device_manifest(device: str, required: bool = False) -> dict[str, Any] 
             or not isinstance(hibernate_delay, int)
             or isinstance(hibernate_delay, bool)
             or hibernate_delay < 60
-            or sleep_safety.get("closed_lid_resume_action") != "hibernate"
-            or sleep_safety.get("hibernate_failure_action") != "poweroff"
+            or sleep_safety.get("closed_lid_resume_action") != "suspend"
+            or sleep_safety.get("hibernate_failure_action") != "suspend"
         ):
             raise DotError(f"Invalid sleep-safety policy in device manifest: {path}")
     return manifest
@@ -11997,7 +11997,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     "available"
                     if hibernate_supported
                     else (
-                        "reboot, then physically validate hibernate"
+                        "unavailable now; protected secretmem (including Bitwarden) or kernel restrictions may block it; safety falls back to suspend"
                         if resume_configured
                         else "hibernate is not configured"
                     ),

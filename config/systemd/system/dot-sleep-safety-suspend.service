@@ -1,0 +1,8 @@
+[Unit]
+Description=Return to suspend after a failed safety hibernation
+DefaultDependencies=no
+After=systemd-hibernate.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --no-block suspend

@@ -218,10 +218,10 @@ dot doctor --profile kubuntu-laptop
 On the finalized IdeaPad, `dot doctor` also verifies the system sleep-safety
 service and the locally generated hibernation resume configuration. Closing the
 lid does not immediately suspend. Five continuous closed hours force suspend,
-and every suspend becomes hibernation after fifteen hours. If the machine
-resumes earlier while still closed, it hibernates immediately. A failed
-emergency hibernation powers off, so unsaved work can be lost only on that
-last-resort path.
+and every suspend attempts hibernation after fifteen hours. If the machine
+resumes earlier while still closed (including when the charger is plugged in),
+it returns to suspend. Unavailable or failed hibernation also falls back to
+suspend; the safety policy never powers off and discards the session.
 
 After the hibernation configuration changes, reboot before trusting transport
 safety. Then run:
@@ -231,8 +231,13 @@ dot doctor --profile kubuntu-laptop
 ```
 
 Physically verify one hibernate/resume cycle before relying on it. Opening the
-lid before waking gives a normal resume; waking it while still closed is
-intentionally treated as the hot-bag signature and sends it to hibernation.
+lid before waking gives a normal resume; waking it while still closed returns
+it to suspend.
+Bitwarden uses Linux protected secret memory (`memfd_secret`), which disables
+hibernation while that memory is active even with correctly configured swap
+and resume parameters. Keep its memory protection enabled; suspend remains
+available. A failed hibernation deadline returns to suspend and starts a new
+deadline.
 The hibernation image is written to this laptop's unencrypted swapfile.
 
 ### IdeaPad Pro 5 16IAH10 ACPI errors after waking
