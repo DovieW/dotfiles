@@ -2179,6 +2179,39 @@ def configure_desktop_wallet_check() -> int:
     return changes
 
 
+def configure_dolphin_text_previews() -> int:
+    """Enable text thumbnails while preserving other preview selections."""
+    path = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "dolphinrc"
+    original = path.read_bytes() if path.exists() else b""
+    selected = kconfig_get(original, "PreviewSettings", "Plugins")
+    if selected is None:
+        # KIO defaults to all available plugins except textthumbnail. Preserve
+        # that default when materializing an explicit selection on a new device.
+        plugins = sorted({
+            plugin.stem
+            for pattern in (
+                "/usr/lib/*/qt6/plugins/kf6/thumbcreator/*.so",
+                "/usr/lib/qt6/plugins/kf6/thumbcreator/*.so",
+                "/usr/share/thumbnailers/*.thumbnailer",
+            )
+            for plugin in Path("/").glob(pattern.lstrip("/"))
+            if plugin.stem != "textthumbnail"
+        })
+    else:
+        plugins = [plugin for plugin in selected.split(",") if plugin]
+    if "textthumbnail" in plugins:
+        return 0
+    if not command_exists("kwriteconfig6"):
+        raise DotError("kwriteconfig6 is required to enable Dolphin text previews.")
+    backup_paths([path])
+    run([
+        "kwriteconfig6", "--file", str(path), "--group", "PreviewSettings",
+        "--key", "Plugins", ",".join([*plugins, "textthumbnail"]),
+    ])
+    print("Dolphin text previews enabled; reopen Dolphin to load changed settings.")
+    return 1
+
+
 def configure_dolphin_default() -> int:
     """Set the folder handler without replacing unrelated MIME preferences."""
     if not command_exists("xdg-mime"):
@@ -2211,7 +2244,7 @@ def configure_dolphin_default() -> int:
     ).stdout.strip()
     if actual != "org.kde.dolphin.desktop":
         raise DotError(f"Dolphin's folder default did not activate (reported {actual!r}).")
-    return int(current != "org.kde.dolphin.desktop")
+    return int(current != "org.kde.dolphin.desktop") + configure_dolphin_text_previews()
 
 
 RETIRED_WINDOW_HIDING_RULES = (
@@ -2254,7 +2287,7 @@ def configure_dolphin_file_manager() -> int:
         "Run dot apply --profile PROFILE --tags file-manager to install prerequisites.",
     )
     files = [Path.home() / ".config" / name for name in (
-        "kwinrc", "kwinrulesrc", "kglobalshortcutsrc", "mimeapps.list", "kde-mimeapps.list",
+        "kwinrc", "kwinrulesrc", "kglobalshortcutsrc", "mimeapps.list", "kde-mimeapps.list", "dolphinrc",
     )]
     original_files = {path: path.read_bytes() if path.exists() else None for path in files}
     backup_id = backup_paths(files)

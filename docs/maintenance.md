@@ -31,6 +31,11 @@ Use `kubuntu-laptop` on a laptop. This targeted apply backs up and updates only
 the file-manager keys and launcher, and removes retired window-hiding rules
 for Bitwarden and file managers. Unrelated KDE drift remains
 available for review with `dot diff kde`; a full apply still protects it.
+Full KDE and targeted file-manager applies also enable Dolphin text previews,
+preserving existing previewer selections. Reopen Dolphin after a setting change
+to load it. Text previews cover recognized text formats such as CSV, Markdown,
+JSON, scripts, and configuration files.
+
 File-manager packages install without APT's optional recommended packages,
 keeping Nautilus's recommendations from pulling in another desktop and login
 manager on Kubuntu.

@@ -153,6 +153,7 @@ class FileManagerTests(unittest.TestCase):
             config.mkdir()
             apps.mkdir(parents=True)
             fixtures = {
+                "dolphinrc": "[PreviewSettings]\nPlugins=jpegthumbnail,custom-preview\n[General]\nRememberOpenedTabs=false\n",
                 "kwinrc": "[Desktops]\nNumber=2\n[Xwayland]\nScale=2.35\n[Plugins]\ndot-dolphinEnabled=false\ndot-nemoEnabled=true\notherEnabled=true\n",
                 "kwinrulesrc": (
                     "[General]\ncount=4\nrules=other-rule,dolphin-skip-taskbar,nemo-skip-taskbar,bitwarden-ephemeral\n"
@@ -202,6 +203,9 @@ class FileManagerTests(unittest.TestCase):
                 self.assertGreater(configure(), 0)
                 self.assertEqual(configure(), 0)
             get = module["kconfig_get"]
+            self.assertEqual(get((config / "dolphinrc").read_bytes(), "PreviewSettings", "Plugins"),
+                             "jpegthumbnail,custom-preview,textthumbnail")
+            self.assertEqual(get((config / "dolphinrc").read_bytes(), "General", "RememberOpenedTabs"), "false")
             for section, key, value in (
                 ("Desktops", "Number", "2"),
                 ("Xwayland", "Scale", "2.35"),
