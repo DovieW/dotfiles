@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Virtual Machine Manager
+Comment=Manage virtual machines
+Icon=virt-manager
+Exec=/usr/bin/python3 /usr/bin/virt-manager --connect qemu:///system
+Type=Application
+Terminal=false
+Categories=System;Emulator;GTK;
+Keywords=virtualization;libvirt;vm;vmm;qemu;kvm;

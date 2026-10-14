@@ -85,7 +85,7 @@
         apply:
           tags: [packages, virtualization]
       when: dot_profile_data.features.virtualization | default(false)
-      tags: [packages, virtualization]
+      tags: [packages, virtualization, virtualization-launcher]
 
     - name: Configure AnyDesk remote desktop
       ansible.builtin.include_tasks:
