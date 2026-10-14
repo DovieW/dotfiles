@@ -79,6 +79,14 @@
       when: dot_profile_data.features.docker_engine | default(false)
       tags: [packages, docker]
 
+    - name: Configure desktop virtualization
+      ansible.builtin.include_tasks:
+        file: tasks/virtualization.yml
+        apply:
+          tags: [packages, virtualization]
+      when: dot_profile_data.features.virtualization | default(false)
+      tags: [packages, virtualization]
+
     - name: Configure AnyDesk remote desktop
       ansible.builtin.include_tasks:
         file: tasks/anydesk.yml

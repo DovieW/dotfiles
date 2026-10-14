@@ -4040,6 +4040,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             "tailscale",
             "touchpad",
             "vscode",
+            "virtualization",
             "system-updates",
             "app-updates",
         }

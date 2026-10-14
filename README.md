@@ -165,6 +165,13 @@ dot clipboard                     # verify CopyQ history and Emoji Picker
 dot repos sync --profile kubuntu-laptop
 ```
 
+### Virtual machines
+
+Kubuntu profiles install KVM/QEMU, libvirt, and **Virtual Machine Manager**.
+Use the GUI to create and operate VMs; see [Windows VM setup](docs/virtual-machines.md)
+for installation, resource defaults, firmware, TPM, and guest drivers.
+Apply just the host setup with `dot apply --profile kubuntu-laptop --tags virtualization`.
+
 ### Transcription
 
 The Linux shell profile installs

@@ -1697,7 +1697,7 @@ class DotCliTests(unittest.TestCase):
             env["PATH"] = os.pathsep.join(
                 [str(fake_bin), "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin"]
             )
-            for tag in ("memory", "codex"):
+            for tag in ("memory", "codex", "virtualization"):
                 with self.subTest(tag=tag):
                     ansible_marker.unlink(missing_ok=True)
                     ansible_args.unlink(missing_ok=True)

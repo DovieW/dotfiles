@@ -1,0 +1,111 @@
+---
+- name: Validate desktop virtualization host
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture == "x86_64"
+      - not (dot_profile_data.features.wsl | default(false))
+    fail_msg: Desktop virtualization requires a native x86_64 Ubuntu or Kubuntu host.
+
+- name: Install desktop virtualization and Windows firmware support
+  become: true
+  ansible.builtin.apt:
+    name:
+      - libvirt-clients
+      - libvirt-daemon-system
+      - ovmf
+      - qemu-system-x86
+      - qemu-utils
+      - swtpm
+      - swtpm-tools
+      - virt-manager
+      - virt-viewer
+      - virtinst
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+# Package-dependent tasks must not run against a first-install check-mode host.
+- name: Configure the installed virtualization host
+  when: not ansible_check_mode
+  block:
+    - name: Grant the interactive user virtualization access
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_facts['user_id'] }}"
+        groups: [kvm, libvirt]
+        append: true
+      register: dot_virtualization_groups
+
+    - name: Detect modular libvirt sockets
+      ansible.builtin.stat:
+        path: /usr/lib/systemd/system/virtqemud.socket
+      register: dot_virtualization_modular
+
+    - name: Preserve an active monolithic libvirt service
+      ansible.builtin.command:
+        argv: [systemctl, is-active, libvirtd.socket, libvirtd.service]
+      register: dot_virtualization_monolithic
+      changed_when: false
+      failed_when: false
+
+    - name: Enable libvirt socket activation
+      become: true
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: >-
+        {{ ['virtqemud.socket', 'virtnetworkd.socket', 'virtstoraged.socket',
+            'virtnodedevd.socket', 'virtnwfilterd.socket', 'virtsecretd.socket',
+            'virtlogd.socket', 'virtlockd.socket']
+           if dot_virtualization_modular.stat.exists and
+              dot_virtualization_monolithic.rc != 0 else ['libvirtd.socket'] }}
+
+    - name: Inspect the default libvirt network
+      become: true
+      ansible.builtin.command:
+        argv: [virsh, --connect, 'qemu:///system', net-info, default]
+      environment:
+        LC_ALL: C
+      register: dot_virtualization_network
+      changed_when: false
+
+    - name: Autostart the default NAT network
+      become: true
+      ansible.builtin.command:
+        argv: [virsh, --connect, 'qemu:///system', net-autostart, default]
+      when: not (dot_virtualization_network.stdout is search('(?m)^Autostart:\s+yes\s*$'))
+
+    - name: Start the default NAT network
+      become: true
+      ansible.builtin.command:
+        argv: [virsh, --connect, 'qemu:///system', net-start, default]
+      when: not (dot_virtualization_network.stdout is search('(?m)^Active:\s+yes\s*$'))
+
+    - name: Verify libvirt hardware acceleration
+      become: true
+      ansible.builtin.command:
+        argv: [virsh, --connect, 'qemu:///system', capabilities]
+      register: dot_virtualization_capabilities
+      changed_when: false
+      failed_when: >-
+        dot_virtualization_capabilities.rc != 0 or
+        "domain type='kvm'" not in dot_virtualization_capabilities.stdout
+
+    - name: Explain new virtualization group access
+      ansible.builtin.debug:
+        msg: >-
+          Virtual Machine Manager is installed. Log out and back in to activate
+          new kvm/libvirt group membership. Existing VMs and their autostart
+          settings are preserved; no guest has been created or started.
+      when: dot_virtualization_groups.changed
+
+- name: Explain virtualization check mode
+  ansible.builtin.debug:
+    msg: >-
+      A real apply installs KVM/QEMU, libvirt, virt-manager, UEFI firmware and
+      software TPM support, grants user access, and enables the default NAT
+      network. It creates no VMs and does not restart running guests.
+  when: ansible_check_mode
