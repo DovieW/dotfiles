@@ -5,6 +5,7 @@
   "account": "personal",
   "features": {
     "anydesk": false,
+    "anarlog": true,
     "chatgpt_desktop": true,
     "godot_engine": true,
     "google_chrome": true,

@@ -87,6 +87,14 @@
       when: dot_profile_data.features.virtualization | default(false)
       tags: [packages, virtualization, virtualization-launcher]
 
+    - name: Install Anarlog desktop
+      ansible.builtin.include_tasks:
+        file: tasks/anarlog.yml
+        apply:
+          tags: [packages, anarlog, app-updates]
+      when: dot_profile_data.features.anarlog | default(false)
+      tags: [packages, anarlog, app-updates]
+
     - name: Configure AnyDesk remote desktop
       ansible.builtin.include_tasks:
         file: tasks/anydesk.yml

@@ -1,0 +1,43 @@
+---
+# Official installation: https://docs.anarlog.so/desktop-installation#apt-repository
+- name: Validate Anarlog platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"
+      - ansible_facts.architecture in ["x86_64", "aarch64"]
+      - not (dot_profile_data.features.wsl | default(false))
+
+- name: Create Anarlog APT keyring directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install Anarlog repository signing key
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/apt/anarlog-archive-keyring.asc"
+    dest: /etc/apt/keyrings/anarlog.asc
+    mode: "0644"
+
+- name: Configure Anarlog stable repository
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/anarlog.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://anarlog.so/apt
+      Suites: stable
+      Components: main
+      Architectures: amd64 arm64
+      Signed-By: /etc/apt/keyrings/anarlog.asc
+
+- name: Install or upgrade Anarlog
+  become: true
+  ansible.builtin.apt:
+    name: anarlog
+    state: latest  # noqa package-latest
+    update_cache: true
+  when: not ansible_check_mode
