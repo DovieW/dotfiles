@@ -4,10 +4,12 @@
   register: dot_obs_display
   changed_when: false
   check_mode: false
+  tags: [obs-small]
 
 - name: Read OBS native display resolution
   ansible.builtin.set_fact:
     dot_obs_size: "{{ dot_obs_display.stdout | from_json }}"
+  tags: [obs-small]
 
 # Seed a normal editable profile. Never overwrite later GUI adjustments.
 - name: Create OBS recording directories
@@ -32,3 +34,29 @@
     dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Native60/recordEncoder.json"
     mode: "0600"
     force: false
+
+- name: Create OBS laptop meeting profile directory
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Laptop_Meeting"
+    - "{{ ansible_facts.env.HOME }}/Videos/OBS"
+  tags: [obs-small]
+
+- name: Seed OBS laptop meeting video and audio settings
+  ansible.builtin.template:
+    src: "{{ dot_repo }}/config/obs/laptop-meeting.ini.j2"
+    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Laptop_Meeting/basic.ini"
+    mode: "0600"
+    force: false
+  tags: [obs-small]
+
+- name: Seed OBS laptop meeting encoder settings
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/obs/laptop-meeting-encoder.json"
+    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Laptop_Meeting/recordEncoder.json"
+    mode: "0600"
+    force: false
+  tags: [obs-small]
