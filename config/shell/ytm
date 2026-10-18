@@ -6,15 +6,16 @@ usage() {
 Usage: ytm [OPTIONS] URL [URL ...]
 
 Download music with tags and cover art. Defaults to high-quality VBR MP3s in
-the current directory. Playlists get their own folders with numbered tracks;
-individual tracks stay in the destination folder. Filenames use clean titles
-without video IDs; playlist numbering distinguishes repeated titles.
+the current directory. Playlists get their own folders; individual tracks stay
+in the destination folder. Filenames use plain titles by default.
 
   -o, --output DIR       Destination directory (default: current directory)
   -f, --format FORMAT    mp3 (default), m4a, opus, or best (keep source codec)
   -I, --items SPEC       Playlist positions, e.g. 1-5,8 or 10::2
       --single          Download only the video in a video+playlist URL
       --flat            Put all tracks directly in the destination directory
+      --ids             Add the video ID after each title
+      --numbered        Prefix playlist tracks with their position (001 - ...)
       --no-archive      Bypass history; existing audio stays, tags/art may refresh
       --dry-run         Preview selected tracks without writing or downloading
   -h, --help            Show this help
@@ -24,6 +25,7 @@ Examples:
   ytm -o ~/Music --items 1-10 'https://www.youtube.com/playlist?list=...'
   ytm --dry-run 'https://www.youtube.com/playlist?list=...'
   ytm -f best URL
+  ytm --numbered --ids 'https://www.youtube.com/playlist?list=...'
 
 Quote URLs containing & or ?. Repeat runs skip completed tracks using
 DIR/.ytm/archive-FORMAT.txt. Keep that folder with your music. Use --no-archive
@@ -43,6 +45,8 @@ format=mp3
 items=
 playlist=--yes-playlist
 flat=false
+ids=false
+numbered=false
 archive=true
 dry_run=false
 urls=()
@@ -54,6 +58,8 @@ while (($#)); do
     -I|--items) require_value "$@"; items=$2; shift 2 ;;
     --single) playlist=--no-playlist; shift ;;
     --flat) flat=true; shift ;;
+    --ids) ids=true; shift ;;
+    --numbered) numbered=true; shift ;;
     --no-archive) archive=false; shift ;;
     --dry-run) dry_run=true; shift ;;
     --) shift; urls+=("$@"); break ;;
@@ -79,9 +85,14 @@ done
 # Resolve to an absolute path so colons in directory names cannot become yt-dlp
 # path-type prefixes. Do not create the destination or history during previews.
 if [[ $destination != /* ]]; then destination="$PWD/$destination"; fi
-template='%(title).180B.%(ext)s'
+name_template='%(title).180B'
+if [[ $ids == true ]]; then name_template+=' [%(id)s]'; fi
+if [[ $numbered == true ]]; then
+  name_template='%(playlist_index&{:03d} - |)s'"$name_template"
+fi
+template="$name_template.%(ext)s"
 if [[ $flat == false ]]; then
-  template='%(playlist_title|.).150B/%(playlist_index&{:03d} - |)s'"$template"
+  template='%(playlist_title|.).150B/'"$template"
 fi
 args=(
   # A user's yt-dlp config must not override preview/no-overwrite guarantees.
@@ -100,7 +111,7 @@ if [[ $archive == true ]]; then
   args+=(--download-archive "$destination/.ytm/archive-$format.txt")
 fi
 if [[ $dry_run == true ]]; then
-  args+=(--simulate --no-cache-dir --print '%(playlist_index&{:03d} - |)s%(title)s [%(id)s]')
+  args+=(--simulate --no-cache-dir --print "$name_template")
 else
   mkdir -p -- "$destination"
   if [[ $archive == true ]]; then mkdir -p -- "$destination/.ytm"; fi

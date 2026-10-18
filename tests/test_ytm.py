@@ -76,6 +76,21 @@ class MusicCommandTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertFalse(self.log.exists())
 
+    def test_filename_flags_are_independent_and_work_with_flat_layout(self):
+        for flags, numbered, ids in [([], False, False), (["--ids"], False, True),
+                                     (["--numbered"], True, False),
+                                     (["--ids", "--numbered", "--flat"], True, True)]:
+            with self.subTest(flags=flags):
+                result = self.run_command("--dry-run", *flags, "https://example.test/a")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = json.loads(self.log.read_text())
+                template = args[args.index("--output") + 1]
+                self.assertEqual("playlist_index" in template, numbered)
+                self.assertEqual("[%(id)s]" in template, ids)
+                preview = args[args.index("--print") + 1]
+                self.assertEqual("playlist_index" in preview, numbered)
+                self.assertEqual("[%(id)s]" in preview, ids)
+
     def test_help_works_without_dependencies_and_missing_dependency_is_clear(self):
         self.tool.unlink()
         # An isolated PATH with just Bash makes dependency checks deterministic.
@@ -152,8 +167,8 @@ class MusicCommandTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             files = sorted((self.destination / "Test playlist").glob("*.mp3"))
             self.assertEqual(len(files), 2)
-            self.assertTrue(files[0].name.startswith("001 - "))
-            self.assertTrue(files[1].name.startswith("002 - "))
+            self.assertEqual([f.name for f in files],
+                             ["Test playlist (1).mp3", "Test playlist (2).mp3"])
             before = {f: (f.stat().st_mtime_ns, f.read_bytes()) for f in files}
             probe = subprocess.run(["ffprobe", "-v", "quiet", "-show_streams", "-show_format",
                                     "-of", "json", str(files[0])], capture_output=True, text=True)
@@ -178,6 +193,12 @@ class MusicCommandTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(audio_before, {f: audio_hash(f) for f in files})
             self.assertEqual(len((self.destination / ".ytm/archive-mp3.txt").read_text().splitlines()), 2)
+            selected = self.root / "selected"
+            result = subprocess.run([*command, "-o", str(selected), "--flat", "--numbered",
+                                     "--ids", "--items", "2"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual([f.name for f in selected.glob("*.mp3")],
+                             ["002 - Test playlist (2) [index-2].mp3"])
         finally:
             server.shutdown()
             server.server_close()

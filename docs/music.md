@@ -9,11 +9,16 @@ ytm -o ~/Music 'https://www.youtube.com/playlist?list=...'
 ytm --dry-run --items 1-5 'https://www.youtube.com/playlist?list=...'
 ytm --single 'https://www.youtube.com/watch?v=...&list=...'
 ytm -f opus -o ~/Music 'https://www.youtube.com/watch?v=...'
+ytm --numbered --ids 'https://www.youtube.com/playlist?list=...'
 ```
 
-Playlists use a folder named after the playlist and numbered filenames. Single
-videos stay directly in the destination. Playlist numbers distinguish repeated titles;
-filenames preserve Unicode and sanitize embedded path separators. `--flat`
+Playlists use a folder named after the playlist. Single videos stay directly in
+the destination. Filenames use plain titles by default. `--ids` adds a video ID
+suffix; `--numbered` adds the original playlist position (`001 - ...`), even when
+selecting a subset of tracks. Both flags can be combined and work with `--flat`.
+Numbering has no effect on individual videos outside a playlist. Use `--ids` to
+distinguish different videos with the same title. Filenames preserve Unicode and
+sanitize embedded path separators. `--flat`
 puts everything directly in the destination. `--items` selects playlist positions.
 Video links that also contain a playlist download the entire playlist unless
 `--single` is supplied.
@@ -26,7 +31,8 @@ Completed downloads are recorded in `DESTINATION/.ytm/archive-FORMAT.txt`, so
 repeat runs can pick up newly added playlist entries. History is separate for
 each destination and format. Preserve the `.ytm` folder when moving a collection.
 The archive tracks source IDs, not file existence: after removing files or
-changing layouts, use `--no-archive` to fetch missing tracks. That option bypasses
+changing layouts or filename flags, use `--no-archive` to fetch missing tracks.
+Changing flags does not rename existing downloads. That option bypasses
 history reads and writes. Existing audio is not redownloaded, but yt-dlp may
 refresh its metadata and cover art when history is bypassed. Normal archive-based
 repeat runs leave completed files untouched.
