@@ -24,10 +24,14 @@ FilenameFormatting=%CCYY-%MM-%DD %hh-%mm-%ss
 [AdvOut]
 RecType=Standard
 RecFilePath={{ ansible_facts.env.HOME }}/Videos/OBS
-RecFormat2=mkv
+RecFormat2=hybrid_mp4
 RecEncoder=obs_x264
 RecAudioEncoder=ffmpeg_aac
-RecTracks=1
+RecTracks=7
 Track1Bitrate=320
 Track1Name=Recording mix
+Track2Bitrate=320
+Track2Name=Microphone only
+Track3Bitrate=320
+Track3Name=Presenter and desktop only
 RecRescale=false

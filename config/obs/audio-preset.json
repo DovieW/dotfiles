@@ -1,0 +1,61 @@
+{
+  "microphone": [
+    {
+      "name": "Voice noise reduction",
+      "id": "noise_suppress_filter",
+      "versioned_id": "noise_suppress_filter_v2",
+      "settings": {
+        "method": "rnnoise"
+      }
+    },
+    {
+      "name": "Quiet mic boost (+12 dB)",
+      "id": "gain_filter",
+      "settings": {
+        "db": 12.0
+      }
+    },
+    {
+      "name": "Voice leveling",
+      "id": "compressor_filter",
+      "settings": {
+        "ratio": 3.0,
+        "threshold": -18.0,
+        "attack_time": 6,
+        "release_time": 150,
+        "output_gain": 6.0,
+        "sidechain_source": ""
+      }
+    },
+    {
+      "name": "Mix headroom (-7 dB)",
+      "id": "limiter_filter",
+      "settings": {
+        "threshold": -7.0,
+        "release_time": 60
+      }
+    }
+  ],
+  "desktop": [
+    {
+      "name": "Presenter leveling",
+      "id": "compressor_filter",
+      "settings": {
+        "ratio": 3.0,
+        "threshold": -20.0,
+        "attack_time": 6,
+        "release_time": 150,
+        "output_gain": 6.0,
+        "sidechain_source": ""
+      }
+    },
+    {
+      "name": "Mix headroom (-7 dB)",
+      "id": "limiter_filter",
+      "settings": {
+        "threshold": -7.0,
+        "release_time": 60
+      }
+    }
+  ]
+}

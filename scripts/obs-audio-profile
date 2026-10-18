@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Apply the reviewed voice/presenter preset to an existing OBS scene collection."""
+import argparse
+import copy
+import datetime
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+
+def configure(scene, preset):
+    result = copy.deepcopy(scene)
+    inputs = [s for s in result.get("sources", []) if s.get("id") == "pulse_input_capture"]
+    outputs = [s for s in result.get("sources", []) if s.get("id") == "pulse_output_capture"]
+    if len(inputs) != 1 or len(outputs) != 1:
+        raise ValueError("Expected exactly one scene microphone and one desktop audio source")
+    # Only remove globals which duplicate the selected scene devices.
+    for prefix, source in [("AuxAudioDevice", inputs[0]), ("DesktopAudioDevice", outputs[0])]:
+        for key in list(result):
+            if key.startswith(prefix):
+                device = result[key].get("settings", {}).get("device_id")
+                if device in ("default", source.get("settings", {}).get("device_id")):
+                    del result[key]
+                else:
+                    raise ValueError("Additional global audio device requires manual review")
+    for source, kind, tracks in [(inputs[0], "microphone", 3), (outputs[0], "desktop", 5)]:
+        existing = source.get("filters", [])
+        managed_names = {f["name"] for f in preset[kind]}
+        if any(f["name"] not in managed_names for f in existing):
+            raise ValueError("Existing custom filters require manual review")
+        source["filters"] = copy.deepcopy(preset[kind])
+        for f in source["filters"]:
+            f.setdefault("versioned_id", f["id"])
+            f["enabled"] = True
+        source.update(volume=1.0, muted=False, monitoring_type=0, mixers=tracks, sync=0)
+    return result
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("scene", type=Path)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    preset = json.loads((Path(__file__).resolve().parents[1] / "config/obs/audio-preset.json").read_text())
+    before = json.loads(args.scene.read_text())
+    after = configure(before, preset)
+    if not args.check:
+        running = subprocess.run(["pgrep", "-u", str(__import__("os").getuid()), "-x", "obs"], capture_output=True)
+        if running.returncode != 1:
+            parser.error("Close OBS normally before applying; no running instance will be modified")
+        if before != after:
+            backup = args.scene.with_name(args.scene.name + ".before-audio-" + datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f"))
+            shutil.copy2(args.scene, backup)
+            temp = args.scene.with_suffix(".audio-tmp")
+            temp.write_text(json.dumps(after, indent=2) + "\n")
+            temp.chmod(args.scene.stat().st_mode & 0o777)
+            temp.replace(args.scene)
+    print("Audio preset would change" if args.check and before != after else "Audio preset ready")
