@@ -1,0 +1,33 @@
+[General]
+Name=Dotfiles 1080p60
+
+[Video]
+BaseCX=1920
+BaseCY=1080
+OutputCX=1920
+OutputCY=1080
+FPSType=0
+FPSCommon=60
+ScaleType=lanczos
+ColorFormat=NV12
+ColorSpace=709
+ColorRange=Partial
+
+[Audio]
+SampleRate=48000
+ChannelSetup=Stereo
+
+[Output]
+Mode=Advanced
+FilenameFormatting=%CCYY-%MM-%DD %hh-%mm-%ss
+
+[AdvOut]
+RecType=Standard
+RecFilePath={{ ansible_facts.env.HOME }}/Videos/OBS
+RecFormat2=mkv
+RecEncoder=obs_x264
+RecAudioEncoder=ffmpeg_aac
+RecTracks=1
+Track1Bitrate=320
+Track1Name=Recording mix
+RecRescale=false

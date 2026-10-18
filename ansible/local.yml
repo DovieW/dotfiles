@@ -22,6 +22,11 @@
       tags: [always]
 
   tasks:
+    - name: Seed OBS recording profile
+      ansible.builtin.import_tasks: tasks/obs.yml
+      when: '"obs-studio" in (dot_profile_data.packages.apt | default([]))'
+      tags: [config, obs]
+
     - name: Install or upgrade Kubuntu file managers  # noqa package-latest
       become: true
       ansible.builtin.apt:
