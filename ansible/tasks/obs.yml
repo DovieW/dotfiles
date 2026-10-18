@@ -1,3 +1,14 @@
+- name: Detect OBS native display resolution
+  ansible.builtin.command:
+    argv: ["{{ dot_repo }}/scripts/obs-display-size"]
+  register: dot_obs_display
+  changed_when: false
+  check_mode: false
+
+- name: Read OBS native display resolution
+  ansible.builtin.set_fact:
+    dot_obs_size: "{{ dot_obs_display.stdout | from_json }}"
+
 # Seed a normal editable profile. Never overwrite later GUI adjustments.
 - name: Create OBS recording directories
   ansible.builtin.file:
@@ -5,19 +16,19 @@
     state: directory
     mode: "0700"
   loop:
-    - "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_1080p60"
+    - "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Native60"
     - "{{ ansible_facts.env.HOME }}/Videos/OBS"
 
 - name: Seed OBS video and audio settings
   ansible.builtin.template:
     src: "{{ dot_repo }}/config/obs/basic.ini.j2"
-    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_1080p60/basic.ini"
+    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Native60/basic.ini"
     mode: "0600"
     force: false
 
 - name: Seed OBS constant quality encoder settings
   ansible.builtin.copy:
     src: "{{ dot_repo }}/config/obs/recordEncoder.json"
-    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_1080p60/recordEncoder.json"
+    dest: "{{ ansible_facts.env.HOME }}/.config/obs-studio/basic/profiles/Dotfiles_Native60/recordEncoder.json"
     mode: "0600"
     force: false

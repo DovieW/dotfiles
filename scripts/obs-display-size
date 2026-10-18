@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Return the primary active KDE display's physical pixel dimensions."""
+import json
+import subprocess
+
+
+def display_size(data):
+    outputs = [o for o in data["outputs"] if o.get("enabled") and o.get("connected")]
+    outputs.sort(key=lambda o: (o.get("priority", 999), o.get("id", 999)))
+    for output in outputs:
+        for mode in output["modes"]:
+            if str(mode["id"]) == str(output["currentModeId"]):
+                size = mode["size"]
+                if size["width"] > 0 and size["height"] > 0:
+                    return size
+    raise ValueError("No active display mode; seed the OBS profile from a KDE session")
+
+
+if __name__ == "__main__":
+    result = subprocess.run(["kscreen-doctor", "-j"], check=True, capture_output=True, text=True)
+    print(json.dumps(display_size(json.loads(result.stdout))))

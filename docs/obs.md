@@ -1,11 +1,12 @@
 # OBS recording
 
 Kubuntu laptop and desktop profiles install the distribution OBS Studio package.
-The `config,obs` Ansible tasks seed an editable **Dotfiles 1080p60** profile.
-Select it from OBS's Profile menu. Subsequent applies preserve GUI adjustments
+The `config,obs` Ansible tasks seed an editable **Dotfiles Native 60fps** profile.
+The active KDE display mode is detected in physical pixels, independent of desktop scaling.
+Run the seed tasks from a KDE session. Select it from OBS's Profile menu. Subsequent applies preserve GUI adjustments
 and do not change the active profile, scenes, microphone, or capture permissions.
 
-Defaults: 1920×1080 canvas/output, 60 fps, H.264 x264 veryfast CRF 20,
+Defaults: native primary display resolution for canvas/output, 60 fps, H.264 x264 veryfast CRF 20,
 MKV, AAC 320 kbps stereo at 48 kHz, saved under `~/Videos/OBS`.
 CRF provides variable bitrate compression; lower values increase quality and size.
 These settings follow https://obsproject.com/kb/advanced-recording-settings-guide.
