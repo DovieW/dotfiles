@@ -7,8 +7,8 @@ Usage: ytm [OPTIONS] URL [URL ...]
 
 Download music with tags and cover art. Defaults to high-quality VBR MP3s in
 the current directory. Playlists get their own folders with numbered tracks;
-individual tracks stay in the destination folder. Filenames include video IDs
-to distinguish tracks with identical titles.
+individual tracks stay in the destination folder. Filenames use clean titles
+without video IDs; playlist numbering distinguishes repeated titles.
 
   -o, --output DIR       Destination directory (default: current directory)
   -f, --format FORMAT    mp3 (default), m4a, opus, or best (keep source codec)
@@ -79,7 +79,7 @@ done
 # Resolve to an absolute path so colons in directory names cannot become yt-dlp
 # path-type prefixes. Do not create the destination or history during previews.
 if [[ $destination != /* ]]; then destination="$PWD/$destination"; fi
-template='%(title).180B [%(id)s].%(ext)s'
+template='%(title).180B.%(ext)s'
 if [[ $flat == false ]]; then
   template='%(playlist_title|.).150B/%(playlist_index&{:03d} - |)s'"$template"
 fi

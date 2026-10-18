@@ -109,7 +109,8 @@ class MusicCommandTests(unittest.TestCase):
                 filename = Path(result.stdout.splitlines()[-1])
                 self.assertTrue(filename.is_relative_to(self.destination))
                 self.assertEqual(filename.parent == self.destination, not playlist)
-                self.assertIn("[one]", filename.name)
+                self.assertNotIn("[one]", filename.name)
+                self.assertTrue(filename.name.endswith("song.m4a"))
         self.assertFalse(self.destination.exists())
 
     @unittest.skipUnless(all(shutil.which(tool) for tool in ("yt-dlp", "ffmpeg", "ffprobe")),

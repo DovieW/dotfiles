@@ -12,7 +12,7 @@ ytm -f opus -o ~/Music 'https://www.youtube.com/watch?v=...'
 ```
 
 Playlists use a folder named after the playlist and numbered filenames. Single
-videos stay directly in the destination. IDs distinguish identical titles;
+videos stay directly in the destination. Playlist numbers distinguish repeated titles;
 filenames preserve Unicode and sanitize embedded path separators. `--flat`
 puts everything directly in the destination. `--items` selects playlist positions.
 Video links that also contain a playlist download the entire playlist unless
