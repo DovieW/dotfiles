@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'HELP'
+Usage: ytm [OPTIONS] URL [URL ...]
+
+Download music with tags and cover art. Defaults to high-quality VBR MP3s in
+the current directory. Playlists get their own folders with numbered tracks;
+individual tracks stay in the destination folder. Filenames include video IDs
+to distinguish tracks with identical titles.
+
+  -o, --output DIR       Destination directory (default: current directory)
+  -f, --format FORMAT    mp3 (default), m4a, opus, or best (keep source codec)
+  -I, --items SPEC       Playlist positions, e.g. 1-5,8 or 10::2
+      --single          Download only the video in a video+playlist URL
+      --flat            Put all tracks directly in the destination directory
+      --no-archive      Bypass history; existing audio stays, tags/art may refresh
+      --dry-run         Preview selected tracks without writing or downloading
+  -h, --help            Show this help
+
+Examples:
+  ytm 'https://www.youtube.com/watch?v=...'
+  ytm -o ~/Music --items 1-10 'https://www.youtube.com/playlist?list=...'
+  ytm --dry-run 'https://www.youtube.com/playlist?list=...'
+  ytm -f best URL
+
+Quote URLs containing & or ?. Repeat runs skip completed tracks using
+DIR/.ytm/archive-FORMAT.txt. Keep that folder with your music. Use --no-archive
+after moving/deleting tracks or changing layout to download them again.
+Downloads resume after interruption; unavailable playlist entries are skipped,
+but errors still produce a nonzero exit status. Requires yt-dlp, ffmpeg, ffprobe.
+HELP
+}
+
+fail() { printf 'ytm: %s\n' "$*" >&2; exit 2; }
+require_value() {
+  [[ $# -ge 2 && -n $2 ]] || fail "$1 requires a value (see ytm --help)"
+}
+
+destination=.
+format=mp3
+items=
+playlist=--yes-playlist
+flat=false
+archive=true
+dry_run=false
+urls=()
+while (($#)); do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    -o|--output) require_value "$@"; destination=$2; shift 2 ;;
+    -f|--format) require_value "$@"; format=$2; shift 2 ;;
+    -I|--items) require_value "$@"; items=$2; shift 2 ;;
+    --single) playlist=--no-playlist; shift ;;
+    --flat) flat=true; shift ;;
+    --no-archive) archive=false; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --) shift; urls+=("$@"); break ;;
+    -*) fail "unknown option: $1 (see ytm --help)" ;;
+    *) urls+=("$1"); shift ;;
+  esac
+done
+if ((${#urls[@]} == 0)); then
+  usage >&2
+  exit 2
+fi
+case "$format" in
+  mp3|m4a|opus|best) ;;
+  *) fail "unsupported format '$format'; choose mp3, m4a, opus, or best" ;;
+esac
+for url in "${urls[@]}"; do
+  [[ $url == https://* || $url == http://* ]] || fail "expected an http(s) URL: $url"
+done
+for dependency in yt-dlp ffmpeg ffprobe; do
+  command -v "$dependency" >/dev/null 2>&1 || fail "$dependency is required; install the dotfiles music dependencies first"
+done
+
+# Resolve to an absolute path so colons in directory names cannot become yt-dlp
+# path-type prefixes. Do not create the destination or history during previews.
+if [[ $destination != /* ]]; then destination="$PWD/$destination"; fi
+template='%(title).180B [%(id)s].%(ext)s'
+if [[ $flat == false ]]; then
+  template='%(playlist_title|.).150B/%(playlist_index&{:03d} - |)s'"$template"
+fi
+args=(
+  # A user's yt-dlp config must not override preview/no-overwrite guarantees.
+  --ignore-config
+  "$playlist" --no-abort-on-error
+  --continue --no-overwrites --no-post-overwrites
+  --abort-on-unavailable-fragments
+  --retries 10 --fragment-retries 10 --retry-sleep 'http:exp=1:20'
+  -f bestaudio/best --extract-audio --audio-format "$format" --audio-quality 0
+  --embed-metadata --embed-thumbnail --convert-thumbnails jpg
+  --no-embed-info-json
+  --paths "$destination" --output "$template"
+)
+if [[ -n $items ]]; then args+=(--playlist-items "$items"); fi
+if [[ $archive == true ]]; then
+  args+=(--download-archive "$destination/.ytm/archive-$format.txt")
+fi
+if [[ $dry_run == true ]]; then
+  args+=(--simulate --no-cache-dir --print '%(playlist_index&{:03d} - |)s%(title)s [%(id)s]')
+else
+  mkdir -p -- "$destination"
+  if [[ $archive == true ]]; then mkdir -p -- "$destination/.ytm"; fi
+  printf 'ytm: saving %s audio to %s\n' "$format" "$destination" >&2
+fi
+exec yt-dlp "${args[@]}" -- "${urls[@]}"

@@ -15,6 +15,7 @@ skip_or_fail() {
 }
 
 python3 tests/validate_profiles.py
+python3 -m unittest tests/test_ytm.py
 python3 -m unittest tests/test_cli.py tests/test_kde_apply.py tests/test_file_manager.py tests/test_dolphin_places.py tests/test_startup_sync.py tests/test_krdp.py tests/test_krdp_refresh.py tests/test_updated_processes.py tests/test_krdp_audio.py tests/test_recovery.py tests/test_desktop_wallet.py tests/test_herdr_machines.py
 
 if [[ -x /usr/lib/qt6/bin/qmltestrunner && -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreen.qml ]]; then
@@ -27,7 +28,7 @@ fi
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -t shell_files < <(find bin config scripts tests \
     -path '*/node_modules/*' -prune -o -type f \
-    \( -name '*.sh' -o -name mbash -o -name dot-rdp -o -name 'git-*' -o -name provision-segoe -o -name 'install-*' \) \
+    \( -name '*.sh' -o -name mbash -o -name ytm -o -name dot-rdp -o -name 'git-*' -o -name provision-segoe -o -name 'install-*' \) \
     -not -name git-repo-analysis -print)
   shellcheck "${shell_files[@]}"
 else
