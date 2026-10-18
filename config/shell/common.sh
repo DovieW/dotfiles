@@ -122,6 +122,25 @@ mkcd() {
   mkdir -p -- "$1" && cd -- "$1" || return
 }
 
+# Download individual tracks or full playlists as MP3s into the current directory.
+ytm() {
+  if [ "$#" -eq 0 ]; then
+    echo "Usage: ytm URL [URL ...]" >&2
+    return 1
+  fi
+
+  command yt-dlp \
+    --yes-playlist \
+    -f bestaudio \
+    --extract-audio \
+    --audio-format mp3 \
+    --audio-quality 0 \
+    --embed-metadata \
+    --embed-thumbnail \
+    -o "%(title)s [%(id)s].%(ext)s" \
+    -- "$@"
+}
+
 dot_ssh_select() {
   if [ "$#" -gt 0 ]; then
     command ssh "$@"
