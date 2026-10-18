@@ -513,6 +513,12 @@ repository-to-machine replacement; backups are still made.
 In an interactive terminal, `dot diff kde` uses Delta as its pager; redirected
 output remains a standard unified diff suitable for logs and automation.
 
+Notification history is managed in `config/kde/.config/plasmanotifyrc`.
+Low-priority notifications are included, and history is explicitly enabled for
+Codex/ChatGPT, Ghostty, Chrome, and Teams. Other applications use KDE's default
+of keeping notifications in history. View history using the system tray bell;
+this does not provide a persistent notification log or restore past notifications.
+
 ## Maintain the lock screen
 
 The managed lock screen is separate from SDDM and can be previewed without

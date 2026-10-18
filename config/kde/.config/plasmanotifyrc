@@ -1,2 +1,15 @@
 [Notifications]
+LowPriorityHistory=true
 PopupPosition=BottomRight
+
+[Applications][chatgpt]
+ShowInHistory=true
+
+[Applications][com.mitchellh.ghostty]
+ShowInHistory=true
+
+[Applications][google-chrome]
+ShowInHistory=true
+
+[Applications][teams-for-linux]
+ShowInHistory=true
