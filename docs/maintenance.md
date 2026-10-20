@@ -660,3 +660,11 @@ global/default releases outside projects and honoring explicit project-level
 package-manager pins. Bun-distributed global CLIs retain `~/.bun` as their
 stable command location. Deno is outside Vite+'s environment scope and remains
 an explicitly managed Homebrew runtime.
+
+### DaVinci Resolve
+
+Kubuntu profiles include the free Linux edition's runtime prerequisites and
+registered-vendor installer workflow. See [DaVinci Resolve](davinci-resolve.md)
+for the `davinci-resolve` tag, automated registration/download entry point,
+explicit updates, and the required GPU/GUI verification. An installation-pending
+message means the editor itself is still missing.

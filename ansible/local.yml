@@ -188,6 +188,14 @@
       when: dot_profile_data.features.vscode | default(false)
       tags: [packages, vscode, app-updates]
 
+    - name: Install DaVinci Resolve
+      ansible.builtin.include_tasks:
+        file: tasks/davinci-resolve.yml
+        apply:
+          tags: [packages, davinci-resolve]
+      when: dot_profile_data.features.davinci_resolve | default(false)
+      tags: [packages, davinci-resolve]
+
     - name: Configure Godot Engine for agent-driven game development
       ansible.builtin.include_tasks:
         file: tasks/godot.yml

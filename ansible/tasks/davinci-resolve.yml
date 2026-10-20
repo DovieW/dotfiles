@@ -1,0 +1,39 @@
+---
+- name: Validate DaVinci Resolve platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.os_family == "Debian"
+      - ansible_facts.architecture == "x86_64"
+    fail_msg: DaVinci Resolve installation requires native x86_64 Debian-family Linux.
+
+- name: Install DaVinci Resolve runtime dependencies
+  become: "{{ not ansible_check_mode }}"
+  ansible.builtin.apt:
+    name:
+      - libapr1t64
+      - libaprutil1t64
+      - libasound2t64
+      - libfuse2t64
+      - libglib2.0-0t64
+      - libglu1-mesa
+      - libxcb-cursor0
+      - ocl-icd-libopencl1
+      - zlib1g
+    state: present
+    update_cache: "{{ not ansible_check_mode }}"
+    cache_valid_time: 3600
+
+- name: Install DaVinci Resolve from the registered vendor archive
+  ansible.builtin.command:
+    argv:
+      - "{{ dot_repo }}/scripts/install-davinci-resolve"
+      - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+  register: dot_resolve_install
+  changed_when: "'DaVinci Resolve installed.' in dot_resolve_install.stdout"
+  check_mode: false
+  failed_when: not ansible_check_mode and dot_resolve_install.rc != 0
+
+- name: Report DaVinci Resolve installation state
+  ansible.builtin.debug:
+    msg: "{{ dot_resolve_install.stdout }}"
