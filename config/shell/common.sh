@@ -68,6 +68,8 @@ done
 unset dot_bw_socket
 
 alias g='git'
+alias c='codex'
+alias cr='codex resume'
 alias t='tmux'
 alias tls='tmux ls'
 alias ta='tmux attach'
