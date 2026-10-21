@@ -20,6 +20,7 @@
     "curl": {"provider": "apt"},
     "deno": {"provider": "brew"},
     "dotnet-sdk-10.0": {"provider": "apt"},
+    "element-desktop": {"provider": "apt"},
     "fd": {"provider": "brew"},
     "ffmpeg": {"provider": "apt"},
     "freerdp-sdl": {"provider": "apt"},

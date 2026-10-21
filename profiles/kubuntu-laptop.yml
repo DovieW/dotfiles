@@ -17,6 +17,7 @@
     "crash_recovery": true,
     "copilot_right_control": true,
     "emoji_picker": true,
+    "element_desktop": true,
     "docker_engine": true,
     "dolphin_network_places": true,
     "factory_display_profile": true,

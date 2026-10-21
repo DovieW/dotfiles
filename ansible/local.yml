@@ -92,6 +92,14 @@
       when: dot_profile_data.features.virtualization | default(false)
       tags: [packages, virtualization, virtualization-launcher]
 
+    - name: Install Element Desktop
+      ansible.builtin.include_tasks:
+        file: tasks/element.yml
+        apply:
+          tags: [packages, element, app-updates]
+      when: dot_profile_data.features.element_desktop | default(false)
+      tags: [packages, element, app-updates]
+
     - name: Install Anarlog desktop
       ansible.builtin.include_tasks:
         file: tasks/anarlog.yml
@@ -1063,7 +1071,7 @@
       when:
         - ansible_facts.system == "Linux"
         - not ansible_check_mode
-      tags: [system-updates, app-updates, packages]
+      tags: [system-updates, app-updates, packages, element]
 
     - name: Report remaining update activation work
       ansible.builtin.debug:
@@ -1077,7 +1085,7 @@
       when:
         - dot_updated_process_audit is defined
         - dot_updated_process_audit.stdout | default('') | length > 0
-      tags: [system-updates, app-updates, packages]
+      tags: [system-updates, app-updates, packages, element]
 
   handlers:
     - name: Restart KRdp after private-network configuration
