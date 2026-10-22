@@ -3813,6 +3813,7 @@ def inherit_graphical_session_environment() -> None:
         return
     allowed = {
         "DBUS_SESSION_BUS_ADDRESS",
+        "XAUTHORITY",
         "DISPLAY",
         "LANG",
         "LANGUAGE",

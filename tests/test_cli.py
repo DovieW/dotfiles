@@ -258,6 +258,17 @@ class DotCliTests(unittest.TestCase):
             with mock.patch("os.getuid", return_value=os.getuid() + 1):
                 self.assertEqual(select(root), {})
 
+    def test_graphical_session_inheritance_includes_x11_authorization(self):
+        function = runpy.run_path(str(DOT))["inherit_graphical_session_environment"]
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.dict(function.__globals__, {
+            "command_exists": lambda _: True,
+            "run": lambda *a, **k: subprocess.CompletedProcess([], 0,
+                "DISPLAY=:0\nXAUTHORITY=/run/user/1000/session-xauth\nWAYLAND_DISPLAY=wayland-0\n", ""),
+        }):
+            function()
+            self.assertEqual(os.environ["XAUTHORITY"], "/run/user/1000/session-xauth")
+            self.assertEqual(os.environ["DISPLAY"], ":0")
+
     def test_electron_flattened_process_title_detects_stale_main_and_excludes_renderer(self):
         module = runpy.run_path(str(DOT)); select = module["codex_desktop_processes"]
         app = str(module["CHATGPT_DESKTOP_EXECUTABLE"])
