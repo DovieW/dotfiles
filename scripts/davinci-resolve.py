@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run Blackmagic's registered Linux installer without storing registration data."""
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -9,14 +10,38 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import urllib.error
 import shutil
 import sys
 import zipfile
 
 
+def ubuntu_t64_dependencies_ready():
+    libraries = {
+        'libapr1t64': 'libapr-1.so.0',
+        'libaprutil1t64': 'libaprutil-1.so.0',
+        'libasound2t64': 'libasound.so.2',
+        'libglib2.0-0t64': 'libglib-2.0.so.0',
+    }
+    for package, library in libraries.items():
+        result = subprocess.run(
+            ['dpkg-query', '-W', '-f=${Status}', package], capture_output=True, text=True)
+        if result.returncode != 0 or result.stdout.strip() != 'install ok installed':
+            return False
+        try:
+            ctypes.CDLL(library)
+        except OSError:
+            return False
+    return True
+
+
 def download_registered():
     """Read registration from stdin; keep it out of argv, logs and disk."""
     registration = json.load(sys.stdin)
+    required = ('firstname', 'lastname', 'email', 'phone', 'country', 'street', 'city', 'state')
+    missing = [field for field in required if not registration.get(field)]
+    if missing:
+        raise ValueError('Missing Blackmagic registration fields: ' + ', '.join(missing))
     with urllib.request.urlopen('https://www.blackmagicdesign.com/api/support/us/downloads.json', timeout=60) as response:
         releases = json.load(response)['downloads']
     candidates = [r for r in releases if 'Linux' in r.get('urls', {})
@@ -24,10 +49,12 @@ def download_registered():
                   and r['urls']['Linux'][0].get('beta', 255) == 255]
     release = max(candidates, key=lambda r: r['numericDate'])
     item = release['urls']['Linux'][0]
-    registration.update(origin='www.blackmagicdesign.com', platform='linux', product='davinci-resolve')
+    registration.update(origin='www.blackmagicdesign.com', platform='Linux', product='DaVinci Resolve')
     request = urllib.request.Request(
         'https://www.blackmagicdesign.com/api/register/us/download/' + item['downloadId'],
-        data=json.dumps(registration).encode(), headers={'Content-Type': 'application/json'})
+        data=json.dumps(registration).encode(), headers={'Content-Type': 'application/json',
+            'Origin': 'https://www.blackmagicdesign.com',
+            'Referer': 'https://www.blackmagicdesign.com/support/'})
     with urllib.request.urlopen(request, timeout=60) as response:
         url = json.load(response)
     parsed = urllib.parse.urlsplit(url)
@@ -90,7 +117,9 @@ def main():
     if result.returncode != 1:
         parser.error('Close Resolve after saving work, or resolve the process-inspection failure, before installing.')
     archive = archive.expanduser().resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix='dotfiles-resolve-') as work:
+    cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'dotfiles'
+    cache.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='resolve-', dir=cache) as work:
         with zipfile.ZipFile(archive) as bundle:
             candidates = [i for i in bundle.infolist()
                           if i.filename.startswith('DaVinci_Resolve_')
@@ -100,10 +129,20 @@ def main():
                 parser.error('Expected one official free-edition Linux .run installer at ZIP root.')
             installer = Path(bundle.extract(candidates[0], work))
         installer.chmod(0o700)
-        # Keep the vendor's interactive license and authorization flow. No invented
-        # registration details, silent license acceptance, or package-check bypass.
-        environment = dict(os.environ, APPIMAGE_EXTRACT_AND_RUN='1')
-        subprocess.run([str(installer)], env=environment, check=True)
+        # The vendor checks old Debian package names, rejecting Ubuntu's t64
+        # replacements. Bypass only when every replacement is installed AND its
+        # actual shared library loads. This does not disable GPU/runtime checks.
+        compatibility = ubuntu_t64_dependencies_ready()
+        assignments = ['QT_QPA_PLATFORM=offscreen']
+        if compatibility:
+            assignments.append('SKIP_PACKAGE_CHECK=1')
+        command = ['/usr/bin/env', *assignments, str(installer), '-i', '-y', '-a']
+        if os.geteuid() != 0:
+            if subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0:
+                command = ['sudo', '-n', *command]
+            else:
+                command = ['pkexec', *command]
+        subprocess.run(command, check=True)
     if not binary.is_file():
         print('Installer exited without creating /opt/resolve/bin/resolve.')
         return 1
@@ -112,4 +151,12 @@ def main():
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except urllib.error.HTTPError as error:
+        print(f'Blackmagic download request failed (HTTP {error.code}). '
+              'Check registration fields or use the official website to download the archive.', file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1)
