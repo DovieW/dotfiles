@@ -54,7 +54,7 @@ class ResolveInstallTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     resolve.main()
                 self.assertEqual(run.call_count, 1)
-                self.assertEqual(run.call_args.args[0], ['pgrep', '-x', 'resolve'])
+                self.assertEqual(run.call_args.args[0], ['pgrep', '-f', r'^/opt/resolve/bin/resolve([[:space:]]|$)'])
 
     def test_vendor_form_product_and_download_host(self):
         registration = {k: 'test' for k in (

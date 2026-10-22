@@ -113,7 +113,11 @@ def main():
                   'or use scripts/install-davinci-resolve --archive PATH. See docs/davinci-resolve.md.')
             return 0
     # Never replace a running editor or its loaded libraries, including other users.
-    result = subprocess.run(['pgrep', '-x', 'resolve'], capture_output=True, text=True)
+    # Qt renames the process to 'GUI Thread' after startup; match the
+    # vendor launch command rather than the mutable process name.
+    result = subprocess.run(
+        ['pgrep', '-f', r'^/opt/resolve/bin/resolve([[:space:]]|$)'],
+        capture_output=True, text=True)
     if result.returncode != 1:
         parser.error('Close Resolve after saving work, or resolve the process-inspection failure, before installing.')
     archive = archive.expanduser().resolve(strict=True)
