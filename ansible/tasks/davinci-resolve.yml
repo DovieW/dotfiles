@@ -37,3 +37,38 @@
 - name: Report DaVinci Resolve installation state
   ansible.builtin.debug:
     msg: "{{ dot_resolve_install.stdout }}"
+
+- name: Match Resolve native UI scale to the primary KDE display
+  ansible.builtin.command:
+    argv:
+      - "{{ dot_repo }}/scripts/install-davinci-resolve"
+      - --configure-display
+      - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+  register: dot_resolve_display
+  changed_when: "'Configured Resolve native display scale' in dot_resolve_display.stdout"
+  check_mode: false
+  failed_when: not ansible_check_mode and dot_resolve_display.rc != 0
+
+- name: Report Resolve display scaling state
+  ansible.builtin.debug:
+    msg: "{{ dot_resolve_display.stdout }}"
+
+- name: Detect an available NVIDIA GPU for Resolve graphics and CUDA alignment
+  ansible.builtin.command:
+    argv: [/usr/bin/nvidia-smi, -L]
+  register: dot_resolve_nvidia
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create Resolve application override directory
+  ansible.builtin.file:
+    path: "{{ ansible_facts.user_dir }}/.local/share/applications"
+    state: directory
+    mode: "0755"
+
+- name: Keep Resolve graphics on the NVIDIA GPU when available
+  ansible.builtin.template:
+    src: "{{ dot_repo }}/config/davinci-resolve/resolve.desktop.j2"
+    dest: "{{ ansible_facts.user_dir }}/.local/share/applications/com.blackmagicdesign.resolve.desktop"
+    mode: "0644"

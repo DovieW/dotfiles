@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -55,6 +56,31 @@ class ResolveInstallTests(unittest.TestCase):
                     resolve.main()
                 self.assertEqual(run.call_count, 1)
                 self.assertEqual(run.call_args.args[0], ['pgrep', '-f', r'^/opt/resolve/bin/resolve([[:space:]]|$)'])
+
+    def test_native_scale_preserves_other_preferences_and_check_is_read_only(self):
+        from subprocess import CompletedProcess
+        screen = CompletedProcess([], 0, json.dumps({'outputs': [
+            {'connected': True, 'enabled': True, 'priority': 1, 'scale': 1.75}]}))
+        inactive = CompletedProcess([], 1)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(resolve.os.environ, {'XDG_DATA_HOME': directory}):
+            config = Path(directory) / 'DaVinciResolve/configs/config.user.xml'
+            config.parent.mkdir(parents=True)
+            original = '<prefs><DisplayScale>100</DisplayScale><Other>keep</Other></prefs>'
+            config.write_text(original)
+            with patch.object(resolve.subprocess, 'run', return_value=screen) as run:
+                self.assertEqual(resolve.configure_display(check=True), 1)
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(config.read_text(), original)
+            with patch.object(resolve.subprocess, 'run', side_effect=[screen, CompletedProcess([], 0)]):
+                self.assertEqual(resolve.configure_display(), 0)
+                self.assertEqual(config.read_text(), original)
+            with patch.object(resolve.subprocess, 'run', side_effect=[screen, inactive]):
+                self.assertEqual(resolve.configure_display(), 0)
+                self.assertEqual(config.read_text(), original.replace('100', '150'))
+                self.assertEqual(config.with_name('config.user.xml.before-dotfiles-scaling').read_text(), original)
+            with patch.object(resolve.subprocess, 'run', return_value=screen):
+                self.assertEqual(resolve.configure_display(check=True), 0)
 
     def test_vendor_form_product_and_download_host(self):
         registration = {k: 'test' for k in (

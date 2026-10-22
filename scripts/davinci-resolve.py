@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import tempfile
 import urllib.parse
@@ -14,6 +15,59 @@ import urllib.error
 import shutil
 import sys
 import zipfile
+
+
+def configure_display(check=False):
+    """Choose a supported native scale without replacing other preferences."""
+    try:
+        result = subprocess.run(['kscreen-doctor', '-j'], capture_output=True,
+                                text=True, timeout=5, check=True)
+        outputs = [o for o in json.loads(result.stdout)['outputs']
+                   if o.get('enabled') and o.get('connected')]
+        primary = min(outputs, key=lambda o: o.get('priority') or 999)
+        scale = float(primary['scale']) * 100
+        if not 50 <= scale <= 400:
+            raise ValueError('invalid display scale')
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        print('Resolve display scale pending: KDE display information is unavailable.')
+        return 0
+    # Fractional values such as 175 are not effective in this Resolve build.
+    # Prefer the smaller native step when equally close (175 -> 150).
+    desired = min((100, 150, 200), key=lambda value: (abs(value - scale), value))
+    config = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'DaVinciResolve/configs/config.user.xml'
+    if not config.is_file():
+        print('Resolve display scale pending: launch Resolve once, close it, then reapply.')
+        return 0
+    source = config.read_text()
+    pattern = r'<DisplayScale>[^<]*</DisplayScale>'
+    matches = re.findall(pattern, source)
+    if len(matches) != 1:
+        raise ValueError('Resolve display-scale preference is missing or ambiguous; leaving preferences untouched.')
+    replacement = f'<DisplayScale>{desired}</DisplayScale>'
+    if matches[0] == replacement:
+        print(f'Resolve native display scale is {desired}%.')
+        return 0
+    if check:
+        print(f'Resolve native display scale requires {desired}%.')
+        return 1
+    active = subprocess.run(['pgrep', '-f', r'^/opt/resolve/bin/resolve([[:space:]]|$)'], capture_output=True)
+    if active.returncode != 1:
+        print(f'Resolve display scale pending: save and close Resolve before applying {desired}%.')
+        return 0
+    backup = config.with_name('config.user.xml.before-dotfiles-scaling')
+    if not backup.exists():
+        shutil.copy2(config, backup)
+    with tempfile.NamedTemporaryFile(mode='w', dir=config.parent, delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            output.write(re.sub(pattern, replacement, source))
+            output.close()
+            temporary.chmod(config.stat().st_mode & 0o777)
+            temporary.replace(config)
+        finally:
+            temporary.unlink(missing_ok=True)
+    print(f'Configured Resolve native display scale to {desired}%.')
+    return 0
 
 
 def ubuntu_t64_dependencies_ready():
@@ -87,12 +141,17 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--ensure', action='store_true')
     parser.add_argument('--archive', type=Path)
+    parser.add_argument('--configure-display', action='store_true', help='Match native UI scale to the primary KDE display while Resolve is closed.')
     parser.add_argument('--download', action='store_true', help='Read vendor registration JSON from stdin, then download and install.')
     args = parser.parse_args()
     if platform.system() != 'Linux' or platform.machine() != 'x86_64':
         parser.error('DaVinci Resolve requires native x86_64 Linux here.')
     if args.download and (args.check or args.archive):
         parser.error('--download cannot be combined with --check or --archive.')
+    if args.configure_display:
+        if args.download or args.archive:
+            parser.error('--configure-display cannot be combined with download or archive installation.')
+        return configure_display(check=args.check)
     binary = Path('/opt/resolve/bin/resolve')
     if args.check:
         if not binary.is_file() or not os.access(binary, os.X_OK):
