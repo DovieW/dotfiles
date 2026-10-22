@@ -22,8 +22,22 @@ prove all bundled assets, plugins or interpreted code are current.
 
 ## MCP availability versus connection
 
-The package includes an MCP server. It still needs to be registered with the
-chosen assistant; installing the editor does not connect this chat to it.
+The package includes an MCP server. With `filmcraft_mcp: true`, the managed
+Kubuntu configuration registers a global Codex server named `filmcraft` and
+overrides the FilmCraft menu launcher to enable its loopback bridge. This targets
+the visible editor rather than a separate headless project. Apply only this
+configuration with:
+
+```sh
+bin/dot apply --profile kubuntu-laptop --tags filmcraft
+```
+
+Use `kubuntu-desktop` on a desktop. This configuration does not install the
+package by itself, start an inactive editor, or restart either application.
+Save and reopen FilmCraft after changing the menu launcher. Codex reads the
+registration from `~/.codex/config.toml`; a running assistant may need its MCP
+configuration refreshed before native tool names appear. The live CLI bridge
+can be used immediately without restarting the assistant.
 
 - `filmcraft-cli mcp` starts a headless MCP session over stdio.
 - To operate a visible editor, start `filmcraft --control 9876`, then use
@@ -31,12 +45,15 @@ chosen assistant; installing the editor does not connect this chat to it.
 - Do not accidentally use a separate headless project when intending to edit
   the project in the visible window. Test an inspect/read operation first.
 - The bridge listens on loopback and can operate with the user's file access;
-  leave it disabled when it is not needed.
+  it runs only while FilmCraft is open. Set the profile feature off and remove
+  the menu override and Codex registration if you no longer want the connection.
 
 Initial verification on the IdeaPad used 0.10.0 (Debian version 0.10.0-1): the
 editor launched, startup detected NVDEC, and a headless MCP initialize/tools-list
-exchange returned the FilmCraft server identity and 17 tools. This did not test
-an actual edit/export or register a client connection.
+exchange returned the FilmCraft server identity and 17 tools. A subsequent live-bridge check successfully initialized MCP, listed 17 tools,
+and read the visible editor's project and sequence with `doc_inspect`. Codex's
+registration was validated and a targeted real/check apply converged without
+changes. This did not test an actual edit/export.
 
 References: [FilmCraft](https://getartcraft.com/apps/filmcraft),
 [agent documentation](https://github.com/storytold/filmcraft/blob/main/docs/agents.md).

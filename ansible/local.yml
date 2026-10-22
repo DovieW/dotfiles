@@ -482,6 +482,16 @@
       when: dot_profile_data.features.codex_remote_control | default(false)
       tags: [config, codex]
 
+    - name: Connect FilmCraft live editor to Codex MCP
+      ansible.builtin.include_tasks:
+        file: tasks/filmcraft.yml
+        apply:
+          tags: [config, filmcraft, codex]
+      when:
+        - dot_profile_data.features.filmcraft_mcp | default(false)
+        - '"filmcraft" in (dot_profile_data.packages.deb | default([]))'
+      tags: [config, filmcraft, codex]
+
     - name: Ensure Vite+ CLI from stable channel
       ansible.builtin.command:
         argv:
