@@ -4030,6 +4030,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             "chatgpt",
             "codex",
             "emoji",
+            "element",
             "rdp",
             "krdp",
             "keyboard",

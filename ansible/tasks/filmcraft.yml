@@ -1,0 +1,50 @@
+---
+- name: Create FilmCraft menu override directory
+  ansible.builtin.file:
+    path: "{{ ansible_facts.user_dir }}/.local/share/applications"
+    state: directory
+    mode: "0755"
+
+- name: Enable the loopback control bridge when FilmCraft is opened
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/filmcraft/filmcraft.desktop"
+    dest: "{{ ansible_facts.user_dir }}/.local/share/applications/ai.storyteller.filmcraft.desktop"
+    mode: "0644"
+
+- name: Read existing FilmCraft MCP registration
+  ansible.builtin.command:
+    argv: ["{{ ansible_facts.user_dir }}/.local/bin/codex", mcp, get, filmcraft, --json]
+  register: dot_filmcraft_mcp_read
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Parse FilmCraft MCP registration
+  ansible.builtin.set_fact:
+    dot_filmcraft_mcp_current: "{{ (dot_filmcraft_mcp_read.stdout | from_json) if dot_filmcraft_mcp_read.rc == 0 else {} }}"
+
+- name: Register FilmCraft live-editor bridge with Codex
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_facts.user_dir }}/.local/bin/codex"
+      - mcp
+      - add
+      - filmcraft
+      - --
+      - /usr/bin/filmcraft-cli
+      - mcp
+      - --bridge
+      - 127.0.0.1:9876
+  changed_when: true
+  when: >-
+    not (dot_filmcraft_mcp_current.enabled | default(false)) or
+    (dot_filmcraft_mcp_current.transport | default({})).get('command') != '/usr/bin/filmcraft-cli' or
+    (dot_filmcraft_mcp_current.transport | default({})).get('args') != ['mcp', '--bridge', '127.0.0.1:9876']
+
+- name: Explain FilmCraft MCP activation boundary
+  ansible.builtin.debug:
+    msg: >-
+      FilmCraft's menu launcher enables its control bridge on 127.0.0.1:9876.
+      Save and reopen an already-running FilmCraft after this setting changes.
+      The Codex MCP registration targets the live editor, not a separate headless project.
+      Configuration does not start, stop or restart either application.

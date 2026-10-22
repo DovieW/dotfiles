@@ -92,6 +92,14 @@
       when: dot_profile_data.features.virtualization | default(false)
       tags: [packages, virtualization, virtualization-launcher]
 
+    - name: Install Element Desktop
+      ansible.builtin.include_tasks:
+        file: tasks/element.yml
+        apply:
+          tags: [packages, element, app-updates]
+      when: dot_profile_data.features.element_desktop | default(false)
+      tags: [packages, element, app-updates]
+
     - name: Install Anarlog desktop
       ansible.builtin.include_tasks:
         file: tasks/anarlog.yml
@@ -187,6 +195,14 @@
           tags: [packages, vscode, app-updates]
       when: dot_profile_data.features.vscode | default(false)
       tags: [packages, vscode, app-updates]
+
+    - name: Install DaVinci Resolve
+      ansible.builtin.include_tasks:
+        file: tasks/davinci-resolve.yml
+        apply:
+          tags: [packages, davinci-resolve]
+      when: dot_profile_data.features.davinci_resolve | default(false)
+      tags: [packages, davinci-resolve]
 
     - name: Configure Godot Engine for agent-driven game development
       ansible.builtin.include_tasks:
@@ -465,6 +481,16 @@
           tags: [config, codex]
       when: dot_profile_data.features.codex_remote_control | default(false)
       tags: [config, codex]
+
+    - name: Connect FilmCraft live editor to Codex MCP
+      ansible.builtin.include_tasks:
+        file: tasks/filmcraft.yml
+        apply:
+          tags: [config, filmcraft, codex]
+      when:
+        - dot_profile_data.features.filmcraft_mcp | default(false)
+        - '"filmcraft" in (dot_profile_data.packages.deb | default([]))'
+      tags: [config, filmcraft, codex]
 
     - name: Ensure Vite+ CLI from stable channel
       ansible.builtin.command:
@@ -1055,7 +1081,7 @@
       when:
         - ansible_facts.system == "Linux"
         - not ansible_check_mode
-      tags: [system-updates, app-updates, packages]
+      tags: [system-updates, app-updates, packages, element, davinci-resolve]
 
     - name: Report remaining update activation work
       ansible.builtin.debug:
@@ -1069,7 +1095,7 @@
       when:
         - dot_updated_process_audit is defined
         - dot_updated_process_audit.stdout | default('') | length > 0
-      tags: [system-updates, app-updates, packages]
+      tags: [system-updates, app-updates, packages, element, davinci-resolve]
 
   handlers:
     - name: Restart KRdp after private-network configuration

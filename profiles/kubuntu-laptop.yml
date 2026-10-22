@@ -8,6 +8,8 @@
     "anarlog": true,
     "chatgpt_desktop": true,
     "godot_engine": true,
+    "davinci_resolve": true,
+    "filmcraft_mcp": true,
     "google_chrome": true,
     "herdr_desktop_machine": true,
     "codex_remote_control": true,
@@ -16,6 +18,7 @@
     "crash_recovery": true,
     "copilot_right_control": true,
     "emoji_picker": true,
+    "element_desktop": true,
     "docker_engine": true,
     "dolphin_network_places": true,
     "factory_display_profile": true,
@@ -98,7 +101,7 @@
     ],
     "brew": ["freerdp", "lazydocker", "lazygit", "tailcat"],
     "bun": ["@stephendolan/ynab-cli"],
-    "deb": ["bitwarden", "obsidian", "teams-for-linux"],
+    "deb": ["bitwarden", "filmcraft", "obsidian", "teams-for-linux"],
     "snap": []
   }
 }

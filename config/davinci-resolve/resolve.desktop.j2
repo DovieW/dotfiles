@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DaVinci Resolve
+GenericName=DaVinci Resolve
+Comment=Video editing, visual effects, color correction and audio post production
+Path=/opt/resolve/
+{% if dot_resolve_nvidia.rc == 0 %}
+Exec=/usr/bin/env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia /opt/resolve/bin/resolve %u
+{% else %}
+Exec=/opt/resolve/bin/resolve %u
+{% endif %}
+Terminal=false
+MimeType=application/x-resolveproj;
+Icon=/opt/resolve/graphics/DV_Resolve.png
+StartupNotify=true
