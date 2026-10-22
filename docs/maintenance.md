@@ -620,21 +620,39 @@ device profile:
 dot codex update
 ```
 
-The **Update Codex** picker action runs the same update. Desktop-enabled profiles
-upgrade the official `chatgpt` APT package, which includes Codex Desktop, before
-updating the CLI. If ChatGPT Desktop is open and its directly owned Codex server
-still uses the replaced package binary, the updater stops only that stale child;
-ChatGPT respawns it from the newly installed package. SSH proxies, the standalone
-remote-control daemon, and other Codex services are intentionally excluded. Reopen
-the desktop app only when you need to load other desktop UI changes. Profiles
-without `chatgpt_desktop` update only the CLI. Use `--profile NAME` to select a
-profile explicitly. The broader application update performs the same check.
+The **Update Codex** picker action runs the same update. It asks once with
+`[Y/n]` (Enter means Yes), explaining that active turns can be interrupted and
+drafts should be saved. It upgrades the stable standalone CLI and the official
+`chatgpt` APT package whenever the profile manages the desktop **or the desktop is
+already installed**. The temporary desktop inclusion does not change the saved
+profile or Remote Control ownership mode. It does not run unrelated FilmCraft
+configuration.
 
-On a headless Remote Control profile, both update commands also compare the
-daemon's reported `appServerVersion` with its managed Codex version. A mismatch
-uses the native daemon restart. A legacy unmanaged server is replaced only when
-exactly one stale standalone process owns the expected Codex control socket;
-ambiguous ownership fails closed instead of signaling an unrelated Codex process.
+Administrator authentication uses one shared sudo session, refreshed during the
+update and reused by Ansible and service restarts. Later privileged operations
+fail with a clear error if authorization expires instead of asking again.
+Terminal output shows stage progress and a short process-audit summary. Full
+package/CLI output and the detailed audit are saved in a private log under
+`~/.local/state/dotfiles/codex-update-*.log`. Ctrl+C at the menu pause exits the
+pause without a Python traceback.
+
+The updater restarts active Remote Control even when its version is unchanged,
+using its protected system service when active, or the native daemon otherwise.
+It verifies the daemon reports the installed CLI version. It gracefully closes
+and reopens an active desktop, preserving launch flags, and checks that the new
+main process uses the installed executable and its bundled Codex server starts.
+A desktop that refuses to exit is reported, never force-killed. Inactive apps and
+daemons stay inactive. Settings and chat history are retained; existing terminal
+Codex sessions must be exited and reopened manually. SSH proxies and unrelated
+remote-access services are not broadly killed.
+
+Use `dot codex update --yes` to accept the restarts without prompting, or
+`dot codex update --check` for read-only update checks. Noninteractive updates
+require `--yes`. Use `--profile NAME` to select a profile explicitly. The final
+process audit reports replaced executables/libraries, unreadable processes and
+reboot requirements. It cannot establish freshness of every plugin, interpreted
+file, or bundled asset. Failed updates or readiness checks stop with an error.
+The broader application updater retains its narrower stale-server refresh.
 
 The native daemon bootstrap also runs its own detached stable-channel updater.
 Run `dot doctor --profile kubuntu-laptop` to verify the boot unit, daemon,

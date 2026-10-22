@@ -7,6 +7,7 @@ import argparse
 import base64
 import binascii
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass
 import datetime as dt
 import difflib
@@ -23,6 +24,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Any, Callable
 import urllib.error
@@ -986,12 +988,14 @@ def ansible_become_arguments() -> list[str]:
         or resolved_sudo.name == "sudo-rs"
         else []
     )
-    if sys.stdin.isatty():
-        print("Administrator access is required to update managed system packages.")
-        return ["--ask-become-pass", *become_method]
     passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
     if passwordless.returncode == 0:
         return become_method
+    if os.environ.get("DOTFILES_CODEX_ADMIN_READY") == "1":
+        raise DotError("Administrator authorization expired; rerun the update. No second password prompt was opened.")
+    if sys.stdin.isatty():
+        print("Administrator access is required to update managed system packages.")
+        return ["--ask-become-pass", *become_method]
     raise DotError(
         "Administrator access is required for managed system packages. "
         "Run this command in an interactive terminal so Ansible can request the password."
@@ -3920,6 +3924,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
 def _cmd_apply(args: argparse.Namespace) -> None:
     profile = load_profile(args.profile)
+    if getattr(args, "include_installed_chatgpt", False):
+        profile = {**profile, "features": {**profile.get("features", {}), "chatgpt_desktop": True}}
     device_manifest: dict[str, Any] = {}
     device_config = CONFIG_DIR / "device.json"
     if device_config.exists():
@@ -4122,7 +4128,14 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         apply_env["DOTFILES_KDE_PREFLIGHT_OK"] = "1"
     if force_kde:
         apply_env["DOTFILES_FORCE_KDE"] = "1"
-    run(command, cwd=ROOT, env=apply_env)
+    log_path = getattr(args, "log_path", None)
+    if log_path is None:
+        run(command, cwd=ROOT, env=apply_env)
+    else:
+        result = run(command, cwd=ROOT, env=apply_env, capture=True, check=False)
+        append_codex_update_log(log_path, "Desktop package update", result)
+        if result.returncode:
+            raise DotError(f"Desktop package update failed (exit {result.returncode}); details: {log_path}")
     if kde_apply_selected:
         record_kde_baseline()
 
@@ -6061,32 +6074,210 @@ def refresh_codex_remote_control_daemon(
     return changed
 
 
+def codex_desktop_processes(proc_root: Path = Path("/proc")) -> dict[int, tuple[str, ...]]:
+    """Identify only this user's native desktop main processes, including replaced code."""
+    found = {}
+    if platform.system() != "Linux":
+        return found
+    for entry in proc_root.glob("[0-9]*"):
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            pid = int(entry.name)
+            arguments = process_arguments(proc_root, pid)
+            executable = process_executable(proc_root, pid)
+            if (arguments and arguments[0] == str(CHATGPT_DESKTOP_EXECUTABLE)
+                    and executable and executable.removesuffix(" (deleted)") == str(CHATGPT_DESKTOP_EXECUTABLE)
+                    and not any(arg.startswith("--type=") for arg in arguments[1:])):
+                found[pid] = arguments
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def restart_codex_desktop(wait_seconds: float = 30) -> bool:
+    processes = codex_desktop_processes()
+    if not processes:
+        print("Desktop is inactive; leaving it closed.")
+        return False
+    if len(processes) != 1:
+        raise DotError("Multiple desktop main processes found; close extra app instances and retry.")
+    pid, arguments = next(iter(processes.items()))
+    inherit_graphical_session_environment()
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise DotError("Cannot reopen the desktop without a graphical session; app left running.")
+    # Revalidate ownership immediately before signaling. Never force-kill unsaved work.
+    if codex_desktop_processes().get(pid) != arguments:
+        raise DotError("Desktop process changed during update; retry the restart.")
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + wait_seconds
+    while pid in codex_desktop_processes():
+        if time.monotonic() >= deadline:
+            raise DotError("Desktop did not exit gracefully; save work and close it manually. No force-kill sent.")
+        time.sleep(0.2)
+    # Detach from the updater so returning to the menu/closing the terminal is safe.
+    with open(os.devnull, "wb") as output:
+        subprocess.Popen(list(arguments), stdin=subprocess.DEVNULL, stdout=output,
+                         stderr=output, start_new_session=True, cwd=Path.home())
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        current = codex_desktop_processes()
+        if current and chatgpt_embedded_codex_servers():
+            if all(os.path.samestat(os.stat(f"/proc/{p}/exe"), CHATGPT_DESKTOP_EXECUTABLE.stat())
+                   for p in current):
+                print("Reopened desktop and verified its bundled Codex server is running.")
+                return True
+        time.sleep(0.2)
+    raise DotError("Desktop launch was requested but readiness was not confirmed; inspect the app logs.")
+
+
+def update_codex_desktop(profile_name: str, *, check: bool = False, log_path: Path | None = None) -> None:
+    # An installed app must be updated even on a headless-profile machine.
+    # This override is limited to this tagged run; persisted ownership stays intact.
+    cmd_apply(argparse.Namespace(profile=profile_name, tags="chatgpt", check=check,
+                                direct=False, force_kde=False, include_installed_chatgpt=True, log_path=log_path))
+
+
+def restart_codex_remote_control() -> None:
+    executable = Path.home() / ".codex/packages/standalone/current/codex"
+    if not executable.is_file():
+        print("Remote Control installation unavailable; no daemon restart attempted.")
+        return
+    status = codex_daemon_status(executable)
+    if status.get("status") != "running":
+        print("Remote Control is inactive or unavailable; leaving it stopped.")
+        return
+    if command_exists("systemctl") and run(
+        ["systemctl", "is-active", "--quiet", "codex-remote-control.service"],
+        check=False,
+    ).returncode == 0:
+        run(["sudo", "-n", "systemctl", "restart", "codex-remote-control.service"])
+    else:
+        run([str(executable), "app-server", "daemon", "restart"])
+    expected = command_semver([str(executable), "--version"])
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        refreshed = codex_daemon_status(executable)
+        if (expected and refreshed.get("status") == "running"
+                and refreshed.get("appServerVersion") == expected):
+            print(f"Remote Control restarted and verified on {expected}.")
+            return
+        time.sleep(0.2)
+    raise DotError("Remote Control restart did not become ready on the installed CLI version.")
+
+
+@contextmanager
+def codex_update_admin(required: bool):
+    """One sudo authentication, shared by Ansible and service operations."""
+    if not required or os.geteuid() == 0:
+        yield
+        return
+    run(["sudo", "-v"])
+    stop = threading.Event()
+
+    def refresh():
+        while not stop.wait(30):
+            try:
+                result = run(["sudo", "-n", "-v"], check=False, capture=True, timeout=10)
+                if result.returncode:
+                    return
+            except (OSError, subprocess.TimeoutExpired):
+                return
+
+    previous = os.environ.get("DOTFILES_CODEX_ADMIN_READY")
+    os.environ["DOTFILES_CODEX_ADMIN_READY"] = "1"
+    keeper = threading.Thread(target=refresh, daemon=True)
+    keeper.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        keeper.join(timeout=1)
+        if previous is None:
+            os.environ.pop("DOTFILES_CODEX_ADMIN_READY", None)
+        else:
+            os.environ["DOTFILES_CODEX_ADMIN_READY"] = previous
+
+
+def append_codex_update_log(path: Path, label: str, result: subprocess.CompletedProcess) -> None:
+    with path.open("a", encoding="utf-8") as log:
+        log.write(f"\n--- {label} (exit {result.returncode}) ---\n")
+        log.write((result.stdout or "") + (result.stderr or ""))
+
+
+def codex_update_audit(log_path: Path) -> None:
+    result = run(["python3", str(ROOT / "scripts/audit-updated-processes.py")],
+                 capture=True, check=False)
+    append_codex_update_log(log_path, "Running process audit", result)
+    if result.returncode:
+        raise DotError(f"Process audit failed; details: {log_path}")
+    try:
+        audit = json.loads(result.stdout)
+        stale = audit["stale_processes"]
+        programs = sorted({p["program"] for p in stale})
+        unreadable = int(audit["unreadable_processes"])
+        reboot = bool(audit["reboot_required"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise DotError(f"Could not read process audit; details: {log_path}") from exc
+    print(f"Process audit: {len(stale)} older processes across {len(programs)} programs; "
+          f"{unreadable} processes could not be inspected.")
+    if stale:
+        print("Other apps/session components still use older code. Save work and log out or reboot to refresh them.")
+    if reboot:
+        print("The system requests a reboot.")
+    print("Audit details are in the log; plugins and bundled assets are not fully covered.")
+
+
 def cmd_codex_update(args: argparse.Namespace) -> None:
     profile_name = update_profile(getattr(args, "profile", None))
     profile = load_profile(profile_name)
-    if profile.get("features", {}).get("chatgpt_desktop"):
-        if not command_exists("ansible-playbook"):
-            raise DotError("Updating Codex Desktop requires ansible-playbook.")
-        palette_apply(profile_name, "chatgpt")
-    run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT)
-    if (
-        profile.get("features", {}).get("codex_remote_control")
-        and profile.get("features", {}).get("codex_remote_control_mode") == "headless"
-    ):
-        if not command_exists("ansible-playbook"):
-            raise DotError(
-                "Updating headless Codex Remote Control requires ansible-playbook."
-            )
-        palette_apply(profile_name, "codex")
-        refresh_codex_remote_control_daemon()
-    if profile.get("features", {}).get("chatgpt_desktop"):
-        refresh_chatgpt_desktop_codex_server()
-        print(
-            "Codex CLI and desktop update completed. Reopen the desktop app only "
-            "if you need to load other desktop UI changes."
-        )
-    else:
-        print("Codex CLI update completed; this profile does not manage the desktop app.")
+    desktop = bool(profile.get("features", {}).get("chatgpt_desktop")
+                   or CHATGPT_DESKTOP_EXECUTABLE.is_file())
+    if getattr(args, "check", False):
+        print("Read-only Codex update check; no programs will be restarted.")
+        print(check_codex_updates())
+        if desktop:
+            update_codex_desktop(profile_name, check=True)
+        return
+    if not getattr(args, "yes", False):
+        if not sys.stdin.isatty():
+            raise DotError("Codex update restarts active work. Run interactively or pass --yes.")
+        answer = input("Update Codex CLI and desktop, reopen the app and restart active Remote Control? "
+                       "Active turns may be interrupted; save drafts first. [Y/n] ").strip().lower()
+        if answer not in ("", "y", "yes"):
+            print("Codex update cancelled; nothing changed.")
+            return
+    blockers = active_package_transactions()
+    if blockers:
+        raise DotError("Another package transaction is running: " + "; ".join(blockers))
+    if desktop and not command_exists("ansible-playbook"):
+        raise DotError("Updating Codex Desktop requires ansible-playbook.")
+    system_remote = command_exists("systemctl") and run(
+        ["systemctl", "is-active", "--quiet", "codex-remote-control.service"],
+        check=False, capture=True,
+    ).returncode == 0
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = STATE_DIR / ("codex-update-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".log")
+    atomic_text(log_path, f"Codex update on {socket.gethostname()}\n", 0o600)
+    print(f"Updating Codex on {socket.gethostname()}. Details: {log_path}")
+    with codex_update_admin(desktop or system_remote):
+        if desktop:
+            print("Updating desktop package…")
+            update_codex_desktop(profile_name, log_path=log_path)
+            print("Desktop package is current.")
+        print("Updating standalone CLI…")
+        result = run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
+                     capture=True, check=False)
+        append_codex_update_log(log_path, "Standalone CLI update", result)
+        if result.returncode:
+            raise DotError(f"CLI update failed (exit {result.returncode}); details: {log_path}")
+        version = command_semver([str(Path.home() / ".local/bin/codex"), "--version"])
+        print(f"CLI is current{': ' + version if version else ''}.")
+        restart_codex_remote_control()
+        if desktop:
+            restart_codex_desktop()
+        codex_update_audit(log_path)
+    print("Codex update completed. Reopen existing terminal Codex sessions to use the updated CLI.")
 
 
 def cmd_vite_plus_install(_args: argparse.Namespace) -> None:
@@ -7775,8 +7966,8 @@ def palette_pause() -> None:
     if sys.stdin.isatty():
         try:
             input("\nPress Enter to return to the menu… ")
-        except EOFError:
-            pass
+        except (EOFError, KeyboardInterrupt):
+            print()
 
 
 def palette_execute(action: Any, *, pause: bool = True) -> bool:
@@ -12426,6 +12617,8 @@ def build_parser() -> argparse.ArgumentParser:
     codex_install.set_defaults(func=cmd_codex_install)
     codex_update = codex_sub.add_parser("update")
     codex_update.add_argument("--profile")
+    codex_update.add_argument("--yes", "-y", action="store_true", help="Approve updates and restarts without prompting")
+    codex_update.add_argument("--check", action="store_true", help="Check updates without changing or restarting anything")
     codex_update.set_defaults(func=cmd_codex_update)
     vite_plus = sub.add_parser("vite-plus")
     vite_plus_sub = vite_plus.add_subparsers(dest="vite_plus_command", required=True)
@@ -12692,6 +12885,9 @@ def main() -> int:
         else:
             cmd_palette()
         return 0
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        return 130
     except DotError as exc:
         print(f"dot: {exc}", file=sys.stderr)
         return 1

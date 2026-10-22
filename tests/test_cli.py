@@ -79,29 +79,173 @@ class DotCliTests(unittest.TestCase):
             with self.assertRaisesRegex(module["DotError"], "cancelled"):
                 ensure()
 
-    def test_codex_update_includes_desktop_only_for_managed_profiles(self):
+    def codex_update_mocks(self, calls):
+        return {
+            "update_profile": lambda _: "selected", "active_package_transactions": lambda: [],
+            "command_exists": lambda _: True,
+            "STATE_DIR": Path(self.enterContext(tempfile.TemporaryDirectory())),
+            "update_codex_desktop": calls.update_desktop,
+            "restart_codex_desktop": calls.restart_desktop,
+            "restart_codex_remote_control": calls.restart_remote,
+            "codex_update_admin": lambda required: contextlib.nullcontext(),
+            "codex_update_audit": calls.audit, "append_codex_update_log": calls.log,
+            "command_semver": lambda _: "0.163.0",
+            "run": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "ok", "")),
+        }
+
+    def test_codex_update_updates_installed_desktop_even_on_headless_profile(self):
         function = runpy.run_path(str(DOT))["cmd_codex_update"]
-        for desktop in (True, False):
-            with self.subTest(desktop=desktop):
-                calls = mock.Mock()
-                with mock.patch.dict(function.__globals__, {
-                    "update_profile": mock.Mock(return_value="selected"),
-                    "load_profile": mock.Mock(return_value={
-                        "features": {"chatgpt_desktop": desktop},
-                    }),
-                    "command_exists": mock.Mock(return_value=True),
-                    "palette_apply": calls.apply,
-                    "run": calls.run,
-                    "refresh_chatgpt_desktop_codex_server": calls.refresh,
-                }), contextlib.redirect_stdout(io.StringIO()):
-                    function(argparse.Namespace(profile="selected"))
-                expected = [mock.call.run(
-                    [str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
-                )]
-                if desktop:
-                    expected.insert(0, mock.call.apply("selected", "chatgpt"))
-                    expected.append(mock.call.refresh())
-                self.assertEqual(calls.mock_calls, expected)
+        for managed, installed in ((True, False), (False, True), (False, False)):
+            with self.subTest(managed=managed, installed=installed):
+                calls = mock.Mock(); overrides = self.codex_update_mocks(calls)
+                overrides.update({
+                    "load_profile": lambda _: {"features": {"chatgpt_desktop": managed}},
+                    "CHATGPT_DESKTOP_EXECUTABLE": mock.Mock(is_file=lambda: installed),
+                })
+                with mock.patch.dict(function.__globals__, overrides), contextlib.redirect_stdout(io.StringIO()):
+                    function(argparse.Namespace(profile="selected", yes=True))
+                self.assertEqual(calls.update_desktop.call_count, int(managed or installed))
+                self.assertEqual(calls.restart_desktop.call_count, int(managed or installed))
+                calls.restart_remote.assert_called_once()
+                calls.audit.assert_called_once()
+                installer = overrides["run"].call_args_list[-1]
+                self.assertTrue(installer.kwargs["capture"])
+                self.assertFalse(installer.kwargs["check"])
+
+    def test_codex_update_confirmation_defaults_yes_and_no_cancels(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        for answer, expected in (("", 1), ("Y", 1), ("n", 0)):
+            calls = mock.Mock(); overrides = self.codex_update_mocks(calls)
+            overrides.update({
+                "load_profile": lambda _: {"features": {}},
+                "CHATGPT_DESKTOP_EXECUTABLE": mock.Mock(is_file=lambda: False),
+            })
+            with mock.patch.dict(function.__globals__, overrides), \
+                 mock.patch("sys.stdin.isatty", return_value=True), \
+                 mock.patch("builtins.input", return_value=answer), contextlib.redirect_stdout(io.StringIO()):
+                function(argparse.Namespace(profile="selected"))
+            self.assertEqual(calls.restart_remote.call_count, expected)
+            self.assertEqual(calls.audit.call_count, expected)
+
+    def test_codex_update_audit_is_concise_and_keeps_full_log(self):
+        function = runpy.run_path(str(DOT))["codex_update_audit"]
+        audit = {"stale_processes": [{"program": "plasmashell", "pid": p} for p in range(70)],
+                 "unreadable_processes": 384, "reboot_required": False}
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "update.log"; output = io.StringIO()
+            with mock.patch.dict(function.__globals__, {"run": lambda *a, **k: subprocess.CompletedProcess([], 0, json.dumps(audit), "")}), \
+                 contextlib.redirect_stdout(output):
+                function(log)
+            self.assertIn("70 older processes across 1 programs", output.getvalue())
+            self.assertIn("384 processes could not be inspected", output.getvalue())
+            self.assertNotIn('"pid"', output.getvalue())
+            self.assertLess(len(output.getvalue().splitlines()), 6)
+            self.assertIn('"pid": 69', log.read_text())
+
+    def test_codex_admin_authenticates_once_and_restores_environment(self):
+        function = runpy.run_path(str(DOT))["codex_update_admin"]
+        runner = mock.Mock()
+        with mock.patch.dict(function.__wrapped__.__globals__, {"run": runner}), \
+             mock.patch("os.geteuid", return_value=1000), \
+             mock.patch.dict(os.environ, {}, clear=True):
+            with function(True):
+                self.assertEqual(os.environ["DOTFILES_CODEX_ADMIN_READY"], "1")
+            self.assertNotIn("DOTFILES_CODEX_ADMIN_READY", os.environ)
+        runner.assert_called_once_with(["sudo", "-v"])
+
+    def test_cached_admin_is_reused_without_ansible_password_prompt(self):
+        module = runpy.run_path(str(DOT)); function = module["ansible_become_arguments"]
+        with mock.patch.dict(function.__globals__, {
+            "run": lambda *a, **k: subprocess.CompletedProcess([], 0),
+            "require_commands": lambda *a: None,
+        }), mock.patch("os.geteuid", return_value=1000), mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertNotIn("--ask-become-pass", function())
+        with mock.patch.dict(function.__globals__, {
+            "run": lambda *a, **k: subprocess.CompletedProcess([], 1),
+            "require_commands": lambda *a: None,
+        }), mock.patch("os.geteuid", return_value=1000), \
+             mock.patch.dict(os.environ, {"DOTFILES_CODEX_ADMIN_READY": "1"}):
+            with self.assertRaisesRegex(module["DotError"], "No second password"):
+                function()
+
+    def test_menu_pause_ctrl_c_does_not_print_traceback(self):
+        function = runpy.run_path(str(DOT))["palette_pause"]
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+             mock.patch("builtins.input", side_effect=KeyboardInterrupt), contextlib.redirect_stdout(io.StringIO()):
+            function()
+
+    def test_codex_update_check_never_mutates_or_restarts(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        mutations = mock.Mock(side_effect=AssertionError("mutation during check"))
+        desktop = mock.Mock()
+        with mock.patch.dict(function.__globals__, {
+            "update_profile": lambda _: "selected", "load_profile": lambda _: {"features": {}},
+            "CHATGPT_DESKTOP_EXECUTABLE": mock.Mock(is_file=lambda: True),
+            "check_codex_updates": lambda: "available", "update_codex_desktop": desktop,
+            "run": mutations, "restart_codex_remote_control": mutations, "restart_codex_desktop": mutations,
+        }), contextlib.redirect_stdout(io.StringIO()):
+            function(argparse.Namespace(profile="selected", check=True))
+        desktop.assert_called_once_with("selected", check=True)
+
+    def test_codex_desktop_restart_inactive_and_unavailable_display(self):
+        module = runpy.run_path(str(DOT)); function = module["restart_codex_desktop"]
+        with mock.patch.dict(function.__globals__, {"codex_desktop_processes": lambda: {}}):
+            self.assertFalse(function())
+        with mock.patch.dict(function.__globals__, {
+            "codex_desktop_processes": lambda: {42: ("/usr/lib/chatgpt/ChatGPT",)},
+            "inherit_graphical_session_environment": lambda: None,
+        }), mock.patch.dict(os.environ, {}, clear=True), mock.patch("os.kill") as kill:
+            with self.assertRaisesRegex(module["DotError"], "graphical session"):
+                function()
+            kill.assert_not_called()
+
+    def test_codex_desktop_selection_includes_replaced_but_excludes_unowned(self):
+        module = runpy.run_path(str(DOT)); select = module["codex_desktop_processes"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = module["CHATGPT_DESKTOP_EXECUTABLE"]
+            for pid, executable, arguments in (
+                (1, str(app), (str(app),)),
+                (2, str(app) + " (deleted)", (str(app),)),
+                (3, "/unrelated/app", (str(app),)),
+                (4, str(app), (str(app), "--type=renderer")),
+            ):
+                entry = root / str(pid); entry.mkdir()
+                (entry / "exe").symlink_to(executable)
+                (entry / "cmdline").write_bytes(b"\0".join(a.encode() for a in arguments))
+            self.assertEqual(set(select(root)), {1, 2})
+            with mock.patch("os.getuid", return_value=os.getuid() + 1):
+                self.assertEqual(select(root), {})
+
+    def test_codex_desktop_restart_timeout_does_not_force_kill_or_launch(self):
+        module = runpy.run_path(str(DOT)); function = module["restart_codex_desktop"]
+        processes = {42: ("/usr/lib/chatgpt/ChatGPT",)}
+        with mock.patch.dict(function.__globals__, {
+            "codex_desktop_processes": lambda: processes,
+            "inherit_graphical_session_environment": lambda: None,
+        }), mock.patch.dict(os.environ, {"DISPLAY": ":0"}), \
+             mock.patch("os.kill") as kill, mock.patch("subprocess.Popen") as launch:
+            with self.assertRaisesRegex(module["DotError"], "No force-kill"):
+                function(wait_seconds=0)
+            kill.assert_called_once_with(42, module["signal"].SIGTERM)
+            launch.assert_not_called()
+
+    def test_codex_desktop_restart_refreshes_current_and_stale_processes(self):
+        for stale in (False, True):
+            module = runpy.run_path(str(DOT)); function = module["restart_codex_desktop"]
+            arguments = ("/usr/lib/chatgpt/ChatGPT", "--disable-features=WaylandWpColorManagerV1")
+            with mock.patch.dict(function.__globals__, {
+                "codex_desktop_processes": mock.Mock(side_effect=[{42: arguments}, {42: arguments}, {}, {43: arguments}]),
+                "inherit_graphical_session_environment": lambda: None,
+                "chatgpt_embedded_codex_servers": lambda: ((44, 43),),
+            }), mock.patch.dict(os.environ, {"DISPLAY": ":0"}), \
+                 mock.patch("os.kill") as kill, mock.patch("subprocess.Popen") as launch, \
+                 mock.patch("os.path.samestat", return_value=True), \
+                 mock.patch("os.stat") as stat_mock:
+                stat_mock.return_value = mock.Mock()
+                self.assertTrue(function())
+                kill.assert_called_once_with(42, module["signal"].SIGTERM)
+                self.assertEqual(launch.call_args.args[0], list(arguments))
 
     def test_chatgpt_embedded_codex_server_selection_is_process_scoped(self):
         module = runpy.run_path(str(DOT))
@@ -171,40 +315,28 @@ class DotCliTests(unittest.TestCase):
             )
         calls.refresh.assert_called_once_with()
 
-    def test_codex_update_refreshes_headless_remote_control_daemon(self):
-        function = runpy.run_path(str(DOT))["cmd_codex_update"]
-        calls = mock.Mock()
-        with mock.patch.dict(
-            function.__globals__,
-            {
-                "update_profile": mock.Mock(return_value="selected"),
-                "load_profile": mock.Mock(
-                    return_value={
-                        "name": "selected",
-                        "features": {
-                            "chatgpt_desktop": False,
-                            "codex_remote_control": True,
-                            "codex_remote_control_mode": "headless",
-                        },
-                    }
-                ),
-                "run": calls.run,
-                "command_exists": mock.Mock(return_value=True),
-                "palette_apply": calls.apply,
-                "refresh_codex_remote_control_daemon": calls.refresh,
-            },
-        ), contextlib.redirect_stdout(io.StringIO()):
-            function(argparse.Namespace(profile="selected"))
-        self.assertEqual(
-            calls.mock_calls,
-            [
-                mock.call.run(
-                    [str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT
-                ),
-                mock.call.apply("selected", "codex"),
-                mock.call.refresh(),
-            ],
-        )
+    def test_codex_remote_restart_preserves_inactive_and_unavailable(self):
+        function = runpy.run_path(str(DOT))["restart_codex_remote_control"]
+        for state in ({}, {"status": "stopped"}):
+            with mock.patch("pathlib.Path.is_file", return_value=True), \
+                 mock.patch.dict(function.__globals__, {"codex_daemon_status": lambda _: state, "run": mock.Mock()}) :
+                function()
+                function.__globals__["run"].assert_not_called()
+
+    def test_codex_remote_restart_verifies_current_and_stale_versions(self):
+        function = runpy.run_path(str(DOT))["restart_codex_remote_control"]
+        for old in ("1.0.0", "2.0.0"):
+            runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+            with mock.patch("pathlib.Path.is_file", return_value=True), \
+                 mock.patch.dict(function.__globals__, {
+                    "codex_daemon_status": mock.Mock(side_effect=[
+                        {"status": "running", "appServerVersion": old},
+                        {"status": "running", "appServerVersion": "2.0.0"}]),
+                    "command_semver": lambda _: "2.0.0", "command_exists": lambda _: True,
+                    "run": runner,
+                 }):
+                function()
+            self.assertIn(mock.call(["sudo", "-n", "systemctl", "restart", "codex-remote-control.service"]), runner.mock_calls)
 
     def test_legacy_codex_daemon_selection_requires_exact_socket_owner(self):
         module = runpy.run_path(str(DOT))
