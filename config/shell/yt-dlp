@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Use the dotfiles-managed release even when /usr/bin comes before Homebrew.
+if [ -x /home/linuxbrew/.linuxbrew/bin/yt-dlp ]; then
+  exec /home/linuxbrew/.linuxbrew/bin/yt-dlp "$@"
+fi
+exec /usr/bin/yt-dlp "$@"

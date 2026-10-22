@@ -49,3 +49,5 @@ download history, and writes no downloads or history.
 Requires `yt-dlp`, `ffmpeg`, and `ffprobe`, supplied by the common Linux profile.
 The managed Bash and Zsh configurations expose the helper immediately in new
 shells. The shell deployment also links `~/.local/bin/ytm` for other callers.
+The `yt-dlp` launcher prefers the managed Homebrew release over Ubuntu's package.
+FFmpeg and ffprobe use Ubuntu's build to retain Linux audio support.
