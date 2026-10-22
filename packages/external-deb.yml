@@ -8,6 +8,13 @@
       "tag_regex": "^desktop-v[0-9.]+$",
       "asset_regex": "^Bitwarden-[0-9.]+-amd64\\.deb$"
     },
+    "filmcraft": {
+      "channel": "stable",
+      "source": "storytold/filmcraft",
+      "tag_glob": "v*",
+      "tag_regex": "^v[0-9.]+$",
+      "asset_regex": "^filmcraft-[0-9.]+-linux-x86_64\\.deb$"
+    },
     "obsidian": {
       "channel": "stable",
       "source": "obsidianmd/obsidian-releases",

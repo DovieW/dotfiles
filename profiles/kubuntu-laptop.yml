@@ -100,7 +100,7 @@
     ],
     "brew": ["freerdp", "lazydocker", "lazygit", "tailcat"],
     "bun": ["@stephendolan/ynab-cli"],
-    "deb": ["bitwarden", "obsidian", "teams-for-linux"],
+    "deb": ["bitwarden", "filmcraft", "obsidian", "teams-for-linux"],
     "snap": []
   }
 }

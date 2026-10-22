@@ -668,3 +668,10 @@ registered-vendor installer workflow. See [DaVinci Resolve](davinci-resolve.md)
 for the `davinci-resolve` tag, automated registration/download entry point,
 explicit updates, and the required GPU/GUI verification. An installation-pending
 message means the editor itself is still missing.
+
+### FilmCraft
+
+FilmCraft and its MCP-capable CLI are managed as an official external Debian
+package in both Kubuntu profiles. See [FilmCraft](filmcraft.md) for launch,
+updates, and the difference between a headless MCP session and the live editor
+bridge.
