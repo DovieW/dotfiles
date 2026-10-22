@@ -628,9 +628,11 @@ already installed**. The temporary desktop inclusion does not change the saved
 profile or Remote Control ownership mode. It does not run unrelated FilmCraft
 configuration.
 
-Administrator authentication uses one shared sudo session, refreshed during the
-update and reused by Ansible and service restarts. Later privileged operations
-fail with a clear error if authorization expires instead of asking again.
+Administrator authentication asks once and holds the password only in memory
+for the update. It is passed to Ansible through its supported become-password
+environment and to service restarts through sudo stdin, then released on success
+or failure. It is never written to logs, arguments, or files. This does not rely
+on sudo timestamp sharing across Ansible processes.
 Terminal output shows stage progress and a short process-audit summary. Full
 package/CLI output and the detailed audit are saved in a private log under
 `~/.local/state/dotfiles/codex-update-*.log`. Ctrl+C at the menu pause exits the

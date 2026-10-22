@@ -24,7 +24,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from typing import Any, Callable
 import urllib.error
@@ -34,6 +33,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from xml.dom import minidom
 from xml.parsers.expat import ExpatError
 
+
+_CODEX_ADMIN_PASSWORD: str | None = None
 
 ROOT = Path(__file__).resolve().parents[1]
 LINUXBREW_BIN = Path("/home/linuxbrew/.linuxbrew/bin")
@@ -988,11 +989,11 @@ def ansible_become_arguments() -> list[str]:
         or resolved_sudo.name == "sudo-rs"
         else []
     )
+    if _CODEX_ADMIN_PASSWORD is not None:
+        return become_method
     passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
     if passwordless.returncode == 0:
         return become_method
-    if os.environ.get("DOTFILES_CODEX_ADMIN_READY") == "1":
-        raise DotError("Administrator authorization expired; rerun the update. No second password prompt was opened.")
     if sys.stdin.isatty():
         print("Administrator access is required to update managed system packages.")
         return ["--ask-become-pass", *become_method]
@@ -4129,13 +4130,20 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     if force_kde:
         apply_env["DOTFILES_FORCE_KDE"] = "1"
     log_path = getattr(args, "log_path", None)
-    if log_path is None:
-        run(command, cwd=ROOT, env=apply_env)
-    else:
-        result = run(command, cwd=ROOT, env=apply_env, capture=True, check=False)
-        append_codex_update_log(log_path, "Desktop package update", result)
-        if result.returncode:
-            raise DotError(f"Desktop package update failed (exit {result.returncode}); details: {log_path}")
+    # Ansible's become plugin explicitly supports this environment variable.
+    # Scope it to this child; never put the password in argv, global env or files.
+    if _CODEX_ADMIN_PASSWORD is not None:
+        apply_env["ANSIBLE_BECOME_PASS"] = _CODEX_ADMIN_PASSWORD
+    try:
+        if log_path is None:
+            run(command, cwd=ROOT, env=apply_env)
+        else:
+            result = run(command, cwd=ROOT, env=apply_env, capture=True, check=False)
+            append_codex_update_log(log_path, "Desktop package update", result)
+            if result.returncode:
+                raise DotError(f"Desktop package update failed (exit {result.returncode}); details: {log_path}")
+    finally:
+        apply_env.pop("ANSIBLE_BECOME_PASS", None)
     if kde_apply_selected:
         record_kde_baseline()
 
@@ -6151,7 +6159,7 @@ def restart_codex_remote_control() -> None:
         ["systemctl", "is-active", "--quiet", "codex-remote-control.service"],
         check=False,
     ).returncode == 0:
-        run(["sudo", "-n", "systemctl", "restart", "codex-remote-control.service"])
+        codex_admin_command(["systemctl", "restart", "codex-remote-control.service"])
     else:
         run([str(executable), "app-server", "daemon", "restart"])
     expected = command_semver([str(executable), "--version"])
@@ -6166,37 +6174,35 @@ def restart_codex_remote_control() -> None:
     raise DotError("Remote Control restart did not become ready on the installed CLI version.")
 
 
+def codex_admin_command(arguments: list[str]) -> None:
+    if _CODEX_ADMIN_PASSWORD is None:
+        run(["sudo", "-n", *arguments])
+        return
+    result = subprocess.run(
+        ["sudo", "-S", "-p", "", *arguments],
+        input=_CODEX_ADMIN_PASSWORD + "\n", text=True, capture_output=True,
+    )
+    if result.returncode:
+        raise DotError("Administrator operation failed: " + (result.stderr or "sudo rejected the request").strip())
+
+
 @contextmanager
 def codex_update_admin(required: bool):
-    """One sudo authentication, shared by Ansible and service operations."""
+    """Ask once and pass credentials directly to each privileged consumer."""
+    global _CODEX_ADMIN_PASSWORD
     if not required or os.geteuid() == 0:
         yield
         return
-    run(["sudo", "-v"])
-    stop = threading.Event()
-
-    def refresh():
-        while not stop.wait(30):
-            try:
-                result = run(["sudo", "-n", "-v"], check=False, capture=True, timeout=10)
-                if result.returncode:
-                    return
-            except (OSError, subprocess.TimeoutExpired):
-                return
-
-    previous = os.environ.get("DOTFILES_CODEX_ADMIN_READY")
-    os.environ["DOTFILES_CODEX_ADMIN_READY"] = "1"
-    keeper = threading.Thread(target=refresh, daemon=True)
-    keeper.start()
+    if not sys.stdin.isatty():
+        raise DotError("Run the Codex update in an interactive terminal for administrator authentication.")
+    previous = _CODEX_ADMIN_PASSWORD
     try:
+        _CODEX_ADMIN_PASSWORD = getpass.getpass("Administrator password: ")
+        # Validate the supplied password, independently of any existing cache.
+        codex_admin_command(["-k", "-v"])
         yield
     finally:
-        stop.set()
-        keeper.join(timeout=1)
-        if previous is None:
-            os.environ.pop("DOTFILES_CODEX_ADMIN_READY", None)
-        else:
-            os.environ["DOTFILES_CODEX_ADMIN_READY"] = previous
+        _CODEX_ADMIN_PASSWORD = previous
 
 
 def append_codex_update_log(path: Path, label: str, result: subprocess.CompletedProcess) -> None:

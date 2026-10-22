@@ -142,31 +142,72 @@ class DotCliTests(unittest.TestCase):
             self.assertLess(len(output.getvalue().splitlines()), 6)
             self.assertIn('"pid": 69', log.read_text())
 
-    def test_codex_admin_authenticates_once_and_restores_environment(self):
-        function = runpy.run_path(str(DOT))["codex_update_admin"]
-        runner = mock.Mock()
-        with mock.patch.dict(function.__wrapped__.__globals__, {"run": runner}), \
-             mock.patch("os.geteuid", return_value=1000), \
-             mock.patch.dict(os.environ, {}, clear=True):
-            with function(True):
-                self.assertEqual(os.environ["DOTFILES_CODEX_ADMIN_READY"], "1")
-            self.assertNotIn("DOTFILES_CODEX_ADMIN_READY", os.environ)
-        runner.assert_called_once_with(["sudo", "-v"])
+    def test_codex_admin_asks_once_and_releases_password_on_failure(self):
+        module = runpy.run_path(str(DOT)); function = module["codex_update_admin"]
+        globals_ = function.__wrapped__.__globals__
+        for failed in (False, True):
+            runner = mock.Mock()
+            with mock.patch.dict(globals_, {"codex_admin_command": runner}), \
+                 mock.patch("os.geteuid", return_value=1000), \
+                 mock.patch("sys.stdin.isatty", return_value=True), \
+                 mock.patch("getpass.getpass", return_value="synthetic-test-password") as prompt:
+                try:
+                    with function(True):
+                        self.assertEqual(globals_["_CODEX_ADMIN_PASSWORD"], "synthetic-test-password")
+                        self.assertNotIn("ANSIBLE_BECOME_PASS", os.environ)
+                        if failed:
+                            raise RuntimeError("test failure")
+                except RuntimeError:
+                    pass
+                self.assertIsNone(globals_["_CODEX_ADMIN_PASSWORD"])
+                prompt.assert_called_once()
+                runner.assert_called_once_with(["-k", "-v"])
 
-    def test_cached_admin_is_reused_without_ansible_password_prompt(self):
-        module = runpy.run_path(str(DOT)); function = module["ansible_become_arguments"]
+    def test_supplied_admin_does_not_depend_on_sudo_cache(self):
+        function = runpy.run_path(str(DOT))["ansible_become_arguments"]
         with mock.patch.dict(function.__globals__, {
-            "run": lambda *a, **k: subprocess.CompletedProcess([], 0),
+            "_CODEX_ADMIN_PASSWORD": "synthetic-test-password",
+            "run": mock.Mock(side_effect=AssertionError("must not query timestamp cache")),
             "require_commands": lambda *a: None,
-        }), mock.patch("os.geteuid", return_value=1000), mock.patch("sys.stdin.isatty", return_value=True):
+        }), mock.patch("os.geteuid", return_value=1000):
             self.assertNotIn("--ask-become-pass", function())
-        with mock.patch.dict(function.__globals__, {
-            "run": lambda *a, **k: subprocess.CompletedProcess([], 1),
-            "require_commands": lambda *a: None,
-        }), mock.patch("os.geteuid", return_value=1000), \
-             mock.patch.dict(os.environ, {"DOTFILES_CODEX_ADMIN_READY": "1"}):
-            with self.assertRaisesRegex(module["DotError"], "No second password"):
-                function()
+
+    def test_codex_admin_service_password_only_uses_stdin(self):
+        function = runpy.run_path(str(DOT))["codex_admin_command"]
+        with mock.patch.dict(function.__globals__, {"_CODEX_ADMIN_PASSWORD": "synthetic-test-password"}), \
+             mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as runner:
+            function(["systemctl", "restart", "codex-remote-control.service"])
+        self.assertNotIn("synthetic-test-password", str(runner.call_args.args))
+        self.assertEqual(runner.call_args.kwargs["input"], "synthetic-test-password\n")
+
+    def test_real_ansible_receives_password_when_sudo_cache_is_unavailable(self):
+        if not shutil.which("ansible-playbook"):
+            self.skipTest("ansible-playbook unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); sudo = root / "sudo"
+            sudo.write_text(
+                "#!/usr/bin/python3\nimport os,sys\n"
+                "a=sys.argv[1:]\n"
+                "if '-n' in a: sys.exit(1)\n"
+                "prompt=a[a.index('-p')+1] if '-p' in a else 'authenticate'\n"
+                "print('[sudo: '+prompt+'] Password:',file=sys.stderr,flush=True)\n"
+                "if sys.stdin.readline().strip() != 'synthetic-test-password': sys.exit(1)\n"
+                "i=a.index('/bin/sh')\nos.execv(a[i],a[i:])\n"
+            )
+            sudo.chmod(0o700)
+            play = root / "play.yml"
+            play.write_text("- hosts: localhost\n  gather_facts: false\n  tasks:\n    - name: Verify become credential transport\n      become: true\n      ansible.builtin.command: /bin/true\n")
+            env = os.environ.copy()
+            env.update({"ANSIBLE_BECOME_PASS": "synthetic-test-password",
+                        "ANSIBLE_BECOME_PLUGINS": str(ROOT / "ansible/become_plugins")})
+            result = subprocess.run([
+                "ansible-playbook", "-i", "localhost,", "-c", "local", str(play),
+                "--become-method", "sudo_rs", "-e", f"ansible_become_exe={sudo}",
+                "-e", "ansible_become_flags=-H -S",
+                "-e", "ansible_python_interpreter=/usr/bin/python3",
+            ], env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("synthetic-test-password", result.stdout + result.stderr)
 
     def test_menu_pause_ctrl_c_does_not_print_traceback(self):
         function = runpy.run_path(str(DOT))["palette_pause"]
@@ -333,10 +374,10 @@ class DotCliTests(unittest.TestCase):
                         {"status": "running", "appServerVersion": old},
                         {"status": "running", "appServerVersion": "2.0.0"}]),
                     "command_semver": lambda _: "2.0.0", "command_exists": lambda _: True,
-                    "run": runner,
+                    "run": runner, "codex_admin_command": runner,
                  }):
                 function()
-            self.assertIn(mock.call(["sudo", "-n", "systemctl", "restart", "codex-remote-control.service"]), runner.mock_calls)
+            self.assertIn(mock.call(["systemctl", "restart", "codex-remote-control.service"]), runner.mock_calls)
 
     def test_legacy_codex_daemon_selection_requires_exact_socket_owner(self):
         module = runpy.run_path(str(DOT))
