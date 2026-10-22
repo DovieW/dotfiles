@@ -258,6 +258,18 @@ class DotCliTests(unittest.TestCase):
             with mock.patch("os.getuid", return_value=os.getuid() + 1):
                 self.assertEqual(select(root), {})
 
+    def test_electron_flattened_process_title_detects_stale_main_and_excludes_renderer(self):
+        module = runpy.run_path(str(DOT)); select = module["codex_desktop_processes"]
+        app = str(module["CHATGPT_DESKTOP_EXECUTABLE"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for pid, title in ((1, app + " --disable-features=WaylandWpColorManagerV1"),
+                               (2, app + " --type=renderer --lang=en-US")):
+                entry = root / str(pid); entry.mkdir()
+                (entry / "exe").symlink_to(app + " (deleted)")
+                (entry / "cmdline").write_bytes(title.encode() + b"\0")
+            self.assertEqual(select(root), {1: (app, "--disable-features=WaylandWpColorManagerV1")})
+
     def test_codex_desktop_restart_timeout_does_not_force_kill_or_launch(self):
         module = runpy.run_path(str(DOT)); function = module["restart_codex_desktop"]
         processes = {42: ("/usr/lib/chatgpt/ChatGPT",)}

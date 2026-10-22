@@ -19,6 +19,7 @@ from pathlib import Path
 import platform
 import re
 import signal
+import shlex
 import shutil
 import socket
 import subprocess
@@ -5732,12 +5733,17 @@ CHATGPT_BUNDLED_CODEX = Path("/usr/lib/chatgpt/resources/codex")
 
 def process_arguments(proc_root: Path, pid: int) -> tuple[str, ...]:
     try:
-        return tuple(
+        arguments = tuple(
             value.decode(errors="replace")
             for value in (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0")
             if value
         )
-    except (OSError, PermissionError):
+        # Electron may rewrite its process title into one argv entry.
+        # Normalize only the known desktop executable, never arbitrary commands.
+        if len(arguments) == 1 and arguments[0].startswith(str(CHATGPT_DESKTOP_EXECUTABLE) + " "):
+            return tuple(shlex.split(arguments[0]))
+        return arguments
+    except (OSError, ValueError):
         return ()
 
 
