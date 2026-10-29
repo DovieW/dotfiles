@@ -6282,11 +6282,13 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
             raise DotError(f"CLI update failed (exit {result.returncode}); details: {log_path}")
         version = command_semver([str(Path.home() / ".local/bin/codex"), "--version"])
         print(f"CLI is current{': ' + version if version else ''}.")
-        restart_codex_remote_control()
         if desktop:
             print("Updating desktop package…")
             update_codex_desktop(profile_name, log_path=log_path)
             print("Desktop package is current.")
+        # Finish both package updates before interrupting active connections.
+        restart_codex_remote_control()
+        if desktop:
             restart_codex_desktop()
         codex_update_audit(log_path)
     print("Codex update completed. Reopen existing terminal Codex sessions to use the updated CLI.")
