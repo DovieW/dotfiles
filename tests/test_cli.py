@@ -112,6 +112,42 @@ class DotCliTests(unittest.TestCase):
                 self.assertTrue(installer.kwargs["capture"])
                 self.assertFalse(installer.kwargs["check"])
 
+    def test_codex_update_finishes_cli_activation_before_desktop(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        calls = mock.Mock()
+        overrides = self.codex_update_mocks(calls)
+        overrides.update({
+            "load_profile": lambda _: {"features": {"chatgpt_desktop": True}},
+            "run": calls.run,
+        })
+        calls.run.return_value = subprocess.CompletedProcess([], 0, "ok", "")
+        with mock.patch.dict(function.__globals__, overrides), contextlib.redirect_stdout(io.StringIO()):
+            function(argparse.Namespace(profile="selected", yes=True))
+        steps = [call[0] for call in calls.mock_calls]
+        self.assertLess(steps.index("run", 1), steps.index("restart_remote"))
+        self.assertLess(steps.index("restart_remote"), steps.index("update_desktop"))
+        self.assertLess(steps.index("update_desktop"), steps.index("restart_desktop"))
+        self.assertLess(steps.index("restart_desktop"), steps.index("audit"))
+        calls.restart_remote.assert_called_once()
+        calls.restart_desktop.assert_called_once()
+        calls.audit.assert_called_once()
+
+    def test_codex_update_cli_failure_leaves_desktop_untouched(self):
+        function = runpy.run_path(str(DOT))["cmd_codex_update"]
+        calls = mock.Mock()
+        overrides = self.codex_update_mocks(calls)
+        overrides["load_profile"] = lambda _: {"features": {"chatgpt_desktop": True}}
+        overrides["run"].side_effect = [
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 1, "", "failed"),
+        ]
+        with mock.patch.dict(function.__globals__, overrides), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(Exception, "CLI update failed"):
+                function(argparse.Namespace(profile="selected", yes=True))
+        calls.update_desktop.assert_not_called()
+        calls.restart_desktop.assert_not_called()
+        calls.restart_remote.assert_not_called()
+
     def test_codex_update_confirmation_defaults_yes_and_no_cancels(self):
         function = runpy.run_path(str(DOT))["cmd_codex_update"]
         for answer, expected in (("", 1), ("Y", 1), ("n", 0)):

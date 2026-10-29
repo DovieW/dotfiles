@@ -6274,10 +6274,6 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
     atomic_text(log_path, f"Codex update on {socket.gethostname()}\n", 0o600)
     print(f"Updating Codex on {socket.gethostname()}. Details: {log_path}")
     with codex_update_admin(desktop or system_remote):
-        if desktop:
-            print("Updating desktop package…")
-            update_codex_desktop(profile_name, log_path=log_path)
-            print("Desktop package is current.")
         print("Updating standalone CLI…")
         result = run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
                      capture=True, check=False)
@@ -6288,6 +6284,9 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
         print(f"CLI is current{': ' + version if version else ''}.")
         restart_codex_remote_control()
         if desktop:
+            print("Updating desktop package…")
+            update_codex_desktop(profile_name, log_path=log_path)
+            print("Desktop package is current.")
             restart_codex_desktop()
         codex_update_audit(log_path)
     print("Codex update completed. Reopen existing terminal Codex sessions to use the updated CLI.")
