@@ -3590,7 +3590,7 @@ else:
         self.assertIn('DOT_LID_POWER_AC_DEBOUNCE_SECONDS:-30', lid_script)
         self.assertIn('DOT_LID_POWER_MAX_DEBOUNCE_SECONDS:-30', lid_script)
         self.assertIn("safe_unstable_state", lid_script)
-        self.assertIn("SetBrightness", lid_script)
+        self.assertNotIn("SetBrightness", lid_script)
         self.assertIn(
             '"$gdbus_command" monitor --system --dest org.freedesktop.UPower',
             lid_script,

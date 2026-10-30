@@ -50,20 +50,20 @@ desired_state() {
   percentage="$(battery_percentage)"
 
   if [[ "$lid" == "true" ]]; then
-    printf '%s|%s|%s\n' "$lid" power-saver ""
+    printf '%s|%s\n' "$lid" power-saver
   elif [[ "$battery" != "true" ]]; then
-    printf '%s|%s|%s\n' "$lid" performance 100
+    printf '%s|%s\n' "$lid" performance
   elif awk -v percentage="$percentage" -v threshold="$threshold" \
     'BEGIN { exit !(percentage <= threshold) }'; then
-    printf '%s|%s|%s\n' "$lid" power-saver 40
+    printf '%s|%s\n' "$lid" power-saver
   else
-    printf '%s|%s|%s\n' "$lid" balanced 100
+    printf '%s|%s\n' "$lid" balanced
   fi
 }
 
 desired_profile() {
-  local lid profile brightness
-  IFS='|' read -r lid profile brightness <<<"$(desired_state)"
+  local lid profile
+  IFS='|' read -r lid profile <<<"$(desired_state)"
   printf '%s\n' "$profile"
 }
 
@@ -72,18 +72,18 @@ safe_unstable_state() {
   lid="$(lid_is_closed)"
   percentage="$(battery_percentage)"
   if [[ "$lid" == "true" ]]; then
-    printf '%s|%s|%s\n' "$lid" power-saver ""
+    printf '%s|%s\n' "$lid" power-saver
   elif awk -v percentage="$percentage" -v threshold="$threshold" \
     'BEGIN { exit !(percentage <= threshold) }'; then
-    printf '%s|%s|%s\n' "$lid" power-saver 40
+    printf '%s|%s\n' "$lid" power-saver
   else
-    printf '%s|%s|%s\n' "$lid" balanced 100
+    printf '%s|%s\n' "$lid" balanced
   fi
 }
 
 state_debounce_seconds() {
-  local state="$1" lid profile brightness
-  IFS='|' read -r lid profile brightness <<<"$state"
+  local state="$1" lid profile
+  IFS='|' read -r lid profile <<<"$state"
   if [[ "$profile" == "performance" ]]; then
     printf '%s\n' "$ac_debounce_seconds"
   else
@@ -108,23 +108,11 @@ state_summary() {
   [[ "$current" == "$expected" ]]
 }
 
-set_brightness() {
-  local percentage="$1"
-  [[ -n "$percentage" ]] || return 0
-  if ! "$busctl_command" --user call \
-    org.kde.Solid.PowerManagement \
-    /org/kde/ScreenBrightness/display0 \
-    org.kde.ScreenBrightness.Display \
-    SetBrightness iu "$((percentage * 100))" 0 >/dev/null; then
-    printf 'dot-lid-power: could not set display brightness to %s%%\n' \
-      "$percentage" >&2
-  fi
-}
-
+# Brightness belongs to the user; power events must preserve manual changes.
 apply_state() {
-  local state="$1" current lid expected brightness
+  local state="$1" current lid expected
   current="$("$powerprofiles_command" get)"
-  IFS='|' read -r lid expected brightness <<<"$state"
+  IFS='|' read -r lid expected <<<"$state"
   if [[ "$current" != "$expected" ]]; then
     printf 'dot-lid-power: changing profile %s -> %s\n' "$current" "$expected"
     if ! "$powerprofiles_command" set "$expected"; then
@@ -133,7 +121,6 @@ apply_state() {
       return 0
     fi
   fi
-  set_brightness "$brightness"
 }
 
 reconcile() {

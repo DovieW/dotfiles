@@ -374,15 +374,15 @@ as Plasma. This is an intentional appearance preference, not a color-accurate
 workflow; switch to `factory-accurate` when restrained sRGB rendering matters.
 
 Performance policy uses performance on AC, balanced on battery, and power-saver
-at low battery. Display brightness is set to 100% on AC and regular battery and
-40% at 20% charge or below. PowerDevil's immediate profile-specific actions are
-disabled; the event-driven `dot-lid-power` graphical-session service applies
-battery policy after five stable seconds and requires 30 stable seconds before
-restoring AC brightness and performance.
-This prevents a noisy charger or firmware signal from rapidly alternating the
-screen brightness and performance mode. If the signal never stabilizes for 30
-seconds, it falls back to the safer battery policy. Lid changes remain immediate: closing
-temporarily forces power-saver, while opening restores the stable source policy.
+at low battery. Display brightness remains under manual control, including at
+20% charge or below and across charging, battery, and lid transitions.
+PowerDevil's immediate profile-specific actions are disabled; the event-driven
+`dot-lid-power` graphical-session service applies battery policy after five
+stable seconds and requires 30 stable seconds before restoring AC performance.
+This prevents a noisy charger or firmware signal from rapidly alternating
+performance mode. If the signal never stabilizes for 30 seconds, it falls back
+to the safer battery policy. Lid changes remain immediate: closing temporarily
+forces power-saver, while opening restores the source policy.
 This lowers heat and power draw while closed without changing the deliberate
 no-sleep policy. The same
 closed-to-open event asks PowerDevil to wake the internal display so it does
