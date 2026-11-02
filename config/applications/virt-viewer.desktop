@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Windows VM Viewer
+Comment=Connect to the windows11 virtual machine
+Icon=virt-manager
+Exec=/usr/bin/virt-viewer --connect qemu:///system --wait windows11
+Type=Application
+Terminal=false
+Categories=System;Emulator;GTK;
+Keywords=virtualization;libvirt;vm;vnc;

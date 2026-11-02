@@ -48,6 +48,12 @@
         dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/virt-manager.desktop"
         mode: "0644"
 
+    - name: Install the virtual machine viewer launcher
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/applications/virt-viewer.desktop"
+        dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/virt-viewer.desktop"
+        mode: "0644"
+
 # Package-dependent tasks must not run against a first-install check-mode host.
 - name: Configure the installed virtualization host
   when: not ansible_check_mode

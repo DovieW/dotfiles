@@ -22,6 +22,10 @@ network's definition; a missing network needs review before redefinition.
 Open **Virtual Machine Manager** from the application launcher. Use the
 **QEMU/KVM system** connection (`qemu:///system`), rather than QEMU user session.
 The system connection gives the GUI access to the managed NAT network.
+For the `windows11` VM, **Windows VM Viewer** in the application launcher
+provides a separate console with text clipboard sharing when its guest agent and
+VNC clipboard channel are configured. Start the VM in Virtual Machine Manager;
+the viewer waits for it if it is not running yet.
 The managed shell and application launchers explicitly use Ubuntu's Python,
 so Homebrew Python on `PATH` cannot hide the packaged GTK/libvirt bindings.
 Repair just these launchers with `dot apply --profile kubuntu-laptop --tags virtualization-launcher`.
