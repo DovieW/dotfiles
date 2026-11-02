@@ -7521,6 +7521,30 @@ def cmd_update(args: argparse.Namespace) -> None:
             + "\n  ".join(blockers)
             + "\nWait for it to finish before running dot update."
         )
+    if sys.stdin.isatty():
+        accept_all = False
+        selected = {}
+        for name, enabled in (("system", system), ("application", apps)):
+            if not enabled:
+                selected[name] = False
+                continue
+            if accept_all:
+                selected[name] = True
+                continue
+            while True:
+                try:
+                    answer = input(f"Upgrade {name} updates? [Y/n/a] (a = all remaining): ").strip().lower()
+                except EOFError as error:
+                    raise DotError("Update selection cancelled.") from error
+                if answer in ("", "y", "yes", "n", "no", "a", "all"):
+                    break
+                print("Enter y, n, or a.")
+            accept_all = answer in ("a", "all")
+            selected[name] = answer not in ("n", "no")
+        system, apps = selected["system"], selected["application"]
+    if not system and not apps:
+        print("No update sets selected.")
+        return
     versions_before, providers_before = installed_version_snapshot(
         profile, system=system, apps=apps
     )

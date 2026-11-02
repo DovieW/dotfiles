@@ -386,6 +386,29 @@ class DotCliTests(unittest.TestCase):
         self.assertFalse(predicate("/opt/chatgpt/codex", "2.0.0", "2.0.0"))
         self.assertFalse(predicate("/opt/chatgpt/codex", None, "2.0.0"))
 
+    def test_update_set_selection_continues_and_accepts_all(self):
+        function = runpy.run_path(str(DOT))["cmd_update"]
+        for answers, expected in ((["n", "y"], "app-updates"),
+                                  (["a"], "system-updates,app-updates"),
+                                  (["n", "n"], None)):
+            apply = mock.Mock()
+            snapshot = mock.Mock(return_value=({}, set()))
+            with self.subTest(answers=answers), mock.patch.dict(function.__globals__, {
+                "update_profile": lambda _: "selected",
+                "load_profile": lambda _: {"name": "selected", "features": {}},
+                "active_package_transactions": lambda: [],
+                "installed_version_snapshot": snapshot,
+                "cmd_apply": apply,
+                "render_update_receipt": mock.Mock(),
+            }), mock.patch("sys.stdin.isatty", return_value=True), \
+                 mock.patch("builtins.input", side_effect=answers), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                function(argparse.Namespace(profile="selected", system=False, apps=False, check=False))
+            if expected is None:
+                apply.assert_not_called()
+            else:
+                self.assertEqual(apply.call_args.args[0].tags, expected)
+
     def test_application_update_refreshes_desktop_owned_codex_server(self):
         function = runpy.run_path(str(DOT))["cmd_update"]
         calls = mock.Mock()
