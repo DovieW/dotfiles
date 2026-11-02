@@ -529,3 +529,15 @@ before desktop credential setup and in `dot doctor`, so a locked wallet is
 reported directly instead of looking like a Bitwarden or GitHub failure.
 Passwordless SDDM login cannot unlock an encrypted wallet; normal password
 login remains the supported path.
+
+### Imagegen release management
+
+The shell profile links `imagegen` to its managed release, or to a first-use
+bootstrap launcher when the release is absent. `dot imagegen install/update/check`,
+`dot update`, and `dot doctor` share `scripts/install-imagegen`. The helper uses
+authenticated GitHub CLI access to the private repository, resolves the latest
+stable release (or `IMAGEGEN_VERSION`), validates the named asset in `SHA256SUMS`,
+checks the binary version in temporary app directories, and atomically activates
+a versioned install. Executable inode audits report older or uninspectable owned
+processes without restarting jobs. Existing image data, configuration, and
+wallet entries are independent of executable deployment.

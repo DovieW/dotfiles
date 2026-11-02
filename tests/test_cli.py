@@ -2722,6 +2722,40 @@ else:
             cli,
         )
 
+    def test_imagegen_version_inventory_does_not_trigger_first_use_install(self):
+        module = runpy.run_path(str(DOT))
+        snapshot = module["installed_version_snapshot"]
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".local/bin").mkdir(parents=True)
+            (home / ".local/bin/imagegen").symlink_to(ROOT / "config/imagegen/imagegen")
+            semver = mock.Mock(return_value="0.2.1")
+            with mock.patch("pathlib.Path.home", return_value=home), mock.patch.dict(
+                snapshot.__globals__, {"command_exists": lambda _: False, "command_semver": semver}
+            ):
+                versions, complete = snapshot({"features": {"shell": True}}, system=False, apps=True)
+            semver.assert_not_called()
+            self.assertNotIn(("Imagegen", "imagegen"), versions)
+            self.assertIn("Imagegen", complete)
+
+    def test_imagegen_commands_dispatch_to_the_managed_installer(self):
+        module = runpy.run_path(str(DOT))
+        for action in ("install", "update", "check"):
+            handler = module[f"cmd_imagegen_{action}"]
+            runner = mock.Mock()
+            with mock.patch.dict(handler.__globals__, {"run": runner}):
+                handler(argparse.Namespace())
+            runner.assert_called_once_with(
+                [str(ROOT / "scripts/install-imagegen"), f"--{action}"], cwd=ROOT
+            )
+        source = ROOT / "config/imagegen/imagegen"
+        self.assertTrue(source.is_file())
+        self.assertTrue(source.stat().st_mode & 0o111)
+        text = DOT.read_text()
+        self.assertIn('else ROOT / "config/imagegen/imagegen"', text)
+        self.assertIn('cmd_imagegen_update(args)', text)
+        self.assertIn('imagegen_check.returncode == 0', text)
+
     def test_kde_diff_uses_delta_interactively(self):
         text = DOT.read_text()
         self.assertIn('["delta", "--paging=always"]', text)

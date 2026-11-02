@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SOURCE="$(readlink -f -- "${BASH_SOURCE[0]}")"
+ROOT="$(cd "$(dirname "$SOURCE")/../.." && pwd)"
+CURRENT="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/imagegen/current/imagegen"
+if [[ ! -x "$CURRENT" ]]; then
+  printf 'Installing the managed imagegen application for first use…\n' >&2
+  "$ROOT/scripts/install-imagegen" --install >&2
+fi
+exec "$CURRENT" "$@"

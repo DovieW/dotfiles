@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+INSTALL_ROOT="$DATA_HOME/dotfiles/imagegen"
+CURRENT="$INSTALL_ROOT/current/imagegen"
+BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
+VERSION="${IMAGEGEN_VERSION:-latest}"
+REPOSITORY="DovieW/imagegen-cli"
+ASSET="imagegen-linux-x64"
+TEMP_DIR=""
+EXPECTED_SHA256=""
+
+resolve_release() {
+  local tag
+  for required in gh python3 sha256sum; do
+    command -v "$required" >/dev/null || { printf '%s is required to install imagegen.\n' "$required" >&2; return 1; }
+  done
+  gh auth status >/dev/null 2>&1 || {
+    printf 'imagegen-cli is private. Authenticate with gh auth login using an account with access to %s.\n' "$REPOSITORY" >&2
+    return 1
+  }
+  TEMP_DIR="$(mktemp -d)"
+  if [[ "$VERSION" == latest ]]; then
+    tag="$(gh release view --repo "$REPOSITORY" --json tagName --jq .tagName)"
+  else
+    tag="v${VERSION#v}"
+  fi
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || { printf 'Invalid imagegen release tag.\n' >&2; return 1; }
+  VERSION="${tag#v}"
+  gh release download "$tag" --repo "$REPOSITORY" --pattern SHA256SUMS --dir "$TEMP_DIR"
+  EXPECTED_SHA256="$(python3 - "$TEMP_DIR/SHA256SUMS" "$ASSET" <<'PY'
+import re, sys
+from pathlib import Path
+matches = [line.split()[0] for line in Path(sys.argv[1]).read_text().splitlines()
+           if len(line.split()) == 2 and line.split()[1].lstrip('*') == sys.argv[2]]
+if len(matches) != 1 or not re.fullmatch(r'[a-fA-F0-9]{64}', matches[0]):
+    raise SystemExit('Invalid imagegen release checksum manifest')
+print(matches[0].lower())
+PY
+)"
+}
+
+binary_version() {
+  # Even versions of the app which initialize storage for --version stay read-only
+  # with respect to the user's library, settings, credentials, and SQLite index.
+  env IMAGEGEN_ROOT="$TEMP_DIR/version-images" \
+    IMAGEGEN_STATE_DIR="$TEMP_DIR/version-state" \
+    IMAGEGEN_CONFIG_DIR="$TEMP_DIR/version-config" "$1" --version
+}
+
+report_running_versions() {
+  local process executable active_inode running_inode unreadable=0
+  active_inode="$(stat -Lc '%d:%i' "$CURRENT")"
+  for process in /proc/[0-9]*; do
+    [[ -d "$process" ]] || continue
+    [[ -O "$process" ]] || continue
+    executable="$(readlink "$process/exe" 2>/dev/null || true)"
+    if [[ -z "$executable" ]]; then
+      [[ ! -d "$process" ]] || unreadable=$((unreadable + 1))
+      continue
+    fi
+    case "$executable" in */imagegen|*/imagegen\ \(deleted\)) ;; *) continue ;; esac
+    running_inode="$(stat -Lc '%d:%i' "$process/exe" 2>/dev/null || true)"
+    if [[ -z "$running_inode" ]]; then
+      printf 'Cannot inspect running imagegen PID %s; activation audit is incomplete.\n' "${process##*/}"
+    elif [[ "$running_inode" != "$active_inode" ]]; then
+      printf 'Running imagegen PID %s uses an older binary; finish or pause its jobs and reopen it. No jobs were restarted.\n' "${process##*/}"
+    fi
+  done
+  if ((unreadable)); then
+    printf 'Could not inspect %s owned process executables; activation audit coverage is incomplete.\n' "$unreadable"
+  fi
+}
+
+check_install() {
+  local installed="" launcher=""
+  [[ -x "$CURRENT" ]] && installed="$(sha256sum "$CURRENT" | cut -d' ' -f1)"
+  [[ -x "$BIN_HOME/imagegen" ]] && launcher="$(sha256sum "$BIN_HOME/imagegen" | cut -d' ' -f1)"
+  if [[ "$installed" == "$EXPECTED_SHA256" && "$launcher" == "$EXPECTED_SHA256" ]] \
+    && [[ "$(binary_version "$CURRENT")" == "imagegen $VERSION" ]]; then
+    printf 'imagegen %s installed and checksum verified\n' "$VERSION"
+    report_running_versions
+    return 0
+  fi
+  printf 'imagegen is missing or stale; run dot imagegen install\n' >&2
+  return 1
+}
+
+install_app() {
+  local release temp_link
+  [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || { printf 'imagegen releases require Linux x86-64 (including WSL).\n' >&2; return 1; }
+  release="$INSTALL_ROOT/releases/$VERSION"
+  if [[ ! -f "$release/imagegen" ]]; then
+    gh release download "v$VERSION" --repo "$REPOSITORY" --pattern "$ASSET" --dir "$TEMP_DIR"
+    printf '%s  %s\n' "$EXPECTED_SHA256" "$TEMP_DIR/$ASSET" | sha256sum --check --status - || {
+      printf 'Downloaded imagegen release failed checksum verification.\n' >&2; return 1
+    }
+    chmod 0755 "$TEMP_DIR/$ASSET"
+    [[ "$(binary_version "$TEMP_DIR/$ASSET")" == "imagegen $VERSION" ]] || { printf 'Downloaded imagegen release version mismatch.\n' >&2; return 1; }
+    mkdir -p "$release"
+    install -m 0755 "$TEMP_DIR/$ASSET" "$release/imagegen"
+  elif [[ "$(sha256sum "$release/imagegen" | cut -d' ' -f1)" != "$EXPECTED_SHA256" ]]; then
+    printf 'Managed imagegen release failed checksum verification; inspect %s before retrying.\n' "$release" >&2; return 1
+  fi
+  [[ "$(binary_version "$release/imagegen")" == "imagegen $VERSION" ]] || { printf 'Managed imagegen version mismatch.\n' >&2; return 1; }
+  mkdir -p "$INSTALL_ROOT" "$BIN_HOME"
+  temp_link="$INSTALL_ROOT/.current-link-$$"
+  ln -s "$release" "$temp_link"
+  mv -Tf "$temp_link" "$INSTALL_ROOT/current"
+  temp_link="$BIN_HOME/.imagegen-link-$$"
+  ln -s "$CURRENT" "$temp_link"
+  mv -Tf "$temp_link" "$BIN_HOME/imagegen"
+  printf 'Installed imagegen %s from https://github.com/%s\n' "$VERSION" "$REPOSITORY"
+  report_running_versions
+}
+
+cleanup() { [[ -z "$TEMP_DIR" ]] || rm -rf -- "$TEMP_DIR"; }
+trap cleanup EXIT
+case "${1:-}" in
+  --check) resolve_release; check_install ;;
+  --install|--update) resolve_release; install_app ;;
+  *) printf 'Usage: install-imagegen --install|--update|--check\n' >&2; exit 2 ;;
+esac

@@ -2577,6 +2577,16 @@ def apply_direct(
                 Path.home() / ".local/bin/transcribe",
             )
         )
+        imagegen_current = (
+            Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+            / "dotfiles/imagegen/current/imagegen"
+        )
+        imagegen_source = (
+            imagegen_current
+            if imagegen_current.is_file()
+            else ROOT / "config/imagegen/imagegen"
+        )
+        changes += int(link_file(imagegen_source, Path.home() / ".local/bin/imagegen"))
     if features.get("neovim") and selected("nvim"):
         changes += int(link_file(ROOT / "config/nvim", Path.home() / ".config/nvim"))
     if features.get("git") and selected("git"):
@@ -6311,6 +6321,18 @@ def cmd_transcribe_update(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-transcribe"), "--update"], cwd=ROOT)
 
 
+def cmd_imagegen_install(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-imagegen"), "--install"], cwd=ROOT)
+
+
+def cmd_imagegen_update(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-imagegen"), "--update"], cwd=ROOT)
+
+
+def cmd_imagegen_check(_args: argparse.Namespace) -> None:
+    run([str(ROOT / "scripts/install-imagegen"), "--check"], cwd=ROOT)
+
+
 def cmd_luna_ocr_install(_args: argparse.Namespace) -> None:
     run([str(ROOT / "scripts/install-luna-ocr"), "--install"], cwd=ROOT)
 
@@ -7078,6 +7100,16 @@ def installed_version_snapshot(
         if version:
             versions[("Transcribe", "transcribe")] = version
 
+    if apps and profile.get("features", {}).get("shell"):
+        path = Path.home() / ".local/bin/imagegen"
+        bootstrap = ROOT / "config/imagegen/imagegen"
+        pending_install = path.is_symlink() and path.resolve() == bootstrap.resolve()
+        version = command_semver([str(path), "--version"]) if path.exists() and not pending_install else None
+        if not path.exists() or pending_install or version:
+            complete.add("Imagegen")
+        if version:
+            versions[("Imagegen", "imagegen")] = version
+
     if apps and profile.get("features", {}).get("neovim"):
         try:
             lock = json.loads(NVIM_LOCK_FILE.read_text(encoding="utf-8"))
@@ -7662,6 +7694,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         cmd_vite_plus_update(args)
     if apps and profile.get("features", {}).get("shell"):
         cmd_transcribe_update(args)
+        cmd_imagegen_update(args)
     if apps and profile.get("features", {}).get("neovim"):
         cmd_nvim(
             argparse.Namespace(
@@ -10841,6 +10874,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             transcribe_check.returncode == 0,
             transcribe_detail or "run dot transcribe install",
         )
+        imagegen_check = run(
+            [str(ROOT / "scripts/install-imagegen"), "--check"],
+            check=False,
+            capture=True,
+        )
+        imagegen_detail = (imagegen_check.stdout or imagegen_check.stderr).strip()
+        failures += not doctor_check(
+            "imagegen", imagegen_check.returncode == 0,
+            imagegen_detail or "run dot imagegen install",
+        )
         if profile.get("features", {}).get("luna_ocr"):
             luna_ocr_check = run(
                 [str(ROOT / "scripts/install-luna-ocr"), "--check"],
@@ -12911,6 +12954,14 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe_install.set_defaults(func=cmd_transcribe_install)
     transcribe_update = transcribe_sub.add_parser("update")
     transcribe_update.set_defaults(func=cmd_transcribe_update)
+    imagegen = sub.add_parser("imagegen")
+    imagegen_sub = imagegen.add_subparsers(dest="imagegen_command", required=True)
+    imagegen_install = imagegen_sub.add_parser("install")
+    imagegen_install.set_defaults(func=cmd_imagegen_install)
+    imagegen_update = imagegen_sub.add_parser("update")
+    imagegen_update.set_defaults(func=cmd_imagegen_update)
+    imagegen_check = imagegen_sub.add_parser("check")
+    imagegen_check.set_defaults(func=cmd_imagegen_check)
     luna_ocr = sub.add_parser("luna-ocr")
     luna_ocr_sub = luna_ocr.add_subparsers(dest="luna_ocr_command", required=True)
     luna_ocr_install = luna_ocr_sub.add_parser("install")

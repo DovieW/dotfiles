@@ -487,3 +487,134 @@
   grep -Fq 'udevadm, trigger' "$BATS_TEST_DIRNAME/../ansible/tasks/copyq.yml"
   grep -Fq 'state: started' "$BATS_TEST_DIRNAME/../ansible/tasks/copyq.yml"
 }
+
+setup_imagegen_fixture() {
+  imagegen_test="$BATS_TEST_TMPDIR/imagegen"
+  mkdir -p "$imagegen_test/tools" "$imagegen_test/releases"
+  export IMAGEGEN_FIXTURE="$imagegen_test/releases" IMAGEGEN_FIXTURE_LOG="$imagegen_test/gh.log"
+  export XDG_DATA_HOME="$imagegen_test/data" XDG_BIN_HOME="$imagegen_test/bin"
+  export PATH="$imagegen_test/tools:$PATH"
+  unset IMAGEGEN_VERSION
+  cat >"$imagegen_test/tools/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$IMAGEGEN_FIXTURE_LOG"
+case "$1 $2" in
+  'auth status') exit "${IMAGEGEN_FIXTURE_AUTH_STATUS:-0}" ;;
+  'release view') cat "$IMAGEGEN_FIXTURE/latest" ;;
+  'release download')
+    tag="$3"; shift 3; pattern=""; destination=""
+    while (($#)); do
+      case "$1" in
+        --repo) shift 2 ;;
+        --pattern) pattern="$2"; shift 2 ;;
+        --dir) destination="$2"; shift 2 ;;
+        *) exit 2 ;;
+      esac
+    done
+    cp "$IMAGEGEN_FIXTURE/$tag/$pattern" "$destination/$pattern"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$imagegen_test/tools/gh"
+  imagegen_installer="$BATS_TEST_DIRNAME/../scripts/install-imagegen"
+}
+
+make_imagegen_release() {
+  local version="$1"
+  mkdir -p "$IMAGEGEN_FIXTURE/v$version"
+  printf '#!/bin/sh\nprintf "imagegen %s\\n"\n' "$version" >"$IMAGEGEN_FIXTURE/v$version/imagegen-linux-x64"
+  chmod +x "$IMAGEGEN_FIXTURE/v$version/imagegen-linux-x64"
+  (cd "$IMAGEGEN_FIXTURE/v$version" && sha256sum imagegen-linux-x64 >SHA256SUMS)
+  printf 'v%s\n' "$version" >"$IMAGEGEN_FIXTURE/latest"
+}
+
+@test "imagegen private release install and read-only check use authenticated assets" {
+  setup_imagegen_fixture
+  make_imagegen_release 9.0.0
+  run "$imagegen_installer" --check
+  [ "$status" -ne 0 ]
+  [ ! -e "$XDG_BIN_HOME/imagegen" ]
+  run "$imagegen_installer" --install
+  [ "$status" -eq 0 ]
+  [ -L "$XDG_BIN_HOME/imagegen" ]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.0" ]
+  : >"$IMAGEGEN_FIXTURE_LOG"
+  run "$imagegen_installer" --check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed and checksum verified"* ]]
+  ! grep -q -- '--pattern imagegen-linux-x64' "$IMAGEGEN_FIXTURE_LOG"
+  run "$imagegen_installer" --update
+  [ "$status" -eq 0 ]
+  export IMAGEGEN_FIXTURE_AUTH_STATUS=1
+  run "$imagegen_installer" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"gh auth login"* ]]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.0" ]
+}
+
+@test "imagegen rejects corrupt downloads and mismatched versions without replacing current" {
+  setup_imagegen_fixture
+  make_imagegen_release 9.0.0
+  run "$imagegen_installer" --install
+  [ "$status" -eq 0 ]
+  make_imagegen_release 9.0.1
+  printf 'corrupt\n' >"$IMAGEGEN_FIXTURE/v9.0.1/imagegen-linux-x64"
+  run "$imagegen_installer" --update
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed checksum verification"* ]]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.0" ]
+  printf '#!/bin/sh\nprintf "imagegen 7.0.0\\n"\n' >"$IMAGEGEN_FIXTURE/v9.0.1/imagegen-linux-x64"
+  (cd "$IMAGEGEN_FIXTURE/v9.0.1" && sha256sum imagegen-linux-x64 >SHA256SUMS)
+  run "$imagegen_installer" --update
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"version mismatch"* ]]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.0" ]
+  make_imagegen_release 9.0.1
+  run "$imagegen_installer" --update
+  [ "$status" -eq 0 ]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.1" ]
+  export IMAGEGEN_VERSION=9.0.0
+  run "$imagegen_installer" --update
+  [ "$status" -eq 0 ]
+  [ "$("$XDG_BIN_HOME/imagegen" --version)" = "imagegen 9.0.0" ]
+}
+
+@test "imagegen activation audit distinguishes current stale inactive and unavailable processes" {
+  audit_root="$BATS_TEST_TMPDIR/imagegen-audit"
+  mkdir -p "$audit_root/current" "$audit_root/older" "$audit_root/proc/11" "$audit_root/proc/12" "$audit_root/proc/13"
+  printf 'current binary' >"$audit_root/current/imagegen"
+  printf 'older binary' >"$audit_root/older/imagegen"
+  ln -s "$audit_root/current/imagegen" "$audit_root/proc/11/exe"
+  ln -s "$audit_root/older/imagegen" "$audit_root/proc/12/exe"
+  ln -s "$audit_root/missing/imagegen" "$audit_root/proc/13/exe"
+  sed '/^case "${1:-}"/,$d' "$BATS_TEST_DIRNAME/../scripts/install-imagegen" | \
+    sed "s|/proc/\\[0-9\\]\\*|$audit_root/proc/[0-9]*|" >"$audit_root/audit.sh"
+  run bash -c 'source "$1"; CURRENT="$2/current/imagegen"; report_running_versions' _ "$audit_root/audit.sh" "$audit_root"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PID 12 uses an older binary"* ]]
+  [[ "$output" == *"Cannot inspect running imagegen PID 13"* ]]
+  [[ "$output" != *"PID 11"* ]]
+  [[ "$output" == *"No jobs were restarted"* ]]
+  rm -r "$audit_root/proc/12" "$audit_root/proc/13"
+  run bash -c 'source "$1"; CURRENT="$2/current/imagegen"; report_running_versions' _ "$audit_root/audit.sh" "$audit_root"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  rm -r "$audit_root/proc/11"
+  run bash -c 'source "$1"; CURRENT="$2/current/imagegen"; report_running_versions' _ "$audit_root/audit.sh" "$audit_root"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "imagegen first-use launcher installs correctly when invoked through the shell-profile symlink" {
+  setup_imagegen_fixture
+  make_imagegen_release 9.0.0
+  mkdir -p "$XDG_BIN_HOME"
+  ln -s "$BATS_TEST_DIRNAME/../config/imagegen/imagegen" "$XDG_BIN_HOME/imagegen"
+  run "$XDG_BIN_HOME/imagegen" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Installing the managed imagegen application for first use"* ]]
+  [ "${lines[${#lines[@]}-1]}" = "imagegen 9.0.0" ]
+  [ -x "$XDG_DATA_HOME/dotfiles/imagegen/current/imagegen" ]
+}

@@ -172,6 +172,32 @@ Use the GUI to create and operate VMs; see [Windows VM setup](docs/virtual-machi
 for installation, resource defaults, firmware, TPM, and guest drivers.
 Apply just the host setup with `dot apply --profile kubuntu-laptop --tags virtualization`.
 
+### Image generation
+
+The Linux shell profile provides `imagegen`, a concurrent image-generation TUI
+and agent CLI. On first use the bootstrap launcher installs the latest
+checksum-verified binary from the private `DovieW/imagegen-cli` GitHub repository.
+GitHub CLI is included in the profile; sign in with `gh auth login` using an
+account with repository access. No API credentials are stored in dotfiles.
+
+```bash
+dot imagegen install
+dot imagegen update
+dot imagegen check
+imagegen
+imagegen schema --json
+```
+
+`dot update` updates imagegen with the other shell applications; `dot doctor`
+checks its release checksum and executable version. Set `IMAGEGEN_VERSION=0.2.1`
+to pin a release. Linux x86-64 and WSL use the standalone executable without
+Node.js or Bun. Managed releases live under
+`~/.local/share/dotfiles/imagegen/releases`; the current binary is linked into
+`~/.local/bin/imagegen`. Activation is atomic. Updates report stale running
+sessions and leave generation jobs running until you finish/pause and reopen.
+The image library stays in `~/imagegen` and credentials remain in the app's
+system-wallet entries or environment.
+
 ### Transcription
 
 The Linux shell profile installs
