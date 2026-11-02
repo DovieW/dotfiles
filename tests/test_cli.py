@@ -388,15 +388,17 @@ class DotCliTests(unittest.TestCase):
 
     def test_update_set_selection_continues_and_accepts_all(self):
         function = runpy.run_path(str(DOT))["cmd_update"]
-        for answers, expected in ((["n", "y"], "app-updates"),
-                                  (["a"], "system-updates,app-updates"),
-                                  (["n", "n"], None)):
+        for answers, expected in ((["n", "n", "y"], "app-updates"),
+                                  (["y"], "system-updates,app-updates"),
+                                  (["n", "a"], "system-updates,app-updates"),
+                                  (["n", "n", "n"], None)):
             apply = mock.Mock()
             snapshot = mock.Mock(return_value=({}, set()))
             with self.subTest(answers=answers), mock.patch.dict(function.__globals__, {
                 "update_profile": lambda _: "selected",
                 "load_profile": lambda _: {"name": "selected", "features": {}},
                 "active_package_transactions": lambda: [],
+                "report_pending_updates": mock.Mock(),
                 "installed_version_snapshot": snapshot,
                 "cmd_apply": apply,
                 "render_update_receipt": mock.Mock(),

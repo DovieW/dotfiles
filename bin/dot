@@ -7522,25 +7522,33 @@ def cmd_update(args: argparse.Namespace) -> None:
             + "\nWait for it to finish before running dot update."
         )
     if sys.stdin.isatty():
-        accept_all = False
+        try:
+            answer = input("Accept all update sets without further prompts? [y/N]: ").strip().lower()
+        except EOFError as error:
+            raise DotError("Update selection cancelled.") from error
+        accept_all = answer in ("y", "yes", "a", "all")
         selected = {}
         for name, enabled in (("system", system), ("application", apps)):
             if not enabled:
                 selected[name] = False
                 continue
+            print(f"\nChecking {name} updates:", flush=True)
+            report_pending_updates(profile, system=name == "system", apps=name == "application")
+            if name == "application":
+                print("The application set also runs managed update tasks not covered by these checks.")
             if accept_all:
                 selected[name] = True
                 continue
             while True:
                 try:
-                    answer = input(f"Upgrade {name} updates? [Y/n/a] (a = all remaining): ").strip().lower()
+                    answer = input(f"Upgrade the {name} set? [y/N/a] (a = all remaining): ").strip().lower()
                 except EOFError as error:
                     raise DotError("Update selection cancelled.") from error
                 if answer in ("", "y", "yes", "n", "no", "a", "all"):
                     break
                 print("Enter y, n, or a.")
             accept_all = answer in ("a", "all")
-            selected[name] = answer not in ("n", "no")
+            selected[name] = answer in ("y", "yes", "a", "all")
         system, apps = selected["system"], selected["application"]
     if not system and not apps:
         print("No update sets selected.")
