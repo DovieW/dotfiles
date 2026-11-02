@@ -6984,12 +6984,15 @@ class AvailableUpdate:
     name: str
     installed: str
     available: str
+    archive_bytes: int | None = None
+    installed_bytes: int | None = None
 
 
 @dataclass(frozen=True)
 class UpdateCheckResult:
     provider: str
     updates: tuple[AvailableUpdate, ...] = ()
+    storage_summary: tuple[str, ...] = ()
 
 
 VersionSnapshot = dict[tuple[str, str], str]
@@ -7192,7 +7195,38 @@ def check_apt_updates() -> UpdateCheckResult:
     )
     if result.returncode:
         raise DotError((result.stderr or result.stdout).strip() or "APT check failed.")
-    return UpdateCheckResult("APT", parse_apt_updates(result.stdout))
+    updates = parse_apt_updates(result.stdout)
+    if not updates:
+        return UpdateCheckResult("APT")
+    metadata = run(
+        ["apt-cache", "show", *[f"{item.name}={item.available}" for item in updates]],
+        check=False, capture=True,
+    )
+    records = {}
+    for paragraph in (metadata.stdout or "").split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in paragraph.splitlines()
+                      if ": " in line and not line.startswith(" "))
+        name, version, arch = fields.get("Package"), fields.get("Version"), fields.get("Architecture")
+        if not name or not version:
+            continue
+        try:
+            sizes = (int(fields["Size"]), int(fields["Installed-Size"]) * 1024)
+        except (KeyError, ValueError):
+            continue
+        records.setdefault((name, version), sizes)
+        if arch:
+            records[(f"{name}:{arch}", version)] = sizes
+    updates = tuple(AvailableUpdate(item.name, item.installed, item.available,
+                                   *records.get((item.name, item.available), (None, None)))
+                    for item in updates)
+    # --assume-no exits without installing; NoLocking permits a read-only plan
+    # without requiring administrator access. APT reports actual cache-aware
+    # download and net disk figures, including removals and new dependencies.
+    plan = run(["apt-get", "-o", "Debug::NoLocking=1", "--assume-no", "dist-upgrade"],
+               check=False, capture=True, env={**os.environ, "LC_ALL": "C"})
+    summary = tuple(line.strip() for line in (plan.stdout or "").splitlines()
+                    if line.startswith(("Need to get ", "After this operation,")))
+    return UpdateCheckResult("APT", updates, summary)
 
 
 def check_snap_updates() -> UpdateCheckResult:
@@ -7381,13 +7415,31 @@ def render_update_result(result: UpdateCheckResult, elapsed: float) -> int:
     if result.provider == "APT":
         # Keep long package names and versions readable on narrow terminals.
         width = max(12, shutil.get_terminal_size(fallback=(80, 24)).columns)
-        print("  Package / installed → available", flush=True)
+        use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
+        def color(value: str, code: str) -> str:
+            return f"\033[{code}m{value}\033[0m" if use_color else value
+        print(color("  Package / installed → available", "1;36"), flush=True)
         for update in sorted(result.updates, key=lambda item: item.name.casefold()):
-            print(f"  {update.name}", flush=True)
+            print("  " + color(update.name, "1;36"), flush=True)
             versions = f"{update.installed} → {update.available}"
-            print(textwrap.fill(versions, width=width, initial_indent="    ",
-                                subsequent_indent="    ", break_long_words=False,
-                                break_on_hyphens=False), flush=True)
+            print(color(textwrap.fill(versions, width=width, initial_indent="    ",
+                                      subsequent_indent="    ", break_long_words=False,
+                                      break_on_hyphens=False), "32"), flush=True)
+            def size(value: int | None) -> str:
+                if value is None:
+                    return "unknown"
+                for unit in ("B", "KiB", "MiB", "GiB"):
+                    if value < 1024 or unit == "GiB":
+                        return f"{value:.1f} {unit}"
+                    value /= 1024
+            print(f"    Archive: {size(update.archive_bytes)}; installed size: {size(update.installed_bytes)}", flush=True)
+        print("  Sizes are package archive and new installed size, not per-package disk change.")
+        if result.storage_summary:
+            print(color("  Transaction storage:", "1;33"))
+            for line in result.storage_summary:
+                print(color(f"    {line}", "33"))
+        else:
+            print("  Transaction download and disk change: unavailable.")
         return len(result.updates)
     width = max(len(update.name) for update in result.updates)
     for update in result.updates:
@@ -7449,10 +7501,13 @@ def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool)
         return
 
     started = time.monotonic()
-    print(
-        f"Checking {len(checks)} providers in parallel; results appear as they finish.",
-        flush=True,
-    )
+    if len(checks) == 1:
+        print(f"Checking {checks[0][0]}…", flush=True)
+    else:
+        print(
+            f"Checking {len(checks)} providers in parallel; results appear as they finish.",
+            flush=True,
+        )
     pending = 0
     failures: list[str] = []
     with ThreadPoolExecutor(

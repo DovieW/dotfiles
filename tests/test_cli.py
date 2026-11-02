@@ -2851,6 +2851,39 @@ else:
             self.assertIn("hooks = true", text)
             self.assertIn("memories = true", text)
 
+    def test_apt_color_respects_terminal_and_no_color(self):
+        module = runpy.run_path(str(DOT))
+        result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
+        for terminal, no_color, expected in ((True, False, True), (False, False, False), (True, True, False)):
+            output = io.StringIO()
+            output.isatty = lambda: terminal
+            env = {"TERM": "xterm"}
+            if no_color:
+                env["NO_COLOR"] = "1"
+            with self.subTest(terminal=terminal, no_color=no_color), \
+                 mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(output):
+                module["render_update_result"](result, 0)
+            self.assertEqual("\x1b[" in output.getvalue(), expected)
+
+    def test_apt_check_reports_package_sizes_and_transaction_totals(self):
+        module = runpy.run_path(str(DOT))
+        check = module["check_apt_updates"]
+        results = [
+            subprocess.CompletedProcess([], 0, "Inst curl [1] (2 repo [amd64])\n", ""),
+            subprocess.CompletedProcess([], 0, "Package: curl\nVersion: 2\nArchitecture: amd64\nSize: 2048\nInstalled-Size: 3\n\n", ""),
+            subprocess.CompletedProcess([], 1, "Need to get 2 kB/4 kB of archives.\nAfter this operation, 1 kB of additional disk space will be used.\n", "Abort."),
+        ]
+        with mock.patch.dict(check.__globals__, {"run": mock.Mock(side_effect=results)}):
+            result = check()
+        self.assertEqual(result.updates[0].archive_bytes, 2048)
+        self.assertEqual(result.updates[0].installed_bytes, 3072)
+        self.assertEqual(len(result.storage_summary), 2)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            module["render_update_result"](result, 0)
+        self.assertIn("Archive: 2.0 KiB; installed size: 3.0 KiB", output.getvalue())
+        self.assertIn("Need to get 2 kB/4 kB", output.getvalue())
+
     def test_apt_update_display_sorts_and_preserves_long_versions(self):
         module = runpy.run_path(str(DOT))
         update = module["AvailableUpdate"]
