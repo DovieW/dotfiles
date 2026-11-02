@@ -2856,7 +2856,7 @@ else:
         function = module["palette_update_one_package"]
         update = module["AvailableUpdate"]
         result = module["UpdateCheckResult"]
-        checks = {"check_apt_updates": lambda: result("APT", (update("curl", "1", "2"),)),
+        checks = {"check_apt_package_candidates": lambda: result("APT", (update("curl", "1", "2"),)),
                   "check_snap_updates": lambda: result("Snap", (update("firefox", "1", "2"),)),
                   "check_brew_updates": lambda: result("Homebrew", ())}
         audit = json.dumps({"stale_processes": [], "unreadable_processes": 3, "reboot_required": False})
@@ -2881,7 +2881,7 @@ else:
                          subprocess.CompletedProcess([], 0, "", ""),
                          subprocess.CompletedProcess([], 0, audit, "")])
         with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
-                "check_apt_updates": lambda: result, "fzf_menu": lambda *a, **k: "APT:curl",
+                "check_apt_package_candidates": lambda: result, "fzf_menu": lambda *a, **k: "APT:curl",
                 "active_package_transactions": lambda: [], "run": runner}), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(subprocess.CalledProcessError):
@@ -2890,13 +2890,27 @@ else:
         self.assertIn("reboot", output.getvalue())
         self.assertIn("1 inaccessible", output.getvalue())
 
+    def test_single_package_failed_provider_still_offers_other_results(self):
+        module = runpy.run_path(str(DOT))
+        function = module["palette_update_one_package"]
+        result = module["UpdateCheckResult"]("Snap", (module["AvailableUpdate"]("firefox", "1", "2"),))
+        picker = mock.Mock(return_value=None)
+        failure = mock.Mock(side_effect=subprocess.TimeoutExpired("apt-get", 30))
+        with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name != "brew",
+                "check_apt_package_candidates": failure, "check_snap_updates": lambda: result,
+                "fzf_menu": picker}), contextlib.redirect_stdout(io.StringIO()) as output:
+            function("selected")
+        self.assertIn("[FAIL] APT", output.getvalue())
+        self.assertIn("[OK] Snap: 1", output.getvalue())
+        self.assertEqual(picker.call_args.args[0][0][0], "Snap:firefox")
+
     def test_single_package_cancel_never_runs_transaction(self):
         module = runpy.run_path(str(DOT))
         function = module["palette_update_one_package"]
         result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
         runner = mock.Mock()
         with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
-                "check_apt_updates": lambda: result, "fzf_menu": lambda *a, **k: None, "run": runner}), \
+                "check_apt_package_candidates": lambda: result, "fzf_menu": lambda *a, **k: None, "run": runner}), \
              contextlib.redirect_stdout(io.StringIO()):
             function("selected")
         runner.assert_not_called()

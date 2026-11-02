@@ -7187,6 +7187,15 @@ def parse_brew_updates(output: str) -> tuple[AvailableUpdate, ...]:
     return tuple(updates)
 
 
+def check_apt_package_candidates() -> UpdateCheckResult:
+    """Get the upgrade candidates without the storage report used by previews."""
+    result = run(["apt-get", "--simulate", "dist-upgrade"], check=False,
+                 capture=True, timeout=120)
+    if result.returncode:
+        raise DotError((result.stderr or result.stdout).strip() or "APT check failed.")
+    return UpdateCheckResult("APT", parse_apt_updates(result.stdout))
+
+
 def check_apt_updates() -> UpdateCheckResult:
     result = run(
         ["apt-get", "--simulate", "dist-upgrade"],
@@ -7234,6 +7243,7 @@ def check_snap_updates() -> UpdateCheckResult:
         ["snap", "refresh", "--list"],
         check=False,
         capture=True,
+        timeout=120,
     )
     output = (available_result.stdout or available_result.stderr).strip()
     if available_result.returncode and "All snaps up to date" not in output:
@@ -7243,7 +7253,7 @@ def check_snap_updates() -> UpdateCheckResult:
     available = parse_snap_rows(output)
     if not available:
         return UpdateCheckResult("Snap")
-    installed_result = run(["snap", "list"], check=False, capture=True)
+    installed_result = run(["snap", "list"], check=False, capture=True, timeout=120)
     if installed_result.returncode:
         raise DotError(
             (installed_result.stderr or installed_result.stdout).strip()
@@ -7264,6 +7274,7 @@ def check_brew_updates() -> UpdateCheckResult:
         ["brew", "outdated", "--formula", "--json=v2"],
         check=False,
         capture=True,
+        timeout=120,
     )
     if result.returncode:
         raise DotError(
@@ -9027,28 +9038,39 @@ def palette_apply(profile: str, tags: str | None = None, *, check: bool = False)
 
 def palette_update_one_package(profile_name: str) -> None:
     """Choose one pending package; provider dependencies may also change."""
-    checks = (("APT", "apt-get", check_apt_updates),
+    checks = (("APT", "apt-get", check_apt_package_candidates),
               ("Snap", "snap", check_snap_updates),
               ("Homebrew", "brew", check_brew_updates))
     items = []
     selections = {}
+    available = []
     for provider, command, check in checks:
         if not command_exists(command):
-            print(f"[SKIP] {provider}: {command} unavailable")
-            continue
-        try:
-            result = check()
-        except Exception as error:
-            print(f"[FAIL] {provider}: {error}")
-            continue
-        for update in result.updates:
-            # New dependencies are not installed packages and cannot be
-            # independently selected for an only-upgrade transaction.
-            if update.installed == "not installed":
-                continue
-            key = f"{provider}:{update.name}"
-            selections[key] = (provider, update.name)
-            items.append((key, update.name, f"{provider}  {update.installed} → {update.available}"))
+            print(f"[SKIP] {provider}: {command} unavailable", flush=True)
+        else:
+            available.append((provider, check))
+    if available:
+        print("Checking pending packages: " + ", ".join(p for p, _ in available) + "…", flush=True)
+        with ThreadPoolExecutor(max_workers=len(available), thread_name_prefix="dot-package-check") as executor:
+            futures = {executor.submit(check): provider for provider, check in available}
+            for future in as_completed(futures):
+                provider = futures[future]
+                try:
+                    result = future.result()
+                except Exception as error:
+                    print(f"[FAIL] {provider}: {error}", flush=True)
+                    continue
+                count = 0
+                for update in result.updates:
+                    # New dependencies cannot be independently selected for
+                    # an only-upgrade transaction.
+                    if update.installed == "not installed":
+                        continue
+                    key = f"{provider}:{update.name}"
+                    selections[key] = (provider, update.name)
+                    items.append((key, update.name, f"{provider}  {update.installed} → {update.available}"))
+                    count += 1
+                print(f"[OK] {provider}: {count} pending package(s)", flush=True)
     if not items:
         print("No selectable pending APT, Snap, or Homebrew package updates were found.")
         return
