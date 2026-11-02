@@ -2851,6 +2851,23 @@ else:
             self.assertIn("hooks = true", text)
             self.assertIn("memories = true", text)
 
+    def test_apt_update_display_sorts_and_preserves_long_versions(self):
+        module = runpy.run_path(str(DOT))
+        update = module["AvailableUpdate"]
+        result = module["UpdateCheckResult"]("APT", (
+            update("z-long-package-name", "1.0-ubuntu-long-version", "2.0-ubuntu-long-version"),
+            update("alpha", "not installed", "1.0"),
+        ))
+        output = io.StringIO()
+        with mock.patch("shutil.get_terminal_size", return_value=os.terminal_size((40, 24))), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(module["render_update_result"](result, 1.0), 2)
+        text = output.getvalue()
+        self.assertLess(text.index("alpha"), text.index("z-long-package-name"))
+        self.assertIn("1.0-ubuntu-long-version", text)
+        self.assertIn("2.0-ubuntu-long-version", text)
+        self.assertIn("not installed → 1.0", text)
+
     def test_update_metadata_preserves_installed_and_available_versions(self):
         module = runpy.run_path(str(DOT))
 
