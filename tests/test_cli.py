@@ -2851,6 +2851,56 @@ else:
             self.assertIn("hooks = true", text)
             self.assertIn("memories = true", text)
 
+    def test_single_package_picker_runs_only_selected_provider_and_audits(self):
+        module = runpy.run_path(str(DOT))
+        function = module["palette_update_one_package"]
+        update = module["AvailableUpdate"]
+        result = module["UpdateCheckResult"]
+        checks = {"check_apt_updates": lambda: result("APT", (update("curl", "1", "2"),)),
+                  "check_snap_updates": lambda: result("Snap", (update("firefox", "1", "2"),)),
+                  "check_brew_updates": lambda: result("Homebrew", ())}
+        audit = json.dumps({"stale_processes": [], "unreadable_processes": 3, "reboot_required": False})
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, audit, ""))
+        picker = mock.Mock(return_value="Snap:firefox")
+        with mock.patch.dict(function.__globals__, {**checks, "command_exists": lambda _: True,
+                "fzf_menu": picker, "active_package_transactions": lambda: [], "run": runner}), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            function("selected")
+        self.assertEqual(runner.call_args_list[0].args[0], ["sudo", "snap", "refresh", "firefox"])
+        self.assertIn("audit-updated-processes.py", str(runner.call_args_list[1].args[0]))
+        self.assertIn("3 inaccessible", output.getvalue())
+        self.assertEqual(len(picker.call_args.args[0]), 2)
+
+    def test_single_apt_update_audits_even_after_failure(self):
+        module = runpy.run_path(str(DOT))
+        function = module["palette_update_one_package"]
+        result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
+        audit = json.dumps({"stale_processes": [{"program": "curl", "pid": 42, "reasons": ["replaced executable"]}],
+                            "unreadable_processes": 1, "reboot_required": True})
+        runner = mock.Mock(side_effect=[subprocess.CalledProcessError(1, "apt"),
+                         subprocess.CompletedProcess([], 0, "", ""),
+                         subprocess.CompletedProcess([], 0, audit, "")])
+        with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
+                "check_apt_updates": lambda: result, "fzf_menu": lambda *a, **k: "APT:curl",
+                "active_package_transactions": lambda: [], "run": runner}), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(subprocess.CalledProcessError):
+                function("selected")
+        self.assertIn("curl (PID 42)", output.getvalue())
+        self.assertIn("reboot", output.getvalue())
+        self.assertIn("1 inaccessible", output.getvalue())
+
+    def test_single_package_cancel_never_runs_transaction(self):
+        module = runpy.run_path(str(DOT))
+        function = module["palette_update_one_package"]
+        result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
+        runner = mock.Mock()
+        with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
+                "check_apt_updates": lambda: result, "fzf_menu": lambda *a, **k: None, "run": runner}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            function("selected")
+        runner.assert_not_called()
+
     def test_apt_color_respects_terminal_and_no_color(self):
         module = runpy.run_path(str(DOT))
         result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))

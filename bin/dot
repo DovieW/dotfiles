@@ -9025,6 +9025,82 @@ def palette_apply(profile: str, tags: str | None = None, *, check: bool = False)
     )
 
 
+def palette_update_one_package(profile_name: str) -> None:
+    """Choose one pending package; provider dependencies may also change."""
+    checks = (("APT", "apt-get", check_apt_updates),
+              ("Snap", "snap", check_snap_updates),
+              ("Homebrew", "brew", check_brew_updates))
+    items = []
+    selections = {}
+    for provider, command, check in checks:
+        if not command_exists(command):
+            print(f"[SKIP] {provider}: {command} unavailable")
+            continue
+        try:
+            result = check()
+        except Exception as error:
+            print(f"[FAIL] {provider}: {error}")
+            continue
+        for update in result.updates:
+            # New dependencies are not installed packages and cannot be
+            # independently selected for an only-upgrade transaction.
+            if update.installed == "not installed":
+                continue
+            key = f"{provider}:{update.name}"
+            selections[key] = (provider, update.name)
+            items.append((key, update.name, f"{provider}  {update.installed} → {update.available}"))
+    if not items:
+        print("No selectable pending APT, Snap, or Homebrew package updates were found.")
+        return
+    choice = fzf_menu(sorted(items, key=lambda item: (item[1].casefold(), item[0])),
+                      prompt="package update › ",
+                      header="Search pending packages · Enter: select · Esc: cancel")
+    if not choice:
+        return
+    provider, name = selections[choice]
+    blockers = active_package_transactions()
+    if blockers:
+        raise DotError("Another package-manager transaction is running: " + ", ".join(blockers))
+    print(f"Updating {name} via {provider}. Required dependencies may also change.", flush=True)
+    try:
+        if provider == "APT":
+            run(["sudo", "apt-get", "install", "--only-upgrade", "--", name])
+        elif provider == "Snap":
+            run(["sudo", "snap", "refresh", name])
+        else:
+            run(["brew", "upgrade", name], env={**os.environ,
+                "HOMEBREW_NO_AUTO_UPDATE": "1", "HOMEBREW_NO_INSTALL_CLEANUP": "1"})
+    finally:
+        # A failed transaction can still have replaced code. Never start an
+        # inactive tray; the helper refreshes only a verified stale owner.
+        if provider == "APT":
+            refresh = run(["bash", str(ROOT / "scripts/refresh-tailscale-tray")],
+                          check=False, capture=True)
+            if refresh.stdout:
+                print(refresh.stdout.strip())
+            if refresh.returncode:
+                print("Tailscale tray refresh could not be verified; check it manually.")
+        if provider == "APT" and name.split(":", 1)[0] == "chatgpt":
+            print("ChatGPT Desktop and its bundled Codex may need reopening after saving work; active sessions were not restarted by dot.")
+        if provider == "APT" and name.split(":", 1)[0] == "tailscale":
+            print("Check Tailscale daemon and tray versions if the tray remains active; the refresh helper may be unable to inspect it.")
+        audit = run(["python3", str(ROOT / "scripts/audit-updated-processes.py")],
+                    check=False, capture=True)
+        try:
+            if audit.returncode:
+                raise ValueError("audit failed")
+            data = json.loads(audit.stdout)
+            stale = data["stale_processes"]
+            print(f"Process audit: {len(stale)} stale processes, {data['unreadable_processes']} inaccessible.")
+            for process in stale:
+                print(f"  {process['program']} (PID {process['pid']}): {', '.join(process['reasons'])}")
+            if data["reboot_required"]:
+                print("The system requests a reboot.")
+            print("Save work before reopening affected apps or restarting services; interpreted code, plugins and bundled assets may not be detected.")
+        except (ValueError, KeyError, TypeError):
+            print("Process audit unavailable; check running applications and reboot requirements manually.")
+
+
 def palette_update_menu(profile: str) -> None:
     while True:
         action = fzf_menu(
@@ -9033,6 +9109,11 @@ def palette_update_menu(profile: str) -> None:
                     "all",
                     "Update everything",
                     "System, apps, CLIs, Tmux, Neovim plugins, and Mason tools",
+                ),
+                (
+                    "single-package",
+                    "Update one package",
+                    "Search pending APT, Snap, and Homebrew updates",
                 ),
                 (
                     "check",
@@ -9103,6 +9184,8 @@ def palette_update_menu(profile: str) -> None:
                         check=action == "check",
                     )
                 )
+            elif action == "single-package":
+                palette_update_one_package(profile)
             elif action == "nvim-plugins":
                 cmd_nvim(
                     argparse.Namespace(
