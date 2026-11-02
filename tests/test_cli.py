@@ -2863,7 +2863,7 @@ else:
         runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, audit, ""))
         picker = mock.Mock(return_value="Snap:firefox")
         with mock.patch.dict(function.__globals__, {**checks, "command_exists": lambda _: True,
-                "fzf_menu": picker, "active_package_transactions": lambda: [], "run": runner}), \
+                "installed_provider_packages": lambda provider: {}, "fzf_menu": picker, "active_package_transactions": lambda: [], "run": runner}), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             function("selected")
         self.assertEqual(runner.call_args_list[0].args[0], ["sudo", "snap", "refresh", "firefox"])
@@ -2881,7 +2881,7 @@ else:
                          subprocess.CompletedProcess([], 0, "", ""),
                          subprocess.CompletedProcess([], 0, audit, "")])
         with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
-                "check_apt_package_candidates": lambda: result, "fzf_menu": lambda *a, **k: "APT:curl",
+                "check_apt_package_candidates": lambda: result, "installed_provider_packages": lambda provider: {}, "fzf_menu": lambda *a, **k: "APT:curl",
                 "active_package_transactions": lambda: [], "run": runner}), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(subprocess.CalledProcessError):
@@ -2897,11 +2897,11 @@ else:
         picker = mock.Mock(return_value=None)
         failure = mock.Mock(side_effect=subprocess.TimeoutExpired("apt-get", 30))
         with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name != "brew",
-                "check_apt_package_candidates": failure, "check_snap_updates": lambda: result,
+                "check_apt_package_candidates": failure, "check_snap_updates": lambda: result, "installed_provider_packages": lambda provider: {},
                 "fzf_menu": picker}), contextlib.redirect_stdout(io.StringIO()) as output:
             function("selected")
-        self.assertIn("[FAIL] APT", output.getvalue())
-        self.assertIn("[OK] Snap: 1", output.getvalue())
+        self.assertIn("[FAIL] APT updates", output.getvalue())
+        self.assertIn("[OK] Snap: 1 installed, 1 pending", output.getvalue())
         self.assertEqual(picker.call_args.args[0][0][0], "Snap:firefox")
 
     def test_single_package_cancel_never_runs_transaction(self):
@@ -2910,10 +2910,39 @@ else:
         result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
         runner = mock.Mock()
         with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
-                "check_apt_package_candidates": lambda: result, "fzf_menu": lambda *a, **k: None, "run": runner}), \
+                "check_apt_package_candidates": lambda: result, "installed_provider_packages": lambda provider: {}, "fzf_menu": lambda *a, **k: None, "run": runner}), \
              contextlib.redirect_stdout(io.StringIO()):
             function("selected")
         runner.assert_not_called()
+
+    def test_fzf_dims_current_packages_without_coloring_selection_keys(self):
+        module = runpy.run_path(str(DOT))
+        menu = module["fzf_menu"]
+        choose = mock.Mock(return_value=["APT:ghostty\t\x1b[90mghostty\x1b[0m\tcurrent"])
+        with mock.patch.dict(menu.__globals__, {"fzf_choose": choose}), \
+             mock.patch.dict(os.environ, {"TERM": "xterm"}, clear=True):
+            selected = menu([("APT:ghostty", "ghostty", "current")], prompt="test", dim_ids={"APT:ghostty"}, no_sort=True)
+        self.assertEqual(selected, "APT:ghostty")
+        self.assertIn("\x1b[90mghostty", choose.call_args.args[0][0])
+        self.assertTrue(choose.call_args.kwargs["ansi"])
+        self.assertTrue(choose.call_args.kwargs["no_sort"])
+
+    def test_single_package_lists_current_after_pending_and_does_not_update_it(self):
+        module = runpy.run_path(str(DOT))
+        function = module["palette_update_one_package"]
+        result = module["UpdateCheckResult"]("APT", (module["AvailableUpdate"]("curl", "1", "2"),))
+        picker = mock.Mock(return_value="APT:ghostty")
+        runner = mock.Mock()
+        with mock.patch.dict(function.__globals__, {"command_exists": lambda name: name == "apt-get",
+                "check_apt_package_candidates": lambda: result,
+                "installed_provider_packages": lambda provider: {"ghostty": "1.3", "curl": "1"},
+                "fzf_menu": picker, "run": runner}), contextlib.redirect_stdout(io.StringIO()) as output:
+            function("selected")
+        self.assertEqual([item[0] for item in picker.call_args.args[0]], ["APT:curl", "APT:ghostty"])
+        self.assertEqual(picker.call_args.kwargs["dim_ids"], {"APT:ghostty"})
+        self.assertTrue(picker.call_args.kwargs["no_sort"])
+        runner.assert_not_called()
+        self.assertIn("no selectable update", output.getvalue())
 
     def test_apt_color_respects_terminal_and_no_color(self):
         module = runpy.run_path(str(DOT))

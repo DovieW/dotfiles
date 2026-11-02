@@ -8017,6 +8017,8 @@ def fzf_choose(
     multi: bool = False,
     preview: str | None = None,
     with_nth: str = "1",
+    ansi: bool = False,
+    no_sort: bool = False,
 ) -> list[str]:
     require_commands(["fzf"], "Install fzf, then rerun the command.")
     command = [
@@ -8030,6 +8032,10 @@ def fzf_choose(
         "--delimiter=\t",
         f"--with-nth={with_nth}",
     ]
+    if ansi:
+        command.append("--ansi")
+    if no_sort:
+        command.append("--no-sort")
     if header:
         command.extend(["--header", header])
     if multi:
@@ -8068,20 +8074,28 @@ def fzf_menu(
     *,
     prompt: str,
     header: str = "Enter: select  Esc: back",
+    dim_ids: set[str] | None = None,
+    no_sort: bool = False,
 ) -> str | None:
     """Show described actions while keeping their stable identifiers hidden."""
     if not items:
         return None
     width = min(38, max(len(label) for _, label, _ in items))
-    rows = [
-        f"{action}\t{label:<{width}}\t{description}"
-        for action, label, description in items
-    ]
+    use_color = bool(dim_ids) and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
+    rows = []
+    for action, label, description in items:
+        label = f"{label:<{width}}"
+        if use_color and action in dim_ids:
+            label = f"\033[90m{label}\033[0m"
+            description = f"\033[90m{description}\033[0m"
+        rows.append(f"{action}\t{label}\t{description}")
     choice = fzf_choose(
         rows,
         prompt=prompt,
         header=f"{'ACTION':<{width}}  DESCRIPTION  ·  {header}",
         with_nth="2,3",
+        ansi=use_color,
+        no_sort=no_sort,
     )
     return choice[0].split("\t", 1)[0] if choice else None
 
@@ -9036,6 +9050,30 @@ def palette_apply(profile: str, tags: str | None = None, *, check: bool = False)
     )
 
 
+def installed_provider_packages(provider: str) -> dict[str, str]:
+    if provider == "APT":
+        result = run(["dpkg-query", "-W", "-f=${db:Status-Status}\t${binary:Package}\t${Version}\n"],
+                     check=False, capture=True, timeout=120)
+        if result.returncode:
+            raise DotError("Could not list installed APT packages.")
+        versions = {}
+        for line in result.stdout.splitlines():
+            fields = line.split("\t")
+            if len(fields) == 3 and fields[0] == "installed":
+                versions[fields[1]] = fields[2]
+        return versions
+    if provider == "Snap":
+        result = run(["snap", "list"], check=False, capture=True, timeout=120)
+        if result.returncode:
+            raise DotError("Could not list installed Snaps.")
+        return parse_snap_rows(result.stdout)
+    result = run(["brew", "list", "--formula", "--versions"], check=False, capture=True, timeout=120)
+    if result.returncode:
+        raise DotError("Could not list installed Homebrew formulae.")
+    return {parts[0]: ", ".join(parts[1:]) for line in result.stdout.splitlines()
+            if len(parts := line.split()) >= 2}
+
+
 def palette_update_one_package(profile_name: str) -> None:
     """Choose one pending package; provider dependencies may also change."""
     checks = (("APT", "apt-get", check_apt_package_candidates),
@@ -9043,43 +9081,64 @@ def palette_update_one_package(profile_name: str) -> None:
               ("Homebrew", "brew", check_brew_updates))
     items = []
     selections = {}
+    dim_ids = set()
     available = []
     for provider, command, check in checks:
         if not command_exists(command):
             print(f"[SKIP] {provider}: {command} unavailable", flush=True)
         else:
             available.append((provider, check))
+
+    def inspect(provider: str, check: Callable[[], UpdateCheckResult]) -> tuple[dict[str, str], UpdateCheckResult | None]:
+        try:
+            installed = installed_provider_packages(provider)
+        except Exception as error:
+            print(f"[FAIL] {provider} installed packages: {error}", flush=True)
+            installed = {}
+        try:
+            result = check()
+        except Exception as error:
+            print(f"[FAIL] {provider} updates: {error}", flush=True)
+            result = None
+        return installed, result
+
     if available:
-        print("Checking pending packages: " + ", ".join(p for p, _ in available) + "…", flush=True)
+        print("Checking installed packages and updates: " + ", ".join(p for p, _ in available) + "…", flush=True)
         with ThreadPoolExecutor(max_workers=len(available), thread_name_prefix="dot-package-check") as executor:
-            futures = {executor.submit(check): provider for provider, check in available}
+            futures = {executor.submit(inspect, provider, check): provider for provider, check in available}
             for future in as_completed(futures):
                 provider = futures[future]
-                try:
-                    result = future.result()
-                except Exception as error:
-                    print(f"[FAIL] {provider}: {error}", flush=True)
-                    continue
-                count = 0
-                for update in result.updates:
-                    # New dependencies cannot be independently selected for
-                    # an only-upgrade transaction.
-                    if update.installed == "not installed":
-                        continue
-                    key = f"{provider}:{update.name}"
-                    selections[key] = (provider, update.name)
-                    items.append((key, update.name, f"{provider}  {update.installed} → {update.available}"))
-                    count += 1
-                print(f"[OK] {provider}: {count} pending package(s)", flush=True)
+                installed, result = future.result()
+                updates = {update.name: update for update in result.updates
+                           if update.installed != "not installed"} if result else {}
+                for name, update in updates.items():
+                    installed.setdefault(name, update.installed)
+                for name, version in installed.items():
+                    update = updates.get(name)
+                    key = f"{provider}:{name}"
+                    selections[key] = (provider, name, bool(update))
+                    if update:
+                        description = f"{provider}  {update.installed} → {update.available}"
+                    else:
+                        dim_ids.add(key)
+                        status = "no update in plan" if result is not None else "update check failed"
+                        description = f"{provider}  {version}  ·  {status}"
+                    items.append((key, name, description))
+                status = f"{len(updates)} pending" if result is not None else "update status unavailable"
+                print(f"[{ 'OK' if result is not None else 'WARN' }] {provider}: {len(installed)} installed, {status}", flush=True)
     if not items:
-        print("No selectable pending APT, Snap, or Homebrew package updates were found.")
+        print("No installed APT, Snap, or Homebrew packages could be listed.")
         return
-    choice = fzf_menu(sorted(items, key=lambda item: (item[1].casefold(), item[0])),
+    choice = fzf_menu(sorted(items, key=lambda item: (item[0] in dim_ids, item[1].casefold(), item[0])),
                       prompt="package update › ",
-                      header="Search pending packages · Enter: select · Esc: cancel")
+                      header="Updates first · Grey: no update in plan · Enter: select · Esc: cancel",
+                      dim_ids=dim_ids, no_sort=True)
     if not choice:
         return
-    provider, name = selections[choice]
+    provider, name, pending = selections[choice]
+    if not pending:
+        print(f"{name} ({provider}) has no selectable update in this check; no changes made.")
+        return
     blockers = active_package_transactions()
     if blockers:
         raise DotError("Another package-manager transaction is running: " + ", ".join(blockers))
@@ -9135,7 +9194,7 @@ def palette_update_menu(profile: str) -> None:
                 (
                     "single-package",
                     "Update one package",
-                    "Search pending APT, Snap, and Homebrew updates",
+                    "Search installed APT, Snap, and Homebrew packages",
                 ),
                 (
                     "check",
