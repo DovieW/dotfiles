@@ -45,7 +45,9 @@ can be used immediately without restarting the assistant.
 - Do not accidentally use a separate headless project when intending to edit
   the project in the visible window. Test an inspect/read operation first.
 - The bridge listens on loopback and can operate with the user's file access;
-  it runs only while FilmCraft is open. Set the profile feature off and remove
+  the editor bridge runs only while FilmCraft is open. Codex can start the CLI
+  independently and keep the GPU awake. The laptop profile disables this integration;
+  set the profile feature off and remove
   the menu override and Codex registration if you no longer want the connection.
 
 Initial verification on the IdeaPad used 0.10.0 (Debian version 0.10.0-1): the
