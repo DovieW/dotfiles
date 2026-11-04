@@ -47,8 +47,9 @@ can be used immediately without restarting the assistant.
 - The bridge listens on loopback and can operate with the user's file access;
   the editor bridge runs only while FilmCraft is open. Codex can start the CLI
   independently and keep the GPU awake. The laptop profile disables this integration;
-  set the profile feature off and remove
-  the menu override and Codex registration if you no longer want the connection.
+  the Codex registration can remain configured with `enabled = false`. Set it
+  to `true` and refresh or restart Codex when you want to use it; set it back
+  to `false` afterward and stop any existing bridge process.
 
 Initial verification on the IdeaPad used 0.10.0 (Debian version 0.10.0-1): the
 editor launched, startup detected NVDEC, and a headless MCP initialize/tools-list
