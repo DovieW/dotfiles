@@ -22,6 +22,11 @@
       tags: [always]
 
   tasks:
+    - name: Configure Connection Check
+      ansible.builtin.import_tasks: tasks/connection-check.yml
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, connection-check]
+
     - name: Seed OBS recording profile
       ansible.builtin.import_tasks: tasks/obs.yml
       when: '"obs-studio" in (dot_profile_data.packages.apt | default([]))'

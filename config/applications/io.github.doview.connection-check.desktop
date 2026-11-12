@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Connection Check
+Comment=Check Wi-Fi signal, latency, internet access and download speed
+Exec=connection-check
+Icon=network-wireless
+Terminal=false
+Categories=Network;
+StartupNotify=true

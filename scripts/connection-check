@@ -1,0 +1,204 @@
+#!/usr/bin/python3
+"""On-demand network health check; no network configuration changes."""
+import concurrent.futures
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def run(args, timeout=15):
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                           env={**os.environ, "LC_ALL": "C"})
+        return p.returncode, p.stdout.strip(), p.stderr.strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, "", str(e)
+
+
+def ping(target, interface):
+    code, out, err = run(["ping", "-n", "-I", interface, "-c", "12", "-i", "0.25", "-W", "1", target], 17)
+    loss = re.search(r"([\d.]+)% packet loss", out)
+    times = re.search(r"= ([\d.]+)/([\d.]+)/([\d.]+)/", out)
+    return {"loss": float(loss[1]) if loss else None,
+            "avg": float(times[2]) if times else None,
+            "max": float(times[3]) if times else None,
+            "raw": out or err}
+
+
+def check(long=False):
+    details = []
+    _, routes, err = run(["ip", "-j", "-4", "route", "get", "1.1.1.1"])
+    try:
+        route = json.loads(routes)[0]
+        interface = route["dev"]
+    except (ValueError, KeyError, IndexError):
+        return {"summary": "No usable IPv4 internet route", "details": err or routes}
+    gateway = route.get("gateway")
+    _, name, _ = run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", interface])
+    _, wifi, _ = run(["iw", "dev", interface, "link"])
+    label = f"{name or interface} · {interface}"
+    sig = re.search(r"signal: (-?\d+) dBm", wifi)
+    freq = re.search(r"freq: ([\d.]+)", wifi)
+    if sig:
+        signal = int(sig[1])
+        quality = "Excellent" if signal >= -50 else "Good" if signal >= -67 else "Fair" if signal >= -75 else "Weak"
+        band = "6 GHz" if freq and float(freq[1]) >= 5925 else "5 GHz" if freq and float(freq[1]) >= 5000 else "2.4 GHz"
+        label += f"\n{band} · {quality} signal ({signal} dBm)"
+    details.extend([label, "Wi-Fi negotiated link rates (not internet speed):\n" + (wifi or "Unavailable / not Wi-Fi")])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        gw_task = pool.submit(ping, gateway, interface) if gateway else None
+        internet_task = pool.submit(ping, "1.1.1.1", interface)
+        https_task = pool.submit(run, ["curl", "-4", "--interface", interface, "--silent", "--show-error", "--fail", "--output", "/dev/null", "--connect-timeout", "5", "--max-time", "8", "--write-out", "%{http_code} %{time_namelookup} %{time_total}", "https://www.cloudflare.com/cdn-cgi/trace"])
+        gw = gw_task.result() if gw_task else None
+        internet = internet_task.result()
+        https = https_task.result()
+    lines = [label, ""]
+    for title, sample in [("Gateway", gw), ("Internet", internet)]:
+        if sample and sample["avg"] is not None:
+            lines.append(f"{title}: {sample['avg']:.0f} ms average · {sample['loss']:g}% loss")
+        else:
+            lines.append(f"{title}: no ping response (may be blocked)")
+        if sample:
+            details.append(title + " ping:\n" + sample["raw"])
+    lines.append("DNS + HTTPS: " + ("working" if https[0] == 0 else "check failed"))
+    details.append("HTTPS probe: " + " ".join(map(str, https)))
+    # Latency probes finish before downloading so our traffic cannot bias them.
+    size = 50_000_000 if long else 10_000_000
+    code, out, err = run(["curl", "-4", "--interface", interface, "--silent", "--show-error", "--fail", "--output", "/dev/null", "--connect-timeout", "5", "--max-time", "20" if long else "10", "--write-out", "%{speed_download} %{size_download} %{time_total}", f"https://speed.cloudflare.com/__down?bytes={size}"], 23)
+    try:
+        speed, received, elapsed = map(float, out.split())
+    except ValueError:
+        speed = received = elapsed = 0
+    complete = code == 0 and received == size
+    lines.append(f"Download: ~{speed * 8 / 1e6:.1f} Mbps" + ("" if complete else " (partial sample)") if received else "Download: unavailable")
+    details.append(f"Download: {received:g} bytes in {elapsed:g}s; exit {code}; {err}")
+    # Detect connection changes rather than attributing mixed results to one AP.
+    _, after, _ = run(["ip", "-j", "-4", "route", "get", "1.1.1.1"])
+    changed = after != routes
+    if changed:
+        verdict = "Connection changed during test — run again"
+    elif https[0] != 0:
+        verdict = "Internet check encountered a problem"
+    elif internet["loss"] is not None and 0 < internet["loss"] < 100:
+        verdict = "Internet reachable; packet loss detected"
+    elif internet["avg"] is not None and internet["avg"] > 150:
+        verdict = "Internet reachable; latency is high"
+    elif not complete:
+        verdict = "Internet reachable; download check incomplete"
+    else:
+        verdict = "Connection looks good in this sample"
+    lines.extend(["", "Short sample; upload and cellular signal weren't tested.",
+                  f"Download budget: up to {size // 1_000_000} MB. Public probes use Cloudflare."])
+    return {"summary": verdict + "\n\n" + "\n".join(lines), "details": "\n\n".join(details)}
+
+
+def main():
+    if "--pin" in sys.argv:
+        script = '''
+var changed = false;
+var found = false;
+var ps = panels();
+for (var i = 0; i < ps.length; i++) {
+    var ws = ps[i].widgets();
+    for (var j = 0; j < ws.length; j++) {
+        var w = ws[j];
+        if (w.type !== 'org.kde.plasma.icontasks' && w.type !== 'org.kde.plasma.taskmanager') continue;
+        found = true;
+        w.currentConfigGroup = ['General'];
+        var launchers = w.readConfig('launchers', '').toString().split(',').filter(function(x) { return x.length > 0; });
+        var entry = 'applications:io.github.doview.connection-check.desktop';
+        if (launchers.indexOf(entry) < 0) {
+            launchers.push(entry);
+            w.writeConfig('launchers', launchers.join(','));
+            changed = true;
+        }
+    }
+}
+print(found ? (changed ? 'CHANGED taskbar launcher' : 'OK taskbar launcher') : 'NO task manager found');
+'''
+        code, out, err = run(["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", script])
+        print(out or err)
+        sys.exit(code or (0 if out.startswith(("OK", "CHANGED")) else 1))
+    lock = open(Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp")) / f"connection-check-{os.getuid()}.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return
+    if "--json" in sys.argv:
+        print(json.dumps(check("--long" in sys.argv), indent=2))
+        return
+    from PyQt6.QtCore import Qt, QThread, pyqtSignal
+    from PyQt6.QtGui import QIcon
+    from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QPlainTextEdit, QProgressBar, QVBoxLayout, QHBoxLayout
+
+    class Worker(QThread):
+        done = pyqtSignal(object)
+
+        def run(self):
+            try:
+                self.done.emit(check(self.long))
+            except Exception as e:
+                self.done.emit({"summary": "Check failed: " + str(e), "details": str(e)})
+
+    app = QApplication(sys.argv)
+    app.setDesktopFileName("io.github.doview.connection-check")
+    dialog = QDialog()
+    dialog.setWindowTitle("Connection Check")
+    dialog.setWindowIcon(QIcon.fromTheme("network-wireless"))
+    dialog.resize(560, 390)
+    layout = QVBoxLayout(dialog)
+    label = QLabel()
+    label.setWordWrap(True)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    layout.addWidget(label)
+    progress = QProgressBar()
+    progress.setRange(0, 0)
+    layout.addWidget(progress)
+    detail = QPlainTextEdit()
+    detail.setReadOnly(True)
+    detail.hide()
+    layout.addWidget(detail)
+    buttons = QHBoxLayout()
+    layout.addLayout(buttons)
+    again = QPushButton("Run again")
+    longer = QPushButton("Longer test (50 MB)")
+    show = QPushButton("Details")
+    close = QPushButton("Close")
+    for b in [show, again, longer, close]:
+        buttons.addWidget(b)
+
+    def finished(result):
+        label.setText(result["summary"])
+        detail.setPlainText(result["details"])
+        progress.hide()
+        for b in [again, longer, close]:
+            b.setEnabled(True)
+
+    def start(long=False):
+        label.setText("Checking connection…\nMeasuring latency, DNS, HTTPS, then download speed.")
+        detail.clear()
+        progress.show()
+        for b in [again, longer, close]:
+            b.setEnabled(False)
+        dialog.worker = Worker()
+        dialog.worker.long = long
+        dialog.worker.done.connect(finished)
+        dialog.worker.start()
+
+    # Closing while a worker owns subprocesses must not destroy a running QThread.
+    dialog.rejected.connect(lambda: dialog.worker.wait())
+    again.clicked.connect(lambda: start())
+    longer.clicked.connect(lambda: start(True))
+    show.clicked.connect(lambda: detail.setVisible(not detail.isVisible()))
+    close.clicked.connect(dialog.accept)
+    start()
+    dialog.exec()
+    dialog.worker.wait()
+
+
+if __name__ == "__main__":
+    main()

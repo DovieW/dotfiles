@@ -1,0 +1,51 @@
+---
+- name: Inspect installed Connection Check dependencies
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Install Connection Check dependencies
+  become: true
+  ansible.builtin.apt:
+    name: [python3-pyqt6, network-manager, iw, iproute2, iputils-ping, curl, qdbus-qt6]
+    state: present
+  when: >-
+    ['python3-pyqt6', 'network-manager', 'iw', 'iproute2', 'iputils-ping', 'curl', 'qdbus-qt6']
+    | difference(ansible_facts.packages.keys() | list) | length > 0
+
+- name: Create Connection Check directories
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [.local/bin, .local/share/applications]
+
+- name: Install Connection Check
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/connection-check"
+    dest: "{{ ansible_facts['user_dir'] }}/.local/bin/connection-check"
+    mode: "0755"
+
+- name: Install Connection Check launcher
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/applications/io.github.doview.connection-check.desktop"
+    dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.connection-check.desktop"
+    mode: "0644"
+  register: dot_connection_check_launcher
+
+- name: Refresh KDE application cache after launcher installation
+  ansible.builtin.command:
+    argv: [kbuildsycoca6, --noincremental]
+  changed_when: true
+  when:
+    - dot_connection_check_launcher.changed
+    - not ansible_check_mode
+    - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
+
+- name: Pin Connection Check in the active KDE session
+  ansible.builtin.command:
+    argv: ["{{ ansible_facts['user_dir'] }}/.local/bin/connection-check", --pin]
+  register: dot_connection_check_pin
+  changed_when: "dot_connection_check_pin.stdout.startswith('CHANGED ')"
+  when:
+    - not ansible_check_mode
+    - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
