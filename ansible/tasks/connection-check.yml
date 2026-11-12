@@ -17,13 +17,19 @@
     path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
     state: directory
     mode: "0755"
-  loop: [.local/bin, .local/share/applications]
+  loop: [.local/bin, .local/share/applications, .local/share/icons/hicolor/scalable/apps]
 
 - name: Install Connection Check
   ansible.builtin.copy:
     src: "{{ dot_repo }}/scripts/connection-check"
     dest: "{{ ansible_facts['user_dir'] }}/.local/bin/connection-check"
     mode: "0755"
+
+- name: Install Connection Check icon
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/applications/connection-check.svg"
+    dest: "{{ ansible_facts['user_dir'] }}/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg"
+    mode: "0644"
 
 - name: Install Connection Check launcher
   ansible.builtin.copy:

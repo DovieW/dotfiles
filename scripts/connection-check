@@ -146,9 +146,14 @@ print(found ? (changed ? 'CHANGED taskbar launcher' : 'OK taskbar launcher') : '
 
     app = QApplication(sys.argv)
     app.setDesktopFileName("io.github.doview.connection-check")
+    icon_path = Path.home() / ".local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg"
+    if not icon_path.exists():
+        icon_path = Path(__file__).resolve().parents[1] / "config/applications/connection-check.svg"
+    icon = QIcon(str(icon_path))
+    app.setWindowIcon(icon)
     dialog = QDialog()
     dialog.setWindowTitle("Connection Check")
-    dialog.setWindowIcon(QIcon.fromTheme("network-wireless"))
+    dialog.setWindowIcon(icon)
     dialog.resize(560, 390)
     layout = QVBoxLayout(dialog)
     label = QLabel()
