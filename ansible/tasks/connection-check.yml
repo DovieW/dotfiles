@@ -30,6 +30,7 @@
     src: "{{ dot_repo }}/config/applications/connection-check.svg"
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg"
     mode: "0644"
+  register: dot_connection_check_icon
 
 - name: Install Connection Check launcher
   ansible.builtin.copy:
@@ -49,5 +50,20 @@
   changed_when: true
   when:
     - dot_connection_check_launcher.changed
+    - not ansible_check_mode
+    - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
+
+- name: Refresh Plasma icon cache after launcher or icon changes
+  ansible.builtin.command:
+    argv:
+      - dbus-send
+      - --session
+      - --type=signal
+      - /KIconLoader
+      - org.kde.KIconLoader.iconChanged
+      - int32:0
+  changed_when: true
+  when:
+    - dot_connection_check_launcher.changed or dot_connection_check_icon.changed
     - not ansible_check_mode
     - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
