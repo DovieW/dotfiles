@@ -274,6 +274,52 @@ test with fan and thermal checks before this incident can be marked resolved.
 See [Lenovo's BIOS release page](https://support.lenovo.com/et/sk/downloads/ds572743-bios-update-for-windows-11-64-bit-ideapad-pro-5-16iah10)
 and the [upstream kernel patch](https://lists.openwall.net/linux-kernel/2026/02/28/814).
 
+## Volume percentage sticks with keys, slider, and touchpad gestures
+
+If all three controls stick, check the shared audio state before changing the
+gesture configuration. On November 12, 2026, with PipeWire 1.6.2 and Buds3,
+direct volume writes worked but volume-change notifications stopped arriving.
+Plasma kept displaying an old value and repeated volume-up commands wrote the
+same 20% value; volume-down wrote 0%.
+
+First identify the active output and record its volume and mute state:
+
+```bash
+wpctl status
+pactl get-default-sink
+pactl get-sink-volume @DEFAULT_SINK@
+pactl get-sink-mute @DEFAULT_SINK@
+```
+
+Run `pactl subscribe` in another terminal. Adjust the output to a comfortable
+level with `pactl set-sink-volume @DEFAULT_SINK@ 10%`, then check the reported
+value again. Normally, changing the volume produces a `change` event on the
+sink. In this incident, subscription output contained client creation/removal
+events but no sink changes, even though fresh volume queries reflected the
+writes. A successful direct write alone therefore did not establish that the
+desktop controls worked.
+
+For this failure pattern, restart the user audio stack:
+
+```bash
+systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+```
+
+This briefly interrupts audio; an application may need playback restarted.
+Confirm the intended output is still selected, then verify repeated volume-up
+and volume-down operations change both the percentage and the sound. Check
+mute separately: reaching 0% through KDE can mute the output, and a direct
+volume write may leave it muted. Restore the recorded volume/mute state or a
+level chosen by the user.
+
+Restarting Plasma/KDED, reloading its audio shortcut module, and restarting
+PipeWire-Pulse or WirePlumber individually did not resolve the observed case.
+Restarting the full stack restored sink-change events and successive keyboard
+shortcut adjustments of 10% → 20% → 30% → 20%. The Buds3 remained selected and
+were left unmuted at 10%. Physical swipe/slider operation and audible response
+still required user confirmation. The underlying cause of the missing
+notifications was not isolated; no persistent audio configuration was changed.
+
 ## Custom touchpad gestures fail or destabilize KWin
 
 Check the managed build, configuration, and live effect:

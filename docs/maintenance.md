@@ -392,6 +392,10 @@ repository. Three-finger vertical volume control is continuous: distance and
 speed determine the size of the adjustment, and reversing during a swipe
 reverses the volume change.
 
+If the volume also sticks with keyboard keys and the sound slider, follow
+[the shared audio-state recovery](troubleshooting.md#volume-percentage-sticks-with-keys-slider-and-touchpad-gestures)
+before changing the gesture map.
+
 `dot update --profile kubuntu-laptop` follows the newest stable InputActions
 releases and rebuilds its KWin plugin after a KWin package change. A newly
 rebuilt plugin may require logging out and back in before the running
