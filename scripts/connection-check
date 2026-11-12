@@ -97,32 +97,6 @@ def check(long=False):
 
 
 def main():
-    if "--pin" in sys.argv:
-        script = '''
-var changed = false;
-var found = false;
-var ps = panels();
-for (var i = 0; i < ps.length; i++) {
-    var ws = ps[i].widgets();
-    for (var j = 0; j < ws.length; j++) {
-        var w = ws[j];
-        if (w.type !== 'org.kde.plasma.icontasks' && w.type !== 'org.kde.plasma.taskmanager') continue;
-        found = true;
-        w.currentConfigGroup = ['General'];
-        var launchers = w.readConfig('launchers', '').toString().split(',').filter(function(x) { return x.length > 0; });
-        var entry = 'applications:io.github.doview.connection-check.desktop';
-        if (launchers.indexOf(entry) < 0) {
-            launchers.push(entry);
-            w.writeConfig('launchers', launchers);
-            changed = true;
-        }
-    }
-}
-print(found ? (changed ? 'CHANGED taskbar launcher' : 'OK taskbar launcher') : 'NO task manager found');
-'''
-        code, out, err = run(["qdbus6", "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", script])
-        print(out or err)
-        sys.exit(code or (0 if out.startswith(("OK", "CHANGED")) else 1))
     lock = open(Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp")) / f"connection-check-{os.getuid()}.lock", "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -1,11 +1,10 @@
 # Connection Check
 
 Apply with `bin/dot apply --profile kubuntu-laptop --tags connection-check`.
-KDE profiles install a Connection Check application and pin it to existing task
-managers when applied in an active graphical session. Existing pins are preserved.
-For a later session, run `connection-check --pin`.
+KDE profiles install Connection Check in the Start menu without pinning it to the
+taskbar. Open Start and search for **Connection Check**, or run `connection-check`.
 
-Click the wireless icon to start. The dialog shows signal/band, gateway and
+Launch Connection Check to start. The dialog shows signal/band, gateway and
 internet ping averages and packet loss, DNS/HTTPS access, and measured download
 speed. Details includes negotiated Wi-Fi rates and raw probe results. Repeated
 launches cannot start overlapping checks.
