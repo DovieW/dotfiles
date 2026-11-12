@@ -13,7 +13,7 @@ function adjustScreenBrightness(direction) {
                 function (current) {
                     var target = Math.max(
                         0,
-                        Math.min(maximum, current + direction * maximum / 10)
+                        Math.min(maximum, current + direction * maximum / 5)
                     );
                     callDBus(
                         "org.kde.Solid.PowerManagement",
@@ -30,14 +30,14 @@ function adjustScreenBrightness(direction) {
 
 registerShortcut(
     "dot-brightness-down",
-    "Decrease Screen Brightness by 10%",
+    "Decrease Screen Brightness by 20%",
     "Monitor Brightness Down",
     function () { adjustScreenBrightness(-1); }
 );
 
 registerShortcut(
     "dot-brightness-up",
-    "Increase Screen Brightness by 10%",
+    "Increase Screen Brightness by 20%",
     "Monitor Brightness Up",
     function () { adjustScreenBrightness(1); }
 );

@@ -3425,7 +3425,7 @@ else:
         self.assertIn("AudioFeedback=false", plasma_pa)
         self.assertIn("VolumeStep=10", plasma_pa)
         self.assertIn(
-            "dot-brightness-up=Monitor Brightness Up,none,Increase Screen Brightness by 10%",
+            "dot-brightness-up=Monitor Brightness Up,none,Increase Screen Brightness by 20%",
             shortcuts,
         )
         self.assertIn(
@@ -3436,7 +3436,7 @@ else:
             ROOT / "config/kwin/dot-hardware-keys/contents/code/main.js"
         ).read_text()
         self.assertIn('"brightnessMax"', hardware_keys)
-        self.assertIn("direction * maximum / 10", hardware_keys)
+        self.assertIn("direction * maximum / 5", hardware_keys)
         self.assertIn("dot-hardware-keysEnabled=true", kwin)
         self.assertIn('"dot-hardware-keys": Path.home()', cli)
         self.assertIn('".config/plasmaparc"', cli)

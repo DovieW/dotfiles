@@ -1887,13 +1887,13 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         "kwin",
         "dot-brightness-down",
         "KWin",
-        "Decrease Screen Brightness by 10%",
+        "Decrease Screen Brightness by 20%",
     )
     brightness_up = (
         "kwin",
         "dot-brightness-up",
         "KWin",
-        "Increase Screen Brightness by 10%",
+        "Increase Screen Brightness by 20%",
     )
     stock_brightness_down = (
         "org_kde_powerdevil",
@@ -1975,7 +1975,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         clipboard_history_ctrl: [67108960],
         emoji_picker: [268435502],
         # PowerDevil uses a fixed 5% step. Managed KWin actions set relative
-        # 10-point jumps through PowerDevil's brightness interface instead.
+        # 20-point jumps through PowerDevil's brightness interface instead.
         stock_brightness_down: [0],
         stock_brightness_up: [0],
         brightness_down: [16777395],
