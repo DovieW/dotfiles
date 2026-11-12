@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Connection Check
+Name=Network Quality Test
+GenericName=Internet and Wi-Fi Speed Test
 Comment=Check Wi-Fi signal, latency, internet access and download speed
+Keywords=network;internet;wifi;wi-fi;wireless;hotspot;speed;speedtest;quality;quailty;connection;connectivity;ping;latency;packet loss;bandwidth;download;diagnostics;
 Exec=connection-check
 Icon=io.github.doview.connection-check
 Terminal=false

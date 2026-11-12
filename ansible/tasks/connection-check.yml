@@ -35,6 +35,8 @@
   ansible.builtin.copy:
     content: >-
       {{ lookup('ansible.builtin.file', dot_repo + '/config/applications/io.github.doview.connection-check.desktop')
+         | replace('Exec=connection-check',
+                   'Exec=' + ansible_facts['user_dir'] + '/.local/bin/connection-check')
          | replace('Icon=io.github.doview.connection-check',
                    'Icon=' + ansible_facts['user_dir'] + '/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg') }}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.connection-check.desktop"

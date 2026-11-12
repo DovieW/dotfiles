@@ -126,7 +126,7 @@ def main():
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
     dialog = QDialog()
-    dialog.setWindowTitle("Connection Check")
+    dialog.setWindowTitle("Network Quality Test")
     dialog.setWindowIcon(icon)
     dialog.resize(560, 390)
     layout = QVBoxLayout(dialog)

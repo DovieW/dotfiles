@@ -1,10 +1,13 @@
-# Connection Check
+# Network Quality Test
 
 Apply with `bin/dot apply --profile kubuntu-laptop --tags connection-check`.
-KDE profiles install Connection Check in the Start menu without pinning it to the
-taskbar. Open Start and search for **Connection Check**, or run `connection-check`.
+KDE profiles install Network Quality Test in the Start menu without pinning it to
+the taskbar. Search for **Network Quality Test**, Wi-Fi, hotspot, speedtest, ping,
+latency, or internet. The launcher includes these search keywords and absolute
+executable/icon paths so it works with the desktop session's minimal PATH.
+The command remains `connection-check`.
 
-Launch Connection Check to start. The dialog shows signal/band, gateway and
+Launch Network Quality Test to start. The dialog shows signal/band, gateway and
 internet ping averages and packet loss, DNS/HTTPS access, and measured download
 speed. Details includes negotiated Wi-Fi rates and raw probe results. Repeated
 launches cannot start overlapping checks.
