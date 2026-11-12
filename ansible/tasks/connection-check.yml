@@ -33,7 +33,10 @@
 
 - name: Install Connection Check launcher
   ansible.builtin.copy:
-    src: "{{ dot_repo }}/config/applications/io.github.doview.connection-check.desktop"
+    content: >-
+      {{ lookup('ansible.builtin.file', dot_repo + '/config/applications/io.github.doview.connection-check.desktop')
+         | replace('Icon=io.github.doview.connection-check',
+                   'Icon=' + ansible_facts['user_dir'] + '/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg') }}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.connection-check.desktop"
     mode: "0644"
   register: dot_connection_check_launcher
