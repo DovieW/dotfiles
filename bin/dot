@@ -1960,6 +1960,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         "KWin",
         "Verify Clipboard Shortcuts",
     )
+    image_path_paste = ("kwin", "dot-paste-image-path", "KWin", "Paste Clipboard Image as Temporary Path")
     safe_keystroke_paste = (
         "kwin",
         "dot-safe-keystroke-paste",
@@ -2017,6 +2018,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
         brightness_up: [16777394],
         clipboard_probe: [0],
         # Qt::META | Qt::SHIFT | V and C.
+        image_path_paste: [301989961],  # Meta+Shift+I
         safe_keystroke_paste: [301989974],
         safe_keystroke_paste_cancel: [301989955],
         # Qt matches the shifted question-mark keysym (Meta+Shift+/ on US).
@@ -2029,7 +2031,7 @@ def sync_managed_kglobal_shortcuts(*, clipboard_only: bool = False) -> None:
             klipper_popup, stock_emoji_picker, clipboard_history_meta,
             clipboard_history_ctrl, emoji_picker, clipboard_probe,
             safe_keystroke_paste, safe_keystroke_paste_cancel,
-            shortcut_reference,
+            shortcut_reference, image_path_paste,
         }
         desired = {action: keys for action, keys in desired.items() if action in clipboard_actions}
     activate_kglobal_shortcuts(desired)
@@ -2665,6 +2667,8 @@ def apply_direct(
             )
     if features.get("copyq") and selected("clipboard", "safe-keystroke-paste"):
         copyq_mappings = {
+            ROOT / "scripts/dot-paste-image-path": Path.home() / ".local/bin/dot-paste-image-path",
+            ROOT / "config/systemd/user/dot-paste-image-path.service": Path.home() / ".config/systemd/user/dot-paste-image-path.service",
             ROOT / "scripts/dot-safe-keystroke-paste": Path.home() / ".local/bin/dot-safe-keystroke-paste",
             ROOT / "scripts/dot-shortcuts": Path.home() / ".local/bin/dot-shortcuts",
             ROOT / "config/systemd/user/dot-shortcuts.service": Path.home() / ".config/systemd/user/dot-shortcuts.service",
@@ -6687,6 +6691,7 @@ def clipboard_shortcuts_runtime() -> tuple[bool, str]:
         capture=True,
     ).stdout.strip() == "true"
     expected = {
+        ("kwin", "dot-paste-image-path", "KWin", "Paste Clipboard Image as Temporary Path"): [301989961],
         ("kwin", "dot-copyq-history-meta", "KWin", "Open Clipboard History (Meta+V)"): [268435542],
         ("kwin", "dot-copyq-history-ctrl", "KWin", "Open Clipboard History (Ctrl+Grave)"): [67108960],
         ("kwin", "dot-emoji-picker", "KWin", "Open Dotfiles Emoji Picker"): [268435502],

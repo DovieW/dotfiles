@@ -86,6 +86,13 @@ registerShortcut(
 );
 
 registerShortcut(
+    "dot-paste-image-path",
+    "Paste Clipboard Image as Temporary Path",
+    "Meta+Shift+I",
+    function () { reopenUserUnit("dot-paste-image-path.service"); }
+);
+
+registerShortcut(
     "dot-clipboard-probe",
     "Verify Clipboard Shortcuts",
     "",

@@ -1,0 +1,78 @@
+#!/usr/bin/python3
+"""Save a Wayland clipboard image privately in /tmp and type its path."""
+
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def run(args, **kwargs):
+    return subprocess.run(args, check=True, timeout=10, **kwargs)
+
+
+def check():
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        raise RuntimeError("A Wayland desktop session is required.")
+    run(["/usr/bin/systemctl", "--user", "is-active", "--quiet", "ydotool.service"])
+    socket = Path(os.environ.get("YDOTOOL_SOCKET", os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") + "/.ydotool_socket"))
+    if not socket.is_socket() or not os.access("/dev/uinput", os.W_OK):
+        raise RuntimeError("The managed ydotool socket and uinput access are required.")
+    run(["wl-paste", "--list-types"], stdout=subprocess.DEVNULL)
+
+
+def save_image():
+    types = run(["wl-paste", "--list-types"], capture_output=True).stdout.decode().splitlines()
+    mime = next((item for item in ["image/png", *types] if item in types and item.startswith("image/")), None)
+    if mime is None:
+        raise RuntimeError("The clipboard does not contain an image.")
+    data = run(["wl-paste", "--no-newline", "--type", mime], capture_output=True).stdout
+    from PyQt6.QtGui import QImage
+
+    image = QImage.fromData(data)
+    if image.isNull():
+        raise RuntimeError("The clipboard image could not be decoded.")
+    # Never trust clipboard filenames. mkstemp creates a private, unique file.
+    fd, name = tempfile.mkstemp(prefix="dot-image-", suffix=".png", dir="/tmp")
+    os.close(fd)
+    path = Path(name)
+    try:
+        if not image.save(str(path), "PNG"):
+            raise RuntimeError("Could not save the clipboard image.")
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def paste_path(path):
+    # Release the shortcut modifiers before typing. Do not replace the clipboard
+    # or send Enter: this works in terminals without invoking their image paste.
+    run(["/usr/bin/ydotool", "key", "29:0", "42:0", "54:0", "56:0", "97:0", "100:0", "125:0", "126:0"], stdout=subprocess.DEVNULL)
+    time.sleep(0.12)
+    run(["/usr/bin/ydotool", "type", "--key-delay=1", "--key-hold=1", "--", str(path) + " "], stdout=subprocess.DEVNULL)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Check readiness without saving or typing")
+    args = parser.parse_args()
+    try:
+        check()
+        if args.check:
+            print("Image-path paste is ready.")
+            return 0
+        paste_path(save_image())
+        return 0
+    except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+        # Do not put clipboard contents or subprocess output in desktop notices.
+        print(f"Image-path paste failed: {type(error).__name__}: {error}", file=sys.stderr)
+        subprocess.run(["notify-send", "--app-name=Image Path Paste", "Image Path Paste", "Could not insert an image path. Check the clipboard image and dot-paste-image-path service log."], check=False)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

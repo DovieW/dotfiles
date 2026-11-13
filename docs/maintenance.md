@@ -332,6 +332,19 @@ Codex's own clipboard support. Verify an actual image attachment in the remote
 Codex prompt after setup; successful SSH and machine registration alone do not
 prove the desktop clipboard path works.
 
+On native Kubuntu, **Meta+Shift+I** saves the current clipboard image as a
+private PNG at a unique `/tmp/dot-image-*.png` path and types that path plus a
+space into the focused application. It does not press Enter or replace the
+clipboard. This is useful for local Codex panes whose persistent server lacks
+desktop clipboard access. It runs only when invoked; no additional daemon is
+needed beyond the existing ydotool service. Files remain available until system
+temporary-file cleanup; do not use them as permanent attachments. Text-only or
+unreadable clipboards produce a notification instead of typing anything.
+`dot-paste-image-path --check` checks readiness without saving or typing.
+Apply with `dot apply --profile <profile> --tags clipboard` on either machine.
+A laptop-local path is not accessible to a Desktop-hosted chat: use Herdr's
+Ctrl-V image bridge for those remote panes.
+
 Saved machines are Herdr-owned local state, separate from the managed
 `config.toml`; do not replace the catalog during `dot apply`. The explicit
 `default` session avoids accidentally targeting another remote session.

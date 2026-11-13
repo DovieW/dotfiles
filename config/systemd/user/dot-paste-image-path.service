@@ -1,0 +1,7 @@
+[Unit]
+Description=Save clipboard image in /tmp and type its path
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/dot-paste-image-path
+UMask=0077
