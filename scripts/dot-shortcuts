@@ -7,10 +7,11 @@ import re
 import tomllib
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QHeaderView, QLabel, QLineEdit,
+    QApplication, QButtonGroup, QDialog, QGridLayout, QHeaderView, QLabel, QLayout, QLineEdit,
+    QPushButton, QSizePolicy, QWidget,
     QTabBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 
@@ -170,6 +171,75 @@ def shortcut_rows(config_home):
     return sorted(set(rows))
 
 
+class ApplicationTabs(QWidget):
+    """Exclusive application filters that wrap instead of hiding overflow."""
+
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.buttons = []
+        self.group = QButtonGroup(self)
+        self.group.idClicked.connect(self.setCurrentIndex)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
+        # A previous multi-column layout must not prevent the window shrinking.
+        self.grid.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def count(self):
+        return len(self.buttons)
+
+    def tabText(self, index):
+        return self.buttons[index].text() if 0 <= index < self.count() else ""
+
+    def currentIndex(self):
+        return self.group.checkedId()
+
+    def setCurrentIndex(self, index):
+        if 0 <= index < self.count():
+            self.buttons[index].setChecked(True)
+            self.currentChanged.emit(index)
+
+    def addTab(self, label):
+        button = QPushButton(label, self)
+        button.setCheckable(True)
+        button.setAutoDefault(False)
+        self.group.addButton(button, self.count())
+        self.buttons.append(button)
+        self.reflow()
+
+    def removeTab(self, index):
+        button = self.buttons.pop(index)
+        self.group.removeButton(button)
+        self.grid.removeWidget(button)
+        button.hide()
+        button.deleteLater()
+        for index, remaining in enumerate(self.buttons):
+            self.group.setId(remaining, index)
+        self.reflow()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.reflow()
+
+    def reflow(self):
+        if not self.buttons:
+            self.setFixedHeight(0)
+            return
+        gap = self.grid.spacing()
+        width = max(button.sizeHint().width() for button in self.buttons)
+        height = max(button.sizeHint().height() for button in self.buttons)
+        columns = max(1, min(self.count(), (self.width() + gap) // (width + gap)))
+        while self.grid.count():
+            self.grid.takeAt(0)
+        for index, button in enumerate(self.buttons):
+            self.grid.addWidget(button, index // columns, index % columns)
+        rows = (self.count() + columns - 1) // columns
+        self.setFixedHeight(rows * height + (rows - 1) * gap)
+
+
 class ShortcutDialog(QDialog):
     def __init__(self, config_home, codex_path=None):
         super().__init__()
@@ -191,10 +261,7 @@ class ShortcutDialog(QDialog):
         self.kind_tabs.setTabToolTip(2, "Active KDE bindings that match their recorded defaults")
         self.kind_tabs.setCurrentIndex(1)
         layout.addWidget(self.kind_tabs)
-        self.app_tabs = QTabBar()
-        self.app_tabs.setExpanding(False)
-        self.app_tabs.setUsesScrollButtons(True)
-        self.app_tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        self.app_tabs = ApplicationTabs()
         layout.addWidget(self.app_tabs)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Action", "Shortcut"])

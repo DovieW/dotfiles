@@ -254,7 +254,7 @@ prompts for, stores, or retrieves keys from Bitwarden.
 `Meta+Shift+/` (Windows+Shift+/, the `?` key on a US keyboard) opens a
 searchable shortcut reference. It reads this computer's assigned KDE shortcuts
 and Remmina host-key shortcuts each time it opens. It opens on **Custom**, with
-**All** and **Defaults** tabs and a second row of application tabs. CopyQ includes
+**All** and **Defaults** tabs and application filters that wrap to fit the window. CopyQ includes
 clipboard history and pasting a clipboard image as a temporary path; screenshots
 have their own tab. Search filters the selected tabs by action, key, or application.
 Press Escape to close. The popup is installed with clipboard setup.

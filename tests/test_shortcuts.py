@@ -98,6 +98,32 @@ class ShortcutTests(unittest.TestCase):
         dialog.search.setText("fast")
         self.assertEqual(dialog.tree.topLevelItem(0).child(0).text(1), "alt-shift-f")
 
+    def test_application_choices_wrap_and_remain_clickable_after_resize(self):
+        tabs = helper.ApplicationTabs()
+        self.addCleanup(tabs.close)
+        labels = ["All applications", "CopyQ", "Screenshots", "Codex CLI", "KWin", "Remmina", "Safe Paste"]
+        for label in labels:
+            tabs.addTab(label)
+        tabs.resize(800, tabs.height())
+        tabs.show()
+        self.app.processEvents()
+        wide_height = tabs.height()
+        tabs.setCurrentIndex(3)
+        tabs.resize(320, tabs.height())
+        self.app.processEvents()
+        self.assertGreater(tabs.height(), wide_height)
+        self.assertEqual(tabs.currentIndex(), 3)
+        for button in tabs.buttons:
+            self.assertTrue(button.isVisible())
+            self.assertTrue(tabs.rect().contains(button.geometry()))
+            self.assertGreaterEqual(button.width(), button.sizeHint().width())
+        tabs.buttons[-1].click()
+        self.assertEqual(tabs.currentIndex(), len(labels) - 1)
+        self.assertEqual(sum(button.isChecked() for button in tabs.buttons), 1)
+        tabs.resize(800, tabs.height())
+        self.app.processEvents()
+        self.assertEqual(tabs.height(), wide_height)
+
 
 if __name__ == "__main__":
     unittest.main()
