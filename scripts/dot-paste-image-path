@@ -2,6 +2,8 @@
 """Save the current or newest CopyQ clipboard image in /tmp and type its path."""
 
 import argparse
+import hashlib
+import stat
 import os
 from pathlib import Path
 import subprocess
@@ -58,23 +60,42 @@ def read_image_data():
         raise RuntimeError("No clipboard image is available; CopyQ history has no image or is unavailable.") from error
 
 
-def save_image():
-    data = read_image_data()
+def image_cache_dir():
+    directory = Path(f"/tmp/dot-images-{os.getuid()}")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+        raise RuntimeError("The image staging directory is not private and owned by this user.")
+    return directory
+
+
+def save_image(data=None):
+    if data is None:
+        data = read_image_data()
+    # Key by source bytes, so a newer clipboard can never reuse an older image.
+    # 128 bits keep filenames short without relying on clipboard filenames.
+    directory = image_cache_dir()
+    path = directory / (hashlib.sha256(data).hexdigest()[:32] + ".png")
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size > 0:
+            return path
+        raise RuntimeError("The staged image file is not a private regular file.")
     from PyQt6.QtGui import QImage
 
     image = QImage.fromData(data)
     if image.isNull():
         raise RuntimeError("The clipboard image could not be decoded.")
-    # Never trust clipboard filenames. mkstemp creates a private, unique file.
-    fd, name = tempfile.mkstemp(prefix="dot-image-", suffix=".png", dir="/tmp")
+    # Publish atomically: an immediate shortcut must not see a partial PNG.
+    fd, name = tempfile.mkstemp(prefix=".staging-", suffix=".png", dir=directory)
     os.close(fd)
-    path = Path(name)
+    temporary = Path(name)
     try:
-        if not image.save(str(path), "PNG"):
+        if not image.save(str(temporary), "PNG"):
             raise RuntimeError("Could not save the clipboard image.")
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return path
 
 
@@ -132,14 +153,19 @@ QtObject {
 def paste_path(path):
     wait_for_desktop_release()
     # No synthetic modifier releases, clipboard replacement, or Enter.
-    run(["/usr/bin/ydotool", "type", "--key-delay=5", "--key-hold=5", "--", str(path) + " "], stdout=subprocess.DEVNULL)
+    run(["/usr/bin/ydotool", "type", "--key-delay=1", "--key-hold=1", "--", str(path) + " "], stdout=subprocess.DEVNULL)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Check readiness without saving or typing")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--stage", action="store_true", help="Stage image bytes from stdin without typing")
+    mode.add_argument("--check", action="store_true", help="Check readiness without saving or typing")
     args = parser.parse_args()
     try:
+        if args.stage:
+            print(save_image(sys.stdin.buffer.read()))
+            return 0
         check()
         if args.check:
             print("Image-path paste is ready.")
@@ -149,6 +175,8 @@ def main():
     except (RuntimeError, OSError, subprocess.SubprocessError) as error:
         # Do not put clipboard contents or subprocess output in desktop notices.
         print(f"Image-path paste failed: {type(error).__name__}: {error}", file=sys.stderr)
+        if args.stage:
+            return 1
         subprocess.run(["notify-send", "--app-name=Image Path Paste", "Image Path Paste", "Could not insert an image path. Check the clipboard image and dot-paste-image-path service log."], check=False)
         return 1
 

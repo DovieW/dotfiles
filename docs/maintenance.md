@@ -333,15 +333,19 @@ Codex prompt after setup; successful SSH and machine registration alone do not
 prove the desktop clipboard path works.
 
 On native Kubuntu, **Meta+Shift+I** saves the current clipboard image as a
-private PNG at a unique `/tmp/dot-image-*.png` path. If the current clipboard
+private PNG in a user-owned, mode-0700 `/tmp/dot-images-<uid>/` directory.
+CopyQ stages images there as they are copied; the shortcut reuses the prepared
+file by its content hash, without decoding or encoding it again. A new image
+gets its own immutable path, so older chat attachments are not overwritten.
+Missing cache files are recreated on demand, including after a reboot. If the current clipboard
 has no image, it reads the newest image from CopyQ’s Clipboard history, skipping
 text entries without selecting or reordering items. It types that path plus a
 space into the focused application. It does not press Enter or replace the
 clipboard. It waits for physical modifier keys to be released before typing;
 holding the shortcut for over ten seconds cancels insertion. Duplicate
 activations while it is running are ignored. This is useful for local Codex panes whose persistent server lacks
-desktop clipboard access. It runs only when invoked; no additional daemon is
-needed beyond the existing ydotool service. Files remain available until system
+desktop clipboard access. CopyQ runs a short-lived staging helper for each
+copied image; this adds no persistent daemon. Files remain available until system
 temporary-file cleanup; do not use them as permanent attachments. If neither the clipboard nor available CopyQ history contains an image, it
 produces a notification instead of typing anything.
 `dot-paste-image-path --check` checks readiness without saving or typing.

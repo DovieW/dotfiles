@@ -2,6 +2,9 @@ import importlib.machinery
 import importlib.util
 from pathlib import Path
 import subprocess
+import tempfile
+import io
+import os
 import unittest
 from unittest import mock
 
@@ -18,6 +21,14 @@ loader.exec_module(helper)
 
 
 class ImagePathTests(unittest.TestCase):
+    def setUp(self):
+        self.cache = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cache.cleanup)
+        self.cache_path = Path(self.cache.name)
+        patch = mock.patch.object(helper, 'image_cache_dir', return_value=self.cache_path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     @unittest.skipIf(QImage is None, "PyQt6 desktop image codecs unavailable")
     def test_clipboard_image_is_converted_to_private_png_without_writing_clipboard(self):
         from PyQt6.QtCore import QBuffer, QIODevice
@@ -32,7 +43,7 @@ class ImagePathTests(unittest.TestCase):
         ]) as run:
             path = helper.save_image()
         try:
-            self.assertEqual(path.parent, Path('/tmp'))
+            self.assertEqual(path.parent, self.cache_path)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertTrue(path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'))
             self.assertTrue(all(call.args[0][0] == 'wl-paste' for call in run.call_args_list))
@@ -45,6 +56,54 @@ class ImagePathTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 helper.save_image()
             create.assert_not_called()
+
+    def test_cached_image_skips_image_decoding_and_export(self):
+        import hashlib
+        data = b'already staged image source'
+        path = self.cache_path / (hashlib.sha256(data).hexdigest()[:32] + '.png')
+        path.write_bytes(b'prepared png')
+        path.chmod(0o600)
+        with mock.patch.object(helper.tempfile, 'mkstemp') as create:
+            self.assertEqual(helper.save_image(data), path)
+            create.assert_not_called()
+
+    def test_unsafe_cached_path_is_rejected(self):
+        import hashlib
+        data = b'source'
+        path = self.cache_path / (hashlib.sha256(data).hexdigest()[:32] + '.png')
+        target = self.cache_path / 'target'
+        target.write_bytes(b'keep')
+        path.symlink_to(target)
+        with self.assertRaises(RuntimeError):
+            helper.save_image(data)
+        self.assertEqual(target.read_bytes(), b'keep')
+
+    @unittest.skipIf(QImage is None, "PyQt6 desktop image codecs unavailable")
+    def test_new_images_and_missing_cached_files_are_prepared_again(self):
+        from PyQt6.QtCore import QBuffer, QIODevice
+        def png(color):
+            image = QImage(2, 2, QImage.Format.Format_RGB32)
+            image.fill(color)
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            self.assertTrue(image.save(buffer, 'PNG'))
+            return bytes(buffer.data())
+        first = png(0xff123456)
+        second = png(0xff654321)
+        path = helper.save_image(first)
+        other = helper.save_image(second)
+        self.assertNotEqual(path, other)
+        path.unlink()
+        self.assertEqual(helper.save_image(first), path)
+        self.assertTrue(path.is_file())
+        self.assertFalse(list(self.cache_path.glob('.staging-*')))
+
+    def test_stage_mode_never_types_or_requires_desktop(self):
+        with mock.patch.object(helper.sys, 'argv', ['helper', '--stage']), mock.patch.object(helper.sys, 'stdin', buffer=io.BytesIO(b'image')), mock.patch.object(helper, 'save_image', return_value=Path('/tmp/staged.png')) as save, mock.patch.object(helper, 'check') as check, mock.patch.object(helper, 'paste_path') as paste:
+            self.assertEqual(helper.main(), 0)
+            save.assert_called_once_with(b'image')
+            check.assert_not_called()
+            paste.assert_not_called()
 
     def test_text_clipboard_falls_back_to_copyq_without_selecting(self):
         with mock.patch.object(helper, 'run', side_effect=[

@@ -15,11 +15,12 @@ config('autostart', false)
 
 var managedName = 'Dotfiles Wayland paste'
 var managedHistory = 'Dotfiles Clipboard History'
+var managedStage = 'Dotfiles stage clipboard images'
 var managedBin = str(env('XDG_BIN_HOME'))
 if (!managedBin) managedBin = str(env('HOME')) + '/.local/bin'
 var managedPasteHelper = managedBin + '/dot-copyq-paste'
 var retained = commands().filter(function(command) {
-    return command.name !== managedName && command.name !== managedHistory
+    return command.name !== managedName && command.name !== managedHistory && command.name !== managedStage
 })
 var managedScript = "global.dotfilesPasteVersion = 5\n" +
                     "global.dotfilesPasteHelper = " + JSON.stringify(managedPasteHelper) + "\n" +
@@ -44,6 +45,19 @@ retained.push({
     name: managedName,
     isScript: true,
     cmd: managedScript
+})
+retained.push({
+    name: managedStage,
+    automatic: true,
+    cmd: "copyq:\n" +
+         "if (isClipboard()) {\n" +
+         "  var images = dataFormats().filter(function(m) { return m.indexOf('image/') === 0; });\n" +
+         "  if (images.length) {\n" +
+         "    var mime = images.indexOf('image/png') >= 0 ? 'image/png' : images[0];\n" +
+         "    var staged = execute(" + JSON.stringify(managedBin + '/dot-paste-image-path') + ", '--stage', null, data(mime));\n" +
+         "    if (!staged || staged.exit_code) serverLog('Image path staging failed');\n" +
+         "  }\n" +
+         "}\n"
 })
 setCommands(retained)
 
