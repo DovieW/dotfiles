@@ -1859,16 +1859,24 @@ class DotCliTests(unittest.TestCase):
         profile = json.loads((ROOT / "profiles/windows-host.yml").read_text())
         self.assertTrue(profile["features"]["windows_inventory_only"])
 
-    def test_package_apply_explains_missing_noninteractive_sudo(self):
+    def test_package_apply_explains_missing_desktop_and_noninteractive_sudo(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_bin = root / "bin"
             fake_bin.mkdir()
             (fake_bin / "sudo").write_text("#!/bin/sh\nexit 1\n")
             (fake_bin / "ansible-playbook").write_text("#!/bin/sh\nexit 99\n")
+            # Never discover the real desktop or show authentication UI in tests.
+            (fake_bin / "systemctl").write_text("#!/bin/sh\nexit 1\n")
+            (fake_bin / "kdialog").write_text("#!/bin/sh\nexit 99\n")
             (fake_bin / "sudo").chmod(0o755)
             (fake_bin / "ansible-playbook").chmod(0o755)
+            (fake_bin / "systemctl").chmod(0o755)
+            (fake_bin / "kdialog").chmod(0o755)
             env = os.environ.copy()
+            env.pop("DISPLAY", None)
+            env.pop("WAYLAND_DISPLAY", None)
+            env["DOTFILES_AUTH_MODE"] = "auto"
             env["HOME"] = str(root / "home")
             env["XDG_STATE_HOME"] = str(root / "state")
             env["PATH"] = os.pathsep.join(
@@ -1896,7 +1904,7 @@ class DotCliTests(unittest.TestCase):
                     )
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(
-                        "Run this command in an interactive terminal",
+                        "requires a desktop session and kdialog",
                         result.stderr,
                     )
 

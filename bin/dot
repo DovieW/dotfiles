@@ -976,7 +976,39 @@ def require_commands(names: list[str], remediation: str) -> None:
         raise DotError(f"Missing prerequisites: {', '.join(missing)}\n{remediation}")
 
 
+def gui_admin_authentication() -> bool:
+    """A PTY cannot tell us whether a human can see it; allow an override."""
+    mode = os.environ.get("DOTFILES_AUTH_MODE", "auto")
+    if mode not in {"auto", "gui", "terminal"}:
+        raise DotError("DOTFILES_AUTH_MODE must be auto, gui, or terminal.")
+    return mode == "gui" or (mode == "auto" and not sys.stdin.isatty())
+
+
+def administrator_password() -> str:
+    if not gui_admin_authentication():
+        if not sys.stdin.isatty():
+            raise DotError("Terminal authentication requires an interactive terminal.")
+        return getpass.getpass("Administrator password: ")
+    inherit_graphical_session_environment()
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or not command_exists("kdialog"):
+        raise DotError(
+            "Administrator authentication requires a desktop session and kdialog, "
+            "or an interactive terminal. No password was requested."
+        )
+    # Never use a logging wrapper or include dialog output in an exception.
+    result = subprocess.run(
+        ["kdialog", "--title", "Dotfiles — administrator authorization", "--password",
+         "Dotfiles needs administrator access for the requested operation.\n"
+         "Enter your Linux account password:"],
+        text=True, capture_output=True, check=False,
+    )
+    if result.returncode:
+        raise DotError("Administrator authorization was cancelled or the desktop dialog failed.")
+    return result.stdout.removesuffix("\n")
+
+
 def ansible_become_arguments() -> list[str]:
+    global _CODEX_ADMIN_PASSWORD
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         return []
     require_commands(["sudo"], "Install sudo or run the privileged operation as root.")
@@ -995,6 +1027,9 @@ def ansible_become_arguments() -> list[str]:
         return become_method
     passwordless = run(["sudo", "-n", "true"], check=False, capture=True)
     if passwordless.returncode == 0:
+        return become_method
+    if gui_admin_authentication():
+        _CODEX_ADMIN_PASSWORD = administrator_password()
         return become_method
     if sys.stdin.isatty():
         print("Administrator access is required to update managed system packages.")
@@ -3921,6 +3956,8 @@ def ensure_chatgpt_closed_for_headless_apply() -> None:
 
 def cmd_apply(args: argparse.Namespace) -> None:
     """Keep per-run decisions from leaking into a later palette action."""
+    global _CODEX_ADMIN_PASSWORD
+    previous_password = _CODEX_ADMIN_PASSWORD
     names = ("DOTFILES_KDE_CHOICES", "DOTFILES_KDE_REVIEW_VALUES", "DOTFILES_FORCE_KDE")
     previous = {name: os.environ.get(name) for name in names}
     try:
@@ -3929,6 +3966,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
                 os.environ.pop(name, None)
         _cmd_apply(args)
     finally:
+        _CODEX_ADMIN_PASSWORD = previous_password
         for name, value in previous.items():
             if value is None:
                 os.environ.pop(name, None)
@@ -6211,11 +6249,9 @@ def codex_update_admin(required: bool):
     if not required or os.geteuid() == 0:
         yield
         return
-    if not sys.stdin.isatty():
-        raise DotError("Run the Codex update in an interactive terminal for administrator authentication.")
     previous = _CODEX_ADMIN_PASSWORD
     try:
-        _CODEX_ADMIN_PASSWORD = getpass.getpass("Administrator password: ")
+        _CODEX_ADMIN_PASSWORD = administrator_password()
         # Validate the supplied password, independently of any existing cache.
         codex_admin_command(["-k", "-v"])
         yield

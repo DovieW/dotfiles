@@ -632,7 +632,24 @@ already installed**. The temporary desktop inclusion does not change the saved
 profile or Remote Control ownership mode. It does not run unrelated FilmCraft
 configuration.
 
-Administrator authentication asks once and holds the password only in memory
+`dot apply` and Codex update authentication automatically use a KDE password
+dialog when standard input is not an interactive terminal. They recover the
+current user's Plasma session environment when needed. An interactive terminal
+keeps its normal text prompt. To force a dialog when an agent has a PTY that
+you cannot see, use `DOTFILES_AUTH_MODE=gui`; `DOTFILES_AUTH_MODE=terminal`
+requires an interactive terminal, and `auto` is the default. For example:
+
+```sh
+DOTFILES_AUTH_MODE=gui bin/dot apply --profile kubuntu-desktop --tags nomachine
+```
+
+A dialog requires an available desktop session and `kdialog`. Cancelling or a
+dialog failure aborts authentication without falling back to a hidden text
+prompt. Existing sudo authorization and running as root do not need a dialog
+for `dot apply`. This routing applies to these dot commands; ordinary `sudo`
+commands keep their own authentication behavior.
+
+Codex update administrator authentication asks once and holds the password only in memory
 for the update. It is passed to Ansible through its supported become-password
 environment and to service restarts through sudo stdin, then released on success
 or failure. It is never written to logs, arguments, or files. This does not rely
