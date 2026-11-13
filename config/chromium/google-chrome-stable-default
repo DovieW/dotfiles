@@ -7,4 +7,8 @@ if [[ -w /proc/self/oom_score_adj ]]; then
   printf '500\n' > /proc/self/oom_score_adj || true
 fi
 
-exec /usr/bin/google-chrome-stable "$@"
+# Chromium's explicit Wayland color management can also wash out SDR desktop
+# displays. Use the same workaround as the laptop without its OLED policy.
+exec /usr/bin/google-chrome-stable \
+  --disable-features=WaylandWpColorManagerV1 \
+  "$@"

@@ -373,6 +373,10 @@ Managed Chrome, VS Code, Obsidian, and ChatGPT launchers disable
 as Plasma. This is an intentional appearance preference, not a color-accurate
 workflow; switch to `factory-accurate` when restrained sRGB rendering matters.
 
+The default Chrome launcher also disables `WaylandWpColorManagerV1` on the
+Kubuntu desktop to work around washed-out SDR colors. This does not enable the
+laptop's OLED display policy or change the desktop monitor's color settings.
+
 Performance policy uses performance on AC, balanced on battery, and power-saver
 at low battery. Display brightness remains under manual control, including at
 20% charge or below and across charging, battery, and lid transitions.
