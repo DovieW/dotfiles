@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Teams for Linux
+# Native Wayland enables portal capture of Wayland windows such as Remmina.
+Exec=/opt/teams-for-linux/teams-for-linux --ozone-platform=wayland %U
+Terminal=false
+Type=Application
+Icon=teams-for-linux
+StartupWMClass=teams-for-linux
+Comment=Unofficial Microsoft Teams client for Linux
+MimeType=x-scheme-handler/msteams;
+Categories=Chat;Network;Office;

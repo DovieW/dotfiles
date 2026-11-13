@@ -96,6 +96,25 @@ Use `dot panel use windows-classic` to rebuild the baseline. The named profile
 is authoritative: switching reconstructs its exact widget order, prints a
 rollback ID, and leaves Plasma-generated containment IDs host-local.
 
+### Teams does not offer Remmina as a shareable window
+
+Older Teams for Linux packages force `--ozone-platform=x11` in their desktop
+launcher. In a Wayland session, that capture path only lists X11 windows and
+cannot see native Wayland windows such as Remmina. Dotfiles overrides the menu
+launcher with `--ozone-platform=wayland` to request native Wayland explicitly.
+This launcher requires a Wayland desktop session.
+
+```bash
+dot apply --profile kubuntu-laptop --tags teams
+```
+
+After saving message drafts and ending any call, fully quit Teams from its tray
+and reopen it from the application menu. Applying this configuration never
+restarts Teams. Select the desired window in KDE's screen-sharing picker and
+confirm the result with a meeting participant. If native Wayland has rendering
+or window-management problems, fully quit and temporarily run
+`teams-for-linux --ozone-platform=x11`.
+
 ### A downloaded `.rdp` file does not open
 
 Repair the client, MIME database, desktop entry, and default association:

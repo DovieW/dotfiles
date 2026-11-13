@@ -3616,6 +3616,18 @@ def apply_direct(
                 ],
                 check=False,
             )
+    if "teams-for-linux" in profile.get("packages", {}).get("deb", []) and selected(
+        "teams", "config"
+    ):
+        changes += int(link_file(
+            ROOT / "config/applications/teams-for-linux.desktop",
+            Path.home() / ".local/share/applications/teams-for-linux.desktop",
+        ))
+        if command_exists("update-desktop-database"):
+            run(
+                ["update-desktop-database", str(Path.home() / ".local/share/applications")],
+                check=False,
+            )
     if features.get("rdp_files") and selected("rdp", "config"):
         legacy_rdp_desktop = (
             Path.home() / ".local/share/applications/dot-rdp.desktop"
