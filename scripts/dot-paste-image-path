@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Save a Wayland clipboard image privately in /tmp and type its path."""
+"""Save the current or newest CopyQ clipboard image in /tmp and type its path."""
 
 import argparse
 import os
@@ -21,15 +21,45 @@ def check():
     socket = Path(os.environ.get("YDOTOOL_SOCKET", os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") + "/.ydotool_socket"))
     if not socket.is_socket() or not os.access("/dev/uinput", os.W_OK):
         raise RuntimeError("The managed ydotool socket and uinput access are required.")
-    run(["wl-paste", "--list-types"], stdout=subprocess.DEVNULL)
+    run(["wl-paste", "--version"], stdout=subprocess.DEVNULL)
+
+
+# Evaluate via stdin: CopyQ interprets backslash escapes in CLI arguments.
+# Read bytes directly without selecting an item or changing the clipboard/UI.
+COPYQ_IMAGE_SCRIPT = r"""
+if (tab().indexOf("Clipboard") < 0) fail();
+tab("Clipboard");
+var found = false;
+for (var row = 0; row < size() && !found; ++row) {
+    var formats = str(read("?", row)).split("\n");
+    var images = formats.filter(function(mime) { return mime.indexOf("image/") === 0; });
+    if (!images.length) continue;
+    var mime = images.indexOf("image/png") >= 0 ? "image/png" : images[0];
+    print(read(mime, row));
+    found = true;
+}
+if (!found) fail();
+"""
+
+
+def read_image_data():
+    try:
+        types = run(["wl-paste", "--list-types"], capture_output=True).stdout.decode().splitlines()
+        mime = next((item for item in ["image/png", *types] if item in types and item.startswith("image/")), None)
+        if mime is not None:
+            return run(["wl-paste", "--no-newline", "--type", mime], capture_output=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        # Empty/unavailable live clipboards must not prevent reading history.
+        pass
+    copyq = Path(os.environ.get("XDG_BIN_HOME", Path.home() / ".local/bin")) / "copyq"
+    try:
+        return run([str(copyq), "eval", "-"], input=COPYQ_IMAGE_SCRIPT.encode(), capture_output=True).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("No clipboard image is available; CopyQ history has no image or is unavailable.") from error
 
 
 def save_image():
-    types = run(["wl-paste", "--list-types"], capture_output=True).stdout.decode().splitlines()
-    mime = next((item for item in ["image/png", *types] if item in types and item.startswith("image/")), None)
-    if mime is None:
-        raise RuntimeError("The clipboard does not contain an image.")
-    data = run(["wl-paste", "--no-newline", "--type", mime], capture_output=True).stdout
+    data = read_image_data()
     from PyQt6.QtGui import QImage
 
     image = QImage.fromData(data)

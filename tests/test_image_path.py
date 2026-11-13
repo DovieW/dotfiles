@@ -40,12 +40,34 @@ class ImagePathTests(unittest.TestCase):
             path.unlink()
 
     @unittest.skipIf(QImage is None, "PyQt6 desktop image codecs unavailable")
-    def test_nonimage_and_invalid_image_never_create_file(self):
-        for results in [[subprocess.CompletedProcess([], 0, b'text/plain\n')], [
-            subprocess.CompletedProcess([], 0, b'image/png\n'),
-            subprocess.CompletedProcess([], 0, b'not an image'),
-        ]]:
-            with self.subTest(results=results), mock.patch.object(helper, 'run', side_effect=results), mock.patch.object(helper.tempfile, 'mkstemp') as create:
+    def test_invalid_image_never_creates_file(self):
+        with mock.patch.object(helper, 'read_image_data', return_value=b'not an image'), mock.patch.object(helper.tempfile, 'mkstemp') as create:
+            with self.assertRaises(RuntimeError):
+                helper.save_image()
+            create.assert_not_called()
+
+    def test_text_clipboard_falls_back_to_copyq_without_selecting(self):
+        with mock.patch.object(helper, 'run', side_effect=[
+            subprocess.CompletedProcess([], 0, b'text/plain\n'),
+            subprocess.CompletedProcess([], 0, b'image bytes'),
+        ]) as run:
+            self.assertEqual(helper.read_image_data(), b'image bytes')
+        command = run.call_args_list[-1]
+        self.assertEqual(command.args[0][1:], ['eval', '-'])
+        self.assertEqual(command.kwargs['input'], helper.COPYQ_IMAGE_SCRIPT.encode())
+
+    def test_unavailable_live_clipboard_still_reads_history(self):
+        with mock.patch.object(helper, 'run', side_effect=[
+            subprocess.CalledProcessError(1, 'wl-paste'),
+            subprocess.CompletedProcess([], 0, b'history image'),
+        ]):
+            self.assertEqual(helper.read_image_data(), b'history image')
+
+    def test_missing_history_or_copyq_fails_without_creating_file(self):
+        for error in [FileNotFoundError(), subprocess.CalledProcessError(1, 'copyq')]:
+            with self.subTest(error=error), mock.patch.object(helper, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, b'text/plain\n'), error,
+            ]), mock.patch.object(helper.tempfile, 'mkstemp') as create:
                 with self.assertRaises(RuntimeError):
                     helper.save_image()
                 create.assert_not_called()
