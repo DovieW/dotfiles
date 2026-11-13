@@ -288,49 +288,55 @@ the Codex session-identity integration with:
 dot apply --profile kubuntu-laptop --tags packages,herdr
 ```
 
-For local and remote Codex work in the same window, save the desktop as a
-Herdr SSH machine. Use normal OpenSSH over Tailscale; verify
-`ssh dovie-desktop-linux` works first. On the desktop, update the existing Homebrew
-installation with `brew upgrade herdr`, then run:
+For local and remote Codex work in the same window, each workstation saves the
+other as a Herdr SSH machine. Use normal OpenSSH over Tailscale; verify
+`ssh dovie@dovie-desktop-linux` from the laptop and
+`ssh dovie@dovie-ideapad-linux` from the desktop first. Both hosts need a compatible
+Herdr installation. Apply the appropriate profile on each computer:
 
 ```bash
+# On the laptop:
+dot apply --profile kubuntu-laptop --tags herdr
+# On the desktop:
 dot apply --profile kubuntu-desktop --tags herdr
 herdr config check
+herdr machine list
+herdr machine status --json
 ```
 
-The laptop profile enables `herdr_desktop_machine`; the desktop profile disables
-it. `config/herdr/machines.json` declares the SSH target, sidebar label, and
-remote session. Laptop provisioning and `dot apply --tags herdr` register this
-connection automatically through Herdr's CLI, preserving other saved machines
-and avoiding duplicates. An existing matching disabled entry is enabled.
+The laptop profile enables `herdr_desktop_machine`; the desktop profile enables
+`herdr_laptop_machine` instead. `config/herdr/machines.json` declares the Desktop
+peer and `config/herdr/machines-laptop.json` declares the Laptop peer, including
+the SSH target, sidebar label, and remote session. Provisioning and
+`dot apply --tags herdr` register the profile's peer automatically through
+Herdr's CLI, preserving other saved machines and avoiding duplicates. An
+existing matching disabled entry is enabled. Neither profile registers itself.
 
 Registration requires working key-only SSH, a previously trusted host key, and
-a compatible remote Herdr installation. Offline or unprepared desktops produce
-a `DEFERRED` notice without failing laptop setup. Once those prerequisites are
-ready, rerun the laptop apply step; `dot doctor` reports missing or disabled
-managed connections without contacting the desktop.
+a compatible remote Herdr installation. Offline or unprepared peers produce
+a `DEFERRED` notice without failing setup. Once those prerequisites are ready,
+rerun the apply step; `dot doctor` reports missing or disabled managed connections
+without contacting the peer. `herdr machine status --json` checks live reachability.
 
-Back on the laptop, apply and inspect the connection:
+Open Herdr normally with `herdr` or `t`. The laptop's sidebar contains Local and
+Desktop; the desktop's contains Local and Laptop. Saved enabled peers connect
+in the background automatically, including in already-open clients. Choose the
+peer or one of its existing workspaces to continue remote work; create a workspace
+there to start new work. Click Local to return to local work. With the managed
+prefix, Ctrl-Space then `w` opens workspace navigation; arrows and Enter select a
+workspace across connected machines. Each machine owns its own workspaces,
+panes, and processes; one window can switch between them, but a split layout
+belongs to one machine. The peer must be awake and online. Herdr retries after
+network interruptions or sleep without stopping its remote agents; returning to
+Local remains available while a peer is offline.
 
-```bash
-dot apply --profile kubuntu-laptop --tags herdr
-herdr machine list
-```
-
-Open Herdr normally with `herdr` or `t`. Its sidebar contains Local and Desktop;
-click Desktop and create a workspace there, then start `codex` in its pane.
-Click Local to return to local work. With the managed prefix, Ctrl-Space then
-`w` opens workspace navigation; arrows and Enter select a workspace across
-connected machines. Each machine owns its own workspaces, panes, and processes;
-one window can switch between them, but a split layout belongs to one machine.
-
-For a clipboard image in a Desktop pane, press Ctrl-V (Herdr's default
+For a clipboard image in a remote pane, press Ctrl-V (Herdr's default
 `remote_image_paste` binding). The local client reads the image and transfers it
-to a temporary file on the desktop, then inserts its remote path. Running
+to a temporary file on the peer, then inserts its remote path. Running
 `ssh` inside a Local pane does not provide this bridge. Local Codex panes use
 Codex's own clipboard support. Verify an actual image attachment in the remote
 Codex prompt after setup; successful SSH and machine registration alone do not
-prove the desktop clipboard path works.
+prove the remote clipboard path works.
 
 On native Kubuntu, **Meta+Shift+I** saves the current clipboard image as a
 private PNG in a user-owned, mode-0700 `/tmp/dot-images-<uid>/` directory.
@@ -350,13 +356,13 @@ temporary-file cleanup; do not use them as permanent attachments. If neither the
 produces a notification instead of typing anything.
 `dot-paste-image-path --check` checks readiness without saving or typing.
 Apply with `dot apply --profile <profile> --tags clipboard` on either machine.
-A laptop-local path is not accessible to a Desktop-hosted chat: use Herdr's
-Ctrl-V image bridge for those remote panes.
+A path on one computer is not accessible to a chat hosted on the other: use
+Herdr's Ctrl-V image bridge for remote panes in either direction.
 
 Saved machines are Herdr-owned local state, separate from the managed
 `config.toml`; do not replace the catalog during `dot apply`. The explicit
 `default` session avoids accidentally targeting another remote session.
-Registration prepares the remote server noninteractively during laptop apply;
+Registration prepares the remote server noninteractively during apply;
 it never approves remote software installation or server replacement. If manual
 Herdr setup requests replacement of a running incompatible server, inspect its
 sessions first: replacement can stop its agents. Disabling

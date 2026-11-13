@@ -17,12 +17,12 @@ class HerdrMachinesTests(unittest.TestCase):
         self.existing = {"id": "existing", "label": "Desktop", "target": "dovie-desktop-linux",
                          "session": "default", "enabled": True}
 
-    def run_reconcile(self, saved, results=(), check=False):
+    def run_reconcile(self, saved, results=(), check=False, source=None):
         responses = [subprocess.CompletedProcess([], 0, json.dumps(saved), ""), *results]
         calls = mock.Mock(side_effect=responses)
         output = io.StringIO()
         with mock.patch.dict(self.reconcile.__globals__, {"command": calls}), contextlib.redirect_stdout(output):
-            status = self.reconcile(self.source, check)
+            status = self.reconcile(source or self.source, check)
         return status, calls.call_args_list, output.getvalue()
 
     def test_existing_alias_is_idempotent_and_preserves_other_machines(self):
@@ -75,10 +75,50 @@ class HerdrMachinesTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another target"):
             self.run_reconcile([{**self.existing, "target": "other"}])
 
-    def test_profile_inheritance_enables_laptops_only(self):
-        load = runpy.run_path(str(ROOT / "bin/dot"))["load_profile"]
-        self.assertTrue(load("kubuntu-laptop")["features"]["herdr_desktop_machine"])
-        self.assertFalse(load("kubuntu-desktop")["features"]["herdr_desktop_machine"])
+    def test_profiles_select_only_the_other_machine(self):
+        module = runpy.run_path(str(ROOT / "bin/dot"))
+        for profile, filename, label, target in (
+            ("kubuntu-laptop", "machines.json", "Desktop", "dovie@dovie-desktop-linux"),
+            ("kubuntu-desktop", "machines-laptop.json", "Laptop", "dovie@dovie-ideapad-linux"),
+        ):
+            with self.subTest(profile=profile):
+                sources = module["herdr_machine_sources"](module["load_profile"](profile))
+                self.assertEqual(sources, [ROOT / "config/herdr" / filename])
+                self.assertEqual(json.loads(sources[0].read_text()),
+                                 [{"label": label, "target": target, "session": "default"}])
+        self.assertEqual(module["herdr_machine_sources"](module["load_profile"]("common-linux")), [])
+
+    def test_laptop_peer_registers_and_reapplies_without_duplicates(self):
+        source = ROOT / "config/herdr/machines-laptop.json"
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        status, calls, _ = self.run_reconcile([], [ok, ok], source=source)
+        self.assertEqual(status, 0)
+        self.assertEqual(calls[2].args[0], ["herdr", "machine", "add", "dovie@dovie-ideapad-linux",
+                                          "--label", "Laptop", "--remote-session", "default"])
+        laptop = {**self.existing, "label": "Laptop", "target": "dovie@dovie-ideapad-linux"}
+        for check in (False, True):
+            with self.subTest(check=check):
+                status, calls, _ = self.run_reconcile([laptop], check=check, source=source)
+                self.assertEqual(status, 0)
+                self.assertEqual(len(calls), 1)
+
+    def test_laptop_missing_or_disabled_check_never_connects_or_enables(self):
+        source = ROOT / "config/herdr/machines-laptop.json"
+        laptop = {**self.existing, "label": "Laptop", "target": "dovie@dovie-ideapad-linux",
+                  "enabled": False}
+        for saved in ([], [laptop]):
+            with self.subTest(saved=saved):
+                status, calls, _ = self.run_reconcile(saved, check=True, source=source)
+                self.assertEqual(status, 1)
+                self.assertEqual(len(calls), 1)
+
+    def test_offline_laptop_defers(self):
+        failure = subprocess.CompletedProcess([], 255, "", "offline")
+        status, calls, output = self.run_reconcile(
+            [], [failure], source=ROOT / "config/herdr/machines-laptop.json")
+        self.assertEqual(status, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("DEFERRED Herdr machine Laptop", output)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
     "anydesk": false,
     "chatgpt_desktop": false,
     "herdr_desktop_machine": false,
+    "herdr_laptop_machine": true,
     "codex_remote_control_mode": "headless",
     "factory_display_profile": false,
     "ideapad_fn_lock": false,

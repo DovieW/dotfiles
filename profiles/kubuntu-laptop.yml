@@ -12,6 +12,7 @@
     "filmcraft_mcp": false,
     "google_chrome": true,
     "herdr_desktop_machine": true,
+    "herdr_laptop_machine": false,
     "codex_remote_control": true,
     "codex_remote_control_mode": "desktop",
     "copyq": true,
