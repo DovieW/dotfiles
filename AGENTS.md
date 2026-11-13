@@ -1,5 +1,14 @@
 # Repository agent instructions
 
+## Always commit and push changes
+
+For every repository change, complete the relevant validation, then commit and
+push the changes before reporting the task finished. Do this automatically
+without waiting for the user to ask or confirm. Use selective staging so unrelated
+pre-existing edits are not included. If committing or pushing fails, report the
+failure explicitly and do not claim the changes were pushed. Follow any explicit
+user instruction to leave a particular change uncommitted or unpushed.
+
 ## Package updates must activate running code
 
 A successful package transaction does not mean running programs use the new
