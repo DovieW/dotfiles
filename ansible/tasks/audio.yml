@@ -1,0 +1,22 @@
+---
+- name: Create WirePlumber configuration directory
+  ansible.builtin.file:
+    path: "{{ ansible_facts.env.HOME }}/.config/wireplumber/wireplumber.conf.d"
+    state: directory
+    mode: "0755"
+
+- name: Install preferred USB audio priorities
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/wireplumber/60-preferred-audio.conf"
+    dest: "{{ ansible_facts.env.HOME }}/.config/wireplumber/wireplumber.conf.d/60-preferred-audio.conf"
+    mode: "0644"
+  register: dot_audio_config
+
+- name: Explain audio policy activation
+  ansible.builtin.debug:
+    msg: >-
+      Audio priorities take effect at the next login or WirePlumber restart.
+      Existing manually selected defaults take precedence; run wpctl clear-default
+      once to opt into automatic selection. See docs/audio.md.
+      Audio services are not restarted by dot apply or check mode.
+  when: dot_audio_config.changed
