@@ -4,6 +4,23 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+if [[ $# -ne 1 ]]; then
+  if [[ $# -eq 0 ]]; then
+    set -- profiles python qml shellcheck bats ansible ansible-lint yaml nvim formatting safety
+  fi
+  failed=0
+  for check in "$@"; do
+    echo "=== $check ==="
+    if "$0" "$check"; then
+      echo "PASS $check"
+    else
+      echo "FAIL $check" >&2
+      failed=1
+    fi
+  done
+  exit "$failed"
+fi
+
 skip_or_fail() {
   local tool="$1"
   local check="$2"
@@ -14,60 +31,101 @@ skip_or_fail() {
   echo "SKIP $check: $tool is not installed"
 }
 
-python3 tests/validate_profiles.py
-python3 -m unittest tests/test_ytm.py tests/test_obs_audio.py tests/test_davinci_resolve.py
-python3 -m unittest tests/test_shortcuts.py tests/test_image_path.py tests/test_cli.py tests/test_kde_apply.py tests/test_file_manager.py tests/test_dolphin_places.py tests/test_startup_sync.py tests/test_krdp.py tests/test_krdp_refresh.py tests/test_updated_processes.py tests/test_krdp_audio.py tests/test_recovery.py tests/test_desktop_wallet.py tests/test_herdr_machines.py
-
-if [[ -x /usr/lib/qt6/bin/qmltestrunner && -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreen.qml ]]; then
-  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-    /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
-else
-  echo "SKIP lock-screen interaction tests: local Plasma QML modules and Qt QML test tools are required"
-fi
-
-if command -v shellcheck >/dev/null 2>&1; then
-  mapfile -t shell_files < <(find bin config scripts tests \
-    -path '*/node_modules/*' -prune -o -type f \
-    \( -name '*.sh' -o -name mbash -o -name ytm -o -name dot-rdp -o -name 'git-*' -o -name provision-segoe -o -name 'install-*' \) \
-    -not -name git-repo-analysis -print)
-  shellcheck "${shell_files[@]}"
-else
-  skip_or_fail shellcheck shellcheck
-fi
-
-if command -v bats >/dev/null 2>&1; then
-  bats tests/shell.bats
-else
-  skip_or_fail bats bats
-fi
-
-if command -v ansible-playbook >/dev/null 2>&1; then
-  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
-  mkdir -p "$state_dir"
-  python3 -c 'import json,sys; from pathlib import Path; sys.path.insert(0, "bin")' 2>/dev/null || true
-  ansible-playbook -i ansible/inventory.ini ansible/local.yml --syntax-check \
-    -e dot_profile=kubuntu-laptop \
-    -e '{"dot_profile_data":{"schema_version":1,"name":"kubuntu-laptop","packages":{},"features":{}}}'
-else
-  skip_or_fail ansible-playbook "ansible syntax"
-fi
-
-if [[ -d /home/linuxbrew/.linuxbrew/bin ]]; then
-  export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
-fi
-
-if command -v nvim >/dev/null 2>&1; then
-  nvim --headless \
-    '+lua vim.g.dovie_headless=true' \
-    "+lua dofile(vim.fn.stdpath('config') .. '/tests/smoke.lua')" \
-    '+qa'
-  if command -v stylua >/dev/null 2>&1; then
-    stylua --check config/nvim/init.lua config/nvim/lua config/nvim/tests
-  else
-    skip_or_fail stylua "Neovim formatting"
-  fi
-else
-  skip_or_fail nvim "Neovim smoke test"
-fi
-
-scripts/check-public-safety
+case "$1" in
+  profiles)
+    python3 tests/validate_profiles.py
+    ;;
+  python)
+    python3 -m unittest discover -s tests -p 'test_*.py'
+    ;;
+  qml)
+    if [[ -x /usr/lib/qt6/bin/qmltestrunner && -f /usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreen.qml ]]; then
+      QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+        /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
+    else
+      echo "SKIP lock-screen interaction tests: local Plasma QML modules and Qt QML test tools are required"
+    fi
+    ;;
+  shellcheck)
+    if command -v shellcheck >/dev/null 2>&1; then
+      mapfile -t shell_files < <(find bin config scripts tests \
+        -path '*/node_modules/*' -prune -o -type f \
+        \( -name '*.sh' -o -name mbash -o -name ytm -o -name dot-rdp -o -name 'git-*' -o -name provision-segoe -o -name 'install-*' \) \
+        -not -name git-repo-analysis -print)
+      shellcheck .githooks/pre-push "${shell_files[@]}"
+    else
+      skip_or_fail shellcheck shellcheck
+    fi
+    ;;
+  bats)
+    if command -v bats >/dev/null 2>&1; then
+      bats tests/shell.bats
+    else
+      skip_or_fail bats bats
+    fi
+    ;;
+  ansible)
+    if command -v ansible-playbook >/dev/null 2>&1; then
+      ansible-playbook -i ansible/inventory.ini ansible/local.yml --syntax-check \
+        -e dot_profile=kubuntu-laptop \
+        -e '{"dot_profile_data":{"schema_version":1,"name":"kubuntu-laptop","packages":{},"features":{}}}'
+    else
+      skip_or_fail ansible-playbook "ansible syntax"
+    fi
+    ;;
+  ansible-lint)
+    if command -v ansible-lint >/dev/null 2>&1; then
+      ansible-lint ansible/local.yml
+    else
+      skip_or_fail ansible-lint "Ansible lint"
+    fi
+    ;;
+  yaml)
+    if command -v yamllint >/dev/null 2>&1; then
+      yamllint ansible .github
+    else
+      skip_or_fail yamllint "YAML lint"
+    fi
+    ;;
+  nvim)
+    export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+    if command -v nvim >/dev/null 2>&1; then
+      # A clean checkout must load the tracked config and locked plugins, without
+      # depending on (or modifying) the user's installed Neovim configuration.
+      sandbox="$(mktemp -d)"
+      trap 'rm -rf -- "$sandbox"' EXIT
+      export XDG_CONFIG_HOME="$sandbox/config"
+      export XDG_DATA_HOME="$sandbox/data"
+      export XDG_STATE_HOME="$sandbox/state"
+      export XDG_CACHE_HOME="$sandbox/cache"
+      mkdir -p "$XDG_CONFIG_HOME"
+      cp -R config/nvim "$XDG_CONFIG_HOME/nvim"
+      nvim --headless --cmd 'lua vim.g.dovie_headless=true' '+Lazy! restore' '+qa'
+      nvim --headless --cmd 'lua vim.g.dovie_headless=true' \
+        '+lua
+          local ok, err = pcall(dofile, vim.fn.stdpath("config") .. "/tests/smoke.lua")
+          if not ok then
+            vim.api.nvim_err_writeln(tostring(err))
+            vim.cmd("cquit 1")
+          end' \
+        '+qa'
+    else
+      skip_or_fail nvim "Neovim smoke test"
+    fi
+    ;;
+  formatting)
+    export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+    if command -v stylua >/dev/null 2>&1; then
+      stylua --check config/nvim/init.lua config/nvim/lua config/nvim/tests
+    else
+      skip_or_fail stylua "Neovim formatting"
+    fi
+    ;;
+  safety)
+    scripts/check-public-safety
+    ;;
+  *)
+    echo "Unknown check: $1" >&2
+    exit 2
+    ;;
+esac

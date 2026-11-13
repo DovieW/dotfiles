@@ -31,18 +31,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats ripgrep shellcheck
           python3 -m pip install --requirement .github/requirements-validation.txt
+          ansible-galaxy collection install --requirements-file .github/requirements-collections.yml
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew install neovim stylua
+          brew install neovim stylua tree-sitter-cli gitleaks
       - name: Validate
         run: ./tests/run
-      - name: Ansible lint
-        run: ansible-lint ansible/local.yml
-      - name: YAML lint
-        run: yamllint ansible .github
       - name: Gitleaks
+        if: ${{ !cancelled() }}
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   powershell:
     runs-on: windows-latest

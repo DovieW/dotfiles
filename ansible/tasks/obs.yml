@@ -1,3 +1,4 @@
+---
 - name: Detect OBS native display resolution
   ansible.builtin.command:
     argv: ["{{ dot_repo }}/scripts/obs-display-size"]

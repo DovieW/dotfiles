@@ -104,12 +104,14 @@
       become: true
       ansible.builtin.command:
         argv: [virsh, --connect, 'qemu:///system', net-autostart, default]
+      changed_when: true
       when: not (dot_virtualization_network.stdout is search('(?m)^Autostart:\s+yes\s*$'))
 
     - name: Start the default NAT network
       become: true
       ansible.builtin.command:
         argv: [virsh, --connect, 'qemu:///system', net-start, default]
+      changed_when: true
       when: not (dot_virtualization_network.stdout is search('(?m)^Active:\s+yes\s*$'))
 
     - name: Verify libvirt hardware acceleration
@@ -128,7 +130,8 @@
           Virtual Machine Manager is installed. Log out and back in to activate
           new kvm/libvirt group membership. Existing VMs and their autostart
           settings are preserved; no guest has been created or started.
-      when: dot_virtualization_groups.changed
+      # Report the login boundary immediately; no service action is deferred.
+      when: dot_virtualization_groups.changed  # noqa no-handler
 
 - name: Explain virtualization check mode
   ansible.builtin.debug:

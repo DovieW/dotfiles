@@ -28,7 +28,8 @@
 - name: Install Connection Check icon
   ansible.builtin.copy:
     src: "{{ dot_repo }}/config/applications/connection-check.svg"
-    dest: "{{ ansible_facts['user_dir'] }}/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg"
+    dest: >-
+      {{ ansible_facts['user_dir'] }}/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg
     mode: "0644"
   register: dot_connection_check_icon
 
@@ -39,7 +40,8 @@
          | replace('Exec=connection-check',
                    'Exec=' + ansible_facts['user_dir'] + '/.local/bin/connection-check')
          | replace('Icon=io.github.doview.connection-check',
-                   'Icon=' + ansible_facts['user_dir'] + '/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg') }}
+                   'Icon=' + ansible_facts['user_dir'] +
+                   '/.local/share/icons/hicolor/scalable/apps/io.github.doview.connection-check.svg') }}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.connection-check.desktop"
     mode: "0644"
   register: dot_connection_check_launcher

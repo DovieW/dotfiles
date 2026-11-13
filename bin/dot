@@ -2489,6 +2489,28 @@ def dolphin_network_places_ok() -> bool:
     return all(place["url"] in visible_urls for place in dolphin_network_places())
 
 
+def configure_repository_hooks() -> int:
+    """Install the dotfiles push gate without replacing another hook setup."""
+    hooks = str(ROOT / ".githooks")
+    current = run(["git", "config", "--get", "core.hooksPath"],
+                  cwd=ROOT, check=False, capture=True)
+    if current.returncode not in (0, 1):
+        raise DotError("Could not inspect the dotfiles Git hooks configuration.")
+    existing = current.stdout.strip()
+    if existing == hooks:
+        return 0
+    if existing:
+        raise DotError("Dotfiles already has a custom core.hooksPath; integrate its pre-push secret gate before replacing hooks.")
+    legacy = run(["git", "rev-parse", "--git-path", "hooks/pre-push"], cwd=ROOT, capture=True)
+    legacy_path = Path(legacy.stdout.strip())
+    if not legacy_path.is_absolute():
+        legacy_path = ROOT / legacy_path
+    if legacy_path.exists():
+        raise DotError("Dotfiles already has a pre-push hook; integrate secret scanning without discarding that hook.")
+    run(["git", "config", "--local", "core.hooksPath", hooks], cwd=ROOT)
+    return 1
+
+
 def apply_direct(
     profile_name: str,
     *,
@@ -2627,6 +2649,7 @@ def apply_direct(
     if features.get("neovim") and selected("nvim"):
         changes += int(link_file(ROOT / "config/nvim", Path.home() / ".config/nvim"))
     if features.get("git") and selected("git"):
+        changes += configure_repository_hooks()
         include = ROOT / "config/git/root.gitconfig"
         proc = run(["git", "config", "--global", "--get-all", "include.path"], check=False, capture=True)
         includes = proc.stdout.splitlines() if proc.returncode == 0 else []

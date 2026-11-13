@@ -603,7 +603,49 @@ dot nvim status --profile kubuntu-laptop
 ./scripts/check-public-safety
 ```
 
+`./tests/run` runs every independent check and returns failure if any check
+fails. It discovers all `tests/test_*.py` files and includes Ansible and YAML
+lint, matching the Linux CI validation step. Missing command-line validation
+tools are reported as skips locally and failures in CI. Plasma QML tests run
+where the desktop test modules are available. CI installs the pinned Python
+tools and Ansible collections from `.github/requirements-*.txt` and
+`.github/requirements-collections.yml`. To rerun selected checks, use, for example,
+`./tests/run python yaml`. The Neovim check uses a temporary configuration and
+restores `lazy-lock.json`; it needs network access and `tree-sitter-cli`, and
+leaves the installed editor configuration unchanged. CI also runs Windows Pester
+and Gitleaks separately. After pushing a CI repair, check the Actions run for the
+pushed commit before treating the repair as verified.
+
 The second apply must report zero configuration changes.
+
+## Secret protection before push
+
+`dot apply --profile PROFILE --tags git` enables this repository's tracked
+`.githooks/pre-push` hook. It preserves existing custom hook setups by stopping
+with an explanation instead of replacing them. Linux profiles install Gitleaks
+through Homebrew. For an existing checkout, install `gitleaks`, then run:
+
+```bash
+git config --local core.hooksPath "$PWD/.githooks"
+```
+
+Each push scans every outgoing commit, including commits that added a credential
+and later removed it, new branches, annotated tags, and all refs in a multi-ref
+push. Commit messages and tag annotations are scanned too. An unknown remote
+base triggers a full reachable-history scan. Deleting a
+ref sends no new objects. Findings are redacted. Missing Gitleaks, scanner
+errors, malformed refs, and tags that cannot be scanned as commit history block
+the push. Remove a secret from every outgoing commit before retrying; if it was
+exposed anywhere, rotate it as well. The shared `.gitleaks.toml` extends the
+default rules without repository exclusions. The gate ignores inline allow
+comments and `.gitleaksignore` suppression files.
+
+GitHub secret scanning and repository push protection are enabled for
+`DovieW/dotfiles`. The pinned Gitleaks Action scans history even when an earlier
+validation check fails. Local hooks can be bypassed, and GitHub push protection
+covers supported patterns and permits authorized bypasses; neither guarantees
+recognition of every possible secret. See
+[GitHub push protection](https://docs.github.com/en/code-security/concepts/secret-security/push-protection).
 
 ## Codex Remote Control
 

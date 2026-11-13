@@ -19,4 +19,5 @@
       Existing manually selected defaults take precedence; run wpctl clear-default
       once to opt into automatic selection. See docs/audio.md.
       Audio services are not restarted by dot apply or check mode.
-  when: dot_audio_config.changed
+  # This is an immediate status message, not a deferred service action.
+  when: dot_audio_config.changed  # noqa no-handler

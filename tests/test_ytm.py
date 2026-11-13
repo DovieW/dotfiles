@@ -31,6 +31,11 @@ class MusicCommandTests(unittest.TestCase):
             'sys.exit(int(os.environ.get("YTM_TEST_STATUS", "0")))\n'
         )
         self.tool.chmod(0o755)
+        # Argument tests stub all media tools, independent of host packages.
+        for dependency in ("ffmpeg", "ffprobe"):
+            stub = self.bin / dependency
+            stub.write_text("#!/bin/sh\nexit 0\n")
+            stub.chmod(0o755)
 
     def run_command(self, *args, **env):
         return subprocess.run([str(COMMAND), *args], env={**self.env, **env},
@@ -100,6 +105,22 @@ class MusicCommandTests(unittest.TestCase):
         result = self.run_command("https://example.test/a", PATH=str(self.bin))
         self.assertEqual(result.returncode, 2)
         self.assertIn("yt-dlp is required", result.stderr)
+
+    def test_missing_media_dependency_is_clear(self):
+        (self.bin / "bash").symlink_to(shutil.which("bash"))
+        for dependency in ("ffmpeg", "ffprobe"):
+            with self.subTest(dependency=dependency):
+                stub = self.bin / dependency
+                contents = stub.read_text()
+                stub.unlink()
+                try:
+                    result = self.run_command("https://example.test/a", PATH=str(self.bin))
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(f"{dependency} is required", result.stderr)
+                    self.assertFalse(self.log.exists())
+                finally:
+                    stub.write_text(contents)
+                    stub.chmod(0o755)
 
     @unittest.skipUnless(shutil.which("yt-dlp"), "yt-dlp is not installed")
     def test_real_downloader_formats_safe_single_and_playlist_paths_offline(self):

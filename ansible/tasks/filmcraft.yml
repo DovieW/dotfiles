@@ -21,7 +21,8 @@
 
 - name: Parse FilmCraft MCP registration
   ansible.builtin.set_fact:
-    dot_filmcraft_mcp_current: "{{ (dot_filmcraft_mcp_read.stdout | from_json) if dot_filmcraft_mcp_read.rc == 0 else {} }}"
+    dot_filmcraft_mcp_current: >-
+      {{ (dot_filmcraft_mcp_read.stdout | from_json) if dot_filmcraft_mcp_read.rc == 0 else {} }}
 
 - name: Register FilmCraft live-editor bridge with Codex
   ansible.builtin.command:
