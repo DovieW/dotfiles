@@ -50,14 +50,31 @@ class ImagePathTests(unittest.TestCase):
                     helper.save_image()
                 create.assert_not_called()
 
-    def test_path_is_typed_without_enter_or_clipboard_replacement(self):
-        with mock.patch.object(helper, 'run') as run, mock.patch.object(helper.time, 'sleep'):
+    def test_path_is_typed_only_after_physical_release(self):
+        events = []
+        with mock.patch.object(helper, 'run', side_effect=lambda *a, **k: events.append(('type', a[0]))), mock.patch.object(helper, 'wait_for_desktop_release', side_effect=lambda: events.append(('release', None))):
             helper.paste_path(Path('/tmp/dot-image-test.png'))
-        commands = [call.args[0] for call in run.call_args_list]
-        self.assertEqual(commands[0][1], 'key')
-        self.assertTrue(all(key.endswith(':0') for key in commands[0][2:]))
-        self.assertEqual(commands[1][-1], '/tmp/dot-image-test.png ')
-        self.assertNotIn('\n', commands[1][-1])
+        self.assertEqual([event[0] for event in events], ['release', 'type'])
+        command = events[1][1]
+        self.assertEqual(command[1], 'type')
+        self.assertEqual(command[-1], '/tmp/dot-image-test.png ')
+        self.assertNotIn('\n', command[-1])
+
+    def test_held_modifiers_prevent_typing(self):
+        with mock.patch.object(helper, 'wait_for_desktop_release', side_effect=RuntimeError('held')), mock.patch.object(helper, 'run') as run:
+            with self.assertRaises(RuntimeError):
+                helper.paste_path(Path('/tmp/dot-image-test.png'))
+            run.assert_not_called()
+
+    def test_wait_requires_stable_release_and_times_out_when_held(self):
+        clock = [0.0]
+        def advance(seconds):
+            clock[0] += seconds
+        with mock.patch.object(helper.time, 'monotonic', side_effect=lambda: clock[0]), mock.patch.object(helper.time, 'sleep', side_effect=advance):
+            helper.wait_for_modifiers(lambda: clock[0] < 0.5, lambda: None)
+            self.assertGreaterEqual(clock[0], 0.85)
+            with self.assertRaises(RuntimeError):
+                helper.wait_for_modifiers(lambda: True, lambda: None, timeout=1)
 
     def test_check_never_saves_or_types(self):
         with mock.patch.object(helper.sys, 'argv', ['helper', '--check']), mock.patch.object(helper, 'check'), mock.patch.object(helper, 'save_image') as save, mock.patch.object(helper, 'paste_path') as paste:

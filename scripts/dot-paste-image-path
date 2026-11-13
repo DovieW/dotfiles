@@ -48,12 +48,61 @@ def save_image():
     return path
 
 
+def wait_for_modifiers(read_held, process_events, timeout=10):
+    """Wait for a stable release, allowing Wayland's initial state to arrive."""
+    deadline = time.monotonic() + timeout
+    clear_since = None
+    while time.monotonic() < deadline:
+        process_events()
+        if read_held():
+            clear_since = None
+        elif clear_since is None:
+            clear_since = time.monotonic()
+        elif time.monotonic() - clear_since >= 0.35:
+            return
+        time.sleep(0.02)
+    raise RuntimeError("Release the shortcut modifiers before pasting.")
+
+
+def wait_for_desktop_release():
+    # KDE's Wayland key-state provider observes physical modifiers across
+    # devices. Releasing ydotool's virtual keys cannot release physical keys.
+    from PyQt6.QtCore import QUrl
+    from PyQt6.QtGui import QGuiApplication
+    from PyQt6.QtQml import QQmlComponent, QQmlEngine
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    engine = QQmlEngine()
+    component = QQmlComponent(engine)
+    component.setData(b"""
+import QtQuick
+import org.kde.plasma.private.keyboardindicator as KI
+QtObject {
+    property KI.KeyState meta: KI.KeyState { key: Qt.Key_Meta }
+    property KI.KeyState shift: KI.KeyState { key: Qt.Key_Shift }
+    property KI.KeyState ctrl: KI.KeyState { key: Qt.Key_Control }
+    property KI.KeyState alt: KI.KeyState { key: Qt.Key_Alt }
+    property KI.KeyState altgr: KI.KeyState { key: Qt.Key_AltGr }
+    property bool held: meta.pressed || meta.latched || shift.pressed || shift.latched
+                        || ctrl.pressed || ctrl.latched || alt.pressed || alt.latched
+                        || altgr.pressed || altgr.latched
+}
+""", QUrl())
+    state = component.create()
+    if state is None:
+        raise RuntimeError("KDE modifier-state monitoring is unavailable; refusing to type.")
+    wait_for_modifiers(lambda: state.property("held"), app.processEvents)
+    # Destroy QML objects before their engine and application.
+    from PyQt6 import sip
+    sip.delete(state)
+    sip.delete(component)
+    sip.delete(engine)
+
+
 def paste_path(path):
-    # Release the shortcut modifiers before typing. Do not replace the clipboard
-    # or send Enter: this works in terminals without invoking their image paste.
-    run(["/usr/bin/ydotool", "key", "29:0", "42:0", "54:0", "56:0", "97:0", "100:0", "125:0", "126:0"], stdout=subprocess.DEVNULL)
-    time.sleep(0.12)
-    run(["/usr/bin/ydotool", "type", "--key-delay=1", "--key-hold=1", "--", str(path) + " "], stdout=subprocess.DEVNULL)
+    wait_for_desktop_release()
+    # No synthetic modifier releases, clipboard replacement, or Enter.
+    run(["/usr/bin/ydotool", "type", "--key-delay=5", "--key-hold=5", "--", str(path) + " "], stdout=subprocess.DEVNULL)
 
 
 def main():

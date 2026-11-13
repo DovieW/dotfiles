@@ -4270,7 +4270,7 @@ else:
         self.assertIn("dot-copyq-history.service", clipboard_script)
         self.assertIn("dot-emoji-picker.service", clipboard_script)
         self.assertIn('"RestartUnit"', clipboard_script)
-        self.assertNotIn('"StartUnit"', clipboard_script)
+        self.assertIn('"dot-paste-image-path.service", "fail"', clipboard_script)
         self.assertIn('${XDG_BIN_HOME:-$HOME/.local/bin}/copyq', history_script)
         self.assertIn("systemctl --user start dot-copyq.service", history_script)
         self.assertNotIn('"$copyq_bin" hide', history_script)

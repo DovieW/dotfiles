@@ -89,7 +89,13 @@ registerShortcut(
     "dot-paste-image-path",
     "Paste Clipboard Image as Temporary Path",
     "Meta+Shift+I",
-    function () { reopenUserUnit("dot-paste-image-path.service"); }
+    function () {
+        // Ignore another activation while saving/waiting/typing; never kill a
+        // running injection halfway through a key sequence.
+        callDBus("org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                 "org.freedesktop.systemd1.Manager", "StartUnit",
+                 "dot-paste-image-path.service", "fail");
+    }
 );
 
 registerShortcut(
