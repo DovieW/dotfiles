@@ -253,8 +253,23 @@ prompts for, stores, or retrieves keys from Bitwarden.
 
 `Meta+Shift+/` (Windows+Shift+/, the `?` key on a US keyboard) opens a
 searchable shortcut reference. It reads this computer's assigned KDE shortcuts
-and Remmina host-key shortcuts each time it opens. Search by action, key, or
-application; press Escape to close. The popup is installed with clipboard setup.
+and Remmina host-key shortcuts each time it opens. It opens on **Custom**, with
+**All** and **Defaults** tabs and a second row of application tabs. CopyQ includes
+clipboard history and pasting a clipboard image as a temporary path; screenshots
+have their own tab. Search filters the selected tabs by action, key, or application.
+Press Escape to close. The popup is installed with clipboard setup.
+
+Custom includes dotfiles actions, KDE bindings changed from their recorded defaults,
+and configured Remmina host-key shortcuts. Defaults shows active KDE bindings that
+match their recorded defaults. Unassigned KDE actions are omitted.
+
+The **Codex CLI** tab reads user overrides from `$CODEX_CONFIG_FILE` or
+`${CODEX_HOME:-~/.codex}/config.toml`, including explicit unbindings. It also includes
+a reference of common classic-mode defaults verified against
+[CLI 0.169.0](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/keymap.rs).
+Project/session overrides, terminal key handling, context conflicts, and other CLI
+versions can affect the effective bindings; use `/keymap` inside Codex for the full
+current list. The popup never launches Codex or changes its configuration.
 
 ### Clipboard and emoji that behave naturally
 

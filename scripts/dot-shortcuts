@@ -1,16 +1,17 @@
 #!/usr/bin/python3
-"""Search the current desktop and Remmina keyboard shortcuts."""
+"""Browse current keyboard shortcuts by customization and application."""
 
 import configparser
 import os
 import re
+import tomllib
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QHeaderView, QLabel, QLineEdit,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QTabBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 
 
@@ -19,6 +20,96 @@ def read_config(path):
     config.optionxform = str
     config.read(path, encoding="utf-8")
     return config
+
+
+def bindings(value):
+    """Decode KDE's escaped list of alternative shortcuts."""
+    return tuple(part.strip() for part in value.replace("\\t", "\t").replace("\\,", ",").replace("\\\\", "\\").split("\t")
+                 if part.strip() and part.strip() != "none")
+
+
+def managed_application(key):
+    if "copyq" in key or key == "dot-paste-image-path":
+        return "CopyQ"
+    if "emoji" in key:
+        return "Emoji Picker"
+    if "safe-keystroke" in key:
+        return "Safe Paste"
+    if "luna" in key:
+        return "Luna"
+    if any(word in key for word in ("flameshot", "screenshot", "active-window-clipboard")):
+        return "Screenshots"
+    if key == "dot-dolphin":
+        return "Dolphin"
+    return "Desktop"
+
+
+# Common classic-mode bindings verified against Codex CLI 0.169.0:
+# https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/keymap.rs
+# This is a reference, not a replacement for Codex's context/conflict resolver.
+CODEX_DEFAULTS = {
+    ("global", "open_transcript"): ("Open transcript", "ctrl-t"),
+    ("global", "find_transcript"): ("Find in transcript", "f3"),
+    ("global", "focus_activity"): ("Focus activity", "f4"),
+    ("global", "open_warnings"): ("Open warnings", "f2"),
+    ("global", "open_external_editor"): ("Open external editor", "ctrl-g"),
+    ("global", "copy"): ("Copy", "ctrl-o"),
+    ("global", "clear_terminal"): ("Clear terminal", "ctrl-l"),
+    ("global", "toggle_raw_output"): ("Toggle raw output", "alt-r"),
+    ("global", "toggle_side_conversation"): ("Toggle side conversation", "ctrl-/"),
+    ("chat", "toggle_voice"): ("Toggle voice", "f8"),
+    ("chat", "toggle_voice_mute"): ("Toggle voice mute", "f9"),
+    ("chat", "interrupt_turn"): ("Interrupt turn", "esc"),
+    ("chat", "decrease_reasoning_effort"): ("Decrease reasoning effort", ["alt-,", "shift-down"]),
+    ("chat", "increase_reasoning_effort"): ("Increase reasoning effort", ["alt-.", "shift-up"]),
+    ("chat", "edit_queued_message"): ("Edit queued message", ["shift-left", "alt-up"]),
+    ("chat", "prompt_stack_back"): ("Go back in prompt stack", ["shift-right", "alt-down"]),
+    ("chat", "skip_question"): ("Skip question", "ctrl-]"),
+    ("composer", "submit"): ("Submit message", "enter"),
+    ("composer", "queue"): ("Queue message", "tab"),
+    ("composer", "toggle_shortcuts"): ("Show shortcut overlay", "?"),
+    ("composer", "history_search_previous"): ("Previous history match", "ctrl-r"),
+    ("composer", "history_search_next"): ("Next history match", "ctrl-s"),
+}
+
+
+def codex_rows(path):
+    try:
+        with path.open("rb") as stream:
+            config = tomllib.load(stream)
+    except FileNotFoundError:
+        return [], ""
+    except (OSError, tomllib.TOMLDecodeError):
+        return [], "Could not read Codex config; Codex shortcuts are unavailable."
+    keymap = config.get("tui", {}).get("keymap", {})
+    if not isinstance(keymap, dict):
+        return [], "Could not read Codex keymap; Codex shortcuts are unavailable."
+    configured = {}
+    for context, actions in keymap.items():
+        if isinstance(actions, dict):
+            for action, value in actions.items():
+                if isinstance(value, str):
+                    configured[context, action] = [value] if value else []
+                elif isinstance(value, list) and all(isinstance(key, str) for key in value):
+                    configured[context, action] = value
+    rows = []
+    for (context, action), values in configured.items():
+        if values:
+            label = CODEX_DEFAULTS.get((context, action), (action.replace("_", " ").capitalize(),))[0]
+            rows.append(("Custom", "Codex CLI", f"{label} ({context})", " or ".join(values)))
+    for (context, action), (label, default) in CODEX_DEFAULTS.items():
+        if (context, action) in configured or ("global", action) in configured:
+            continue
+        values = [default] if isinstance(default, str) else default
+        rows.append(("Defaults", "Codex CLI", f"{label} ({context})", " or ".join(values)))
+    return rows, ""
+
+
+def codex_config_path():
+    explicit = os.environ.get("CODEX_CONFIG_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 
 
 def shortcut_rows(config_home):
@@ -32,17 +123,12 @@ def shortcut_rows(config_home):
             parts = re.split(r"(?<!\\),", value, maxsplit=2)
             if len(parts) != 3 or parts[0] in ("", "none"):
                 continue
-            binding = " or ".join(parts[0].replace("\\t", "\t").replace("\\,", ",").replace("\\\\", "\\").split("\t"))
-            action = parts[2] or key
-            category = group
-            if key.startswith("dot-"):
-                if any(word in key for word in ("flameshot", "clipboard", "luna")) and "copyq" not in key:
-                    category = "Screenshots & screen text"
-                elif any(word in key for word in ("copyq", "paste", "emoji")):
-                    category = "Clipboard & typing"
-                else:
-                    category = "Desktop"
-            rows.append((category, action, binding))
+            active = bindings(parts[0])
+            if not active:
+                continue
+            custom = key.startswith("dot-") or set(active) != set(bindings(parts[1]))
+            category = managed_application(key) if key.startswith("dot-") else group
+            rows.append(("Custom" if custom else "Defaults", category, parts[2] or key, " or ".join(active)))
 
     remmina = read_config(config_home / "remmina/remmina.pref")
     if remmina.has_section("remmina_pref"):
@@ -62,7 +148,7 @@ def shortcut_rows(config_home):
         host = prefs.get("hostkey", "")
         if host.isdigit() and int(host):
             host = key_name(host)
-            rows.append(("Remmina", "Release / restore keyboard grab", host))
+            rows.append(("Custom", "Remmina", "Release / restore keyboard grab", host))
             labels = {
                 "clipboard": "Send clipboard as keystrokes",
                 "minimize": "Minimize connection",
@@ -80,12 +166,12 @@ def shortcut_rows(config_home):
             for key, value in prefs.items():
                 if key.startswith("shortcutkey_") and key != "shortcutkey_grab" and value.isdigit() and int(value):
                     name = key.removeprefix("shortcutkey_")
-                    rows.append(("Remmina", labels.get(name, name.replace("_", " ").capitalize()), f"{host}+{key_name(value)}"))
+                    rows.append(("Custom", "Remmina", labels.get(name, name.replace("_", " ").capitalize()), f"{host}+{key_name(value)}"))
     return sorted(set(rows))
 
 
 class ShortcutDialog(QDialog):
-    def __init__(self, config_home):
+    def __init__(self, config_home, codex_path=None):
         super().__init__()
         self.setWindowTitle("Keyboard shortcuts")
         self.resize(850, 650)
@@ -94,6 +180,22 @@ class ShortcutDialog(QDialog):
         self.search.setPlaceholderText("Search actions, keys, or applications…")
         self.search.setClearButtonEnabled(True)
         layout.addWidget(self.search)
+        self.rows = shortcut_rows(config_home)
+        codex, warning = codex_rows(codex_path if codex_path is not None else codex_config_path())
+        self.rows = sorted(set(self.rows + codex))
+        self.kind_tabs = QTabBar()
+        self.kind_tabs.setExpanding(False)
+        for label in ("All", "Custom", "Defaults"):
+            self.kind_tabs.addTab(label)
+        self.kind_tabs.setTabToolTip(1, "Dotfiles shortcuts, changed KDE bindings, and configured Remmina host shortcuts")
+        self.kind_tabs.setTabToolTip(2, "Active KDE bindings that match their recorded defaults")
+        self.kind_tabs.setCurrentIndex(1)
+        layout.addWidget(self.kind_tabs)
+        self.app_tabs = QTabBar()
+        self.app_tabs.setExpanding(False)
+        self.app_tabs.setUsesScrollButtons(True)
+        self.app_tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        layout.addWidget(self.app_tabs)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Action", "Shortcut"])
         self.tree.setRootIsDecorated(False)
@@ -101,22 +203,54 @@ class ShortcutDialog(QDialog):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.tree)
+        self.summary = QLabel()
+        layout.addWidget(self.summary)
         note = QLabel("Meta = Windows key · Esc to close\nIn Remmina, release the keyboard grab with its host key before using desktop shortcuts.")
+        codex_note = "Codex: user overrides + common CLI 0.169 defaults. Use /keymap in Codex for the full, session-specific list."
+        note.setText(note.text() + "\n" + (warning or codex_note))
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.rows = shortcut_rows(config_home)
         self.search.textChanged.connect(self.filter_rows)
+        self.kind_tabs.currentChanged.connect(self.update_app_tabs)
+        self.app_tabs.currentChanged.connect(self.filter_rows)
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search.setFocus)
-        self.filter_rows("")
+        self.update_app_tabs()
         self.search.setFocus()
 
-    def filter_rows(self, query):
+    def update_app_tabs(self, *_):
+        previous = self.app_tabs.tabText(self.app_tabs.currentIndex())
+        kind = self.kind_tabs.tabText(self.kind_tabs.currentIndex())
+        priority = {"CopyQ": 0, "Screenshots": 1, "Codex CLI": 2}
+        apps = sorted(
+            {app for source, app, _, _ in self.rows if kind == "All" or source == kind},
+            key=lambda name: (priority.get(name, 3), name.casefold()),
+        )
+        self.app_tabs.blockSignals(True)
+        while self.app_tabs.count():
+            self.app_tabs.removeTab(0)
+        for label in ["All applications", *apps]:
+            self.app_tabs.addTab(label)
+        labels = [self.app_tabs.tabText(i) for i in range(self.app_tabs.count())]
+        self.app_tabs.setCurrentIndex(labels.index(previous) if previous in labels else 0)
+        self.app_tabs.blockSignals(False)
+        self.filter_rows()
+
+    def filter_rows(self, *_):
+        query = self.search.text()
+        kind = self.kind_tabs.tabText(self.kind_tabs.currentIndex())
+        app = self.app_tabs.tabText(self.app_tabs.currentIndex())
         self.tree.clear()
         groups = {}
         words = query.casefold().split()
-        for category, action, binding in self.rows:
+        count = 0
+        for source, category, action, binding in self.rows:
+            if kind != "All" and source != kind:
+                continue
+            if app != "All applications" and category != app:
+                continue
             if not all(word in f"{category} {action} {binding}".casefold() for word in words):
                 continue
+            count += 1
             if category not in groups:
                 group = QTreeWidgetItem(self.tree, [category])
                 group.setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -125,6 +259,7 @@ class ShortcutDialog(QDialog):
                 group.setFont(0, font)
                 groups[category] = group
             QTreeWidgetItem(groups[category], [action, binding])
+        self.summary.setText(f"{count} shortcut{'s' if count != 1 else ''} · {kind} · {app}")
         self.tree.expandAll()
         if not groups:
             QTreeWidgetItem(self.tree, ["No matching shortcuts"])
