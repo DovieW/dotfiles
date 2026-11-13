@@ -280,8 +280,14 @@ URL under Ctrl+left-click, replacing tmux's default marked-pane swap action.
 
 Herdr uses `~/.config/herdr/config.toml`, copied from the authoritative
 repository configuration so its settings UI cannot mutate the checkout. It is
-started on demand with `herdr` or `t` and preserves the managed Ctrl-Space
-prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Apply it and
+started on demand with `herdr` (`t` opens tmux) and preserves the managed Ctrl-Space
+prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Ctrl-T creates a
+workspace and Ctrl-W requests closing the current workspace, with the normal
+close confirmation. The prefix shortcuts Ctrl-Space then Shift-N / Shift-D
+remain available. In an already-open client, press Ctrl-Space then `r` after
+applying configuration to reload its local keybindings without stopping agents.
+These direct shortcuts are handled by Herdr rather than the program in its pane.
+Apply it and
 the Codex session-identity integration with:
 
 ```bash
@@ -318,7 +324,7 @@ a `DEFERRED` notice without failing setup. Once those prerequisites are ready,
 rerun the apply step; `dot doctor` reports missing or disabled managed connections
 without contacting the peer. `herdr machine status --json` checks live reachability.
 
-Open Herdr normally with `herdr` or `t`. The laptop's sidebar contains Local and
+Open Herdr normally with `herdr`. The laptop's sidebar contains Local and
 Desktop; the desktop's contains Local and Laptop. Saved enabled peers connect
 in the background automatically, including in already-open clients. Choose the
 peer or one of its existing workspaces to continue remote work; create a workspace
