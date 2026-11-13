@@ -12,6 +12,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
@@ -2867,10 +2868,57 @@ else:
             self.assertIn(
                 "[features]\ndefault_mode_request_user_input = false", text
             )
+            self.assertEqual(
+                tomllib.loads(text)["tui"]["keymap"]["global"]["toggle_fast_mode"],
+                "alt-shift-f",
+            )
             checked = subprocess.run(
                 [str(script), "--check"], text=True, capture_output=True, env=environment
             )
             self.assertEqual(checked.returncode, 0, checked.stderr)
+
+    def test_codex_fast_shortcut_preserves_other_keybindings_and_check_is_read_only(self):
+        script = ROOT / "scripts/configure-codex"
+        for current in (
+            "",
+            '[tui]\nstatus_line = ["model"]\n',
+            '[tui.keymap.global] # custom shortcuts\n'
+            'copy = "alt-c"\ntoggle_fast_mode = "alt-x"\n'
+            '[tui.keymap.composer]\nsubmit = "ctrl-enter"\n',
+        ):
+            with self.subTest(current=current), tempfile.TemporaryDirectory() as directory:
+                config = Path(directory) / "config.toml"
+                config.write_text(current)
+                environment = {**os.environ, "CODEX_CONFIG_FILE": str(config)}
+                checked = subprocess.run(
+                    [str(script), "--check"], text=True, capture_output=True, env=environment
+                )
+                self.assertEqual(checked.returncode, 1, checked.stderr)
+                self.assertEqual(config.read_text(), current)
+                applied = subprocess.run(
+                    [str(script)], text=True, capture_output=True, env=environment
+                )
+                self.assertEqual(applied.returncode, 0, applied.stderr)
+                expected = config.read_text()
+                data = tomllib.loads(expected)
+                self.assertEqual(
+                    data["tui"]["keymap"]["global"]["toggle_fast_mode"], "alt-shift-f"
+                )
+                original = tomllib.loads(current)
+                if "tui" in original:
+                    if "status_line" in original["tui"]:
+                        self.assertEqual(data["tui"]["status_line"], ["model"])
+                    else:
+                        self.assertEqual(data["tui"]["keymap"]["global"]["copy"], "alt-c")
+                        self.assertEqual(
+                            data["tui"]["keymap"]["composer"]["submit"], "ctrl-enter"
+                        )
+                for arguments in ([], ["--check"]):
+                    result = subprocess.run(
+                        [str(script), *arguments], text=True, capture_output=True, env=environment
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(config.read_text(), expected)
 
     def test_codex_disables_unstable_request_user_input_feature(self):
         script = ROOT / "scripts/configure-codex"

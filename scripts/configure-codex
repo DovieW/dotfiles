@@ -15,8 +15,13 @@ SETTINGS = {
     "approval_policy": 'approval_policy = "never"',
 }
 
-FEATURE_SETTINGS = {
-    "default_mode_request_user_input": False,
+SECTION_SETTINGS = {
+    "features": {
+        "default_mode_request_user_input": "false",
+    },
+    "tui.keymap.global": {
+        "toggle_fast_mode": '"alt-shift-f"',
+    },
 }
 
 
@@ -46,33 +51,41 @@ def managed_text(current: str) -> str:
                 del lines[index]
         else:
             lines.insert(0, setting)
-    features_start = next(
+    for section, settings in SECTION_SETTINGS.items():
+        set_section_settings(lines, section, settings)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def set_section_settings(
+    lines: list[str], section: str, settings: dict[str, str]
+) -> None:
+    section_start = next(
         (
             index
             for index, line in enumerate(lines)
-            if re.match(r"^\s*\[features\]\s*$", line)
+            if re.match(rf"^\s*\[{re.escape(section)}\]\s*(?:#.*)?$", line)
         ),
         None,
     )
-    if features_start is None:
+    if section_start is None:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append("[features]")
-        features_start = len(lines) - 1
-    features_end = next(
+        lines.append(f"[{section}]")
+        section_start = len(lines) - 1
+    section_end = next(
         (
             index
-            for index, line in enumerate(lines[features_start + 1 :], features_start + 1)
+            for index, line in enumerate(lines[section_start + 1 :], section_start + 1)
             if re.match(r"^\s*\[", line)
         ),
         len(lines),
     )
-    for key, enabled in FEATURE_SETTINGS.items():
-        setting = f"{key} = {'true' if enabled else 'false'}"
+    for key, value in settings.items():
+        setting = f"{key} = {value}"
         matches = [
             index
             for index, line in enumerate(
-                lines[features_start + 1 : features_end], features_start + 1
+                lines[section_start + 1 : section_end], section_start + 1
             )
             if re.match(rf"^\s*{re.escape(key)}\s*=", line)
         ]
@@ -80,11 +93,10 @@ def managed_text(current: str) -> str:
             lines[matches[0]] = setting
             for index in reversed(matches[1:]):
                 del lines[index]
-                features_end -= 1
+                section_end -= 1
         else:
-            lines.insert(features_end, setting)
-            features_end += 1
-    return "\n".join(lines).rstrip() + "\n"
+            lines.insert(section_end, setting)
+            section_end += 1
 
 
 def write_atomic(path: Path, text: str) -> None:
