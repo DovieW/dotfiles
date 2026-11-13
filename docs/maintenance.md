@@ -284,7 +284,11 @@ started on demand with `herdr` (`t` opens tmux) and preserves the managed Ctrl-S
 prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Ctrl-T creates a
 workspace and Ctrl-W requests closing the current workspace, with the normal
 close confirmation. The prefix shortcuts Ctrl-Space then Shift-N / Shift-D
-remain available. In an already-open client, press Ctrl-Space then `r` after
+remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
+machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
+opens the Go To picker; press `/` there to search open terminals and agents
+across connected machines. Ghostty passes these keys through to Herdr.
+In an already-open client, press Ctrl-Space then `r` after
 applying configuration to reload its local keybindings without stopping agents.
 These direct shortcuts are handled by Herdr rather than the program in its pane.
 Apply it and
