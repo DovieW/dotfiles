@@ -1,8 +1,9 @@
 # Family Photos browser kiosk
 
 Status: prototype failed its first physical startup test on 2026-11-15.
-Do not re-enable for handoff until independent automatic recovery is implemented
-and tested. Sway rejected the proprietary NVIDIA device; the session launcher
+Not accepted for handoff yet. The owner requested supervised retries without
+a timer; no automatic recovery timer is installed. Keep the existing owner
+session and the monitoring agent running during these retries. Sway rejected the proprietary NVIDIA device; the session launcher
 now prefers Intel graphics when available, but this fix has not passed a physical
 retry. The failed attempt left a blank screen. Recovery required activating the
 owner’s already-locked session from the existing agent. SSH recovery was not
@@ -143,8 +144,9 @@ pkexec /usr/local/libexec/browser-kiosk disable
 Disable refuses to remove modified installed files, stops the kiosk, locks its
 account, and removes the managed session, policy, and launcher files. It keeps
 the account home and Chrome state. It does not remove Sway or restart SDDM.
-Reinstall through the repository script to restore the managed files, then set
-the kiosk login password again if necessary. Persistent login state, wallets,
+To restore the managed files and unlock the previously configured kiosk
+password, run `pkexec ./scripts/browser-kiosk enable` from the repository.
+A new account still requires setting its password interactively. Persistent login state, wallets,
 and private account identifiers remain local and must not be committed.
 
 The implementation is in `scripts/browser-kiosk`, `config/kiosk/sway.conf`, and
