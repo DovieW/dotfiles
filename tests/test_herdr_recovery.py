@@ -156,6 +156,14 @@ class RecoveryIntegrationTests(unittest.TestCase):
         self.assertNotIn("resume_argv", self.store.path.read_text())
         with self.store.locked() as state:
             self.assertFalse(state["closed"])
+        self.assertEqual(self.module["codex_session"](next(
+            p for p in self.client.snapshot()["panes"]
+            if p["workspace_id"] == restored["workspace_id"] and p.get("label") == "code")), session)
+        self.module["close_workspace"](self.client, self.store, restored["workspace_id"])
+        self.arguments.unlink()
+        self.module["reopen"](self.client, self.store)
+        self.until(self.arguments.exists)
+        self.assertEqual(json.loads(self.arguments.read_text()), ["resume", session])
 
     def test_native_close_is_observed_and_server_stop_is_not_a_closure(self):
         patcher = mock.patch.dict(self.module["watch_session"].__globals__, {"Store": lambda path: self.store})

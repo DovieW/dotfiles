@@ -290,7 +290,7 @@ def reopen(client, store):
     with store.locked() as state:
         next(item for item in state["closed"] if item["key"] == entry["key"])["restoring"] = {
             "id": wid, "epoch": client.epoch()}
-    mapping, skipped = {}, 0
+    mapping, resumed, skipped = {}, {}, 0
 
     def build(tree, saved_panes):
         nonlocal skipped
@@ -301,6 +301,7 @@ def reopen(client, store):
             if session and session not in current_sessions:
                 node["command"] = ["codex", "resume", session]
                 current_sessions.add(session)
+                resumed[tree["pane"]] = session
             elif pane.get("agent") or session:
                 skipped += 1
             return node
@@ -314,6 +315,12 @@ def reopen(client, store):
         applied = client.call("layout.apply", **target, tab_label=tab["label"], focus=False,
                               root=build(tab["tree"], tab["panes"]))["layout"]
         mapping.update(zip(leaves(tab["tree"]), layout_ids(applied["root"])))
+        for old in leaves(tab["tree"]):
+            if old in resumed:
+                # Preserve the exact requested resume ID through another close/reopen,
+                # even before the agent's startup hook runs.
+                client.call("pane.report_agent_session", pane_id=mapping[old], source="herdr:codex",
+                            agent="codex", agent_session_id=resumed[old], session_start_source="resume")
         if tab["zoomed"]:
             client.call("pane.zoom", pane_id=mapping[tab["focused"]], mode="on")
     active = next(tab for tab in workspace["tabs"] if tab["id"] == workspace["active_tab"])
