@@ -471,6 +471,8 @@ docs/         architecture, maintenance, migration, and troubleshooting
 - [Docker](docs/docker.md) — native Docker Engine on Kubuntu and WSL
 - [Tailscale](docs/tailscale.md) — installation and enrollment boundaries
 - [NoMachine](docs/nomachine.md) — Tailscale-only Plasma Wayland remote desktop
+- [Browser kiosk research](docs/browser-kiosk.md) — isolated Google Photos session,
+  lockdown options, and a proposed reproducible setup
 - [Homelab](docs/homelab.md) — private TrueNAS inventory, tailnet policy, and guarded operations
 - [Migration ledger](docs/migration-ledger.md) — where the old configuration
   went
