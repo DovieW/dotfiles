@@ -2609,6 +2609,19 @@ def apply_direct(
                     Path.home() / ".local/bin/dot-herdr-navi",
                 )
             )
+            changes += int(link_file(
+                ROOT / "scripts/herdr-workspace",
+                Path.home() / ".local/bin/dot-herdr-workspace",
+            ))
+            if features.get("kde") and command_exists("systemctl"):
+                changes += int(link_file(
+                    ROOT / "config/systemd/user/dot-herdr-recovery.service",
+                    Path.home() / ".config/systemd/user/dot-herdr-recovery.service",
+                ))
+                run(["systemctl", "--user", "daemon-reload"])
+                run(["systemctl", "--user", "enable", "dot-herdr-recovery.service"])
+                # Only this managed, read-only observer restarts; Herdr and its agents stay live.
+                run(["systemctl", "--user", "restart", "dot-herdr-recovery.service"])
             if features.get("codex_remote_control"):
                 herdr_result = run(
                     [str(ROOT / "scripts/configure-herdr"), "--ensure"],
@@ -11059,6 +11072,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "managed persistent agent workspace configured"
                 if command_exists("herdr") and herdr_config_ok
                 else f"run dot apply --profile {profile['name']} --tags packages,herdr",
+            )
+            recovery_ok = command_exists("dot-herdr-workspace")
+            if profile.get("features", {}).get("kde"):
+                recovery_ok = recovery_ok and run(
+                    ["systemctl", "--user", "is-active", "--quiet", "dot-herdr-recovery.service"],
+                    check=False,
+                ).returncode == 0
+            failures += not doctor_check(
+                "Herdr workspace recovery",
+                recovery_ok,
+                "workspace recovery helper and observer available" if recovery_ok
+                else f"run dot apply --profile {profile['name']} --tags herdr",
             )
             if profile.get("features", {}).get("codex_remote_control"):
                 herdr_integration = run(

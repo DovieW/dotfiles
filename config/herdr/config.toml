@@ -12,7 +12,7 @@ new_cwd = "follow"
 prefix = "ctrl+space"
 # Browser-style workspace shortcuts, alongside the prefix bindings.
 new_workspace = ["prefix+shift+n", "ctrl+e"]
-close_workspace = ["prefix+shift+d", "ctrl+w"]
+close_workspace = ""
 next_workspace = "ctrl+tab"
 previous_workspace = "ctrl+shift+tab"
 switch_workspace = "ctrl+1..9"
@@ -27,6 +27,25 @@ zoom = "prefix+m"
 toggle_sidebar = "prefix+b"
 # Return to the previous focus, including another tab or workspace.
 last_pane = ["ctrl+backslash", "alt+a"]
+
+# Capture the selected workspace before closing, including its Codex session IDs.
+[[keys.command]]
+key = "ctrl+w"
+type = "shell"
+command = "dot-herdr-workspace close"
+description = "close workspace and remember it for recovery"
+
+[[keys.command]]
+key = "prefix+shift+d"
+type = "shell"
+command = "dot-herdr-workspace close"
+description = "close workspace and remember it for recovery"
+
+[[keys.command]]
+key = "ctrl+shift+t"
+type = "shell"
+command = "dot-herdr-workspace reopen"
+description = "reopen the most recently closed workspace"
 
 # Preserve seamless Alt-h/j/k/l movement across Herdr panes and Neovim splits.
 [[keys.command]]

@@ -289,12 +289,36 @@ remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
 machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
 opens the Go To picker; press `/` there to search open terminals and agents
 across connected machines. Ghostty passes these keys through to Herdr.
-Ctrl-T and Ctrl-Shift-T are ignored by Ghostty and have no effect. Herdr has no
-native reopen-closed-workspace action; Ctrl-Shift-T must not open a hidden outer
-Ghostty tab and make the Herdr client appear to disappear. Ctrl-Space then `c` creates a
+Ctrl-T is ignored by Ghostty and has no effect. Ctrl-Shift-T reopens the most
+recently closed workspace on the selected machine/session. Repeated presses
+restore earlier closures. Ghostty passes it through instead of opening a hidden
+outer terminal tab. Ctrl-Space then `c` creates a
 tab in the current workspace. Alt-A returns to the previously
 focused pane, including a pane in another tab or workspace on the selected
 machine; in a split tab it can return to another pane in that same tab.
+
+Workspace recovery is provided by `scripts/herdr-workspace`, installed as
+`dot-herdr-workspace`. The managed close shortcuts capture the current layout
+before closing. On Kubuntu, the user service `dot-herdr-recovery.service`
+observes existing default and named Herdr sessions, recording mouse, menu, and
+API closures too. It reconnects after a server restart and never starts Herdr
+or treats a disconnected session as a list of closed workspaces. Recovery
+recreates tabs, split ratios, labels, working directories, and focus. Officially
+reported Codex conversation IDs resume with `codex resume <id>`; ordinary
+programs reopen as shells. Closing still terminates the old processes. A
+conversation already open elsewhere is not started a second time. Missing
+directories stop recovery before creating anything; an interrupted restore
+preserves its partial workspace and history rather than retrying mutations or
+creating duplicates.
+
+History starts when this feature is enabled; it cannot reconstruct every
+workspace closed before then or while its observer was unavailable. Up to 30
+closed workspaces per session are stored privately under
+`~/.local/state/dotfiles/herdr-recovery/` (directories 0700, files 0600), containing
+only layout, labels, paths, and official Codex IDs, without terminal output,
+conversation text, environment variables, or arbitrary launch commands. This
+state remains local and is never committed or copied between computers.
+
 In an already-open client, press Ctrl-Space then `r` after
 applying configuration to reload its local keybindings without stopping agents.
 For deployment to both computers, install both configurations before running

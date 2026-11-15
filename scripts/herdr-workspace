@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""Remember closed Herdr workspaces and reopen their layout and Codex sessions."""
+
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import json
+import logging
+import math
+import os
+from pathlib import Path
+import socket
+import threading
+import time
+import uuid
+
+LOG = logging.getLogger("herdr-workspace")
+LIMIT = 30
+EVENTS = (
+    "workspace.created", "workspace.updated", "workspace.renamed", "workspace.closed",
+    "workspace.focused", "workspace.moved", "workspace.reordered", "tab.created",
+    "tab.closed", "tab.focused", "tab.renamed", "pane.created", "pane.closed",
+    "pane.updated", "pane.focused", "pane.moved", "pane.agent_detected", "layout.updated",
+)
+
+
+class ApiError(RuntimeError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+class Client:
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def connect(self):
+        connection = socket.socket(socket.AF_UNIX)
+        connection.settimeout(10)
+        try:
+            connection.connect(str(self.path))
+        except BaseException:
+            connection.close()
+            raise
+        return connection
+
+    def call(self, method, **params):
+        # A timed-out mutation is never automatically repeated.
+        with self.connect() as connection:
+            connection.sendall((json.dumps({"id": "dot", "method": method, "params": params}) + "\n").encode())
+            with connection.makefile("rb") as stream:
+                result = json.loads(stream.readline())
+        if "error" in result:
+            raise ApiError(result["error"]["code"], result["error"]["message"])
+        return result["result"]
+
+    def snapshot(self):
+        return self.call("session.snapshot")["snapshot"]
+
+    def notice(self, body):
+        LOG.info(body)
+        try:
+            self.call("notification.show", title="Workspace recovery", body=body)
+        except (OSError, ValueError, ApiError):
+            pass
+
+    def epoch(self):
+        stat = self.path.stat()
+        return f"{stat.st_ino}:{stat.st_ctime_ns}"
+
+
+class Store:
+    def __init__(self, socket_path, root=None):
+        root = root or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dotfiles/herdr-recovery"
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.root.chmod(0o700)
+        key = hashlib.sha256(str(Path(socket_path).absolute()).encode()).hexdigest()[:24]
+        self.path = self.root / f"{key}.json"
+        self.lock = self.root / f"{key}.lock"
+        self.operation_lock = self.root / f"{key}.operation.lock"
+
+    @contextlib.contextmanager
+    def locked(self):
+        with open(self.lock, "a", opener=private_open) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = json.loads(self.path.read_text()) if self.path.exists() else {"version": 1, "closed": [], "live": {}}
+            if state.get("version") != 1:
+                raise ValueError("Unsupported workspace history version; history was left untouched.")
+            yield state
+            temp = self.path.with_suffix(".tmp")
+            with open(temp, "w", opener=private_open) as output:
+                json.dump(state, output)
+                output.flush()
+                os.fsync(output.fileno())
+            temp.replace(self.path)
+
+    @contextlib.contextmanager
+    def operation(self):
+        with open(self.operation_lock, "a", opener=private_open) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+
+
+def private_open(path, flags):
+    return os.open(path, flags, 0o600)
+
+
+def codex_session(pane):
+    session = pane.get("agent_session") or {}
+    if session.get("source") != "herdr:codex" or session.get("agent") != "codex" or session.get("kind") != "id":
+        return None
+    try:
+        return str(uuid.UUID(session["value"]))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def layout_tree(layout):
+    """Recover the BSP tree from Herdr's stable split-path IDs and pane geometry."""
+    splits = {}
+    for split in layout["splits"]:
+        path = split["id"].rsplit("_", 1)[1]
+        splits["" if path == "root" else path] = split
+
+    def count(path):
+        return count(path + "0") + count(path + "1") if path in splits else 1
+
+    def build(path, panes):
+        if path not in splits:
+            if len(panes) != 1:
+                raise ValueError("Cannot recover this pane layout safely.")
+            return {"pane": panes[0]["pane_id"]}
+        split = splits[path]
+        axis = "x" if split["direction"] == "right" else "y"
+        panes = sorted(panes, key=lambda pane: pane["rect"][axis])
+        first = count(path + "0")
+        ratio = split["ratio"]
+        if not math.isfinite(ratio) or not 0 < ratio < 1:
+            raise ValueError("Invalid saved split ratio.")
+        return {"direction": split["direction"], "ratio": ratio,
+                "first": build(path + "0", panes[:first]), "second": build(path + "1", panes[first:])}
+
+    return build("", layout["panes"])
+
+
+def capture(snapshot):
+    """Keep layout, cwd, labels and official Codex IDs; never terminal output or argv."""
+    result = {}
+    layouts = {layout["tab_id"]: layout for layout in snapshot["layouts"]}
+    for workspace in snapshot["workspaces"]:
+        wid = workspace["workspace_id"]
+        tabs = []
+        for tab in snapshot["tabs"]:
+            if tab["workspace_id"] != wid:
+                continue
+            panes = {pane["pane_id"]: {"cwd": pane.get("foreground_cwd") or pane.get("cwd"),
+                     "label": pane.get("label"), "session": codex_session(pane), "agent": pane.get("agent")}
+                     for pane in snapshot["panes"] if pane["tab_id"] == tab["tab_id"]}
+            layout = layouts[tab["tab_id"]]
+            tabs.append({"id": tab["tab_id"], "label": tab["label"], "panes": panes,
+                         "tree": layout_tree(layout), "focused": layout["focused_pane_id"], "zoomed": layout["zoomed"]})
+        if tabs:
+            result[wid] = {"id": wid, "label": workspace["label"], "number": workspace["number"],
+                           "active_tab": workspace["active_tab_id"], "tabs": tabs}
+    return result
+
+
+def remember(state, wid, epoch):
+    workspace = state["live"].pop(wid, None)
+    key = f"{epoch}/{wid}"
+    if workspace and not any(item["key"] == key for item in state["closed"]):
+        state["closed"].append({"key": key, "workspace": workspace, "closed_at": time.time()})
+        state["closed"] = state["closed"][-LIMIT:]
+
+
+def refresh(client, store, epoch, closed=None, reset=False):
+    current = capture(client.snapshot())
+    with store.locked() as state:
+        if reset or state.get("epoch") != epoch:
+            # A server restart is not a workspace closure. IDs may be reused.
+            state["live"] = {}
+            state["epoch"] = epoch
+        state["live"].update(current)
+        if closed:
+            remember(state, closed, epoch)
+
+
+def watch_session(path):
+    client, store = Client(path), Store(path)
+    epoch = client.epoch()
+    with client.connect() as connection:
+        connection.settimeout(None)
+        request = {"id": "watch", "method": "events.subscribe", "params": {
+            "subscriptions": [{"type": event} for event in EVENTS]}}
+        connection.sendall((json.dumps(request) + "\n").encode())
+        with connection.makefile("rb") as stream:
+            response = json.loads(stream.readline())
+            if "error" in response:
+                raise RuntimeError(f"Herdr event subscriptions are unavailable: {response['error']['message']}")
+            refresh(client, store, epoch, reset=True)
+            for line in stream:
+                event = json.loads(line)
+                closed = (event.get("data", {}).get("workspace_id")
+                          if event.get("event") in ("workspace.closed", "workspace_closed") else None)
+                refresh(client, store, epoch, closed)
+
+
+def watch(config_root):
+    workers = {}
+
+    def worker(path):
+        try:
+            watch_session(path)
+        except OSError:
+            LOG.debug("Recovery observer disconnected; it will retry without starting Herdr.")
+        except (ValueError, KeyError, RuntimeError) as error:
+            LOG.warning("Recovery observer unavailable: %s", error)
+
+    while True:
+        paths = [config_root / "herdr.sock", *config_root.glob("sessions/*/herdr.sock")]
+        for path in paths:
+            if path.exists() and (path not in workers or not workers[path].is_alive()):
+                workers[path] = threading.Thread(target=worker, args=(path,), daemon=True)
+                workers[path].start()
+        time.sleep(2)
+
+
+def close_workspace(client, store, wid):
+    if not wid:
+        raise ValueError("No workspace was selected; nothing was closed.")
+    epoch = client.epoch()
+    current = capture(client.snapshot())
+    if wid not in current:
+        raise ValueError("The selected workspace no longer exists; nothing was closed.")
+    with store.locked() as state:
+        if state.get("epoch") != epoch:
+            state["live"] = {}
+            state["epoch"] = epoch
+        state["live"].update(current)
+    client.call("workspace.close", workspace_id=wid)
+    with store.locked() as state:
+        state["live"].setdefault(wid, current[wid])
+        remember(state, wid, epoch)
+
+
+def leaves(tree):
+    return [tree["pane"]] if "pane" in tree else leaves(tree["first"]) + leaves(tree["second"])
+
+
+def layout_ids(tree):
+    return [tree["pane_id"]] if tree["type"] == "pane" else layout_ids(tree["first"]) + layout_ids(tree["second"])
+
+
+def reopen(client, store):
+    with store.locked() as state:
+        if not state["closed"]:
+            client.notice("No recorded closed workspace. Recovery records new closures from when it was enabled.")
+            return
+        entry = state["closed"][-1]
+        workspace = entry["workspace"]
+        partial = entry.get("restoring")
+    if partial:
+        if partial["epoch"] == client.epoch():
+            current = client.snapshot()
+            if any(w["workspace_id"] == partial["id"] for w in current["workspaces"]):
+                client.call("workspace.focus", workspace_id=partial["id"])
+                client.notice("The previous recovery was interrupted. Its partial workspace is preserved; no duplicate was created.")
+                return
+        raise ValueError("Previous recovery was interrupted. Its history is preserved for manual recovery.")
+    for tab in workspace["tabs"]:
+        if sorted(leaves(tab["tree"])) != sorted(tab["panes"]):
+            raise ValueError("Saved layout is incomplete; history was left untouched.")
+        for pane in tab["panes"].values():
+            if not pane["cwd"] or not Path(pane["cwd"]).is_absolute() or not Path(pane["cwd"]).is_dir():
+                raise ValueError("A saved working directory is unavailable. Restore it before reopening this workspace.")
+            if pane.get("session") and str(uuid.UUID(pane["session"])) != pane["session"]:
+                raise ValueError("Saved Codex conversation ID is invalid; history was left untouched.")
+    current_sessions = {codex_session(p) for p in client.snapshot()["panes"]} - {None}
+    first_tab = workspace["tabs"][0]
+    first_cwd = first_tab["panes"][leaves(first_tab["tree"])[0]]["cwd"]
+    with store.locked() as state:
+        next(item for item in state["closed"] if item["key"] == entry["key"])["restoring"] = {
+            "id": None, "epoch": client.epoch()}
+    created = client.call("workspace.create", cwd=first_cwd, label=workspace["label"], focus=False)
+    wid = created["workspace"]["workspace_id"]
+    with store.locked() as state:
+        next(item for item in state["closed"] if item["key"] == entry["key"])["restoring"] = {
+            "id": wid, "epoch": client.epoch()}
+    mapping, skipped = {}, 0
+
+    def build(tree, saved_panes):
+        nonlocal skipped
+        if "pane" in tree:
+            pane = saved_panes[tree["pane"]]
+            node = {"type": "pane", "cwd": pane["cwd"], "label": pane["label"]}
+            session = pane.get("session")
+            if session and session not in current_sessions:
+                node["command"] = ["codex", "resume", session]
+                current_sessions.add(session)
+            elif pane.get("agent") or session:
+                skipped += 1
+            return node
+        if tree["direction"] not in ("right", "down") or not 0 < tree["ratio"] < 1:
+            raise ValueError("Invalid saved layout.")
+        return {"type": "split", "direction": tree["direction"], "ratio": tree["ratio"],
+                "first": build(tree["first"], saved_panes), "second": build(tree["second"], saved_panes)}
+
+    for index, tab in enumerate(workspace["tabs"]):
+        target = {"tab_id": created["tab"]["tab_id"]} if index == 0 else {"workspace_id": wid}
+        applied = client.call("layout.apply", **target, tab_label=tab["label"], focus=False,
+                              root=build(tab["tree"], tab["panes"]))["layout"]
+        mapping.update(zip(leaves(tab["tree"]), layout_ids(applied["root"])))
+        if tab["zoomed"]:
+            client.call("pane.zoom", pane_id=mapping[tab["focused"]], mode="on")
+    active = next(tab for tab in workspace["tabs"] if tab["id"] == workspace["active_tab"])
+    client.call("pane.focus", pane_id=mapping[active["focused"]])
+    client.call("workspace.focus", workspace_id=wid)
+    with store.locked() as state:
+        state["closed"] = [item for item in state["closed"] if item["key"] != entry["key"]]
+    body = "Reopened workspace and resumed its saved Codex conversations."
+    if skipped:
+        body += f" {skipped} agent pane(s) reopened as shells: conversation missing, unsupported, or already active."
+    client.notice(body)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("watch", "close", "reopen"))
+    parser.add_argument("--socket", type=Path)
+    args = parser.parse_args()
+    config_root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "herdr"
+    if args.action == "watch":
+        watch(config_root)
+        return 0
+    path = args.socket or os.environ.get("HERDR_SOCKET_PATH")
+    if not path:
+        parser.error("Run this action inside Herdr, or provide the explicit session socket.")
+    client, store = Client(path), Store(path)
+    try:
+        with store.operation():
+            if args.action == "close":
+                close_workspace(client, store, os.environ.get("HERDR_ACTIVE_WORKSPACE_ID"))
+            else:
+                reopen(client, store)
+        return 0
+    except BlockingIOError:
+        client.notice("Workspace recovery is already running.")
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
+        client.notice(f"Workspace recovery stopped: {error}")
+    return 1
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    raise SystemExit(main())

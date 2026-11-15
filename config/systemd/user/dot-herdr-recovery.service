@@ -1,0 +1,13 @@
+[Unit]
+Description=Remember closed Herdr workspaces for Ctrl-Shift-T recovery
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/dot-herdr-workspace watch
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
