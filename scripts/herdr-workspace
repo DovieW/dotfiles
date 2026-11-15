@@ -52,6 +52,8 @@ class Client:
             with connection.makefile("rb") as stream:
                 result = json.loads(stream.readline())
         if "error" in result:
+            if result["error"]["code"] == "server_unavailable":
+                raise ConnectionAbortedError(result["error"]["message"])
             raise ApiError(result["error"]["code"], result["error"]["message"])
         return result["result"]
 
