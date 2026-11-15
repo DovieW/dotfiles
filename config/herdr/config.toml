@@ -11,13 +11,13 @@ new_cwd = "follow"
 [keys]
 prefix = "ctrl+space"
 # Browser-style workspace shortcuts, alongside the prefix bindings.
-new_workspace = ["prefix+shift+n", "ctrl+t"]
+new_workspace = ["prefix+shift+n", "ctrl+e"]
 close_workspace = ["prefix+shift+d", "ctrl+w"]
 next_workspace = "ctrl+tab"
 previous_workspace = "ctrl+shift+tab"
 switch_workspace = "ctrl+1..9"
 goto = ["prefix+g", "ctrl+shift+a"]
-new_tab = ["prefix+c", "ctrl+e"]
+new_tab = "prefix+c"
 detach = ["prefix+d", "prefix+q"]
 reload_config = "prefix+r"
 resize_mode = "prefix+shift+r"

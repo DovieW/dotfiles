@@ -26,3 +26,5 @@ shell-integration = none
 keybind = ctrl+tab=unbind
 keybind = ctrl+shift+tab=unbind
 keybind = ctrl+shift+a=unbind
+# Ctrl-T is intentionally inactive, including inside Herdr panes.
+keybind = ctrl+t=ignore

@@ -281,14 +281,15 @@ URL under Ctrl+left-click, replacing tmux's default marked-pane swap action.
 Herdr uses `~/.config/herdr/config.toml`, copied from the authoritative
 repository configuration so its settings UI cannot mutate the checkout. It is
 started on demand with `herdr` (`t` opens tmux) and preserves the managed Ctrl-Space
-prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Ctrl-T creates a
+prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Ctrl-E creates a
 workspace and Ctrl-W requests closing the current workspace, with the normal
 close confirmation. The prefix shortcuts Ctrl-Space then Shift-N / Shift-D
 remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
 machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
 opens the Go To picker; press `/` there to search open terminals and agents
 across connected machines. Ghostty passes these keys through to Herdr.
-Ctrl-E creates a tab in the current workspace. Alt-A returns to the previously
+Ctrl-T is ignored by Ghostty and has no effect. Ctrl-Space then `c` creates a
+tab in the current workspace. Alt-A returns to the previously
 focused pane, including a pane in another tab or workspace on the selected
 machine; in a split tab it can return to another pane in that same tab.
 In an already-open client, press Ctrl-Space then `r` after
