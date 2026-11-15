@@ -1,5 +1,13 @@
 # Family Photos browser kiosk
 
+Status: prototype failed its first physical startup test on 2026-11-15.
+Do not re-enable for handoff until independent automatic recovery is implemented
+and tested. Sway rejected the proprietary NVIDIA device; the session launcher
+now prefers Intel graphics when available, but this fix has not passed a physical
+retry. The failed attempt left a blank screen. Recovery required activating the
+owner’s already-locked session from the existing agent. SSH recovery was not
+verified and the user reported it unavailable during the incident.
+
 The managed kiosk uses a separate `photos-kiosk` Linux user, a minimal Sway
 session, and mandatory Chrome policies scoped to that account. Its browser
 profile persists locally. It contains no personal Chrome profile, desktop

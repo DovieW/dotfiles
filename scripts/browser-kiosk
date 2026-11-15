@@ -124,7 +124,7 @@ def install():
     set_policy(False)
     run('/usr/sbin/sshd', '-t')
     run('/usr/bin/systemctl', 'reload', 'ssh')
-    print('Installed. Account is initially password-locked. SDDM was NOT restarted.')
+    print('Installed. New accounts start password-locked; existing passwords are preserved. SDDM was NOT restarted.')
 
 
 def guard(kind, args):
@@ -153,6 +153,12 @@ def session():
     os.environ.update(HOME=account.pw_dir, XDG_CURRENT_DESKTOP='PhotosKiosk', QT_QPA_PLATFORM='wayland', PATH='/usr/local/bin:/usr/bin:/bin')
     for name in ('DISPLAY', 'WAYLAND_DISPLAY', 'SWAYSOCK', 'SSH_AUTH_SOCK', 'BASH_ENV', 'ENV'):
         os.environ.pop(name, None)
+    # Prefer integrated graphics on hybrid laptops; avoid initializing proprietary NVIDIA.
+    cards = [p for p in Path('/sys/class/drm').glob('card[0-9]*')
+             if p.name[4:].isdigit() and (p / 'device/vendor').exists()
+             and (p / 'device/vendor').read_text().strip() == '0x8086']
+    if cards:
+        os.environ['WLR_DRM_DEVICES'] = ':'.join('/dev/dri/' + p.name for p in sorted(cards))
     os.execv('/usr/bin/dbus-run-session', ['dbus-run-session', '/usr/bin/sway', '--config', str(BASE / 'sway.conf')])
 
 
