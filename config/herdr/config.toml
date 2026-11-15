@@ -17,6 +17,7 @@ next_workspace = "ctrl+tab"
 previous_workspace = "ctrl+shift+tab"
 switch_workspace = "ctrl+1..9"
 goto = ["prefix+g", "ctrl+shift+a"]
+new_tab = ["prefix+c", "ctrl+e"]
 detach = ["prefix+d", "prefix+q"]
 reload_config = "prefix+r"
 resize_mode = "prefix+shift+r"
@@ -24,7 +25,8 @@ split_vertical = "prefix+shift+backslash"
 split_horizontal = "prefix+minus"
 zoom = "prefix+m"
 toggle_sidebar = "prefix+b"
-last_pane = "ctrl+backslash"
+# Return to the previous focus, including another tab or workspace.
+last_pane = ["ctrl+backslash", "alt+a"]
 
 # Preserve seamless Alt-h/j/k/l movement across Herdr panes and Neovim splits.
 [[keys.command]]

@@ -288,8 +288,18 @@ remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
 machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
 opens the Go To picker; press `/` there to search open terminals and agents
 across connected machines. Ghostty passes these keys through to Herdr.
+Ctrl-E creates a tab in the current workspace. Alt-A returns to the previously
+focused pane, including a pane in another tab or workspace on the selected
+machine; in a split tab it can return to another pane in that same tab.
 In an already-open client, press Ctrl-Space then `r` after
 applying configuration to reload its local keybindings without stopping agents.
+For deployment to both computers, install both configurations before running
+`herdr server reload-config` on both hosts. A client viewing an SSH machine
+ignores reload notices from inactive endpoints, so reloading only Local does
+not refresh its keybindings while viewing the peer. Unbound Ctrl-Tab sequences
+can reach a pane as visible escape-sequence fragments; a valid config on disk
+does not prove an open client loaded it. The UI reload shortcut works on the
+currently selected machine and reloads the client's local keybindings too.
 These direct shortcuts are handled by Herdr rather than the program in its pane.
 Apply it and
 the Codex session-identity integration with:
