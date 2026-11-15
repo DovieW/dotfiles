@@ -1,0 +1,259 @@
+#!/usr/bin/python3 -I
+"""Install and operate an isolated Photos session. See docs/browser-kiosk.md."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import subprocess
+import sys
+import tempfile
+import time
+
+USER = 'photos-kiosk'
+BASE = Path('/etc/browser-kiosk')
+POLICY = Path('/etc/opt/chrome/policies/managed/dotfiles-kiosk.json')
+RUNTIME = '/usr/local/libexec/browser-kiosk'
+MARK = BASE / 'installed'
+
+
+def run(*args, **kw):
+    return subprocess.run(args, check=True, **kw)
+
+
+def root():
+    if os.geteuid() != 0:
+        raise RuntimeError('Administrator authentication is required.')
+
+
+def policy(enroll=False):
+    return {
+        'URLBlocklist': ['*', 'chrome://*', 'file://*', 'view-source:*'],
+        'URLAllowlist': ['https://.photos.google.com'] + (
+            ['https://.accounts.google.com', 'chrome://policy'] if enroll else []),
+        'DeveloperToolsAvailability': 2, 'DownloadRestrictions': 3,
+        'AllowFileSelectionDialogs': False, 'PrintingEnabled': False,
+        'DefaultNotificationsSetting': 2, 'DefaultPopupsSetting': 2,
+        'BrowserGuestModeEnabled': False, 'BrowserAddPersonEnabled': False,
+        'BrowserSignin': 0, 'SyncDisabled': True, 'IncognitoModeAvailability': 1,
+        'PasswordManagerEnabled': False, 'BackgroundModeEnabled': False,
+        'ExtensionSettings': {'*': {'installation_mode': 'blocked'}},
+        'AudioCaptureAllowed': False, 'VideoCaptureAllowed': False,
+    }
+
+
+def write(path, data, mode=0o644, gid=0):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise RuntimeError(f'Refusing symlink: {path}')
+    fd, temp = tempfile.mkstemp(dir=path.parent)
+    try:
+        os.fchmod(fd, mode)
+        os.fchown(fd, 0, gid)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(data)
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def set_policy(enroll):
+    root()
+    account = pwd.getpwnam(USER)
+    write(POLICY, json.dumps(policy(enroll), indent=2) + '\n', 0o640, account.pw_gid)
+    write(BASE / 'mode', 'enroll\n' if enroll else 'locked\n')
+
+
+def install():
+    root()
+    repo = Path(__file__).resolve().parent.parent
+    files = {
+        RUNTIME: (Path(__file__).read_text(), 0o755),
+        '/usr/share/wayland-sessions/dotfiles-kiosk.desktop': (
+            '[Desktop Entry]\nName=Family Photos kiosk\nType=Application\n'
+            f'Exec={RUNTIME} session\nDesktopNames=PhotosKiosk\n', 0o644),
+        '/etc/sddm.conf.d/95-dotfiles-kiosk.conf': (
+            '[Wayland]\nSessionCommand=/usr/local/libexec/kiosk-wayland\n'
+            '[X11]\nSessionCommand=/usr/local/libexec/kiosk-x11\n', 0o644),
+        '/usr/local/libexec/kiosk-wayland': (
+            '#!/bin/sh\nexec /usr/local/libexec/browser-kiosk guard-wayland "$@"\n', 0o755),
+        '/usr/local/libexec/kiosk-x11': (
+            '#!/bin/sh\nexec /usr/local/libexec/browser-kiosk guard-x11 "$@"\n', 0o755),
+        '/etc/polkit-1/rules.d/00-dotfiles-kiosk.rules': (
+            'polkit.addRule(function(action, subject) {\n'
+            '  if (subject.user !== "photos-kiosk") return;\n'
+            '  if (action.id === "org.freedesktop.policykit.exec" &&\n'
+            '      action.lookup("program") === "/usr/local/libexec/browser-kiosk")\n'
+            '    return polkit.Result.AUTH_ADMIN;\n'
+            '  return polkit.Result.NO;\n});\n', 0o644),
+        '/etc/ssh/sshd_config.d/90-dotfiles-kiosk.conf': ('DenyUsers photos-kiosk\n', 0o644),
+        '/usr/local/share/applications/dotfiles-photos-kiosk.desktop': (
+            '[Desktop Entry]\nType=Application\nName=Family Photos guest session\n'
+            f'Exec={RUNTIME} start\nIcon=google-chrome\nTerminal=false\n', 0o644),
+        str(BASE / 'sway.conf'): ((repo / 'config/kiosk/sway.conf').read_text(), 0o644),
+    }
+    if not MARK.exists():
+        if any(Path(p).exists() for p in [*files, str(POLICY)]):
+            raise RuntimeError('An installation destination exists; review before adopting it.')
+        try:
+            pwd.getpwnam(USER)
+        except KeyError:
+            pass
+        else:
+            raise RuntimeError('The kiosk account already exists; refusing to adopt it.')
+        # Refuse to override another custom display-manager session wrapper.
+        for directory in ('/etc/sddm.conf.d', '/usr/lib/sddm/sddm.conf.d'):
+            for conf in Path(directory).glob('*.conf'):
+                if 'SessionCommand=' in conf.read_text():
+                    raise RuntimeError(f'Custom session wrapper needs review: {conf}')
+        if Path('/etc/sddm.conf').exists() and 'SessionCommand=' in Path('/etc/sddm.conf').read_text():
+            raise RuntimeError('Custom /etc/sddm.conf session wrapper needs review.')
+    for other in POLICY.parent.glob('*.json'):
+        if other != POLICY and set(json.loads(other.read_text())) & set(policy(True)):
+            raise RuntimeError(f'Conflicting Chrome platform policy needs review: {other}')
+    run('/usr/bin/apt-get', 'install', '--yes', '--no-install-recommends', '--no-upgrade', 'sway')
+    if not MARK.exists():
+        run('/usr/sbin/useradd', '--create-home', '--user-group', '--shell', '/usr/sbin/nologin', USER)
+        os.chmod(pwd.getpwnam(USER).pw_dir, 0o700)
+    for path, (data, mode) in files.items():
+        write(path, data, mode)
+    write(BASE / 'files.json', json.dumps({p: hashlib.sha256(data.encode()).hexdigest() for p, (data, _) in files.items()}, indent=2) + '\n')
+    write(MARK, 'dotfiles browser kiosk v1\n')
+    set_policy(False)
+    run('/usr/sbin/sshd', '-t')
+    run('/usr/bin/systemctl', 'reload', 'ssh')
+    print('Installed. Account is initially password-locked. SDDM was NOT restarted.')
+
+
+def guard(kind, args):
+    if pwd.getpwuid(os.getuid()).pw_name == USER:
+        if kind != 'wayland':
+            raise RuntimeError('The kiosk account permits only its Wayland kiosk session.')
+        session()
+    else:
+        original = '/usr/share/sddm/scripts/' + ('wayland-session' if kind == 'wayland' else 'Xsession')
+        os.execv(original, [original, *args])
+
+
+def session():
+    account = pwd.getpwnam(USER)
+    if os.getuid() != account.pw_uid:
+        raise RuntimeError('This session is only for the dedicated kiosk account.')
+    # A different active owner session must be locked before this one can run.
+    rows = run('/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager', capture_output=True, text=True).stdout
+    for line in rows.splitlines():
+        fields = line.split()
+        if len(fields) < 3 or fields[2] in (USER, 'sddm'):
+            continue
+        props = run('/usr/bin/loginctl', 'show-session', fields[0], '-p', 'Type', '-p', 'LockedHint', capture_output=True, text=True).stdout
+        if ('Type=wayland' in props or 'Type=x11' in props) and 'LockedHint=yes' not in props:
+            raise RuntimeError('Lock all other graphical user sessions before starting the kiosk.')
+    os.environ.update(HOME=account.pw_dir, XDG_CURRENT_DESKTOP='PhotosKiosk', QT_QPA_PLATFORM='wayland', PATH='/usr/local/bin:/usr/bin:/bin')
+    for name in ('DISPLAY', 'WAYLAND_DISPLAY', 'SWAYSOCK', 'SSH_AUTH_SOCK', 'BASH_ENV', 'ENV'):
+        os.environ.pop(name, None)
+    os.execv('/usr/bin/dbus-run-session', ['dbus-run-session', '/usr/bin/sway', '--config', str(BASE / 'sway.conf')])
+
+
+def browser():
+    if pwd.getpwuid(os.getuid()).pw_name != USER:
+        raise RuntimeError('Wrong browser UID.')
+    # Never launch with missing/unreadable/modified policy.
+    expected = policy((BASE / 'mode').read_text().strip() == 'enroll')
+    if json.loads(POLICY.read_text()) != expected:
+        raise RuntimeError('Kiosk policy verification failed.')
+    failures = 0
+    while failures < 5:
+        started = time.monotonic()
+        subprocess.run(['/usr/bin/google-chrome-stable', '--ozone-platform=wayland',
+                        '--kiosk', '--no-first-run', '--no-default-browser-check',
+                        '--user-data-dir=' + str(Path.home() / '.config/photos-kiosk'),
+                        'https://photos.google.com/'], check=False)
+        if time.monotonic() - started > 30:
+            failures = 0
+        else:
+            failures += 1
+        time.sleep(2)
+    # Stay on the blank kiosk compositor; authenticated exit remains available.
+
+
+def start():
+    sid = os.environ.get('XDG_SESSION_ID')
+    if not sid:
+        raise RuntimeError('Launch from your graphical desktop.')
+    run('/usr/bin/loginctl', 'lock-session', sid)
+    for _ in range(50):
+        state = run('/usr/bin/loginctl', 'show-session', sid, '-p', 'LockedHint', '--value', capture_output=True, text=True).stdout.strip()
+        if state == 'yes':
+            run('/usr/bin/qdbus6', '--system', 'org.freedesktop.DisplayManager', '/org/freedesktop/DisplayManager/Seat0', 'org.freedesktop.DisplayManager.Seat.SwitchToGreeter')
+            return
+        time.sleep(.1)
+    raise RuntimeError('Owner lock was not acknowledged; did not switch sessions.')
+
+
+def stop_user():
+    rows = run('/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager', capture_output=True, text=True).stdout
+    if any(len(parts := line.split()) > 2 and parts[2] == USER for line in rows.splitlines()):
+        run('/usr/bin/loginctl', 'terminate-user', USER)
+
+
+def disable():
+    root()
+    files = json.loads((BASE / 'files.json').read_text())
+    for p, digest in files.items():
+        path = Path(p)
+        if path.exists() and (path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            raise RuntimeError(f'Locally modified installed file needs review: {path}')
+    stop_user()
+    run('/usr/sbin/usermod', '--lock', USER)
+    for p in files:
+        Path(p).unlink(missing_ok=True)
+    POLICY.unlink(missing_ok=True)
+    run('/usr/sbin/sshd', '-t')
+    run('/usr/bin/systemctl', 'reload', 'ssh')
+    print('Disabled. Account and browser state preserved; SDDM not restarted.')
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else 'check'
+    if action == 'install':
+        install()
+    elif action.startswith('guard-') and action in ('guard-wayland', 'guard-x11'):
+        guard(action[6:], sys.argv[2:])
+    elif action == 'disable':
+        disable()
+    elif action == 'session':
+        session()
+    elif action == 'browser':
+        browser()
+    elif action == 'exit-request':
+        if pwd.getpwuid(os.getuid()).pw_name != USER:
+            raise RuntimeError('Exit request is only for the kiosk session.')
+        run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen disable')
+        subprocess.run(['/usr/bin/pkexec', RUNTIME, 'stop'], check=False)
+        run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen enable')
+    elif action == 'start':
+        start()
+    elif action in ('stop', 'enroll', 'lock'):
+        root()
+        set_policy(action == 'enroll')
+        # Authentication precedes stopping any session, and normal stop resets enrollment.
+        stop_user()
+    elif action == 'check':
+        account = pwd.getpwnam(USER)
+        st = POLICY.stat()
+        assert st.st_uid == 0 and st.st_gid == account.pw_gid and st.st_mode & 0o777 == 0o640
+        assert json.loads(POLICY.read_text()) == policy((BASE / 'mode').read_text().strip() == 'enroll')
+        print('Policy ownership and contents OK; mode:', (BASE / 'mode').read_text().strip())
+        print('Physical escape tests and Google account enrollment are separate acceptance steps.')
+    else:
+        raise RuntimeError('Actions: install, start, stop, enroll, lock, disable, check')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, OSError, KeyError, ValueError, AssertionError, subprocess.CalledProcessError) as error:
+        print(f'Kiosk: {error}', file=sys.stderr)
+        sys.exit(1)
