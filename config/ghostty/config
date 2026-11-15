@@ -28,3 +28,5 @@ keybind = ctrl+shift+tab=unbind
 keybind = ctrl+shift+a=unbind
 # Ctrl-T is intentionally inactive, including inside Herdr panes.
 keybind = ctrl+t=ignore
+# Herdr has no undo-close action; avoid opening an invisible outer tab.
+keybind = ctrl+shift+t=ignore

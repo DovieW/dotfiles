@@ -289,7 +289,9 @@ remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
 machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
 opens the Go To picker; press `/` there to search open terminals and agents
 across connected machines. Ghostty passes these keys through to Herdr.
-Ctrl-T is ignored by Ghostty and has no effect. Ctrl-Space then `c` creates a
+Ctrl-T and Ctrl-Shift-T are ignored by Ghostty and have no effect. Herdr has no
+native reopen-closed-workspace action; Ctrl-Shift-T must not open a hidden outer
+Ghostty tab and make the Herdr client appear to disappear. Ctrl-Space then `c` creates a
 tab in the current workspace. Alt-A returns to the previously
 focused pane, including a pane in another tab or workspace on the selected
 machine; in a split tab it can return to another pane in that same tab.
