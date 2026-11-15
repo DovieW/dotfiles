@@ -282,8 +282,9 @@ Herdr uses `~/.config/herdr/config.toml`, copied from the authoritative
 repository configuration so its settings UI cannot mutate the checkout. It is
 started on demand with `herdr` (`t` opens tmux) and preserves the managed Ctrl-Space
 prefix, split, zoom, Navi, and Alt-h/j/k/l navigation behavior. Ctrl-E creates a
-workspace and Ctrl-W requests closing the current workspace, with the normal
-close confirmation. The prefix shortcuts Ctrl-Space then Shift-N / Shift-D
+workspace and Ctrl-W immediately closes the current workspace, stopping its
+panes and agents without confirmation (`ui.confirm_close = false`).
+The prefix shortcuts Ctrl-Space then Shift-N / Shift-D
 remain available. Ctrl-Tab / Ctrl-Shift-Tab cycle workspaces on the selected
 machine; Ctrl-1 through Ctrl-9 jump to a workspace by position. Ctrl-Shift-A
 opens the Go To picker; press `/` there to search open terminals and agents

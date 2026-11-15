@@ -63,6 +63,7 @@ width = "80%"
 height = "70%"
 
 [ui]
+confirm_close = false
 mouse_capture = true
 copy_on_select = true
 pane_outer_borders = false
