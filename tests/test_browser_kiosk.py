@@ -102,9 +102,10 @@ class KioskTests(unittest.TestCase):
         values = {'max_brightness': '100', 'brightness': '1'}
         device.__truediv__ = mock.Mock(side_effect=lambda name: mock.Mock(read_text=lambda: values[name]))
         execute = mock.Mock()
-        with mock.patch('pwd.getpwuid', return_value=mock.Mock(pw_name='photos-kiosk')), mock.patch('pathlib.Path.iterdir', return_value=[device]), mock.patch.dict(fn.__globals__, {'run': execute}):
+        with mock.patch('pwd.getpwuid', return_value=mock.Mock(pw_name='photos-kiosk')), mock.patch('pathlib.Path.iterdir', return_value=[device]), mock.patch.dict(fn.__globals__, {'run': execute}), mock.patch('subprocess.run') as osd:
             fn(-1)
             self.assertEqual(execute.call_args.args[-1], '5')
             values['brightness'] = '95'
             fn(1)
             self.assertEqual(execute.call_args.args[-1], '100')
+            self.assertEqual(osd.call_args.args[0][-1], '100%')

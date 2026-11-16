@@ -125,7 +125,7 @@ def install():
     for other in POLICY.parent.glob('*.json'):
         if other != POLICY and set(json.loads(other.read_text())) & set(policy(True)):
             raise RuntimeError(f'Conflicting Chrome platform policy needs review: {other}')
-    run('/usr/bin/apt-get', 'install', '--yes', '--no-install-recommends', '--no-upgrade', 'sway')
+    run('/usr/bin/apt-get', 'install', '--yes', '--no-install-recommends', '--no-upgrade', 'sway', 'swayosd')
     if not MARK.exists():
         run('/usr/sbin/useradd', '--create-home', '--user-group', '--shell', '/usr/sbin/nologin', USER)
         os.chmod(pwd.getpwnam(USER).pw_dir, 0o700)
@@ -264,6 +264,9 @@ def brightness(direction):
         run('/usr/bin/busctl', '--system', 'call', 'org.freedesktop.login1',
             '/org/freedesktop/login1/session/self', 'org.freedesktop.login1.Session',
             'SetBrightness', 'ssu', 'backlight', device.name, str(target))
+        subprocess.run(['/usr/bin/swayosd-client', '--custom-icon', 'display-brightness-symbolic',
+                        '--custom-progress', str(target / maximum),
+                        '--custom-progress-text', f'{round(target / maximum * 100)}%'], check=False)
 
 
 def main():

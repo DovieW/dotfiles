@@ -120,7 +120,8 @@ The kiosk explicitly matches the managed touchpad settings: flat acceleration,
 pointer speed 0.2, scroll factor 0.1, and disable-while-typing. Plasma's desktop
 switching/overview gestures are not installed into the restricted compositor.
 
-Volume keys use the kiosk's own PipeWire session, in 5% steps capped at 100%,
+SwayOSD provides a session-local on-screen level indicator for volume, mute,
+and brightness. Volume keys use the kiosk's own PipeWire session, in 5% steps capped at 100%,
 with a mute toggle. Brightness keys use logind's active-session API in 20%
 steps, with a 5% minimum to keep the screen visible. They do not grant the
 guest administrative privileges or start Plasma's desktop services.
