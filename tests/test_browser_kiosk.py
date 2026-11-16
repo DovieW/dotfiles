@@ -14,6 +14,8 @@ class KioskTests(unittest.TestCase):
         self.assertIn('chrome://*', K['policy']()['URLBlocklist'])
         self.assertNotIn('https://.accounts.google.com', K['policy']()['URLAllowlist'])
         self.assertIn('https://.accounts.google.com', K['policy'](True)['URLAllowlist'])
+        self.assertIn('https://.www.google.com/photos/about/', K['policy'](True)['URLAllowlist'])
+        self.assertNotIn('https://.www.google.com', K['policy'](True)['URLAllowlist'])
 
     def test_policy_mutation_requires_root_before_reading_account(self):
         with mock.patch('os.geteuid', return_value=1000), mock.patch('pwd.getpwnam') as lookup:

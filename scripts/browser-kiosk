@@ -30,7 +30,8 @@ def policy(enroll=False):
     return {
         'URLBlocklist': ['*', 'chrome://*', 'file://*', 'view-source:*'],
         'URLAllowlist': ['https://.photos.google.com'] + (
-            ['https://.accounts.google.com', 'chrome://policy'] if enroll else []),
+            ['https://.accounts.google.com', 'https://.www.google.com/photos/about/',
+             'chrome://policy'] if enroll else []),
         'DeveloperToolsAvailability': 2, 'DownloadRestrictions': 3,
         'AllowFileSelectionDialogs': False, 'PrintingEnabled': False,
         'DefaultNotificationsSetting': 2, 'DefaultPopupsSetting': 2,
