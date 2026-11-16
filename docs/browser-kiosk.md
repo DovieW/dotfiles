@@ -8,8 +8,11 @@ configuration match the repository; the 12 targeted automated tests pass.
 A subsequent restricted-mode trial found search unresponsive and video
 playback stuck loading, without an explicit blocked-page error. Both worked
 when website blocking was lifted. The allowlist now includes Google media,
-API, and background account-refresh services; a restricted-mode retest is
-pending, including album viewing and hardware controls. See the acceptance checklist below for the
+API, and background account-refresh services. The owner then reported the
+combined restricted-mode retest successful: search, the same video, an album,
+touchpad scrolling, and keyboard volume/brightness. The mode file remained
+`locked` during that trial. Broader crash, suspend, and physical escape tests
+in the checklist below remain unverified. See the acceptance checklist below for the
 remaining physical checks; this is not a claim that every escape route or
 Google Photos feature has been tested.
 
@@ -217,3 +220,10 @@ Signed-out Photos redirects to `https://www.google.com/photos/about/`, and
 narrow sign-in exceptions still broke CAPTCHA. Owner enrollment now temporarily
 permits websites. The owner completed sign-in with this mode; the authenticated
 exit restored Photos-only navigation and the saved login survived reopening.
+
+The initial Photos-host-only allowlist also broke search and video playback
+without an explicit blocked-page error. Both worked in enrollment mode. With
+the broader media/API/cookie-refresh exceptions now in `PHOTOS_URLS`, the owner
+reported the combined restricted-mode viewing and hardware-key test successful.
+The exact failing endpoint was not isolated, so the service exceptions are
+broader than a minimum proven list; the owner explicitly accepted this tradeoff.
