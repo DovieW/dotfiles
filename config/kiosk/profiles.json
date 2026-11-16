@@ -1,0 +1,26 @@
+{
+  "google-photos": {
+    "name": "Google Photos",
+    "url": "https://photos.google.com/",
+    "data_dir": ".config/photos-kiosk",
+    "allowlist": [
+      "https://.photos.google.com",
+      "https://googleusercontent.com",
+      "https://googlevideo.com",
+      "https://gstatic.com",
+      "https://googleapis.com",
+      "https://.apis.google.com",
+      "https://.video.google.com",
+      "https://.ogs.google.com",
+      "https://.accounts.google.com/RotateCookies",
+      "https://.accounts.google.com/ListAccounts",
+      "https://.accounts.google.com/CheckCookie",
+      "https://.accounts.youtube.com/RotateCookies"
+    ],
+    "enrollment_allowlist": [
+      "https://.accounts.google.com",
+      "https://.www.google.com/photos/about/",
+      "chrome://policy"
+    ]
+  }
+}

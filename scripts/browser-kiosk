@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Install and operate an isolated Photos session. See docs/browser-kiosk.md."""
+"""Install and operate an isolated Guest View session. See docs/browser-kiosk.md."""
 import hashlib
 import json
 import os
@@ -15,17 +15,45 @@ BASE = Path('/etc/browser-kiosk')
 POLICY = Path('/etc/opt/chrome/policies/managed/dotfiles-kiosk.json')
 RUNTIME = '/usr/local/libexec/browser-kiosk'
 MARK = BASE / 'installed'
-PHOTOS_URLS = [
-    'https://.photos.google.com',
-    'https://googleusercontent.com', 'https://googlevideo.com',
-    'https://gstatic.com', 'https://googleapis.com',
-    'https://.apis.google.com', 'https://.video.google.com',
-    'https://.ogs.google.com',
-    'https://.accounts.google.com/RotateCookies',
-    'https://.accounts.google.com/ListAccounts',
-    'https://.accounts.google.com/CheckCookie',
-    'https://.accounts.youtube.com/RotateCookies',
-]
+DEFAULT_PROFILE = 'google-photos'
+
+
+def profiles():
+    source = Path(__file__).resolve().parent.parent / 'config/kiosk/profiles.json'
+    catalog = json.loads((source if source.exists() else BASE / 'profiles.json').read_text())
+    if not catalog:
+        raise RuntimeError('No Guest View profiles configured.')
+    directories = set()
+    for key, entry in catalog.items():
+        if not key or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for c in key):
+            raise RuntimeError('Invalid profile identifier.')
+        directory = Path(entry['data_dir'])
+        if directory.is_absolute() or '..' in directory.parts or not directory.parts:
+            raise RuntimeError('Profile directory must stay inside the guest home.')
+        if str(directory) in directories:
+            raise RuntimeError('Each profile needs a separate browser directory.')
+        directories.add(str(directory))
+        if not entry['url'].startswith('https://') or not entry['name'].strip():
+            raise RuntimeError('Profiles require a name and HTTPS start URL.')
+        if not isinstance(entry['allowlist'], list) or not entry['allowlist']:
+            raise RuntimeError('Profiles require a nonempty URL allowlist.')
+    return catalog
+
+
+def active_profile():
+    selected = BASE / 'active-profile'
+    key = selected.read_text().strip() if selected.exists() else DEFAULT_PROFILE
+    return profiles()[key]
+
+
+def select_profile(key):
+    root()
+    if key not in profiles():
+        raise RuntimeError('Unknown Guest View profile.')
+    # End the old browser before changing its machine-level navigation policy.
+    stop_user()
+    write(BASE / 'active-profile', key + '\n')
+    set_policy(False)
 
 
 def run(*args, **kw):
@@ -38,11 +66,10 @@ def root():
 
 
 def policy(enroll=False):
+    profile = active_profile()
     return {
         'URLBlocklist': ([] if enroll else ['*']) + ['chrome://*', 'file://*', 'view-source:*'],
-        'URLAllowlist': PHOTOS_URLS + (
-            ['https://.accounts.google.com', 'https://.www.google.com/photos/about/',
-             'chrome://policy'] if enroll else []),
+        'URLAllowlist': profile['allowlist'] + (profile.get('enrollment_allowlist', []) if enroll else []),
         'DeveloperToolsAvailability': 2, 'DownloadRestrictions': 3,
         'AllowFileSelectionDialogs': False, 'PrintingEnabled': False,
         'DefaultNotificationsSetting': 2, 'DefaultPopupsSetting': 2,
@@ -84,8 +111,8 @@ def install():
     files = {
         RUNTIME: (Path(__file__).read_text(), 0o755),
         '/usr/share/wayland-sessions/dotfiles-kiosk.desktop': (
-            '[Desktop Entry]\nName=Family Photos kiosk\nType=Application\n'
-            f'Exec={RUNTIME} session\nDesktopNames=PhotosKiosk\n', 0o644),
+            '[Desktop Entry]\nName=Guest View\nType=Application\n'
+            f'Exec={RUNTIME} session\nDesktopNames=GuestView\n', 0o644),
         '/etc/sddm.conf.d/95-dotfiles-kiosk.conf': (
             '[Wayland]\nSessionCommand=/usr/local/libexec/kiosk-wayland\n'
             '[X11]\nSessionCommand=/usr/local/libexec/kiosk-x11\n', 0o644),
@@ -102,8 +129,9 @@ def install():
             '  return polkit.Result.NO;\n});\n', 0o644),
         '/etc/ssh/sshd_config.d/90-dotfiles-kiosk.conf': ('DenyUsers photos-kiosk\n', 0o644),
         '/usr/local/share/applications/dotfiles-photos-kiosk.desktop': (
-            '[Desktop Entry]\nType=Application\nName=Family Photos guest session\n'
+            '[Desktop Entry]\nType=Application\nName=Guest View\nComment=Restricted browser profiles; Google Photos is the first profile\n'
             f'Exec={RUNTIME} start\nIcon=google-chrome\nTerminal=false\n', 0o644),
+        str(BASE / 'profiles.json'): (json.dumps(profiles(), indent=2) + '\n', 0o644),
         str(BASE / 'sway.conf'): ((repo / 'config/kiosk/sway.conf').read_text(), 0o644),
     }
     if not MARK.exists():
@@ -129,6 +157,7 @@ def install():
     if not MARK.exists():
         run('/usr/sbin/useradd', '--create-home', '--user-group', '--shell', '/usr/sbin/nologin', USER)
         os.chmod(pwd.getpwnam(USER).pw_dir, 0o700)
+    run('/usr/sbin/usermod', '--comment', 'Guest View', USER)
     for path, (data, mode) in files.items():
         write(path, data, mode)
     write(BASE / 'files.json', json.dumps({p: hashlib.sha256(data.encode()).hexdigest() for p, (data, _) in files.items()}, indent=2) + '\n')
@@ -162,7 +191,7 @@ def session():
         props = run('/usr/bin/loginctl', 'show-session', fields[0], '-p', 'Type', '-p', 'LockedHint', capture_output=True, text=True).stdout
         if ('Type=wayland' in props or 'Type=x11' in props) and 'LockedHint=yes' not in props:
             raise RuntimeError('Lock all other graphical user sessions before starting the kiosk.')
-    os.environ.update(HOME=account.pw_dir, XDG_CURRENT_DESKTOP='PhotosKiosk', QT_QPA_PLATFORM='wayland', PATH='/usr/local/bin:/usr/bin:/bin')
+    os.environ.update(HOME=account.pw_dir, XDG_CURRENT_DESKTOP='GuestView', QT_QPA_PLATFORM='wayland', PATH='/usr/local/bin:/usr/bin:/bin')
     for name in ('DISPLAY', 'WAYLAND_DISPLAY', 'SWAYSOCK', 'SSH_AUTH_SOCK', 'BASH_ENV', 'ENV'):
         os.environ.pop(name, None)
     # Prefer integrated graphics on hybrid laptops; avoid initializing proprietary NVIDIA.
@@ -181,13 +210,14 @@ def browser():
     expected = policy((BASE / 'mode').read_text().strip() == 'enroll')
     if json.loads(POLICY.read_text()) != expected:
         raise RuntimeError('Kiosk policy verification failed.')
+    profile = active_profile()
     failures = 0
     while failures < 5:
         started = time.monotonic()
         subprocess.run(['/usr/bin/google-chrome-stable', '--ozone-platform=wayland',
                         '--kiosk', '--no-first-run', '--no-default-browser-check',
-                        '--user-data-dir=' + str(Path.home() / '.config/photos-kiosk'),
-                        'https://photos.google.com/'], check=False)
+                        '--user-data-dir=' + str(Path.home() / profile['data_dir']),
+                        profile['url']], check=False)
         if time.monotonic() - started > 30:
             failures = 0
         else:
@@ -200,6 +230,18 @@ def start():
     sid = os.environ.get('XDG_SESSION_ID')
     if not sid:
         raise RuntimeError('Launch from your graphical desktop.')
+    catalog = profiles()
+    if len(catalog) > 1:
+        args = ['/usr/bin/kdialog', '--title', 'Guest View', '--menu', 'Choose a profile']
+        for key, entry in catalog.items():
+            args.extend([key, entry['name']])
+        choice = subprocess.run(args, capture_output=True, text=True, check=False)
+        if choice.returncode:
+            return
+        key = choice.stdout.strip()
+        if key not in catalog:
+            raise RuntimeError('Unknown profile selection.')
+        run('/usr/bin/pkexec', RUNTIME, 'select', key)
     run('/usr/bin/loginctl', 'lock-session', sid)
     for _ in range(50):
         state = run('/usr/bin/loginctl', 'show-session', sid, '-p', 'LockedHint', '--value', capture_output=True, text=True).stdout.strip()
@@ -271,7 +313,12 @@ def brightness(direction):
 
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else 'check'
-    if action == 'install':
+    if action == 'profiles':
+        for key, entry in profiles().items():
+            print(key + ': ' + entry['name'])
+    elif action == 'select':
+        select_profile(sys.argv[2] if len(sys.argv) > 2 else '')
+    elif action == 'install':
         install()
     elif action == 'enable':
         install()

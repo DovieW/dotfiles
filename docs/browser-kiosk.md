@@ -1,4 +1,4 @@
-# Family Photos browser kiosk
+# Guest View
 
 Status on 2026-11-15: installed and enabled. The owner confirmed successful
 family-account sign-in and reopening with the library still accessible after
@@ -33,6 +33,33 @@ configuration does not include the distribution's normal Sway desktop config.
 Configured shortcuts provide authenticated exit, volume/mute, and display
 brightness; none launches a terminal or desktop. Server keys
 for virtual-terminal switching are disabled through the XKB configuration.
+
+## Profiles
+
+Guest View starts with **Google Photos**. The owner launcher and login-screen
+session are named **Guest View**. The existing Unix account `photos-kiosk` and
+its browser directory are intentionally retained to preserve the working login.
+Its displayed account name is Guest View.
+
+Profiles live in `config/kiosk/profiles.json`. Each has a display name, HTTPS
+start URL, URL allowlist, optional enrollment allowlist, and a unique relative
+browser data directory. To add a profile, add a new entry, validate it with
+`scripts/browser-kiosk profiles`, and reinstall using the command below. Do not
+store credentials or cookies in the catalog. Installed configuration is
+root-owned under `/etc/browser-kiosk`.
+
+With one profile, the launcher opens it directly. With multiple profiles, it
+shows an owner-side selection dialog before locking the desktop. Switching
+profiles requires administrator authentication, ends any previous kiosk session,
+and applies the selected profile's restricted policy. The guest cannot change
+profiles. For command-line selection, use
+`pkexec /usr/local/libexec/browser-kiosk select PROFILE-ID`.
+
+Profiles have separate browser data directories but share the restricted Unix
+account and one active navigation policy; they are not separate OS security
+boundaries and do not run concurrently. Shared hardware controls and exit
+behavior apply to all profiles. Enrollment temporarily permits websites for
+the selected profile; authenticated exit restores its restricted allowlist.
 
 ## Install
 
@@ -79,7 +106,7 @@ Enrollment mode temporarily removes website blocking so Google CAPTCHA and
 sign-in redirects can function. Internal Chrome pages, file access, downloads,
 printing, and developer tools remain restricted, with `chrome://policy` available
 for owner inspection. This mode is only for the owner during account setup. It ends any existing kiosk session. Sign in through the
-normal login screen as `photos-kiosk`, select **Family Photos kiosk**, and
+normal login screen as `photos-kiosk`, select **Guest View**, and
 interactively sign into the intended family Google account. Verify the exact
 account; no identifier or password is stored in this repository.
 
@@ -91,9 +118,9 @@ Do not hand over a session while it remains in enrollment mode.
 
 ## Normal use
 
-Open **Family Photos guest session** in the application launcher. It locks the
+Open **Guest View** in the application launcher. It locks the
 owner's current session, waits for the lock acknowledgement, then requests the
-login screen. Sign in as the kiosk user with **Family Photos kiosk** selected.
+login screen. Sign in as the kiosk user with **Guest View** selected.
 The session also rejects startup when another graphical user's session reports
 that it is unlocked.
 
@@ -224,7 +251,7 @@ exit restored Photos-only navigation and the saved login survived reopening.
 
 The initial Photos-host-only allowlist also broke search and video playback
 without an explicit blocked-page error. Both worked in enrollment mode. With
-the broader media/API/cookie-refresh exceptions now in `PHOTOS_URLS`, the owner
+the broader media/API/cookie-refresh exceptions now in the Google Photos profile, the owner
 reported the combined restricted-mode viewing and hardware-key test successful.
 The exact failing endpoint was not isolated, so the service exceptions are
 broader than a minimum proven list; the owner explicitly accepted this tradeoff.

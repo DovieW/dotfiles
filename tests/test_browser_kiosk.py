@@ -109,3 +109,46 @@ class KioskTests(unittest.TestCase):
             fn(1)
             self.assertEqual(execute.call_args.args[-1], '100')
             self.assertEqual(osd.call_args.args[0][-1], '100%')
+
+    def test_first_profile_preserves_existing_browser_data(self):
+        profile = K['profiles']()['google-photos']
+        self.assertEqual(profile['name'], 'Google Photos')
+        self.assertEqual(profile['data_dir'], '.config/photos-kiosk')
+        self.assertEqual(profile['url'], 'https://photos.google.com/')
+
+    def test_guest_cannot_select_profile(self):
+        with mock.patch('os.geteuid', return_value=1001):
+            with self.assertRaises(RuntimeError):
+                K['select_profile']('google-photos')
+
+    def test_profile_change_stops_old_browser_before_policy_change(self):
+        fn = K['select_profile']
+        calls = mock.Mock()
+        with mock.patch.dict(fn.__globals__, {'root': mock.Mock(), 'stop_user': calls.stop,
+                                              'write': calls.write, 'set_policy': calls.policy}):
+            fn('google-photos')
+        self.assertEqual([call[0] for call in calls.mock_calls], ['stop', 'write', 'policy'])
+
+    def test_unknown_profile_does_not_stop_running_session(self):
+        fn = K['select_profile']
+        with mock.patch.dict(fn.__globals__, {'root': mock.Mock(), 'stop_user': mock.Mock()}) as env:
+            with self.assertRaises(RuntimeError):
+                fn('missing-profile')
+            env['stop_user'].assert_not_called()
+
+    def test_profile_picker_cancel_does_not_lock_or_switch(self):
+        fn = K['start']
+        runner = mock.Mock()
+        catalog = {'one': {'name': 'One'}, 'two': {'name': 'Two'}}
+        with mock.patch.dict(os.environ, {'XDG_SESSION_ID': '4'}), mock.patch.dict(fn.__globals__, {'profiles': lambda: catalog, 'run': runner}), mock.patch('subprocess.run', return_value=mock.Mock(returncode=1)):
+            fn()
+        runner.assert_not_called()
+
+    def test_profile_picker_authenticates_before_locking_owner(self):
+        fn = K['start']
+        runner = mock.Mock(return_value=mock.Mock(stdout='yes'))
+        catalog = {'one': {'name': 'One'}, 'two': {'name': 'Two'}}
+        with mock.patch.dict(os.environ, {'XDG_SESSION_ID': '4'}), mock.patch.dict(fn.__globals__, {'profiles': lambda: catalog, 'run': runner}), mock.patch('subprocess.run', return_value=mock.Mock(returncode=0, stdout='two\n')):
+            fn()
+        self.assertEqual(runner.call_args_list[0].args, ('/usr/bin/pkexec', K['RUNTIME'], 'select', 'two'))
+        self.assertEqual(runner.call_args_list[1].args, ('/usr/bin/loginctl', 'lock-session', '4'))
