@@ -12,6 +12,9 @@ class KioskTests(unittest.TestCase):
     def test_normal_mode_does_not_allow_google_account_settings(self):
         self.assertEqual(K['policy']()['URLAllowlist'], ['https://.photos.google.com'])
         self.assertIn('chrome://*', K['policy']()['URLBlocklist'])
+        self.assertIn('*', K['policy']()['URLBlocklist'])
+        self.assertNotIn('*', K['policy'](True)['URLBlocklist'])
+        self.assertIn('file://*', K['policy'](True)['URLBlocklist'])
         self.assertNotIn('https://.accounts.google.com', K['policy']()['URLAllowlist'])
         self.assertIn('https://.accounts.google.com', K['policy'](True)['URLAllowlist'])
         self.assertIn('https://.www.google.com/photos/about/', K['policy'](True)['URLAllowlist'])

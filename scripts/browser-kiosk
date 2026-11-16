@@ -28,7 +28,7 @@ def root():
 
 def policy(enroll=False):
     return {
-        'URLBlocklist': ['*', 'chrome://*', 'file://*', 'view-source:*'],
+        'URLBlocklist': ([] if enroll else ['*']) + ['chrome://*', 'file://*', 'view-source:*'],
         'URLAllowlist': ['https://.photos.google.com'] + (
             ['https://.accounts.google.com', 'https://.www.google.com/photos/about/',
              'chrome://policy'] if enroll else []),

@@ -12,8 +12,9 @@ shortcut attempt was rejected by pkexec because SHELL was nologin; the exit
 command now supplies /bin/sh in its process environment without changing the
 account login shell. The next physical trial successfully authenticated the exit and returned to the
 owner session. Google redirects signed-out Photos visitors to
-`https://www.google.com/photos/about/`; enrollment permits only that path in
-addition to the Google Accounts sign-in host.
+`https://www.google.com/photos/about/`. Narrow sign-in exceptions still broke
+CAPTCHA, so owner enrollment now temporarily permits websites until the
+authenticated exit restores Photos-only navigation.
 
 The managed kiosk uses a separate `photos-kiosk` Linux user, a minimal Sway
 session, and mandatory Chrome policies scoped to that account. Its browser
@@ -72,9 +73,10 @@ Before entering the kiosk for the first time, authenticate this command:
 pkexec /usr/local/libexec/browser-kiosk enroll
 ```
 
-Enrollment mode permits the Google Accounts sign-in host, the Photos about
-page used by its signed-out redirect, and `chrome://policy`
-in addition to Photos. It ends any existing kiosk session. Sign in through the
+Enrollment mode temporarily removes website blocking so Google CAPTCHA and
+sign-in redirects can function. Internal Chrome pages, file access, downloads,
+printing, and developer tools remain restricted, with `chrome://policy` available
+for owner inspection. This mode is only for the owner during account setup. It ends any existing kiosk session. Sign in through the
 normal login screen as `photos-kiosk`, select **Family Photos kiosk**, and
 interactively sign into the intended family Google account. Verify the exact
 account; no identifier or password is stored in this repository.
