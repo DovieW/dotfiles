@@ -201,6 +201,16 @@ def start():
 def stop_user():
     rows = run('/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager', capture_output=True, text=True).stdout
     if any(len(parts := line.split()) > 2 and parts[2] == USER for line in rows.splitlines()):
+        candidates = []
+        for line in rows.splitlines():
+            parts = line.split()
+            if len(parts) < 3 or parts[2] in (USER, 'sddm'):
+                continue
+            props = run('/usr/bin/loginctl', 'show-session', parts[0], '-p', 'Type', '-p', 'LockedHint', capture_output=True, text=True).stdout
+            if ('Type=wayland' in props or 'Type=x11' in props) and 'LockedHint=yes' in props:
+                candidates.append(parts[0])
+        if len(candidates) == 1:
+            run('/usr/bin/loginctl', 'activate', candidates[0])
         run('/usr/bin/loginctl', 'terminate-user', USER)
 
 
@@ -221,6 +231,15 @@ def disable():
     print('Disabled. Account and browser state preserved; SDDM not restarted.')
 
 
+def request_exit():
+    if pwd.getpwuid(os.getuid()).pw_name != USER:
+        raise RuntimeError('Exit request is only for the kiosk session.')
+    run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen disable')
+    subprocess.run(['/usr/bin/pkexec', RUNTIME, 'stop'], check=False,
+                   env={**os.environ, 'SHELL': '/bin/sh'})
+    run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen enable')
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else 'check'
     if action == 'install':
@@ -237,11 +256,7 @@ def main():
     elif action == 'browser':
         browser()
     elif action == 'exit-request':
-        if pwd.getpwuid(os.getuid()).pw_name != USER:
-            raise RuntimeError('Exit request is only for the kiosk session.')
-        run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen disable')
-        subprocess.run(['/usr/bin/pkexec', RUNTIME, 'stop'], check=False)
-        run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen enable')
+        request_exit()
     elif action == 'start':
         start()
     elif action in ('stop', 'enroll', 'lock'):

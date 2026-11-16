@@ -69,3 +69,18 @@ class KioskTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 K['browser']()
             launch.assert_not_called()
+
+    def test_exit_uses_valid_shell_without_changing_login_shell(self):
+        fn = K['request_exit']
+        with mock.patch('pwd.getpwuid', return_value=mock.Mock(pw_name='photos-kiosk')), mock.patch.dict(os.environ, {'SHELL': '/usr/sbin/nologin'}), mock.patch.dict(fn.__globals__, {'run': mock.Mock()}), mock.patch('subprocess.run') as execute:
+            fn()
+            self.assertEqual(execute.call_args.kwargs['env']['SHELL'], '/bin/sh')
+            self.assertEqual(os.environ['SHELL'], '/usr/sbin/nologin')
+
+    def test_stop_returns_locked_owner_before_terminating_guest(self):
+        fn = K['stop_user']
+        execute = mock.Mock(side_effect=[mock.Mock(stdout='4 1000 owner seat0\n5 1001 photos-kiosk seat0\n'), mock.Mock(stdout='Type=wayland\nLockedHint=yes\n'), mock.Mock(), mock.Mock()])
+        with mock.patch.dict(fn.__globals__, {'run': execute}):
+            fn()
+        self.assertEqual(execute.call_args_list[-2].args, ('/usr/bin/loginctl', 'activate', '4'))
+        self.assertEqual(execute.call_args_list[-1].args, ('/usr/bin/loginctl', 'terminate-user', 'photos-kiosk'))

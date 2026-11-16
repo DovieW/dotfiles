@@ -4,10 +4,13 @@ Status: prototype failed its first physical startup test on 2026-11-15.
 Not accepted for handoff yet. The owner requested supervised retries without
 a timer; no automatic recovery timer is installed. Keep the existing owner
 session and the monitoring agent running during these retries. Sway rejected the proprietary NVIDIA device; the session launcher
-now prefers Intel graphics when available, but this fix has not passed a physical
-retry. The failed attempt left a blank screen. Recovery required activating the
+now prefers Intel graphics when available. A supervised retry started Sway and
+Chrome successfully and visibly blocked the non-allowed Google sign-in page. The failed attempt left a blank screen. Recovery required activating the
 owner’s already-locked session from the existing agent. SSH recovery was not
-verified and the user reported it unavailable during the incident.
+verified and the user reported it unavailable during the incident. The first exit
+shortcut attempt was rejected by pkexec because SHELL was nologin; the exit
+command now supplies /bin/sh in its process environment without changing the
+account login shell. Exit authentication still requires physical verification.
 
 The managed kiosk uses a separate `photos-kiosk` Linux user, a minimal Sway
 session, and mandatory Chrome policies scoped to that account. Its browser
