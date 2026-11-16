@@ -10,7 +10,12 @@ K = runpy.run_path(str(Path(__file__).resolve().parents[1] / 'scripts/browser-ki
 
 class KioskTests(unittest.TestCase):
     def test_normal_mode_does_not_allow_google_account_settings(self):
-        self.assertEqual(K['policy']()['URLAllowlist'], ['https://.photos.google.com'])
+        allowed = K['policy']()['URLAllowlist']
+        self.assertIn('https://.photos.google.com', allowed)
+        for host in ('google.com', '.www.google.com', '.mail.google.com', '.drive.google.com'):
+            self.assertNotIn('https://' + host, allowed)
+        self.assertIn('https://googlevideo.com', allowed)
+        self.assertIn('https://.accounts.google.com/RotateCookies', allowed)
         self.assertIn('chrome://*', K['policy']()['URLBlocklist'])
         self.assertIn('*', K['policy']()['URLBlocklist'])
         self.assertNotIn('*', K['policy'](True)['URLBlocklist'])
@@ -89,3 +94,17 @@ class KioskTests(unittest.TestCase):
             fn()
         self.assertEqual(execute.call_args_list[-2].args, ('/usr/bin/loginctl', 'activate', '4'))
         self.assertEqual(execute.call_args_list[-1].args, ('/usr/bin/loginctl', 'terminate-user', 'photos-kiosk'))
+
+    def test_brightness_stays_visible_and_never_exceeds_maximum(self):
+        fn = K['brightness']
+        device = mock.Mock(name='panel')
+        device.name = 'panel'
+        values = {'max_brightness': '100', 'brightness': '1'}
+        device.__truediv__ = mock.Mock(side_effect=lambda name: mock.Mock(read_text=lambda: values[name]))
+        execute = mock.Mock()
+        with mock.patch('pwd.getpwuid', return_value=mock.Mock(pw_name='photos-kiosk')), mock.patch('pathlib.Path.iterdir', return_value=[device]), mock.patch.dict(fn.__globals__, {'run': execute}):
+            fn(-1)
+            self.assertEqual(execute.call_args.args[-1], '5')
+            values['brightness'] = '95'
+            fn(1)
+            self.assertEqual(execute.call_args.args[-1], '100')

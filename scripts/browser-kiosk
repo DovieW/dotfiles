@@ -15,6 +15,17 @@ BASE = Path('/etc/browser-kiosk')
 POLICY = Path('/etc/opt/chrome/policies/managed/dotfiles-kiosk.json')
 RUNTIME = '/usr/local/libexec/browser-kiosk'
 MARK = BASE / 'installed'
+PHOTOS_URLS = [
+    'https://.photos.google.com',
+    'https://googleusercontent.com', 'https://googlevideo.com',
+    'https://gstatic.com', 'https://googleapis.com',
+    'https://.apis.google.com', 'https://.video.google.com',
+    'https://.ogs.google.com',
+    'https://.accounts.google.com/RotateCookies',
+    'https://.accounts.google.com/ListAccounts',
+    'https://.accounts.google.com/CheckCookie',
+    'https://.accounts.youtube.com/RotateCookies',
+]
 
 
 def run(*args, **kw):
@@ -29,7 +40,7 @@ def root():
 def policy(enroll=False):
     return {
         'URLBlocklist': ([] if enroll else ['*']) + ['chrome://*', 'file://*', 'view-source:*'],
-        'URLAllowlist': ['https://.photos.google.com'] + (
+        'URLAllowlist': PHOTOS_URLS + (
             ['https://.accounts.google.com', 'https://.www.google.com/photos/about/',
              'chrome://policy'] if enroll else []),
         'DeveloperToolsAvailability': 2, 'DownloadRestrictions': 3,
@@ -241,6 +252,20 @@ def request_exit():
     run('/usr/bin/swaymsg', '[app_id=".*chrome.*"] fullscreen enable')
 
 
+def brightness(direction):
+    if pwd.getpwuid(os.getuid()).pw_name != USER:
+        raise RuntimeError('Brightness keys are only for the kiosk session.')
+    for device in Path('/sys/class/backlight').iterdir():
+        maximum = int((device / 'max_brightness').read_text())
+        current = int((device / 'brightness').read_text())
+        # Match the owner's 20% steps, but keep a visible minimum for recovery.
+        target = max(max(1, round(maximum * .05)),
+                     min(maximum, current + direction * max(1, round(maximum * .2))))
+        run('/usr/bin/busctl', '--system', 'call', 'org.freedesktop.login1',
+            '/org/freedesktop/login1/session/self', 'org.freedesktop.login1.Session',
+            'SetBrightness', 'ssu', 'backlight', device.name, str(target))
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else 'check'
     if action == 'install':
@@ -258,6 +283,8 @@ def main():
         browser()
     elif action == 'exit-request':
         request_exit()
+    elif action in ('brightness-up', 'brightness-down'):
+        brightness(1 if action == 'brightness-up' else -1)
     elif action == 'start':
         start()
     elif action in ('stop', 'enroll', 'lock'):
