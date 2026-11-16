@@ -17,8 +17,11 @@ Sync records themselves can contain private browsing information and secrets:
 keep the store private and never commit it or upload it unredacted.
 
 The private store is `~/.local/state/dotfiles/chrome-recovery/`. Retention keeps
-the newest 72 generations, the newest generation in each of 48 hourly buckets,
-and one in each of 30 daily buckets, plus explicitly pinned generations.
+the newest five automatic generations, the last generation from each UTC day
+within the newest generation's 30-calendar-day window, and all explicitly pinned
+generations. At five-minute intervals, the five recent automatic snapshots cover
+roughly the last 20 minutes. Older automatic snapshots are removed after a new
+snapshot is successfully saved; days without snapshots have no daily backup.
 Identical files are hardlinked between backups, never to the Chrome originals.
 Do not edit backup files in place: export an independent copy first.
 

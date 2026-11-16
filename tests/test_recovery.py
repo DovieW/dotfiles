@@ -79,17 +79,43 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 RECOVERY["verify"](snapshot)
 
-    def test_retention_is_bounded_but_keeps_pin(self):
+    def test_retention_keeps_five_recent_daily_month_and_all_pins(self):
         with tempfile.TemporaryDirectory() as directory:
             start = dt.datetime(2026, 1, 1)
             paths = [Path(directory) / (start + dt.timedelta(minutes=i * 5)).strftime("%Y%m%dT%H%M%S.000000Z") for i in range(12000)]
             paths[0].mkdir()
             (paths[0] / "PINNED").touch()
+            paths[-1].mkdir()
+            (paths[-1] / "PINNED").touch()
             keep = RECOVERY["retained"](paths)
-            self.assertIn(paths[0], keep)
-            self.assertTrue(set(paths[-72:]).issubset(keep))
-            self.assertLessEqual(len(keep), 72 + 48 + 30 + 1)
-            self.assertNotIn(paths[1], keep)
+            newest_day = (start + dt.timedelta(minutes=11999 * 5)).date()
+            cutoff = newest_day - dt.timedelta(days=29)
+            expected_daily = {}
+            for path in paths:
+                day = dt.datetime.strptime(path.name[:8], "%Y%m%d").date()
+                if day >= cutoff:
+                    expected_daily[day] = path
+            self.assertEqual(len(expected_daily), 30)
+            self.assertEqual(keep, {paths[0], paths[-1]} | set(paths[-6:-1]) | set(expected_daily.values()))
+            self.assertEqual(RECOVERY["retained"]([]), set())
+            self.assertEqual(RECOVERY["retained"](paths[:3]), set(paths[:3]))
+
+    def test_daily_retention_uses_calendar_window_despite_missing_days(self):
+        with tempfile.TemporaryDirectory() as directory:
+            names = ["20260101", "20260102", "20260103", "20260201"]
+            paths = [Path(directory) / f"{day}T{hour:02}0000.000000Z"
+                     for day in names for hour in range(10)]
+            keep = RECOVERY["retained"](paths)
+            self.assertEqual(keep, set(paths[-5:]) | {paths[29]})
+
+    def test_successful_snapshot_prunes_old_generations_and_preserves_pin(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            source, state = self.fixture(Path(directory))
+            pinned = RECOVERY["snapshot"](source, state, pin=True)
+            automatic = [RECOVERY["snapshot"](source, state) for _ in range(7)]
+            self.assertEqual(RECOVERY["generations"](state), [pinned] + automatic[-5:])
+            for path in [pinned] + automatic[-5:]:
+                RECOVERY["verify"](path)
 
     def test_snapshot_cannot_be_inside_chrome(self):
         with tempfile.TemporaryDirectory() as directory:

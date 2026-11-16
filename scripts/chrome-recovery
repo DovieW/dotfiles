@@ -66,13 +66,18 @@ def generations(state):
 
 
 def retained(paths):
-    keep = set(paths[-72:])  # Six hours at five-minute intervals.
-    for width, count in ((11, 48), (8, 30)):
-        buckets = {}
+    pinned = {p for p in paths if (p / "PINNED").is_file()}
+    automatic = [p for p in paths if p not in pinned]
+    keep = set(automatic[-5:]) | pinned
+    if paths:
+        newest_day = dt.datetime.strptime(paths[-1].name[:8], "%Y%m%d").date()
+        cutoff = (newest_day - dt.timedelta(days=29)).strftime("%Y%m%d")
+        daily = {}
         for path in paths:
-            buckets[path.name[:width]] = path
-        keep.update(list(buckets.values())[-count:])
-    keep.update(p for p in paths if (p / "PINNED").is_file())
+            day = path.name[:8]
+            if day >= cutoff:
+                daily[day] = path
+        keep.update(daily.values())
     return keep
 
 
