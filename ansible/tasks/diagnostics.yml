@@ -1,0 +1,187 @@
+---
+- name: Validate diagnostic platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == 'Debian'
+      - ansible_facts.service_mgr == 'systemd'
+      - ansible_facts.distribution_major_version | int >= 26
+    fail_msg: Diagnostic journal routing requires systemd 256 or later (managed Ubuntu 26.04 baseline).
+
+- name: Install local diagnostic tools
+  become: true
+  ansible.builtin.apt:
+    name: [pcp, pcp-export-pcp2json, lnav, bpftrace, sysstat, libglib2.0-bin, pipewire-bin, pulseaudio-utils]
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create diagnostic policy directories
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/dot-diagnostics
+    - /etc/systemd/journald.conf.d
+    - /etc/systemd/coredump.conf.d
+    - /etc/systemd/system/pmcd.service.d
+    - /usr/local/libexec
+
+- name: Install diagnostic collector
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/diagnostics"
+    dest: /usr/local/libexec/dot-diagnostics
+    owner: root
+    group: root
+    mode: '0755'
+  register: dot_diag_script
+
+- name: Install signal and resource allowlists
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/diagnostics/{{ item }}"
+    dest: "/etc/dot-diagnostics/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: [signals.bt, pcp.conf]
+  register: dot_diag_policies
+
+- name: Install bounded journal and crash retention
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/diagnostics/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - {src: journal.conf, dest: /etc/systemd/journald@diagnostics.conf}
+    - {src: general-journal.conf, dest: /etc/systemd/journald.conf.d/70-dotfiles-retention.conf}
+    - {src: coredump.conf, dest: /etc/systemd/coredump.conf.d/70-dotfiles-retention.conf}
+  register: dot_diag_journals
+
+- name: Bind performance collector to this host only
+  become: true
+  ansible.builtin.copy:
+    content: "-A\n-i 127.0.0.1\n-i ::1\n"
+    dest: /etc/pcp/pmcd/pmcd.options
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  register: dot_diag_pmcd
+
+- name: Disable default PCP collectors with broader policies
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: [pmlogger.service, pmproxy.service, pmie.service]
+  when: not ansible_check_mode
+
+- name: Retain independent coarse resource history for thirty days
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/sysstat/sysstat
+    regexp: '^HISTORY='
+    line: HISTORY=30
+
+- name: Install diagnostic system units
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/system/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - dot-diagnostics-signals.service
+    - dot-diagnostics-devices.service
+    - dot-diagnostics-resources.service
+    - dot-diagnostics-health.service
+    - dot-diagnostics-health.timer
+    - dot-diagnostics-snapshot.service
+  register: dot_diag_units
+
+- name: Activate diagnostic journal sockets
+  become: true
+  ansible.builtin.systemd_service:
+    name: systemd-journald@diagnostics.socket
+    daemon_reload: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Activate journal retention without discarding existing history
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: restarted
+  loop: [systemd-journald.service, systemd-journald@diagnostics.service]
+  when: dot_diag_journals.changed and not ansible_check_mode
+
+- name: Activate local performance metrics
+  become: true
+  ansible.builtin.systemd_service:
+    name: pmcd.service
+    enabled: true
+    state: "{{ 'restarted' if dot_diag_pmcd.changed else 'started' }}"
+  when: not ansible_check_mode
+
+- name: Enable continuous diagnostic recording
+  become: true
+  ansible.builtin.systemd_service:
+    name: "dot-diagnostics-{{ item }}.service"
+    enabled: true
+    state: >-
+      {{ 'restarted' if dot_diag_script.changed or dot_diag_policies.changed
+         or dot_diag_units.changed else 'started' }}
+  loop: [signals, devices, resources]
+  when: not ansible_check_mode
+
+- name: Enable independent diagnostic health timer
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-diagnostics-health.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Create diagnostic user directories
+  ansible.builtin.file:
+    path: "{{ ansible_facts.user_dir }}/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop: [.config/systemd/user, .local/bin]
+
+- name: Install diagnostic user units
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/{{ item }}"
+    dest: "{{ ansible_facts.user_dir }}/.config/systemd/user/{{ item }}"
+    mode: '0644'
+  loop: [dot-diagnostics-audio.service, dot-diagnostics-health.service, dot-diagnostics-health.timer]
+  register: dot_diag_user_units
+
+- name: Install incident command
+  ansible.builtin.file:
+    path: "{{ ansible_facts.user_dir }}/.local/bin/dot-diagnostics"
+    src: /usr/local/libexec/dot-diagnostics
+    state: link
+    force: false
+  when: not ansible_check_mode
+
+- name: Activate session audio monitoring and alerts
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if dot_diag_user_units.changed or dot_diag_script.changed else 'started' }}"
+  loop: [dot-diagnostics-audio.service, dot-diagnostics-health.timer]
+  when: not ansible_check_mode

@@ -150,6 +150,14 @@
       when: dot_profile_data.features.crash_recovery | default(false)
       tags: [recovery]
 
+    - name: Configure local diagnostic recording
+      ansible.builtin.include_tasks:
+        file: tasks/diagnostics.yml
+        apply:
+          tags: [diagnostics]
+      when: dot_profile_data.features.diagnostics | default(false)
+      tags: [diagnostics]
+
     - name: Configure increased inotify capacity
       ansible.builtin.include_tasks:
         file: tasks/inotify.yml

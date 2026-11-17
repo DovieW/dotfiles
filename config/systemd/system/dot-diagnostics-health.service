@@ -1,0 +1,9 @@
+[Unit]
+Description=Verify diagnostic collection including a signal canary
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=oneshot
+ExecStart=/usr/local/libexec/dot-diagnostics health
+UMask=0077
+LogNamespace=diagnostics

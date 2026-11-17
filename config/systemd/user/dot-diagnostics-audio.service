@@ -1,0 +1,15 @@
+[Unit]
+Description=Record microphone and audio graph metadata
+After=pipewire.service pipewire-pulse.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+ExecStart=/usr/bin/systemd-cat --namespace=diagnostics --identifier=dot-diagnostics-audio /usr/local/libexec/dot-diagnostics audio
+Restart=always
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

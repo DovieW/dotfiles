@@ -1,0 +1,27 @@
+[Unit]
+Description=Local diagnostic resources recorder
+After=pmcd.service
+Requires=pmcd.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=simple
+ExecStart=/usr/local/libexec/dot-diagnostics resources
+Restart=always
+RestartSec=5
+LogNamespace=diagnostics
+SyslogIdentifier=dot-diagnostics-resources
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+Nice=10
+ProtectSystem=strict
+ReadWritePaths=/run/pcp
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

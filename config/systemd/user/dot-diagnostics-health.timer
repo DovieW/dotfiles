@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically check diagnostic recording
+
+[Timer]
+OnActiveSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

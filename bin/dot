@@ -4160,6 +4160,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             "meshcentral",
             "memory",
             "recovery",
+            "diagnostics",
             "nomachine",
             "rustdesk",
             "tailscale",
@@ -10392,6 +10393,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "termux": "termux",
     }.get(profile["name"])
     actual_platform = infer_platform()
+    if profile.get("features", {}).get("diagnostics"):
+        diagnostics = run(
+            ["/usr/local/libexec/dot-diagnostics", "health"],
+            check=False, capture=True,
+        ) if Path("/usr/local/libexec/dot-diagnostics").exists() else None
+        failures += not doctor_check(
+            "Diagnostic recording", diagnostics is not None and diagnostics.returncode == 0,
+            diagnostics.stdout.strip() if diagnostics is not None
+            else "run dot apply --tags diagnostics",
+        )
     if profile.get("features", {}).get("crash_recovery"):
         recovery = run(
             [str(ROOT / "scripts/configure-recovery"), "--check"],

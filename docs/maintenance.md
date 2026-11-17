@@ -833,3 +833,10 @@ FilmCraft and its MCP-capable CLI are managed as an official external Debian
 package in both Kubuntu profiles. See [FilmCraft](filmcraft.md) for launch,
 updates, and the difference between a headless MCP session and the live editor
 bridge.
+
+## Local diagnostic recording
+
+Kubuntu profiles enable the [local diagnostic recorder](diagnostics.md).
+Apply with `dot apply --profile kubuntu-laptop --tags diagnostics`; check with
+`dot-diagnostics health`. Use its incident exporter before changing a failing
+service. Keep private bundles local unless reviewed for sharing.

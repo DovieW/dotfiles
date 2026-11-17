@@ -1,0 +1,24 @@
+[Unit]
+Description=Local diagnostic signals recorder
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=simple
+ExecStart=/usr/local/libexec/dot-diagnostics signals
+Restart=always
+RestartSec=5
+LogNamespace=diagnostics
+SyslogIdentifier=dot-diagnostics-signals
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+Nice=10
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

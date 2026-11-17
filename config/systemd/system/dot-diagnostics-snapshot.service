@@ -1,0 +1,16 @@
+[Unit]
+Description=Bounded diagnostic thread snapshot on incident or severe I/O pressure
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=oneshot
+ExecStart=/usr/local/libexec/dot-diagnostics snapshot
+TimeoutStartSec=30
+LogNamespace=diagnostics
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+UMask=0077
+Nice=10
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true

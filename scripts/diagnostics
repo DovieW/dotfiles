@@ -1,0 +1,579 @@
+#!/usr/bin/python3
+"""Local diagnostic collection and incident export; never collects media payloads."""
+from __future__ import annotations
+
+import argparse
+import collections
+import datetime as dt
+import gzip
+import json
+import os
+from pathlib import Path
+import queue
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+CONFIG = Path('/etc/dot-diagnostics')
+STATE = Path('/var/lib/dot-diagnostics')
+BOOT = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+UNITS = ('dot-diagnostics-signals.service', 'dot-diagnostics-devices.service',
+         'dot-diagnostics-resources.service', 'pmcd.service', 'dot-freeze-recorder.service')
+PROPS = ('node.name', 'media.class', 'application.name', 'application.process.id',
+         'device.name', 'device.api', 'object.serial')
+STOP = threading.Event()
+
+
+def emit(event, **fields):
+    print(json.dumps(dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(),
+                          boot_id=BOOT, collector=MODE, event=event, **fields)), flush=True)
+
+
+def run(argv, timeout=20):
+    p = subprocess.run(argv, text=True, capture_output=True, timeout=timeout, check=False)
+    if p.returncode:
+        raise RuntimeError(f'{argv[0]} exited {p.returncode}: {p.stderr[:500]}')
+    return p.stdout
+
+
+def atomic(path, data):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix='.pending-', dir=path.parent)
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(json.dumps(data) + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def signal_record(line):
+    fields = line.rstrip('\n').split('\t')
+    kind = fields[0]
+    if kind == 'signal':
+        keys = ('boottime_ns', 'sender_pid', 'sender_tid', 'target_tid', 'signal',
+                'code', 'group', 'result', 'sender_start_ns')
+        data = dict(zip(keys, map(int, fields[1:10])))
+        data.update(sender_comm=fields[10], target_comm=' '.join(fields[11:]))
+    elif kind == 'exit':
+        data = dict(zip(('boottime_ns', 'pid', 'wait_status', 'start_ns'), map(int, fields[1:5])))
+        data['comm'] = ' '.join(fields[5:])
+    elif kind == 'oom':
+        data = dict(zip(('boottime_ns', 'context_pid', 'victim_tid'), map(int, fields[1:4])))
+    elif kind == 'heartbeat':
+        data = dict(boottime_ns=int(fields[1]))
+    else:
+        return None
+    return kind, data
+
+
+def signals():
+    # stderr is retained too: bpftrace reports lost events and load errors there.
+    p = subprocess.Popen(['/usr/bin/bpftrace', '-q', '-B', 'line', str(CONFIG / 'signals.bt')],
+                         stdout=subprocess.PIPE, text=True)
+    try:
+        for line in p.stdout:
+            try:
+                record = signal_record(line)
+                if record:
+                    emit(record[0], **record[1])
+            except (ValueError, IndexError):
+                emit('parse_error')
+        code = p.wait()
+        if STOP.is_set() and code == 0:
+            emit('stop', expected=True)
+            return
+        raise RuntimeError(f'bpftrace stopped: {code}')
+    finally:
+        if p.poll() is None:
+            p.terminate()
+            p.wait(timeout=10)
+
+
+def pw_changes(obj):
+    """Allowlist object metadata, excluding titles, filenames and arbitrary params."""
+    if not isinstance(obj, dict) or 'id' not in obj:
+        return None
+    info = obj.get('info') or {}
+    props = info.get('props') or {}
+    data = {k: obj[k] for k in ('id', 'type') if k in obj}
+    data['props'] = {k: props[k] for k in PROPS if k in props}
+    for key in ('state', 'error', 'output-node-id', 'input-node-id'):
+        if key in info:
+            data[key] = info[key]
+    return data
+
+
+def audio_snapshot():
+    data = {}
+    for obj in ('sources', 'sinks', 'cards'):
+        rows = json.loads(run(['pactl', '-f', 'json', 'list', obj]))
+        data[obj] = [{k: r[k] for k in ('index', 'name', 'state', 'mute', 'active_port',
+                    'active_profile') if k in r} for r in rows]
+    data['default_source'] = run(['pactl', 'get-default-source']).strip()
+    data['default_sink'] = run(['pactl', 'get-default-sink']).strip()
+    return data
+
+
+def subscribe(name, argv, output):
+    """A failed or clean-EOF subscription reconnects; no audio service restart."""
+    while not STOP.is_set():
+        p = None
+        try:
+            p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            output.put((name + '_connected', None))
+            while not STOP.is_set():
+                chunk = os.read(p.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                try:
+                    output.put((name, chunk.decode(errors='replace')), timeout=5)
+                except queue.Full:
+                    emit('subscription_queue_overflow', subscription=name)
+        except OSError:
+            pass
+        finally:
+            if p is not None and p.poll() is None:
+                p.terminate()
+                p.wait(timeout=10)
+            output.put((name + '_disconnected', None))
+        STOP.wait(5)
+
+
+def audio():
+    output = queue.Queue(maxsize=4096)
+    for name, argv in [('pipewire', ['pw-dump', '-m', '-N']), ('pulse', ['pactl', 'subscribe'])]:
+        threading.Thread(target=subscribe, args=(name, argv, output), daemon=True).start()
+    decoder = json.JSONDecoder()
+    buffers = collections.defaultdict(str)
+    last_snapshot = None
+    connections = set()
+    next_snapshot = next_heartbeat = 0
+    while not STOP.is_set():
+        try:
+            name, chunk = output.get(timeout=1)
+            if chunk is None:
+                buffers.clear()
+                emit(name)
+                key = name.rsplit('_', 1)[0]
+                if name.endswith('_connected'):
+                    connections.add(key)
+                else:
+                    connections.discard(key)
+                next_snapshot = 0
+            elif name == 'pipewire':
+                buffers[name] += chunk
+                if len(buffers[name]) > 4 * 1024 * 1024:
+                    buffers[name] = ''
+                    emit('pipewire_buffer_overflow')
+                while buffers[name].strip():
+                    try:
+                        objs, end = decoder.raw_decode(buffers[name].lstrip())
+                    except ValueError:
+                        break
+                    buffers[name] = buffers[name].lstrip()[end:]
+                    for obj in objs:
+                        data = pw_changes(obj)
+                        if data:
+                            emit('pipewire_change', **data)
+            else:
+                buffers[name] += chunk
+                while '\n' in buffers[name]:
+                    line, buffers[name] = buffers[name].split('\n', 1)
+                    match = re.search(r"Event '(new|change|remove)' on (\w+)(?: #(\d+))?", line)
+                    if match:
+                        emit('pulse_change', operation=match[1], object=match[2], index=match[3])
+        except queue.Empty:
+            pass
+        now = time.monotonic()
+        if now >= next_snapshot:
+            try:
+                data = audio_snapshot()
+                emit('audio_state', changed=data != last_snapshot, **data)
+                last_snapshot = data
+            except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
+                emit('audio_query_failed', error=str(e))
+            next_snapshot = now + 120
+        if now >= next_heartbeat:
+            emit('heartbeat', subscriptions=sorted(connections))
+            next_heartbeat = now + 30
+
+
+def devices():
+    output = queue.Queue(maxsize=4096)
+    commands = [('udev', ['udevadm', 'monitor', '--udev', '--property',
+                        '--subsystem-match=sound', '--subsystem-match=usb', '--subsystem-match=bluetooth']),
+                ('bluez', ['stdbuf', '-oL', 'gdbus', 'monitor', '--system', '--dest', 'org.bluez'])]
+    for name, argv in commands:
+        threading.Thread(target=subscribe, args=(name, argv, output), daemon=True).start()
+    buffers = collections.defaultdict(str)
+    props = {}
+    heartbeat = 0
+    while not STOP.is_set():
+        try:
+            name, chunk = output.get(timeout=1)
+            if chunk is None:
+                emit(name)
+                buffers.clear()
+            else:
+                buffers[name] += chunk
+                while '\n' in buffers[name]:
+                    line, buffers[name] = buffers[name].split('\n', 1)
+                    if name == 'udev':
+                        if not line and props:
+                            emit('device_change', **props)
+                            props = {}
+                        key, _, value = line.partition('=')
+                        if key in ('ACTION', 'SUBSYSTEM', 'DEVPATH', 'DEVNAME', 'PRODUCT'):
+                            props[key.lower()] = value
+                    elif "PropertiesChanged ('org.bluez.Device1'" in line and ("'Connected':" in line or "'ServicesResolved':" in line):
+                        path = line.split(':', 1)[0]
+                        fields = dict(re.findall(r"'(Connected|ServicesResolved)': <(true|false)>", line))
+                        emit('bluetooth_state', path=path, **fields)
+        except queue.Empty:
+            pass
+        if time.monotonic() >= heartbeat:
+            emit('heartbeat')
+            heartbeat = time.monotonic() + 30
+
+
+def archive_groups(root):
+    groups = {}
+    for p in root.glob('*.meta*'):
+        match = re.fullmatch(r'(\d{8}T\d{6}Z)\.meta(?:\.gz)?', p.name)
+        if match:
+            prefix = match[1]
+            files = [f for f in root.glob(prefix + '.*') if f.is_file() and not f.is_symlink()]
+            groups[prefix] = files
+    return groups
+
+
+def prune_archives(root, active='', now=None, budget=4 * 1024**3):
+    now = time.time() if now is None else now
+    groups = archive_groups(root)
+    total = sum(f.stat().st_size for files in groups.values() for f in files)
+    removed = []
+    for prefix, files in sorted(groups.items()):
+        if prefix == active:
+            continue
+        old = max(f.stat().st_mtime for f in files) < now - 14 * 86400
+        if old or total > budget:
+            for f in files:
+                total -= f.stat().st_size
+                f.unlink()
+            removed.append(prefix)
+    return removed
+
+
+def resources():
+    root = STATE / 'pcp'
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    while not STOP.is_set():
+        name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        emit('archive_start', archive=name)
+        p = subprocess.Popen(['pmlogger', '-h', 'local:', '-c', str(CONFIG / 'pcp.conf'),
+                              '-l', '/dev/stderr', '-T', '1h', str(root / name)])
+        try:
+            while p.poll() is None and not STOP.wait(30):
+                removed = prune_archives(root, active=name)
+                for prefix, files in archive_groups(root).items():
+                    if prefix == name:
+                        continue
+                    for path in files:
+                        if path.suffix == '.meta' or path.suffix[1:].isdigit():
+                            stamp = path.stat().st_mtime
+                            temp = path.with_name(path.name + '.gz.pending')
+                            with path.open('rb') as source, gzip.open(temp, 'wb') as dest:
+                                shutil.copyfileobj(source, dest)
+                            final = path.with_name(path.name + '.gz')
+                            temp.replace(final)
+                            os.utime(final, (stamp, stamp))
+                            path.unlink()
+                emit('heartbeat', archive=name, pruned=removed)
+                pressure = Path('/proc/pressure/io').read_text()
+                match = re.search(r'full avg10=([\d.]+)', pressure)
+                marker = STATE / 'last-pressure-trigger'
+                if match and float(match[1]) > 50 and (not marker.exists() or time.time() - marker.stat().st_mtime > 600):
+                    marker.touch()
+                    subprocess.run(['systemctl', 'start', '--no-block', 'dot-diagnostics-snapshot.service'], check=False)
+            if STOP.is_set():
+                p.terminate()
+            code = p.wait(timeout=15)
+            if code and not STOP.is_set():
+                raise RuntimeError(f'pmlogger exited {code}')
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+
+
+def journal_records(since, until=None, namespace=None):
+    args = ['journalctl', '--no-pager', '-o', 'json', '--since', since]
+    if until:
+        args += ['--until', until]
+    if namespace:
+        args += ['--namespace', namespace]
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    size = count = 0
+    try:
+        for line in process.stdout:
+            count += 1
+            size += len(line)
+            if count > 200000 or size > 128 * 1024**2:
+                raise RuntimeError('journal export limited to 200000 records / 128 MiB; narrow the time window')
+            yield json.loads(line)
+        code = process.wait(timeout=10)
+        if code:
+            raise RuntimeError(f'journalctl exited {code}: {process.stderr.read()[:500]}')
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=10)
+
+
+def health():
+    errors = []
+    states = {}
+    for unit in UNITS:
+        p = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True)
+        states[unit] = p.stdout.strip()
+        if p.returncode:
+            errors.append(unit)
+    if os.geteuid() != 0:
+        p = subprocess.run(['systemctl', '--user', 'is-active', 'dot-diagnostics-audio.service'],
+                           capture_output=True, text=True)
+        if p.returncode:
+            errors.append('dot-diagnostics-audio.service')
+    # End-to-end canary: only signal a child created and owned by this invocation.
+    child = subprocess.Popen(['/usr/bin/sleep', '10'])
+    target = child.pid
+    child.terminate()
+    child.wait(timeout=5)
+    time.sleep(1)
+    recent = {}
+    audio_connections = []
+    seen_canary = False
+    query_ok = False
+    for record in journal_records('3 minutes ago', namespace='diagnostics'):
+        try:
+            data = json.loads(record.get('MESSAGE', ''))
+        except (ValueError, TypeError):
+            if re.search(r'lost \d+ events|ERROR|Suppressed \d+', str(record.get('MESSAGE', '')), re.I):
+                errors.append('collector error or dropped events (see diagnostic journal)')
+            continue
+        if data.get('event') == 'heartbeat' and data.get('boot_id') == BOOT:
+            recent[data.get('collector')] = data.get('utc')
+            if data.get('collector') == 'audio':
+                audio_connections = data.get('subscriptions', [])
+        if data.get('event') == 'signal' and data.get('target_tid') == target and data.get('sender_pid') == os.getpid():
+            seen_canary = True
+        if data.get('event') == 'audio_state':
+            query_ok = True
+        if data.get('event') in ('subscription_queue_overflow', 'pipewire_buffer_overflow', 'parse_error'):
+            errors.append(data['event'])
+    if not seen_canary:
+        errors.append('signal canary missing from stored journal')
+    for collector in ('signals', 'resources', 'devices') + (('audio',) if os.geteuid() != 0 else ()):
+        if collector not in recent:
+            errors.append('missing heartbeat: ' + collector)
+    if os.geteuid() != 0 and not query_ok:
+        errors.append('no successful audio state query in three minutes')
+    if os.geteuid() != 0 and sorted(audio_connections) != ['pipewire', 'pulse']:
+        errors.append('audio subscriptions disconnected')
+    archives = archive_groups(STATE / 'pcp') if os.geteuid() == 0 else {}
+    if os.geteuid() == 0:
+        volumes = list((STATE / 'pcp').glob('*.0'))
+        if not archives or not volumes or time.time() - max(p.stat().st_mtime for p in volumes) > 120:
+            errors.append('no fresh resource archive')
+        snapshots = sorted((STATE / 'snapshots').glob('*.json'))
+        size = sum(p.stat().st_size for p in snapshots)
+        for p in snapshots:
+            if p.stat().st_mtime < time.time() - 14 * 86400 or size > 1024**3:
+                size -= p.stat().st_size
+                p.unlink()
+    data = dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(), states=states,
+                heartbeats=recent, errors=errors)
+    if os.geteuid() == 0:
+        data['resource_archives'] = len(archives)
+        data['oldest_resource_archive'] = min(archives, default=None)
+        data['resource_bytes'] = sum(p.stat().st_size for p in (STATE / 'pcp').glob('*') if p.is_file())
+        atomic(STATE / 'health.json', data)
+    else:
+        atomic(Path.home() / '.local/state/dotfiles/diagnostics/health.json', data)
+        if errors:
+            subprocess.run(['notify-send', '-u', 'normal', 'Diagnostic recorder needs attention',
+                            '; '.join(errors)], check=False)
+    emit('health', **{k: v for k, v in data.items() if k != 'utc'})
+    return 1 if errors else 0
+
+
+def snapshot():
+    """Bounded thread/wait snapshots; cannot reconstruct every userspace lock."""
+    threads = []
+    stacks = 0
+    for task in Path('/proc').glob('[0-9]*/task/[0-9]*'):
+        try:
+            text = (task / 'status').read_text()
+            fields = dict(line.split(':', 1) for line in text.splitlines() if ':' in line)
+            row = dict(pid=int(task.parent.parent.name), tid=int(task.name),
+                       comm=fields.get('Name', '').strip(), state=fields.get('State', '').strip(),
+                       wchan=(task / 'wchan').read_text().strip())
+            if row['state'].startswith(('D', 'R')) and stacks < 128:
+                stacks += 1
+                try:
+                    row['kernel_stack'] = (task / 'stack').read_text()[:8192]
+                except OSError:
+                    row['stack_unavailable'] = True
+            threads.append(row)
+            if len(threads) >= 10000:
+                break
+        except (OSError, ValueError):
+            continue
+    name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '.json'
+    atomic(STATE / 'snapshots' / name, dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(),
+           boot_id=BOOT, threads=threads, thread_limit=10000,
+           pressure={k: Path('/proc/pressure/' + k).read_text() for k in ('cpu', 'io', 'memory')}))
+    emit('thread_snapshot', file=name, threads=len(threads))
+
+
+def pcp_time(value):
+    return dt.datetime.fromisoformat(value).astimezone(dt.timezone.utc).strftime('@%Y-%m-%d %H:%M:%S UTC')
+
+
+def resource_timeline(text):
+    decoder = json.JSONDecoder()
+    while text.strip():
+        obj, end = decoder.raw_decode(text.lstrip())
+        text = text.lstrip()[end:]
+        for host in obj.get('@pcp', {}).get('@hosts', []):
+            for sample in host.get('@metrics', []):
+                if 'proc' not in sample:
+                    continue
+                stamp = dt.datetime.fromisoformat(sample['@timestamp'])
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=dt.timezone.utc)  # exporter forces UTC
+                rss = sample.get('proc', {}).get('memory', {}).get('rss', {}).get('@instances', [])
+                top = sorted(rss, key=lambda row: float(row.get('value', 0)), reverse=True)[:5]
+                summary = dict(top_rss=top, memory=sample.get('mem'), pressure=sample.get('kernel', {}).get('all', {}).get('pressure'))
+                yield int(stamp.timestamp() * 1e6), 'resources', json.dumps(summary)
+
+
+def export(args):
+    target = Path(args.output).expanduser().resolve()
+    target.mkdir(mode=0o700, parents=True, exist_ok=False)
+    target.chmod(0o700)
+    manifest = {'generated_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+                'since': args.since, 'until': args.until, 'boot_id': BOOT,
+                'warnings': [], 'post_incident': {}}
+    timeline = []
+    for label, ns in [('journal', None), ('diagnostics', 'diagnostics')]:
+        try:
+            with (target / (label + '.jsonl')).open('w') as f:
+                for row in journal_records(args.since, args.until, ns):
+                    f.write(json.dumps(row) + '\n')
+                    timeline.append((int(row.get('__REALTIME_TIMESTAMP', 0)),
+                                     row.get('SYSLOG_IDENTIFIER', label), row.get('MESSAGE', '')))
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            manifest['warnings'].append(str(e))
+    # Save the bounded recorder archives and the original resource data; never cores.
+    for label, source in [('freeze', Path('/var/lib/dot-freeze-recorder')), ('pcp', STATE / 'pcp')]:
+        try:
+            if label == 'freeze':
+                dest = target / label
+                dest.mkdir()
+                for p in source.glob('samples*.jsonl'):
+                    shutil.copyfile(p, dest / p.name)
+            else:
+                start = dt.datetime.fromisoformat(args.since).timestamp()
+                end = dt.datetime.fromisoformat(args.until).timestamp()
+                dest = target / label
+                dest.mkdir()
+                for prefix, files in archive_groups(source).items():
+                    stamp = dt.datetime.strptime(prefix, '%Y%m%dT%H%M%SZ').replace(tzinfo=dt.timezone.utc).timestamp()
+                    if stamp <= end and max(f.stat().st_mtime for f in files) >= start:
+                        for p in files:
+                            shutil.copyfile(p, dest / p.name)
+                        check = subprocess.run(['pmlogcheck', str(dest / prefix)],
+                                               capture_output=True, text=True, timeout=30)
+                        if check.returncode:
+                            manifest['warnings'].append(f'PCP archive {prefix} failed replay validation; may be an active copy')
+                        try:
+                            text = run(['pcp2json', '-H', '-E', '-Z', 'UTC', '-a', str(dest / prefix), '-S', pcp_time(args.since),
+                                        '-T', pcp_time(args.until), '-t', '30s', 'kernel.all.cpu',
+                                        'kernel.all.pressure', 'mem.util', 'proc.memory.rss',
+                                        'proc.io.read_bytes', 'proc.io.write_bytes'], timeout=90)
+                            (dest / (prefix + '.json')).write_text(text)
+                            timeline.extend(resource_timeline(text))
+                        except (RuntimeError, subprocess.TimeoutExpired) as e:
+                            manifest['warnings'].append(str(e))
+        except (OSError, ValueError) as e:
+            manifest['warnings'].append(f'{label}: {e}')
+    for label, source in [('snapshots', STATE / 'snapshots'), ('pstore', Path('/var/lib/systemd/pstore'))]:
+        if source.is_dir():
+            shutil.copytree(source, target / label)
+    for label, command in [('cores', ['coredumpctl', '--since', args.since, '--until', args.until, '--no-pager', 'list']),
+                           ('units', ['systemctl', 'show', *UNITS, '-p', 'ActiveState', '-p', 'NRestarts', '-p', 'ExecMainStartTimestamp']),
+                           ('versions', ['dpkg-query', '-W', 'pcp', 'bpftrace', 'systemd', 'sysstat']),
+                           ('retention', ['journalctl', '--namespace=diagnostics', '--list-boots', '--no-pager'])]:
+        try:
+            manifest['post_incident'][label] = run(command)
+        except RuntimeError as e:
+            if label == 'cores' and 'No coredumps found' in str(e):
+                manifest['post_incident'][label] = 'No coredumps in requested interval'
+            else:
+                manifest['warnings'].append(str(e))
+    if (STATE / 'health.json').exists():
+        manifest['post_incident']['health'] = json.loads((STATE / 'health.json').read_text())
+    with (target / 'timeline.txt').open('w') as f:
+        for stamp, source, message in sorted(timeline, key=lambda r: r[0]):
+            when = dt.datetime.fromtimestamp(stamp / 1e6, dt.timezone.utc).isoformat()
+            f.write(f'{when} {source}: {message}\n')
+    (target / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    print(f'Private incident bundle: {target}; {len(manifest["warnings"])} warnings (see manifest.json)')
+
+
+def main():
+    global MODE
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', choices=('signals', 'audio', 'devices', 'resources', 'health', 'export', 'mark', 'snapshot'))
+    parser.add_argument('--since')
+    parser.add_argument('--until')
+    parser.add_argument('--output')
+    args = parser.parse_args()
+    MODE = args.mode
+    if MODE == 'export':
+        if not all((args.since, args.until, args.output)):
+            parser.error('export requires --since, --until (ISO timestamps with offsets), and --output')
+        for value in (args.since, args.until):
+            if dt.datetime.fromisoformat(value).tzinfo is None:
+                parser.error('timestamps require an explicit UTC offset')
+        if dt.datetime.fromisoformat(args.since) >= dt.datetime.fromisoformat(args.until):
+            parser.error('--since must precede --until')
+        export(args)
+        return 0
+    if MODE == 'mark':
+        data = json.dumps(dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(), boot_id=BOOT,
+                               collector='manual', event='manual_incident_marker'))
+        subprocess.run(['systemd-cat', '--namespace=diagnostics', '-t', 'dot-diagnostics-marker'],
+                       input=data + '\n', text=True, check=True)
+        return 0
+    if MODE == 'health':
+        return health()
+    emit('start')
+    globals()[MODE]()
+    return 0
+
+
+MODE = 'unknown'
+if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, lambda *_: STOP.set())
+    sys.exit(main())

@@ -1,0 +1,105 @@
+#!/usr/bin/python3
+"""Live acceptance of installed diagnostics, using only disposable child workloads."""
+import ctypes
+import datetime as dt
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+
+def command(argv):
+    return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=120).stdout.strip()
+
+
+def main():
+    if os.geteuid() != 0:
+        raise SystemExit('Run via sudo or the KDE administrator dialog.')
+    os.umask(0o077)
+    start = dt.datetime.now(dt.timezone.utc).isoformat()
+    command(['systemctl', 'restart', 'dot-diagnostics-signals.service'])
+    time.sleep(2)
+    command(['journalctl', '--namespace=diagnostics', '--rotate'])
+    expectations = []
+    for kind in ('term', 'kill', 'pidfd', 'thread'):
+        script = 'import time; print("ready",flush=True); time.sleep(30)'
+        if kind == 'thread':
+            script = ('import threading,time; '
+                      'threading.Thread(target=lambda: (print(threading.get_native_id(),flush=True),time.sleep(30))).start(); '
+                      'time.sleep(30)')
+        child = subprocess.Popen(['/usr/bin/python3', '-c', script], stdout=subprocess.PIPE, text=True)
+        try:
+            ready = child.stdout.readline().strip()
+            sig = signal.SIGKILL if kind == 'kill' else signal.SIGTERM
+            tid = child.pid
+            if kind == 'pidfd':
+                fd = os.pidfd_open(child.pid)
+                try:
+                    signal.pidfd_send_signal(fd, sig)
+                finally:
+                    os.close(fd)
+            elif kind == 'thread':
+                tid = int(ready)
+                if ctypes.CDLL(None, use_errno=True).tgkill(child.pid, tid, sig):
+                    raise OSError(ctypes.get_errno(), 'tgkill')
+            else:
+                child.send_signal(sig)
+            child.wait(timeout=5)
+            expectations.append((kind, tid, int(sig)))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    # This cgroup contains only our disposable child, never an existing app.
+    name = f'dot-diagnostics-acceptance-{os.getpid()}'
+    command(['systemd-run', '--quiet', '--collect', '--unit', name,
+             '--property=MemoryMax=64M', '--property=MemorySwapMax=0', '/usr/bin/sleep', '30'])
+    pid = int(command(['systemctl', 'show', name, '-p', 'MainPID', '--value']))
+    cgroup = command(['systemctl', 'show', name, '-p', 'ControlGroup', '--value'])
+    if cgroup != f'/system.slice/{name}.service' or pid <= 1:
+        raise RuntimeError('Refusing unexpected test cgroup')
+    try:
+        (Path('/sys/fs/cgroup') / cgroup.lstrip('/') / 'cgroup.kill').write_text('1')
+        expectations.append(('cgroup', pid, 9))
+    finally:
+        subprocess.run(['systemctl', 'stop', name], capture_output=True, check=False)
+    # Cgroup-limited OOM: 80 MiB allocation in a dedicated 32 MiB/no-swap group.
+    oom_name = name + '-oom'
+    command(['systemd-run', '--quiet', '--collect', '--unit', oom_name,
+             '--property=MemoryMax=32M', '--property=MemorySwapMax=0', '/usr/bin/python3', '-c',
+             'import time;time.sleep(3);x=bytearray(80*1024*1024);time.sleep(10)'])
+    oom_pid = int(command(['systemctl', 'show', oom_name, '-p', 'MainPID', '--value']))
+    time.sleep(6)
+    subprocess.run(['systemctl', 'stop', oom_name], capture_output=True, check=False)
+    events = []
+    for line in command(['journalctl', '--namespace=diagnostics', '--since', start, '-o', 'json', '--no-pager']).splitlines():
+        try:
+            events.append(json.loads(json.loads(line)['MESSAGE']))
+        except (ValueError, TypeError):
+            pass
+    results = {}
+    for kind, tid, sig in expectations:
+        results[kind] = any(e.get('event') == 'signal' and e.get('target_tid') == tid and e.get('signal') == sig for e in events)
+    results['kernel_oom'] = any(e.get('event') == 'oom' and e.get('victim_tid') == oom_pid for e in events)
+    results['exit'] = any(e.get('event') == 'exit' and e.get('pid') == expectations[0][1] for e in events)
+    command(['systemctl', 'start', 'dot-diagnostics-snapshot.service'])
+    snapshots = sorted(Path('/var/lib/dot-diagnostics/snapshots').glob('*.json'))
+    results['snapshot'] = bool(snapshots) and len(json.loads(snapshots[-1].read_text())['threads']) <= 10000
+    check = subprocess.run(['/usr/local/libexec/dot-diagnostics', 'health'], capture_output=True, text=True, timeout=120)
+    results['health'] = check.returncode == 0
+    until = dt.datetime.now(dt.timezone.utc).isoformat()
+    output = '/var/lib/dot-diagnostics/incidents/acceptance-' + dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    command(['/usr/local/libexec/dot-diagnostics', 'export', '--since', start, '--until', until, '--output', output])
+    manifest = json.loads((Path(output) / 'manifest.json').read_text())
+    results['bundle'] = not manifest['warnings']
+    report = dict(tests=results, warnings=manifest['warnings'], bundle=output, utc=until,
+                  health=json.loads(check.stdout))
+    Path('/var/lib/dot-diagnostics/acceptance.json').write_text(json.dumps(report, indent=2) + '\n')
+    print(json.dumps(report, indent=2))
+    return 0 if all(results.values()) else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,5 +1,10 @@
 # Chrome recovery and laptop freeze evidence
 
+For continuous signal attribution, audio/device metadata, private resource
+history, protected journal retention and incident exports, see
+[Local Kubuntu diagnostics](diagnostics.md). The `diagnostics` tag complements
+the existing `recovery` tag.
+
 Install the scoped policy with `dot apply --profile kubuntu-laptop --tags recovery`.
 This does not restart Chrome or reboot the laptop. A normal reboot is required
 after first installing kdump, followed by `sudo kdump-config show` and a check

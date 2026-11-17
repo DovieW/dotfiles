@@ -1,0 +1,19 @@
+// Metadata only. Bounded strings avoid bpftrace 0.25's default-length verifier issue.
+tracepoint:signal:signal_generate
+/args.sig == 9 || args.sig == 15 || args.sig == 6 || args.sig == 11 || args.sig == 7 || args.sig == 4 || args.sig == 8/
+{
+  printf("signal\t%llu\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%llu\t%s\t%s\n",
+    nsecs(boot), pid, tid, args.pid, args.sig, args.code, args.group,
+    args.result, curtask->start_boottime, comm, str(args.comm, 16));
+}
+tracepoint:sched:sched_process_exit
+/pid == tid/
+{
+  printf("exit\t%llu\t%d\t%d\t%llu\t%s\n", nsecs(boot), pid,
+    curtask->exit_code, curtask->start_boottime, comm);
+}
+tracepoint:oom:mark_victim
+{
+  printf("oom\t%llu\t%d\t%d\n", nsecs(boot), pid, args.pid);
+}
+interval:s:30 { printf("heartbeat\t%llu\n", nsecs(boot)); }
