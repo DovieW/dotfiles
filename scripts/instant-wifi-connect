@@ -6,7 +6,12 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton, QComboBox
 
 # Display name and NetworkManager profile UUID. Add more choices here.
-NETWORKS = [("green", "92e02a67-be0e-429f-ac16-9baf3c73f641")]
+NETWORKS = [
+    ("green", "92e02a67-be0e-429f-ac16-9baf3c73f641"),
+    ("Tangerine", "8e4e21e0-f283-4644-9f2c-c71c87a66c26"),
+    ("Dovie's S25 Ultra", "220d09db-7f51-41a6-8dd9-ff74dd176efb"),
+    ("lxx", "5548bd05-5c93-4d40-9801-a54c30f697f6"),
+]
 
 class ConnectWorker(QThread):
     progress = pyqtSignal(str)
