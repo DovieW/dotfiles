@@ -1,0 +1,82 @@
+#!/usr/bin/python3
+"""Connect to a selected saved Wi-Fi network on demand."""
+import subprocess
+import sys
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton, QComboBox
+
+# Display name and NetworkManager profile UUID. Add more choices here.
+NETWORKS = [("green", "92e02a67-be0e-429f-ac16-9baf3c73f641")]
+
+class ConnectWorker(QThread):
+    progress = pyqtSignal(str)
+    finished_message = pyqtSignal(str)
+
+    def __init__(self, name, uuid):
+        super().__init__()
+        self.name, self.uuid = name, uuid
+
+    def run(self):
+        try:
+            active = subprocess.run(["nmcli", "-t", "-f", "UUID", "connection", "show", "--active"], capture_output=True, text=True, timeout=10)
+            if self.uuid in active.stdout.splitlines():
+                self.finished_message.emit(f"Already connected to {self.name}.")
+                return
+            self.progress.emit(f"Scanning for {self.name}…")
+            # A scan may be throttled or unavailable; connection activation can still succeed.
+            subprocess.run(["nmcli", "device", "wifi", "rescan"], capture_output=True, text=True, timeout=15)
+            self.progress.emit(f"Connecting to {self.name}…")
+            result = subprocess.run(["nmcli", "--wait", "30", "connection", "up", "uuid", self.uuid], capture_output=True, text=True, timeout=40)
+            if result.returncode == 0:
+                self.finished_message.emit(f"Connected to {self.name}.")
+            else:
+                self.finished_message.emit(f"Could not connect to {self.name}. Check that the hotspot is on, then retry.\n\n{result.stderr.strip()}")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            self.finished_message.emit(f"Connection attempt failed: {error}")
+
+class Window(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Instant Wi-Fi Connect")
+        self.setMinimumWidth(400)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Choose a saved network:"))
+        self.network = QComboBox()
+        for name, uuid in NETWORKS:
+            self.network.addItem(name, uuid)
+        layout.addWidget(self.network)
+        self.status = QLabel("Select Connect to scan and connect.")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        self.button = QPushButton("Connect")
+        self.button.clicked.connect(self.connect_network)
+        layout.addWidget(self.button)
+        self.worker = None
+
+    def connect_network(self):
+        self.button.setEnabled(False)
+        self.network.setEnabled(False)
+        self.worker = ConnectWorker(self.network.currentText(), self.network.currentData())
+        self.worker.progress.connect(self.status.setText)
+        self.worker.finished_message.connect(self.status.setText)
+        self.worker.finished.connect(self.done_connecting)
+        self.worker.start()
+
+    def done_connecting(self):
+        self.button.setText("Retry")
+        self.button.setEnabled(True)
+        self.network.setEnabled(True)
+
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.status.setText("Please wait for the connection attempt to finish.")
+            event.ignore()
+        else:
+            event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setDesktopFileName("io.github.doview.instant-wifi-connect")
+    window = Window()
+    window.show()
+    sys.exit(app.exec())

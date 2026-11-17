@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Instant Wi-Fi Connect
+Comment=Scan and connect to a saved hotspot
+Keywords=wifi;wi-fi;wireless;network;hotspot;green;connect;
+Exec=instant-wifi-connect
+Icon=network-wireless
+Terminal=false
+Categories=Network;
+StartupNotify=true
