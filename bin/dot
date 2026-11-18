@@ -39,6 +39,7 @@ from xml.parsers.expat import ExpatError
 _CODEX_ADMIN_PASSWORD: str | None = None
 
 ROOT = Path(__file__).resolve().parents[1]
+CODEXBAR_RELEASE = ["/usr/bin/python3", str(ROOT / "scripts/codexbar-release.py")]
 LINUXBREW_BIN = Path("/home/linuxbrew/.linuxbrew/bin")
 if LINUXBREW_BIN.is_dir():
     path_parts = os.environ.get("PATH", "").split(os.pathsep)
@@ -4076,6 +4077,9 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         only = {".config/kscreenlockerrc", ".config/plasmashellrc"} if selected_tags == {"lockscreen"} else None
         check_kde_apply_conflicts(force=force_kde, only=only)
     upgrade_ansible_controller(profile, selected_tags, check=args.check)
+    codexbar_selected = features.get("codexbar") and (
+        not selected_tags or bool(selected_tags & {"all", "packages", "app-updates", "codexbar"})
+    ) and not skipped.intersection({"all", "packages", "app-updates", "codexbar"})
     if args.direct or not command_exists("ansible-playbook"):
         direct_tags = set((args.tags or "").replace(",", " ").split())
         sleep_safety_selected = (
@@ -4131,6 +4135,8 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         ):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-git-sync"), mode], cwd=ROOT)
+        if codexbar_selected:
+            run([*CODEXBAR_RELEASE, "--check" if args.check else "--ensure"], cwd=ROOT)
         if not args.direct:
             print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
         apply_direct(
@@ -4194,6 +4200,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     become_arguments = (
         ansible_become_arguments()
         if (package_apply_selected and privileged_packages) or kde_system_apply_selected
+        or (codexbar_selected and run([*CODEXBAR_RELEASE, "--missing-runtime"], capture=True).stdout.strip())
         else []
     )
     kde_apply_selected = (
@@ -7267,6 +7274,12 @@ def installed_version_snapshot(
         if version:
             versions[("Codex CLI", "codex")] = version
 
+    if apps and profile.get("features", {}).get("codexbar"):
+        complete.add("CodexBar")
+        version = command_semver([*CODEXBAR_RELEASE, "--status"])
+        if version:
+            versions[("CodexBar", "Desktop and CLI")] = version
+
     if apps and profile.get("features", {}).get("vite_plus"):
         path = Path.home() / ".vite-plus/bin/vp"
         version = command_semver([str(path), "--version"]) if path.exists() else None
@@ -7677,6 +7690,16 @@ def check_vite_plus_updates() -> UpdateCheckResult:
     return UpdateCheckResult("Vite+", updates)
 
 
+def check_codexbar_updates() -> UpdateCheckResult:
+    result = run([*CODEXBAR_RELEASE, "--check"], capture=True, timeout=180)
+    release = json.loads(result.stdout)
+    installed, available = release["installed"], release["available"]
+    updates = () if installed == available else (
+        AvailableUpdate("Desktop and CLI", installed or "not installed", available),
+    )
+    return UpdateCheckResult("CodexBar", updates)
+
+
 def render_update_result(result: UpdateCheckResult, elapsed: float) -> int:
     if not result.updates:
         print(f"[OK] {result.provider}: up to date ({elapsed:.1f}s)", flush=True)
@@ -7762,6 +7785,8 @@ def report_pending_updates(profile: dict[str, Any], *, system: bool, apps: bool)
                 checks.append(("Codex CLI", check_codex_updates))
             else:
                 skipped.append("Codex CLI (curl is unavailable)")
+        if profile.get("features", {}).get("codexbar"):
+            checks.append(("CodexBar", check_codexbar_updates))
         if profile.get("features", {}).get("vite_plus"):
             if (Path.home() / ".vite-plus/bin/vp").exists():
                 checks.append(("Vite+", check_vite_plus_updates))
@@ -11092,6 +11117,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             rustdesk_client.stdout.strip()
             if rustdesk_client.returncode == 0
             else f"run dot apply --profile {profile['name']} --tags rustdesk",
+        )
+    if profile.get("features", {}).get("codexbar"):
+        codexbar = run([*CODEXBAR_RELEASE, "--status"], capture=True, check=False)
+        ready = codexbar.returncode == 0
+        failures += not doctor_check(
+            "CodexBar",
+            ready,
+            codexbar.stdout.strip() if ready else f"run dot apply --profile {profile['name']} --tags codexbar",
         )
     if profile.get("features", {}).get("shell"):
         failures += not doctor_check("zsh", command_exists("zsh"), shutil.which("zsh") or "not installed")

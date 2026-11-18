@@ -172,6 +172,18 @@ Use the GUI to create and operate VMs; see [Windows VM setup](docs/virtual-machi
 for installation, resource defaults, firmware, TPM, and guest drivers.
 Apply just the host setup with `dot apply --profile kubuntu-laptop --tags virtualization`.
 
+### CodexBar
+
+Both Kubuntu profiles install the official CodexBar desktop app and matching CLI
+from checksum-verified Linux releases. Open **CodexBar** from the Plasma launcher
+to see usage for your existing Codex login. The app starts in the background at
+login by default and preserves the login startup choice from Settings.
+
+Apply only CodexBar with `dot apply --profile kubuntu-laptop --tags codexbar`
+or use `kubuntu-desktop` on a desktop. `dot update --apps` includes both components.
+If an update reports a running copy with replaced code, quit CodexBar from its
+tray menu and reopen it to load the update.
+
 ### Image generation
 
 The Linux shell profile provides `imagegen`, a concurrent image-generation TUI

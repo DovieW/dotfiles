@@ -1,0 +1,33 @@
+---
+- name: Find missing CodexBar runtime packages
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, "{{ dot_repo }}/scripts/codexbar-release.py", --missing-runtime]
+  register: dot_codexbar_runtime
+  check_mode: false
+  changed_when: false
+
+- name: Install the Qt runtime for CodexBar
+  become: true
+  ansible.builtin.apt:
+    name: "{{ dot_codexbar_runtime.stdout_lines }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: dot_codexbar_runtime.stdout_lines | length > 0
+
+- name: Converge matched CodexBar desktop and CLI releases
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ dot_repo }}/scripts/codexbar-release.py"
+      - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+  register: dot_codexbar_release
+  check_mode: false
+  changed_when: >-
+    ((dot_codexbar_release.stdout | from_json).installed != (dot_codexbar_release.stdout | from_json).available)
+    if ansible_check_mode and dot_codexbar_release.rc == 0
+    else 'Installed CodexBar' in dot_codexbar_release.stdout
+
+- name: Report CodexBar release and activation
+  ansible.builtin.debug:
+    var: dot_codexbar_release.stdout_lines

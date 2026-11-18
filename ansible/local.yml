@@ -102,6 +102,11 @@
       when: dot_profile_data.features.virtualization | default(false)
       tags: [packages, virtualization, virtualization-launcher]
 
+    - name: Manage CodexBar on Kubuntu
+      ansible.builtin.import_tasks: tasks/codexbar.yml
+      when: dot_profile_data.features.codexbar | default(false)
+      tags: [packages, codexbar, app-updates]
+
     - name: Install Element Desktop
       ansible.builtin.include_tasks:
         file: tasks/element.yml
