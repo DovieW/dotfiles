@@ -19,6 +19,9 @@ fi
 if [[ -w /proc/self/oom_score_adj ]]; then
   printf '500\n' > /proc/self/oom_score_adj || true
 fi
+
+# Select KDE Wallet explicitly for shells without Plasma session variables.
 exec /usr/bin/google-chrome-stable \
+  --password-store=kwallet6 \
   --disable-features=WaylandWpColorManagerV1 \
   "$@"

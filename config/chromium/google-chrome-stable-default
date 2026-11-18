@@ -9,6 +9,9 @@ fi
 
 # Chromium's explicit Wayland color management can also wash out SDR desktop
 # displays. Use the same workaround as the laptop without its OLED policy.
+#
+# Select KDE Wallet explicitly for shells without Plasma session variables.
 exec /usr/bin/google-chrome-stable \
+  --password-store=kwallet6 \
   --disable-features=WaylandWpColorManagerV1 \
   "$@"

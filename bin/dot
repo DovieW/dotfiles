@@ -3634,6 +3634,9 @@ def apply_direct(
             )
         for source, destination in chromium_mappings.items():
             changes += int(link_file(source, destination))
+        changes += int(
+            link_file(chrome_launcher, Path.home() / ".local/bin/google-chrome")
+        )
         if command_exists("update-desktop-database"):
             run(
                 [
@@ -11655,23 +11658,27 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 else ROOT / "config/chromium/google-chrome-stable-default"
             )
             chrome_launcher = Path.home() / ".local/bin/google-chrome-stable"
+            chrome_alias = Path.home() / ".local/bin/google-chrome"
             chrome_desktop = (
                 Path.home() / ".local/share/applications/google-chrome.desktop"
             )
             chrome_desktop_source = ROOT / "config/chromium/google-chrome.desktop"
-            chrome_priority_ok = (
+            chrome_launcher_config = chrome_launcher_source.read_text(encoding="utf-8")
+            chrome_launcher_ok = (
                 chrome_launcher.is_symlink()
                 and chrome_launcher.resolve() == chrome_launcher_source.resolve()
-                and "/proc/self/oom_score_adj"
-                in chrome_launcher_source.read_text(encoding="utf-8")
+                and chrome_alias.is_symlink()
+                and chrome_alias.resolve() == chrome_launcher_source.resolve()
+                and "/proc/self/oom_score_adj" in chrome_launcher_config
+                and "--password-store=kwallet6" in chrome_launcher_config
                 and chrome_desktop.is_symlink()
                 and chrome_desktop.resolve() == chrome_desktop_source.resolve()
             )
             failures += not doctor_check(
-                "Chrome OOM priority",
-                chrome_priority_ok,
-                "new Chrome processes are preferred for emergency recovery"
-                if chrome_priority_ok
+                "Chrome launcher",
+                chrome_launcher_ok,
+                "uses KDE Wallet 6 and prioritizes Chrome for emergency memory recovery"
+                if chrome_launcher_ok
                 else f"run dot apply --profile {profile['name']} --tags display",
             )
         if profile.get("features", {}).get("factory_display_profile"):
