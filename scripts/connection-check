@@ -29,6 +29,30 @@ def ping(target, interface):
             "raw": out or err}
 
 
+def metric(name, value, rating, guide):
+    return {"name": name, "value": value, "rating": rating, "guide": guide}
+
+
+def rate(value, good, fair):
+    return "Good" if value >= good else "Fair" if value >= fair else "Poor"
+
+
+def ping_metrics(name, sample, good, fair):
+    latency_guide = f"Good ≤{good} ms · Poor >{fair} ms"
+    loss_guide = "Good 0% · Poor ≥20% in this sample"
+    if sample is None:
+        return [metric(f"{name} ping", "No gateway to test", "Unavailable", "Skipped on this route")]
+    avg, loss = sample["avg"], sample["loss"]
+    if avg is None or loss is None:
+        value = "No replies" if loss == 100 else "No measurement"
+        return [metric(f"{name} ping", value, "Unrated", "Ping may be blocked")]
+    return [
+        metric(f"{name} latency", f"{avg:.1f} ms", rate(-avg, -good, -fair), latency_guide),
+        metric(f"{name} packet loss", f"{loss:g}%", "Good" if loss == 0 else "Fair" if loss < 20 else "Poor",
+               loss_guide),
+    ]
+
+
 def check(long=False):
     details = []
     _, routes, err = run(["ip", "-j", "-4", "route", "get", "1.1.1.1"])
@@ -36,18 +60,23 @@ def check(long=False):
         route = json.loads(routes)[0]
         interface = route["dev"]
     except (ValueError, KeyError, IndexError):
-        return {"summary": "No usable IPv4 internet route", "details": err or routes}
+        return {"summary": "No usable IPv4 internet route", "details": err or routes,
+                "verdict": "No usable IPv4 internet route", "rating": "Poor", "metrics": []}
     gateway = route.get("gateway")
     _, name, _ = run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", interface])
     _, wifi, _ = run(["iw", "dev", interface, "link"])
     label = f"{name or interface} · {interface}"
     sig = re.search(r"signal: (-?\d+) dBm", wifi)
     freq = re.search(r"freq: ([\d.]+)", wifi)
+    metrics = []
     if sig:
         signal = int(sig[1])
-        quality = "Excellent" if signal >= -50 else "Good" if signal >= -67 else "Fair" if signal >= -75 else "Weak"
-        band = "6 GHz" if freq and float(freq[1]) >= 5925 else "5 GHz" if freq and float(freq[1]) >= 5000 else "2.4 GHz"
-        label += f"\n{band} · {quality} signal ({signal} dBm)"
+        if freq:
+            frequency = float(freq[1])
+            band = "6 GHz" if frequency >= 5925 else "5 GHz" if frequency >= 5000 else "2.4 GHz"
+            label += f" · {band}"
+        metrics.append(metric("Wi-Fi signal", f"{signal} dBm", rate(signal, -67, -75),
+                              "Good ≥−67 dBm · Poor <−75 dBm"))
     details.extend([label, "Wi-Fi negotiated link rates (not internet speed):\n" + (wifi or "Unavailable / not Wi-Fi")])
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         gw_task = pool.submit(ping, gateway, interface) if gateway else None
@@ -56,15 +85,13 @@ def check(long=False):
         gw = gw_task.result() if gw_task else None
         internet = internet_task.result()
         https = https_task.result()
-    lines = [label, ""]
-    for title, sample in [("Gateway", gw), ("Internet", internet)]:
-        if sample and sample["avg"] is not None:
-            lines.append(f"{title}: {sample['avg']:.0f} ms average · {sample['loss']:g}% loss")
-        else:
-            lines.append(f"{title}: no ping response (may be blocked)")
+    metrics.extend(ping_metrics("Router", gw, 10, 30))
+    metrics.extend(ping_metrics("Internet", internet, 50, 150))
+    for title, sample in [("Router", gw), ("Internet", internet)]:
         if sample:
             details.append(title + " ping:\n" + sample["raw"])
-    lines.append("DNS + HTTPS: " + ("working" if https[0] == 0 else "check failed"))
+    metrics.append(metric("DNS + HTTPS", "working" if https[0] == 0 else "check failed",
+                          "Good" if https[0] == 0 else "Poor", "Can reach the Cloudflare test site"))
     details.append("HTTPS probe: " + " ".join(map(str, https)))
     # Latency probes finish before downloading so our traffic cannot bias them.
     size = 50_000_000 if long else 10_000_000
@@ -74,26 +101,42 @@ def check(long=False):
     except ValueError:
         speed = received = elapsed = 0
     complete = code == 0 and received == size
-    lines.append(f"Download: ~{speed * 8 / 1e6:.1f} Mbps" + ("" if complete else " (partial sample)") if received else "Download: unavailable")
+    mbps = speed * 8 / 1e6
+    download = f"~{mbps:.1f} Mbps" if received else "No measurement"
+    if not complete and received:
+        download += " (partial)"
+    metrics.append(metric("Download speed", download, rate(mbps, 25, 5) if complete else "Unrated",
+                          "Good ≥25 Mbps · Poor <5 Mbps" if complete else "Transfer incomplete · longer test available"))
     details.append(f"Download: {received:g} bytes in {elapsed:g}s; exit {code}; {err}")
     # Detect connection changes rather than attributing mixed results to one AP.
     _, after, _ = run(["ip", "-j", "-4", "route", "get", "1.1.1.1"])
     changed = after != routes
     if changed:
-        verdict = "Connection changed during test — run again"
+        for row in metrics:
+            row["rating"] = "Unrated"
+    flags = [row for row in metrics if row["rating"] in ("Fair", "Poor")]
+    flags.sort(key=lambda row: row["rating"] == "Poor", reverse=True)
+    if changed:
+        verdict, rating = "Connection changed during test — run again", "Unrated"
     elif https[0] != 0:
-        verdict = "Internet check encountered a problem"
-    elif internet["loss"] is not None and 0 < internet["loss"] < 100:
-        verdict = "Internet reachable; packet loss detected"
-    elif internet["avg"] is not None and internet["avg"] > 150:
-        verdict = "Internet reachable; latency is high"
+        verdict, rating = "Internet check encountered a problem", "Poor"
+    elif flags:
+        first = flags[0]
+        rating = first["rating"]
+        issue = first["name"]
+        reason = f"{issue.lower()} detected" if "packet loss" in issue else f"check {issue}"
+        verdict = f"Internet reachable · {reason}"
     elif not complete:
-        verdict = "Internet reachable; download check incomplete"
+        verdict, rating = "Internet reachable · download check incomplete", "Unrated"
+    elif any(row["rating"] == "Unrated" for row in metrics):
+        verdict, rating = "Internet reachable · some measurements unavailable", "Unrated"
     else:
-        verdict = "Connection looks good in this sample"
-    lines.extend(["", "Short sample; upload and cellular signal weren't tested.",
-                  f"Download budget: up to {size // 1_000_000} MB. Public probes use Cloudflare."])
-    return {"summary": verdict + "\n\n" + "\n".join(lines), "details": "\n\n".join(details)}
+        verdict, rating = "Connection looks good in this sample", "Good"
+    note = f"Fair is between the cutoffs. Short IPv4 sample via Cloudflare · Up to {size // 1_000_000} MB."
+    lines = [f"{row['name']}: {row['value']} [{row['rating']}] · {row['guide']}" for row in metrics]
+    summary = "\n".join([verdict, "", label, *lines, "", note])
+    return {"summary": summary, "details": "\n\n".join(details), "verdict": verdict, "rating": rating,
+            "connection": label, "metrics": metrics, "note": note}
 
 
 def main():
@@ -107,7 +150,10 @@ def main():
         return
     from PyQt6.QtCore import Qt, QThread, pyqtSignal
     from PyQt6.QtGui import QIcon
-    from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QPlainTextEdit, QProgressBar, QVBoxLayout, QHBoxLayout
+    from PyQt6.QtWidgets import (
+        QApplication, QDialog, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit,
+        QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    )
 
     class Worker(QThread):
         done = pyqtSignal(object)
@@ -128,12 +174,52 @@ def main():
     dialog = QDialog()
     dialog.setWindowTitle("Network Quality Test")
     dialog.setWindowIcon(icon)
-    dialog.resize(560, 390)
+    dialog.resize(740, 420)
     layout = QVBoxLayout(dialog)
-    label = QLabel()
-    label.setWordWrap(True)
-    label.setTextFormat(Qt.TextFormat.PlainText)
-    layout.addWidget(label)
+    layout.setContentsMargins(22, 20, 22, 16)
+    layout.setSpacing(12)
+
+    def text_label(text="", wrap=False):
+        widget = QLabel(text)
+        widget.setTextFormat(Qt.TextFormat.PlainText)
+        widget.setWordWrap(wrap)
+        return widget
+
+    def badge(rating):
+        colors = {
+            "Good": ("#dff4e8", "#145336"),
+            "Fair": ("#fff0ce", "#674300"),
+            "Poor": ("#fce2df", "#882823"),
+            "Unrated": ("#e8ebf0", "#3c4654"),
+            "Unavailable": ("#e8ebf0", "#3c4654"),
+        }
+        background, foreground = colors[rating]
+        widget = text_label(rating)
+        widget.setStyleSheet(
+            f"background: {background}; color: {foreground}; font-weight: 600;"
+            " padding: 3px 9px; border-radius: 8px;"
+        )
+        return widget
+
+    header = QHBoxLayout()
+    title = text_label(wrap=True)
+    font = title.font()
+    font.setPointSizeF(font.pointSizeF() * 1.35)
+    font.setBold(True)
+    title.setFont(font)
+    header.addWidget(title, 1)
+    layout.addLayout(header)
+    connection = text_label(wrap=True)
+    layout.addWidget(connection)
+    results = QWidget()
+    grid = QGridLayout(results)
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(16)
+    grid.setVerticalSpacing(8)
+    grid.setColumnStretch(3, 1)
+    layout.addWidget(results)
+    note = text_label(wrap=True)
+    layout.addWidget(note)
     progress = QProgressBar()
     progress.setRange(0, 0)
     layout.addWidget(progress)
@@ -141,6 +227,7 @@ def main():
     detail.setReadOnly(True)
     detail.hide()
     layout.addWidget(detail)
+    layout.addStretch()
     buttons = QHBoxLayout()
     layout.addLayout(buttons)
     again = QPushButton("Run again")
@@ -151,17 +238,42 @@ def main():
         buttons.addWidget(b)
 
     def finished(result):
-        label.setText(result["summary"])
+        title.setText(result.get("verdict", result["summary"]))
+        header.addWidget(badge(result.get("rating", "Unrated")), 0, Qt.AlignmentFlag.AlignTop)
+        connection.setText(result.get("connection", ""))
+        rows = result.get("metrics", [])
+        for column, heading in enumerate(("Measurement", "Result", "Rating", "How to read it")):
+            label = text_label(heading)
+            heading_font = label.font()
+            heading_font.setBold(True)
+            label.setFont(heading_font)
+            grid.addWidget(label, 0, column)
+        for index, row in enumerate(rows, 1):
+            grid.addWidget(text_label(row["name"]), index, 0)
+            grid.addWidget(text_label(row["value"]), index, 1)
+            grid.addWidget(badge(row["rating"]), index, 2, Qt.AlignmentFlag.AlignLeft)
+            grid.addWidget(text_label(row["guide"], wrap=True), index, 3)
+        results.setVisible(bool(rows))
+        note.setText(result.get("note", ""))
+        note.setVisible(bool(note.text()))
         detail.setPlainText(result["details"])
         progress.hide()
-        for b in [again, longer, close]:
+        for b in [show, again, longer, close]:
             b.setEnabled(True)
 
     def start(long=False):
-        label.setText("Checking connection…\nMeasuring latency, DNS, HTTPS, then download speed.")
+        title.setText("Checking connection…")
+        connection.setText("Measuring latency, DNS, HTTPS, then download speed.")
+        if header.count() > 1:
+            header.takeAt(1).widget().deleteLater()
+        while grid.count():
+            grid.takeAt(0).widget().deleteLater()
+        results.hide()
+        note.hide()
         detail.clear()
+        detail.hide()
         progress.show()
-        for b in [again, longer, close]:
+        for b in [show, again, longer, close]:
             b.setEnabled(False)
         dialog.worker = Worker()
         dialog.worker.long = long

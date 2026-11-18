@@ -7,9 +7,15 @@ latency, or internet. The launcher includes these search keywords and absolute
 executable/icon paths so it works with the desktop session's minimal PATH.
 The command remains `connection-check`.
 
-Launch Network Quality Test to start. The dialog shows signal/band, gateway and
-internet ping averages and packet loss, DNS/HTTPS access, and measured download
-speed. Details includes negotiated Wi-Fi rates and raw probe results. Repeated
+Launch Network Quality Test to start. The dialog shows an overall verdict and
+rates each measurement **Good**, **Fair**, **Poor**, or **Unrated**. The thresholds
+beside each result are quick guides. Router latency describes the local path,
+while internet latency measures a round trip to Cloudflare. Fair falls between
+the Good and Poor cutoffs. The download thresholds of 5 and 25 Mbps are rough
+reference points for an HD and 4K stream, respectively.
+[FCC streaming estimates](https://docs.fcc.gov/public/attachments/fcc-15-10a1.pdf)
+
+Details includes negotiated Wi-Fi rates and raw probe results. Repeated
 launches cannot start overlapping checks.
 
 The quick check downloads up to 10 MB. The optional longer test downloads up to

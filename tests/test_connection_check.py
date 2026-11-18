@@ -14,7 +14,8 @@ class ConnectionCheckTests(unittest.TestCase):
         with patch.dict(GLOBALS, run=lambda *a: (1, "", "unreachable")):
             self.assertIn("No usable IPv4", CHECK()["summary"])
 
-    def sample(self, https=0, download=0, loss=0, changed=False):
+    def sample(self, https=0, download=0, loss=0, changed=False, speed=5_000_000,
+               signal=-55, latency=30):
         calls = []
 
         def run(args, timeout=15):
@@ -26,31 +27,49 @@ class ConnectionCheckTests(unittest.TestCase):
             if args[0] == "nmcli":
                 return 0, "<test & network>", ""
             if args[0] == "iw":
-                return 0, "freq: 5240\nsignal: -55 dBm", ""
+                return 0, f"freq: 5240\nsignal: {signal} dBm", ""
             if args[-1].startswith("https://speed"):
-                return download, "1000000 10000000 10", "timeout" if download else ""
+                return download, f"{speed} 10000000 10", "timeout" if download else ""
             return https, "200 0.01 0.1", ""
 
-        def ping(*args):
-            return {"loss": loss, "avg": 30 if loss != 100 else None, "max": 40, "raw": "sample"}
+        def ping(target, interface):
+            if target != "1.1.1.1":
+                return {"loss": 0, "avg": 2, "max": 4, "raw": "sample"}
+            return {"loss": loss, "avg": latency if loss != 100 else None, "max": 40, "raw": "sample"}
 
         with patch.dict(GLOBALS, run=run, ping=ping):
-            return CHECK()["summary"]
+            return CHECK()
 
     def test_blocked_ping_does_not_mean_no_internet(self):
-        text = self.sample(loss=100)
+        result = self.sample(loss=100)
+        text = result["summary"]
         self.assertIn("may be blocked", text)
         self.assertIn("DNS + HTTPS: working", text)
+        self.assertEqual(result["rating"], "Unrated")
 
     def test_partial_download_not_reported_as_success(self):
-        self.assertIn("download check incomplete", self.sample(download=28))
+        result = self.sample(download=28)
+        self.assertIn("download check incomplete", result["summary"])
+        self.assertEqual(result["metrics"][-1]["rating"], "Unrated")
 
     def test_https_failure(self):
-        self.assertIn("encountered a problem", self.sample(https=6))
+        self.assertIn("encountered a problem", self.sample(https=6)["summary"])
 
     def test_loss_and_route_change(self):
-        self.assertIn("packet loss detected", self.sample(loss=8.33))
-        self.assertIn("Connection changed", self.sample(changed=True))
+        self.assertIn("packet loss detected", self.sample(loss=8.33)["summary"])
+        result = self.sample(changed=True)
+        self.assertIn("Connection changed", result["summary"])
+        self.assertTrue(all(row["rating"] == "Unrated" for row in result["metrics"]))
+
+    def test_rating_cutoffs_and_overall_status(self):
+        self.assertEqual(self.sample()["rating"], "Good")
+        result = self.sample(speed=625_000, signal=-75, latency=150, loss=20)
+        ratings = {row["name"]: row["rating"] for row in result["metrics"]}
+        self.assertEqual(ratings["Wi-Fi signal"], "Fair")
+        self.assertEqual(ratings["Internet latency"], "Fair")
+        self.assertEqual(ratings["Download speed"], "Fair")
+        self.assertEqual(ratings["Internet packet loss"], "Poor")
+        self.assertEqual(result["rating"], "Poor")
 
 
 if __name__ == "__main__":
