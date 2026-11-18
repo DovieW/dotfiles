@@ -526,7 +526,12 @@ path is deterministic. Bitwarden starts at login and must remain running and
 unlocked for SSH authentication or commit signing; the private key is never
 materialized on Kubuntu.
 
-`dot-desktop-wallet.service` checks the default Secret Service collection after
+`ksecretd` provides Secret Service on both Kubuntu profiles. Dotfiles selects
+it for per-user D-Bus activation, masks the GNOME Keyring user units, and
+removes GNOME Keyring's optional PAM module. This preserves Evolution's
+package dependency and leaves previously encrypted keyring files in place.
+
+`dot-desktop-wallet.service` checks the KDE-backed Secret Service collection after
 graphical login and warns once if KDE Wallet stays locked. Its read-only probe
 never reads secrets or requests an unlock. Dotfiles checks this dependency
 before desktop credential setup and in `dot doctor`, so a locked wallet is

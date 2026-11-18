@@ -2210,8 +2210,16 @@ def managed_screenshot_callback_ok() -> bool:
         run(["systemctl", "--user", "stop", service], check=False, capture=True)
 
 
-def configure_desktop_wallet_check() -> int:
-    changes = int(link_file(
+def configure_desktop_wallet_check(*, enforce_provider: bool = True) -> int:
+    changes = 0
+    if enforce_provider:
+        data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+        activation_file = Path("dbus-1/services/org.freedesktop.secrets.service")
+        changes += int(copy_managed_file(
+            ROOT / "config" / activation_file,
+            data_home / activation_file,
+        ))
+    changes += int(link_file(
         ROOT / "scripts/desktop-wallet", Path.home() / ".local/bin/dot-desktop-wallet",
     ))
     changes += int(copy_managed_file(
@@ -2219,6 +2227,15 @@ def configure_desktop_wallet_check() -> int:
         Path.home() / ".config/systemd/user/dot-desktop-wallet.service",
     ))
     if command_exists("systemctl"):
+        if enforce_provider:
+            for unit in ("gnome-keyring-daemon.service", "gnome-keyring-daemon.socket"):
+                state = run(
+                    ["systemctl", "--user", "is-enabled", unit], check=False, capture=True,
+                )
+                if state.stdout.strip() != "masked":
+                    # Preserve the running session until the next login on a fresh user bus.
+                    run(["systemctl", "--user", "mask", unit])
+                    changes += 1
         if changes:
             run(["systemctl", "--user", "daemon-reload"])
         unit = "dot-desktop-wallet.service"
@@ -2543,8 +2560,10 @@ def apply_direct(
     if features.get("kde") and selected("file-manager") and not selected("kde"):
         changes += configure_dolphin_file_manager()
 
-    if features.get("kde") and selected("kde", "git", "wallet"):
+    if features.get("kde") and selected("kde", "wallet"):
         changes += configure_desktop_wallet_check()
+    elif features.get("kde") and selected("git"):
+        changes += configure_desktop_wallet_check(enforce_provider=False)
 
     if features.get("rustdesk_client") and selected(
         "packages", "rustdesk", "app-updates"
@@ -4184,6 +4203,11 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         profile.get("features", {}).get("kde", False)
         and (not selected_tags or bool(selected_tags & {"kde", "power"}))
     )
+    wallet_pam_removal_selected = (
+        profile.get("features", {}).get("kde", False)
+        and (not selected_tags or bool(selected_tags & {"wallet", "config", "kde"}))
+        and Path("/usr/share/pam-configs/gnome-keyring").is_file()
+    )
     managed_packages = profile.get("packages", {})
     privileged_packages = any(
         managed_packages.get(provider)
@@ -4203,6 +4227,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     become_arguments = (
         ansible_become_arguments()
         if (package_apply_selected and privileged_packages) or kde_system_apply_selected
+        or wallet_pam_removal_selected
         or (codexbar_selected and run([*CODEXBAR_RELEASE, "--missing-runtime"], capture=True).stdout.strip())
         else []
     )

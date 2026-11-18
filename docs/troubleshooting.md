@@ -422,14 +422,17 @@ Bitwarden or GitHub credentials and skips those queries while it is locked.
 GitHub authentication checks also have a timeout. A missing or unresponsive
 Secret Service is reported as unknown, rather than as unlocked.
 
-To install just this guard without applying other desktop settings:
+To apply the KDE Wallet provider and guard without applying other desktop settings:
 
 ```bash
-dot apply --profile kubuntu-desktop --direct --tags wallet
+dot apply --profile kubuntu-desktop --tags wallet
 ```
 
-Use `kubuntu-laptop` on the laptop. The guard keeps wallet encryption and
-password prompts intact; it does not unlock the wallet for you.
+Use `kubuntu-laptop` on the laptop. On a machine previously using GNOME
+Keyring, restart and sign in with your Linux password, then run
+`dot-desktop-wallet` to verify the provider and unlock state. Apps with
+credentials stored in the old keyring may ask you to sign in again. The old
+encrypted keyring files are retained in `~/.local/share/keyrings`.
 
 Kubuntu deliberately stores only the public device key under `~/.ssh`; the
 private key remains in Bitwarden. Confirm Bitwarden Desktop is running,

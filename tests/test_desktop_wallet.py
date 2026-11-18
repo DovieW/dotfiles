@@ -18,11 +18,14 @@ def result(output="", code=0):
     return subprocess.CompletedProcess([], code, output, "")
 
 
+KDE_OWNERS = [result('s ":1.20"'), result('s ":1.20"')]
+
+
 class DesktopWalletTests(unittest.TestCase):
     def test_lock_probe_reads_only_default_collection_state(self):
         for value, expected in (("b true", 1), ("b false", 0)):
             with self.subTest(value=value), mock.patch("shutil.which", return_value="busctl"), \
-                    mock.patch("subprocess.run", side_effect=[
+                    mock.patch("subprocess.run", side_effect=KDE_OWNERS + [
                         result('o "/org/freedesktop/secrets/collection/kdewallet"'),
                         result(value),
                     ]) as run:
@@ -31,8 +34,10 @@ class DesktopWalletTests(unittest.TestCase):
                 if status == 1:
                     self.assertIn("KWalletManager", detail)
                     self.assertIn("Automatic login", detail)
-                self.assertEqual(len(run.call_args_list), 2)
-                first, second = (call.args[0] for call in run.call_args_list)
+                self.assertEqual(len(run.call_args_list), 4)
+                names = [call.args[0][-1] for call in run.call_args_list[:2]]
+                self.assertEqual(names, ["org.freedesktop.secrets", "org.kde.secretservicecompat"])
+                first, second = (call.args[0] for call in run.call_args_list[2:])
                 self.assertEqual(first[-3:], ["ReadAlias", "s", "default"])
                 self.assertEqual(second[-1], "Locked")
                 for call in run.call_args_list:
@@ -53,11 +58,18 @@ class DesktopWalletTests(unittest.TestCase):
         for responses in cases:
             with self.subTest(responses=responses), \
                     mock.patch("shutil.which", return_value="busctl"), \
-                    mock.patch("subprocess.run", side_effect=responses):
+                    mock.patch("subprocess.run", side_effect=KDE_OWNERS + responses):
                 self.assertEqual(WALLET["wallet_status"]()[0], 2)
         with mock.patch("shutil.which", return_value=None), mock.patch("subprocess.run") as run:
             self.assertEqual(WALLET["wallet_status"]()[0], 2)
             run.assert_not_called()
+
+    def test_reports_other_secret_service_provider_without_reading_collection(self):
+        with mock.patch("shutil.which", return_value="busctl"), mock.patch(
+            "subprocess.run", side_effect=[result('s ":1.15"'), result('s ":1.20"')],
+        ) as run:
+            self.assertEqual(WALLET["wallet_status"](), (2, WALLET["WRONG_PROVIDER"]))
+            self.assertEqual(run.call_count, 2)
 
     def test_login_warning_only_for_persistently_locked_wallet(self):
         notify = WALLET["notify_when_locked"]
@@ -138,16 +150,30 @@ class DesktopWalletTests(unittest.TestCase):
         for graphical in (True, False):
             with self.subTest(graphical=graphical), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory)
-                run = mock.Mock(side_effect=lambda command, **kwargs: result(
-                    "enabled" if "is-enabled" in command else "",
-                    1 if "is-active" in command and not graphical else 0,
-                ))
+                masked = set()
+
+                def systemctl(command, **kwargs):
+                    if "mask" in command:
+                        masked.add(command[-1])
+                    if "is-enabled" in command:
+                        return result("masked" if command[-1] in masked else "enabled")
+                    return result(code=1 if "is-active" in command and not graphical else 0)
+
+                run = mock.Mock(side_effect=systemctl)
                 with mock.patch.dict(install.__globals__, {
                     "command_exists": mock.Mock(return_value=True), "run": run,
-                }), mock.patch.object(Path, "home", return_value=home):
-                    self.assertEqual(install(), 2)
+                }), mock.patch.object(Path, "home", return_value=home), mock.patch.dict(
+                    "os.environ", {"XDG_DATA_HOME": str(home / ".local/share")},
+                ):
+                    self.assertEqual(install(), 5)
                     self.assertEqual(install(), 0)
                 self.assertTrue((home / ".local/bin/dot-desktop-wallet").is_symlink())
+                activation = home / ".local/share/dbus-1/services/org.freedesktop.secrets.service"
+                self.assertIn("Exec=/usr/bin/ksecretd", activation.read_text())
+                self.assertEqual(masked, {
+                    "gnome-keyring-daemon.service", "gnome-keyring-daemon.socket",
+                })
+                self.assertFalse(any("stop" in call.args[0] for call in run.call_args_list))
                 self.assertEqual(
                     sum("daemon-reload" in call.args[0] for call in run.call_args_list), 1,
                 )

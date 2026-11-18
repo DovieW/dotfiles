@@ -13,6 +13,10 @@ RECOVERY = (
     "Bitwarden. Automatic login does not supply the password needed to unlock "
     "the wallet; use a normal password login for automatic wallet unlocking."
 )
+WRONG_PROVIDER = (
+    "KDE Wallet does not own Secret Service. Apply the wallet configuration "
+    "and sign in normally after restarting the computer."
+)
 
 
 def wallet_status():
@@ -27,9 +31,25 @@ def wallet_status():
             check=False, timeout=3,
         )
 
+    def owner(name):
+        reply = query([
+            "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+            "org.freedesktop.DBus", "GetNameOwner", "s", name,
+        ])
+        match = re.fullmatch(r's "(:[0-9.]+)"', reply.stdout.strip())
+        if reply.returncode == 0 and match:
+            return match.group(1)
+        return None
+
     try:
+        default_owner = owner("org.freedesktop.secrets")
+        kde_owner = owner("org.kde.secretservicecompat")
+        if not default_owner or not kde_owner:
+            return 2, "Desktop wallet status unavailable: KDE Secret Service did not respond."
+        if default_owner != kde_owner:
+            return 2, WRONG_PROVIDER
         alias = query([
-            "call", "org.freedesktop.secrets", "/org/freedesktop/secrets",
+            "call", kde_owner, "/org/freedesktop/secrets",
             "org.freedesktop.Secret.Service", "ReadAlias", "s", "default",
         ])
         match = re.fullmatch(r'o "(/[A-Za-z0-9_/]*)"', alias.stdout.strip())
@@ -39,7 +59,7 @@ def wallet_status():
         if collection == "/":
             return 2, "Desktop wallet status unavailable: no default wallet is configured."
         locked = query([
-            "get-property", "org.freedesktop.secrets", collection,
+            "get-property", kde_owner, collection,
             "org.freedesktop.Secret.Collection", "Locked",
         ])
         if locked.returncode == 0:

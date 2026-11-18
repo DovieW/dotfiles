@@ -563,6 +563,21 @@
       when: dot_profile_data.features.git | default(false)
       tags: [packages, config, git, app-updates]
 
+    - name: Check for GNOME Keyring login integration
+      ansible.builtin.stat:
+        path: /usr/share/pam-configs/gnome-keyring
+      register: dot_gnome_keyring_pam
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, kde, wallet]
+
+    - name: Stop PAM from starting GNOME Keyring on KDE logins
+      become: true
+      ansible.builtin.apt:
+        name: libpam-gnome-keyring
+        state: absent
+      when: dot_gnome_keyring_pam.stat.exists | default(false)
+      tags: [config, kde, wallet]
+
     - name: Apply portable configuration
       ansible.builtin.command:
         argv:
@@ -604,6 +619,7 @@
         - codex
         - tailscale
         - recovery
+        - wallet
 
     - name: Report deferred portable setup
       ansible.builtin.debug:
