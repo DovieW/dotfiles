@@ -267,6 +267,75 @@
   [ "$(cat "$captured_configure")" = $'--desktop-scale\n145\n--device-scale\n140' ]
 }
 
+setup_rdp_cleanup() {
+  local fake_bin="$BATS_TEST_TMPDIR/bin"
+  export DOT_TEST_DOWNLOADS="$BATS_TEST_TMPDIR/My Downloads"
+  export DOT_TEST_TIMER="$BATS_TEST_TMPDIR/timer"
+  export XDG_RUNTIME_DIR="$BATS_TEST_TMPDIR/runtime"
+  export DOT_REMMINA_CONFIGURE="$fake_bin/configure-remmina"
+  export DOT_KSCREEN_DOCTOR="$fake_bin/unavailable"
+  export PATH="$fake_bin:$PATH"
+  mkdir -p "$fake_bin" "$DOT_TEST_DOWNLOADS" "$XDG_RUNTIME_DIR"
+  printf '#!/bin/sh\nexit 0\n' >"$DOT_REMMINA_CONFIGURE"
+  printf '#!/bin/sh\nexit "${DOT_TEST_REMMINA_STATUS:-0}"\n' >"$fake_bin/remmina"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$DOT_TEST_DOWNLOADS"\n' >"$fake_bin/xdg-user-dir"
+  printf '#!/bin/bash\nprintf "%%s\\0" "$@" >"$DOT_TEST_TIMER"\n' >"$fake_bin/systemd-run"
+  chmod +x "$fake_bin/"*
+  launcher="$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5"
+  rdp_file="$DOT_TEST_DOWNLOADS/work %n \$HOME.rdp"
+  printf '%s\n' \
+    'full address:s:remote.example.test' \
+    'gatewayhostname:s:gateway.example.test' \
+    'gatewayaccesstoken:s:one-time-token' >"$rdp_file"
+}
+
+@test "F5 cleanup schedules a one-shot timer for the original download" {
+  setup_rdp_cleanup
+  run "$launcher" "$rdp_file"
+  [ "$status" -eq 0 ]
+  [ -f "$rdp_file" ]
+  mapfile -d '' -t timer <"$DOT_TEST_TIMER"
+  [ "${timer[3]}" = "--on-active=30min" ]
+  [ "${timer[9]}" = "$rdp_file" ]
+
+  # Exercise the timer command without waiting for the configured delay.
+  run "${timer[@]:6}"
+  [ "$status" -eq 0 ]
+  [ ! -e "$rdp_file" ]
+}
+
+@test "F5 cleanup preserves a moved download and its same-name replacement" {
+  setup_rdp_cleanup
+  run "$launcher" "$rdp_file"
+  [ "$status" -eq 0 ]
+  mapfile -d '' -t timer <"$DOT_TEST_TIMER"
+  mv -- "$rdp_file" "$BATS_TEST_TMPDIR/keep.rdp"
+  cp -- "$BATS_TEST_TMPDIR/keep.rdp" "$rdp_file"
+
+  run "${timer[@]:6}"
+  [ "$status" -eq 0 ]
+  [ -f "$BATS_TEST_TMPDIR/keep.rdp" ]
+  [ -f "$rdp_file" ]
+}
+
+@test "F5 cleanup skips failed launches and files outside Downloads" {
+  setup_rdp_cleanup
+  run env DOT_TEST_REMMINA_STATUS=1 "$launcher" "$rdp_file"
+  [ "$status" -eq 1 ]
+  [ -f "$rdp_file" ]
+  [ ! -e "$DOT_TEST_TIMER" ]
+
+  mv -- "$rdp_file" "$BATS_TEST_TMPDIR/keep.rdp"
+  ln -s -- "$BATS_TEST_TMPDIR/keep.rdp" "$rdp_file"
+  run "$launcher" "$rdp_file"
+  [ "$status" -eq 0 ]
+  [ ! -e "$DOT_TEST_TIMER" ]
+  run "$launcher" "$BATS_TEST_TMPDIR/keep.rdp"
+  [ "$status" -eq 0 ]
+  [ -f "$BATS_TEST_TMPDIR/keep.rdp" ]
+  [ ! -e "$DOT_TEST_TIMER" ]
+}
+
 @test "Codex installer accepts a managed stable-channel release" {
   release="9.8.7"
   fake_home="$BATS_TEST_TMPDIR/codex-home"

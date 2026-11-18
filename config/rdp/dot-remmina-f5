@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -93,6 +94,71 @@ def local_display() -> tuple[str, str, str, str]:
         return "2880", "1800", "175", "180"
 
 
+def file_identity(info: os.stat_result) -> tuple[int, int, int]:
+    # Change time also catches an in-place overwrite that keeps the inode.
+    return info.st_dev, info.st_ino, info.st_ctime_ns
+
+
+def is_original_download(path: Path, identity: tuple[int, int, int]) -> bool:
+    try:
+        if path.parent.resolve(strict=True) != path.parent:
+            return False
+        info = path.lstat()
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_uid == os.getuid()
+        and file_identity(info) == identity
+    )
+
+
+def schedule_download_cleanup(source: Path, identity: tuple[int, int, int]) -> None:
+    try:
+        result = subprocess.run(
+            ["xdg-user-dir", "DOWNLOAD"], capture_output=True, check=True, timeout=5
+        )
+        directory = Path(os.fsdecode(result.stdout.removesuffix(b"\n")))
+        if not directory.is_absolute():
+            return
+        downloads = directory.resolve()
+        if downloads == Path.home().resolve() or source.parent.resolve() != downloads:
+            return
+
+        download = downloads / source.name
+        if not is_original_download(download, identity):
+            return
+        subprocess.run(
+            [
+                "systemd-run",
+                "--user",
+                "--quiet",
+                "--collect",
+                "--on-active=30min",
+                "--timer-property=AccuracySec=1s",
+                "--expand-environment=no",
+                sys.executable,
+                str(Path(__file__).absolute()),
+                "--cleanup-download",
+                str(download),
+                *map(str, identity),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        print("dot-remmina-f5: could not schedule download cleanup", file=sys.stderr)
+
+
+if len(sys.argv) == 6 and sys.argv[1] == "--cleanup-download":
+    download = Path(sys.argv[2])
+    identity = tuple(map(int, sys.argv[3:]))
+    if is_original_download(download, identity):
+        download.unlink(missing_ok=True)
+    raise SystemExit(0)
+
+
 if len(sys.argv) != 2:
     fail("usage: dot-remmina-f5 FILE.rdp")
 
@@ -139,7 +205,9 @@ if preferences.returncode != 0:
 
 # F5 downloads can be UTF-8 or UTF-16LE. Removing NULs yields the ASCII field
 # names and values used by these launch files without logging their token.
-text = source.read_bytes().replace(b"\0", b"").decode("utf-8", "replace")
+with source.open("rb") as source_file:
+    source_identity = file_identity(os.fstat(source_file.fileno()))
+    text = source_file.read().replace(b"\0", b"").decode("utf-8", "replace")
 fields: dict[str, str] = {}
 for raw_line in text.splitlines():
     line = raw_line.rstrip("\r")
@@ -225,6 +293,9 @@ try:
     # the profile before erasing the short-lived gateway token.
     if completed.returncode == 0:
         time.sleep(2)
-    raise SystemExit(completed.returncode)
 finally:
     profile.unlink(missing_ok=True)
+
+if completed.returncode == 0:
+    schedule_download_cleanup(source, source_identity)
+raise SystemExit(completed.returncode)

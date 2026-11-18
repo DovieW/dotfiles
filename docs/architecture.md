@@ -184,6 +184,12 @@ explicitly enabled, so Windows text uses ClearType-style antialiasing rather
 than the jagged low-bandwidth preset.
 Company hostnames and tokens are never committed or logged.
 
+After Remmina returns success, the helper schedules a one-shot systemd user
+timer to delete the original F5 file after 30 minutes if it is still unchanged
+in the configured Downloads folder. Move the file out of Downloads to keep it.
+A failed launch leaves the download in place. Pending cleanup is lost if the
+systemd user manager stops, for example at reboot.
+
 Remmina's Ubuntu MIME package classifies ordinary `.rdp` downloads as
 `application/x-remmina`, so the managed desktop entry also owns that MIME
 default. The launcher routes actual `.rdp`/`.rdpw` files to FreeRDP while
