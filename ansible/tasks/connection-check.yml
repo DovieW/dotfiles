@@ -6,10 +6,10 @@
 - name: Install Connection Check dependencies
   become: true
   ansible.builtin.apt:
-    name: [python3-pyqt6, network-manager, iw, iproute2, iputils-ping, curl, qdbus-qt6]
+    name: [python3-pyqt6, network-manager, iw, iproute2, iputils-ping, curl, qdbus-qt6, python3-dbus]
     state: present
   when: >-
-    ['python3-pyqt6', 'network-manager', 'iw', 'iproute2', 'iputils-ping', 'curl', 'qdbus-qt6']
+    ['python3-pyqt6', 'network-manager', 'iw', 'iproute2', 'iputils-ping', 'curl', 'qdbus-qt6', 'python3-dbus']
     | difference(ansible_facts.packages.keys() | list) | length > 0
 
 - name: Create Connection Check directories
@@ -70,26 +70,27 @@
     - not ansible_check_mode
     - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
 
-- name: Install Instant Wi-Fi Connect
+- name: Install Instant Connect
   ansible.builtin.copy:
     src: "{{ dot_repo }}/scripts/instant-wifi-connect"
     dest: "{{ ansible_facts['user_dir'] }}/.local/bin/instant-wifi-connect"
     mode: "0755"
 
-- name: Install Instant Wi-Fi Connect launcher
+- name: Install Instant Connect launcher
   ansible.builtin.copy:
     content: >-
       {{ lookup('ansible.builtin.file', dot_repo + '/config/applications/io.github.doview.instant-wifi-connect.desktop')
-         | replace('Exec=instant-wifi-connect', 'Exec=' + ansible_facts['user_dir'] + '/.local/bin/instant-wifi-connect') }}
+         | replace('Exec=instant-wifi-connect',
+                   'Exec=' + ansible_facts['user_dir'] + '/.local/bin/instant-wifi-connect') }}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.instant-wifi-connect.desktop"
     mode: "0644"
-  register: dot_instant_wifi_launcher
+  register: dot_instant_connect_launcher
 
-- name: Refresh KDE application cache for Instant Wi-Fi Connect
+- name: Refresh KDE application cache for Instant Connect
   ansible.builtin.command:
     argv: [kbuildsycoca6, --noincremental]
   changed_when: true
   when:
-    - dot_instant_wifi_launcher.changed
+    - dot_instant_connect_launcher.changed
     - not ansible_check_mode
     - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined

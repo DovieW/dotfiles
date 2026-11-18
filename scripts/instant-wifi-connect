@@ -1,9 +1,12 @@
 #!/usr/bin/python3
-"""Connect to a selected saved Wi-Fi network on demand."""
+"""Connect to a saved Wi-Fi network or paired Bluetooth device on demand."""
+from contextlib import closing
 import subprocess
 import sys
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton, QComboBox
+
+import dbus
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QPushButton, QVBoxLayout
 
 # Display name and NetworkManager profile UUID. Add more choices here.
 NETWORKS = [
@@ -12,72 +15,179 @@ NETWORKS = [
     ("Dovie's S25 Ultra", "220d09db-7f51-41a6-8dd9-ff74dd176efb"),
     ("lxx", "5548bd05-5c93-4d40-9801-a54c30f697f6"),
 ]
+DEVICE = "org.bluez.Device1"
+ADAPTER = "org.bluez.Adapter1"
 
-class ConnectWorker(QThread):
+
+def connect_wifi(progress, name, uuid):
+    active = subprocess.run(
+        ["nmcli", "-t", "-f", "UUID", "connection", "show", "--active"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if uuid in active.stdout.splitlines():
+        return f"Already connected to {name}."
+    progress(f"Scanning for {name}…")
+    # A scan may be throttled or unavailable; connection activation can still succeed.
+    subprocess.run(
+        ["nmcli", "device", "wifi", "rescan"],
+        capture_output=True, text=True, timeout=15,
+    )
+    progress(f"Connecting to {name}…")
+    result = subprocess.run(
+        ["nmcli", "--wait", "30", "connection", "up", "uuid", uuid],
+        capture_output=True, text=True, timeout=40,
+    )
+    if result.returncode == 0:
+        return f"Connected to {name}."
+    return (
+        f"Could not connect to {name}. Check that the hotspot is on, then retry."
+        f"\n\n{result.stderr.strip()}"
+    )
+
+
+def bluez_objects(bus):
+    root = bus.get_object("org.bluez", "/", introspect=False)
+    return dbus.Interface(root, "org.freedesktop.DBus.ObjectManager").GetManagedObjects(timeout=5)
+
+
+def list_bluetooth(progress):
+    with closing(dbus.SystemBus(private=True)) as bus:
+        objects = bluez_objects(bus)
+    if not any(ADAPTER in interfaces for interfaces in objects.values()):
+        return [], "No Bluetooth adapter found."
+
+    devices = [
+        (str(device["Alias"]), str(path))
+        for path, interfaces in objects.items()
+        if (device := interfaces.get(DEVICE)) and device.get("Paired")
+    ]
+    message = "Choose a paired device and select Connect." if devices else "No paired Bluetooth devices found."
+    return sorted(devices, key=lambda item: item[0].casefold()), message
+
+
+def connect_bluetooth(progress, name, path):
+    progress(f"Connecting to {name}…")
+    try:
+        with closing(dbus.SystemBus(private=True)) as bus:
+            objects = bluez_objects(bus)
+            device = objects.get(path, {}).get(DEVICE, {})
+            if not device.get("Paired"):
+                return f"{name} is no longer available as a paired device. Select Refresh."
+            if device.get("Connected"):
+                return f"Already connected to {name}."
+            adapter = objects.get(device["Adapter"], {}).get(ADAPTER, {})
+            if not adapter.get("Powered"):
+                return "Turn on Bluetooth in System Settings, then try again."
+
+            proxy = bus.get_object("org.bluez", path, introspect=False)
+            try:
+                dbus.Interface(proxy, DEVICE).Connect(timeout=30)
+            except dbus.DBusException as error:
+                if error.get_dbus_name() != "org.bluez.Error.AlreadyConnected":
+                    raise
+            properties = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
+            if properties.Get(DEVICE, "Connected", timeout=5):
+                return f"Connected to {name}."
+    except dbus.DBusException as error:
+        return f"Could not connect to {name}.\n\n{error.get_dbus_message()}"
+    return f"{name} did not stay connected. Try again when the device is ready."
+
+
+class Worker(QThread):
     progress = pyqtSignal(str)
-    finished_message = pyqtSignal(str)
+    result = pyqtSignal(object)
+    failed = pyqtSignal(str)
 
-    def __init__(self, name, uuid):
+    def __init__(self, operation, *args):
         super().__init__()
-        self.name, self.uuid = name, uuid
+        self.operation = operation
+        self.args = args
 
     def run(self):
         try:
-            active = subprocess.run(["nmcli", "-t", "-f", "UUID", "connection", "show", "--active"], capture_output=True, text=True, timeout=10)
-            if self.uuid in active.stdout.splitlines():
-                self.finished_message.emit(f"Already connected to {self.name}.")
-                return
-            self.progress.emit(f"Scanning for {self.name}…")
-            # A scan may be throttled or unavailable; connection activation can still succeed.
-            subprocess.run(["nmcli", "device", "wifi", "rescan"], capture_output=True, text=True, timeout=15)
-            self.progress.emit(f"Connecting to {self.name}…")
-            result = subprocess.run(["nmcli", "--wait", "30", "connection", "up", "uuid", self.uuid], capture_output=True, text=True, timeout=40)
-            if result.returncode == 0:
-                self.finished_message.emit(f"Connected to {self.name}.")
-            else:
-                self.finished_message.emit(f"Could not connect to {self.name}. Check that the hotspot is on, then retry.\n\n{result.stderr.strip()}")
+            self.result.emit(self.operation(self.progress.emit, *self.args))
+        except dbus.DBusException as error:
+            self.failed.emit(f"Could not read Bluetooth devices.\n\n{error.get_dbus_message()}")
         except (OSError, subprocess.TimeoutExpired) as error:
-            self.finished_message.emit(f"Connection attempt failed: {error}")
+            self.failed.emit(f"Connection attempt failed: {error}")
+
 
 class Window(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Instant Wi-Fi Connect")
+        self.setWindowTitle("Instant Connect")
         self.setMinimumWidth(400)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Choose a saved network:"))
-        self.network = QComboBox()
-        for name, uuid in NETWORKS:
-            self.network.addItem(name, uuid)
-        layout.addWidget(self.network)
-        self.status = QLabel("Select Connect to scan and connect.")
+        self.connection_type = QComboBox()
+        self.connection_type.addItems(["Wi-Fi", "Bluetooth"])
+        layout.addWidget(self.connection_type)
+        self.target = QComboBox()
+        layout.addWidget(self.target)
+        self.status = QLabel()
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.button = QPushButton("Connect")
-        self.button.clicked.connect(self.connect_network)
+        self.button.clicked.connect(self.connect_target)
         layout.addWidget(self.button)
+        self.refresh = QPushButton("Refresh devices")
+        self.refresh.clicked.connect(self.load_bluetooth)
+        layout.addWidget(self.refresh)
         self.worker = None
+        self.connection_type.currentIndexChanged.connect(self.change_type)
+        self.change_type()
 
-    def connect_network(self):
-        self.button.setEnabled(False)
-        self.network.setEnabled(False)
-        self.worker = ConnectWorker(self.network.currentText(), self.network.currentData())
+    def change_type(self):
+        self.target.clear()
+        bluetooth = self.connection_type.currentText() == "Bluetooth"
+        self.refresh.setVisible(bluetooth)
+        if bluetooth:
+            self.load_bluetooth()
+        else:
+            self.set_targets((NETWORKS, "Choose a saved network and select Connect."))
+            self.button.setEnabled(True)
+
+    def set_targets(self, result):
+        choices, message = result
+        selected = self.target.currentData()
+        self.target.clear()
+        for name, identifier in choices:
+            self.target.addItem(name, identifier)
+        index = self.target.findData(selected)
+        if index >= 0:
+            self.target.setCurrentIndex(index)
+        self.status.setText(message)
+
+    def load_bluetooth(self):
+        self.status.setText("Reading paired Bluetooth devices…")
+        self.start_worker(list_bluetooth, self.set_targets)
+
+    def connect_target(self):
+        operation = connect_wifi if self.connection_type.currentText() == "Wi-Fi" else connect_bluetooth
+        self.start_worker(operation, self.status.setText, self.target.currentText(), self.target.currentData())
+
+    def start_worker(self, operation, callback, *args):
+        for widget in (self.connection_type, self.target, self.button, self.refresh):
+            widget.setEnabled(False)
+        self.worker = Worker(operation, *args)
         self.worker.progress.connect(self.status.setText)
-        self.worker.finished_message.connect(self.status.setText)
-        self.worker.finished.connect(self.done_connecting)
+        self.worker.result.connect(callback)
+        self.worker.failed.connect(self.status.setText)
+        self.worker.finished.connect(self.done)
         self.worker.start()
 
-    def done_connecting(self):
-        self.button.setText("Retry")
-        self.button.setEnabled(True)
-        self.network.setEnabled(True)
+    def done(self):
+        self.connection_type.setEnabled(True)
+        self.refresh.setEnabled(True)
+        has_targets = self.target.count() > 0
+        self.target.setEnabled(has_targets)
+        self.button.setEnabled(has_targets)
 
-    def closeEvent(self, event):
+    def reject(self):
         if self.worker and self.worker.isRunning():
-            self.status.setText("Please wait for the connection attempt to finish.")
-            event.ignore()
-        else:
-            event.accept()
+            return
+        super().reject()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
