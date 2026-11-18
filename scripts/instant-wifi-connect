@@ -221,20 +221,15 @@ class Window(QDialog):
         self.worker.progress.connect(self.status.setText)
         self.worker.result.connect(callback)
         self.worker.failed.connect(self.status.setText)
-        self.worker.finished.connect(self.done)
+        self.worker.finished.connect(self.connection_finished)
         self.worker.start()
 
-    def done(self):
+    def connection_finished(self):
         self.connection_type.setEnabled(True)
         self.refresh.setEnabled(True)
         has_targets = self.target.count() > 0
         self.target.setEnabled(has_targets)
         self.button.setEnabled(has_targets)
-
-    def reject(self):
-        if self.worker and self.worker.isRunning():
-            return
-        super().reject()
 
 
 if __name__ == "__main__":
@@ -242,4 +237,8 @@ if __name__ == "__main__":
     app.setDesktopFileName("io.github.doview.instant-wifi-connect")
     window = Window()
     window.show()
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    # The dialog can close immediately while the bounded operation finishes.
+    if window.worker is not None:
+        window.worker.wait()
+    sys.exit(exit_code)
