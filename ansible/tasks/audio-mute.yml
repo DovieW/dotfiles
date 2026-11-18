@@ -6,11 +6,11 @@
 - name: Install audio mute dependencies
   become: true
   ansible.builtin.apt:
-    name: [libkscreen-bin, python3-gi, wireplumber]
+    name: "{{ dot_audio_volume_packages }}"
     state: present
-  when: >-
-    ['libkscreen-bin', 'python3-gi', 'wireplumber']
-    | difference(ansible_facts.packages.keys() | list) | length > 0
+  vars:
+    dot_audio_volume_packages: [gcc, libwayland-dev, python3-gi, wireplumber]
+  when: dot_audio_volume_packages | difference(ansible_facts.packages.keys() | list) | length > 0
 
 - name: Create audio mute installation directories
   ansible.builtin.file:
@@ -18,6 +18,23 @@
     state: directory
     mode: "0755"
   loop: [.local/bin, .config/systemd/user]
+
+- name: Build the Wayland display power listener
+  ansible.builtin.shell: |
+    set -eu
+    destination={{ (ansible_facts.user_dir + '/.local/bin/dot-display-power') | quote }}
+    temporary=$(mktemp "${destination}.XXXXXX")
+    trap 'rm -f -- "$temporary"' EXIT
+    cc -O2 -Wall -Wextra -Wno-unused-parameter {{ (dot_repo + '/config/power/dot-display-power.c') | quote }} \
+      -o "$temporary" -lwayland-client
+    if ! cmp -s "$temporary" "$destination"; then
+      chmod 0755 "$temporary"
+      mv -fT -- "$temporary" "$destination"
+      printf '%s\n' installed
+    fi
+  register: dot_display_power_listener
+  changed_when: "'installed' in dot_display_power_listener.stdout_lines"
+  when: not ansible_check_mode
 
 - name: Install audio mute watcher
   ansible.builtin.copy:
@@ -48,6 +65,7 @@
     daemon_reload: "{{ dot_audio_mute_unit.changed }}"
     enabled: true
     state: >-
-      {{ ('restarted' if dot_audio_mute_watcher.changed or dot_audio_mute_unit.changed else 'started')
+      {{ ('restarted' if (dot_display_power_listener.changed
+                         or dot_audio_mute_watcher.changed or dot_audio_mute_unit.changed) else 'started')
          if dot_audio_mute_session.rc == 0 else omit }}
   when: not ansible_check_mode

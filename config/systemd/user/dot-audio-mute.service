@@ -1,5 +1,5 @@
 [Unit]
-Description=Mute audio after display timeout and on sleep and wake
+Description=Set output volume to zero after display timeout and on sleep and wake
 PartOf=graphical-session.target
 After=plasma-kwin_wayland.service
 ConditionEnvironment=WAYLAND_DISPLAY

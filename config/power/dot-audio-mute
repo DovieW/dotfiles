@@ -1,66 +1,57 @@
 #!/usr/bin/python3
-"""Mute Plasma's default audio output on display timeout and sleep transitions."""
+"""Set Plasma's default output volume to zero on display and sleep events."""
 
 import logging
 import os
-import re
 import subprocess
-import time
+from pathlib import Path
 
 
 OFF_SECONDS = 30 * 60
-POLL_SECONDS = 10
 LOGIN_SERVICE = "org.freedesktop.login1"
 LOGIN_PATH = "/org/freedesktop/login1"
 LOGIN_MANAGER = LOGIN_SERVICE + ".Manager"
 
 
-def displays_off():
-    result = subprocess.run(
-        ["/usr/bin/kscreen-doctor", "--dpms", "show"],
-        env={**os.environ, "LC_ALL": "C", "QT_QPA_PLATFORM": "wayland"},
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=2,
-    )
-    modes = re.findall(r"^dpms mode for screen .+: (on|off)$", result.stdout, re.M)
-    if not modes:
-        raise ValueError("KScreen reported no display power modes")
-    return all(mode == "off" for mode in modes)
-
-
-def mute_output(reason):
+def zero_volume(reason):
     try:
         subprocess.run(
-            ["/usr/bin/wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"],
+            ["/usr/bin/wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0"],
             capture_output=True,
             text=True,
             check=True,
             timeout=1,
         )
     except (OSError, subprocess.SubprocessError) as error:
-        logging.warning("Could not mute output (%s): %s", reason, error)
+        logging.warning("Could not set output volume to zero (%s): %s", reason, error)
         return False
-    logging.info("Muted default audio output (%s)", reason)
+    logging.info("Set default output volume to zero (%s)", reason)
     return True
 
 
 class DisplayTimeout:
-    def __init__(self):
-        self.reset()
+    def __init__(self, schedule, cancel):
+        self.schedule = schedule
+        self.cancel = cancel
+        self.timer = None
+        self.displays_off = False
+        self.sleeping = False
 
-    def reset(self):
-        self.off_since = None
-        self.muted = False
+    def update(self, displays_off, sleeping):
+        was_off = self.displays_off and not self.sleeping
+        self.displays_off = displays_off
+        self.sleeping = sleeping
+        is_off = displays_off and not sleeping
+        if is_off and not was_off:
+            self.timer = self.schedule(OFF_SECONDS, self.elapsed)
+        elif not is_off and self.timer is not None:
+            self.cancel(self.timer)
+            self.timer = None
 
-    def update(self, off, now):
-        if not off:
-            self.reset()
-        elif self.off_since is None:
-            self.off_since = now
-        elif not self.muted and now - self.off_since >= OFF_SECONDS:
-            self.muted = mute_output("displays off for 30 minutes")
+    def elapsed(self):
+        self.timer = None
+        zero_volume("displays off for 30 minutes")
+        return False
 
 
 def watch():
@@ -70,11 +61,13 @@ def watch():
     from gi.repository import Gio, GLib
 
     bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-    display_timeout = DisplayTimeout()
+    loop = GLib.MainLoop()
+    display_timeout = DisplayTimeout(
+        lambda seconds, callback: GLib.timeout_add(seconds * 1000, callback),
+        GLib.source_remove,
+    )
     inhibitor = None
     resuming = None
-    sleeping = False
-    display_error = False
 
     def acquire_inhibitor():
         nonlocal inhibitor
@@ -82,7 +75,7 @@ def watch():
             reply, fds = bus.call_with_unix_fd_list_sync(
                 LOGIN_SERVICE, LOGIN_PATH, LOGIN_MANAGER, "Inhibit",
                 GLib.Variant("(ssss)", (
-                    "sleep", "Dotfiles audio mute", "Mute audio before sleep", "delay",
+                    "sleep", "Dotfiles audio volume", "Set volume to zero before sleep", "delay",
                 )),
                 GLib.VariantType.new("(h)"), Gio.DBusCallFlags.NONE, 1000, None, None,
             )
@@ -90,31 +83,35 @@ def watch():
         except GLib.Error as error:
             logging.warning("Could not obtain sleep delay inhibitor: %s", error)
 
-    def poll_displays():
-        nonlocal display_error
-        if not sleeping:
-            try:
-                off = displays_off()
-            except (OSError, ValueError, subprocess.SubprocessError) as error:
-                if not display_error:
-                    logging.warning("Could not read display power state: %s", error)
-                display_error = True
-                off = False
-            else:
-                display_error = False
-            display_timeout.update(off, time.monotonic())
-        return GLib.SOURCE_CONTINUE
+    monitor = Gio.Subprocess.new(
+        [str(Path.home() / ".local/bin/dot-display-power")],
+        Gio.SubprocessFlags.STDOUT_PIPE,
+    )
+    states = Gio.DataInputStream.new(monitor.get_stdout_pipe())
+
+    def display_changed(stream, result):
+        try:
+            line, _length = stream.read_line_finish_utf8(result)
+        except GLib.Error:
+            logging.exception("Could not read display power event")
+            loop.quit()
+            return
+        if line is None:
+            loop.quit()
+            return
+        display_timeout.update(line == "off", display_timeout.sleeping)
+        stream.read_line_async(GLib.PRIORITY_DEFAULT, None, display_changed)
 
     def prepare_for_sleep(_bus, _sender, _path, _interface, _signal, parameters):
-        nonlocal inhibitor, resuming, sleeping
+        nonlocal inhibitor, resuming
         sleeping = parameters.unpack()[0]
-        display_timeout.reset()
+        display_timeout.update(display_timeout.displays_off, sleeping)
         if resuming is not None:
             GLib.source_remove(resuming)
             resuming = None
         if sleeping:
             try:
-                mute_output("before sleep")
+                zero_volume("before sleep")
             finally:
                 if inhibitor is not None:
                     os.close(inhibitor)
@@ -124,16 +121,16 @@ def watch():
         # PipeWire or the default output may be unavailable just after wake.
         attempts_left = 5
 
-        def mute_after_wake():
+        def zero_after_wake():
             nonlocal attempts_left, resuming
             attempts_left -= 1
-            if mute_output("after waking") or attempts_left == 0:
+            if zero_volume("after waking") or attempts_left == 0:
                 resuming = None
                 return GLib.SOURCE_REMOVE
             return GLib.SOURCE_CONTINUE
 
-        if mute_after_wake():
-            resuming = GLib.timeout_add_seconds(2, mute_after_wake)
+        if zero_after_wake():
+            resuming = GLib.timeout_add_seconds(2, zero_after_wake)
         if inhibitor is None:
             acquire_inhibitor()
 
@@ -142,9 +139,9 @@ def watch():
         Gio.DBusSignalFlags.NONE, prepare_for_sleep,
     )
     acquire_inhibitor()
-    GLib.timeout_add_seconds(POLL_SECONDS, poll_displays)
-    poll_displays()
-    GLib.MainLoop().run()
+    states.read_line_async(GLib.PRIORITY_DEFAULT, None, display_changed)
+    loop.run()
+    raise RuntimeError("Display power listener disconnected")
 
 
 if __name__ == "__main__":

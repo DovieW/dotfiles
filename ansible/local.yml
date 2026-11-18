@@ -32,7 +32,7 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, audio]
 
-    - name: Configure automatic audio muting
+    - name: Configure automatic output volume reset
       ansible.builtin.import_tasks: tasks/audio-mute.yml
       when: dot_profile_data.features.kde | default(false)
       tags: [config, audio, audio-mute]

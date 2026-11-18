@@ -14,7 +14,7 @@ without these devices the rules have no effect. Volumes and mute states are
 not changed. Sink priorities stay below 1500 to avoid their monitor sources
 outranking real microphones.
 
-Apply the USB audio priorities and automatic muting:
+Apply the USB audio priorities and automatic volume reset:
 
 ```sh
 bin/dot apply --profile kubuntu-desktop --tags audio --check
@@ -36,17 +36,17 @@ running may need to reopen their audio stream.
 
 The configuration follows WirePlumber's [node priority policy](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/priorities.html).
 
-## Automatic muting
+## Automatic volume reset
 
-On the Kubuntu desktop and laptop profiles, `dot-audio-mute.service` monitors
-Plasma Wayland display power. When all displays have reported off for 30 minutes,
-it mutes the default audio output once. It checks every 10 seconds and starts a
-new countdown after a display comes back on. The countdown starts when the
-displays power off, including when this happens at the lock screen.
+On the Kubuntu desktop and laptop profiles, `dot-audio-mute.service` listens for
+Plasma Wayland display power events. When all displays turn off, including at
+the lock screen, it starts a 30-minute timer. It cancels the timer when a
+display comes back on. If the timer expires, it sets the default audio output
+to 0%.
 
-The watcher also mutes the default output just before sleep and again on wake.
-Volume levels and microphones are preserved. Unmute manually when you want
-sound again.
+The service also sets the default output to 0% just before sleep and again on
+wake. The mute switch and microphones are untouched. Raise the volume when
+you want sound again.
 
 Apply just the watcher with `bin/dot apply --profile kubuntu-desktop --tags audio-mute`
 or use `kubuntu-laptop` on the laptop. Check its activity with
