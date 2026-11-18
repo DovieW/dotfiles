@@ -1,5 +1,8 @@
 """Failure interpretation without changing the host's network."""
+import fcntl
+import os
 import runpy
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +13,18 @@ GLOBALS = CHECK.__globals__
 
 
 class ConnectionCheckTests(unittest.TestCase):
+    def test_lock_is_released_when_the_test_finishes(self):
+        run_check = MODULE["run_check"]
+        result = {"summary": "Finished", "details": ""}
+        with tempfile.TemporaryDirectory() as runtime, patch.dict(os.environ, XDG_RUNTIME_DIR=runtime):
+            lock_path = Path(runtime) / f"connection-check-{os.getuid()}.lock"
+            with patch.dict(run_check.__globals__, check=lambda long: result):
+                with lock_path.open("w") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.assertIn("Another test is running", run_check()["summary"])
+                self.assertEqual(run_check(), result)
+                self.assertEqual(run_check(), result)
+
     def test_no_route(self):
         with patch.dict(GLOBALS, run=lambda *a: (1, "", "unreachable")):
             self.assertIn("No usable IPv4", CHECK()["summary"])

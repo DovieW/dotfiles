@@ -15,8 +15,9 @@ the Good and Poor cutoffs. The download thresholds of 5 and 25 Mbps are rough
 reference points for an HD and 4K stream, respectively.
 [FCC streaming estimates](https://docs.fcc.gov/public/attachments/fcc-15-10a1.pdf)
 
-Details includes negotiated Wi-Fi rates and raw probe results. Repeated
-launches cannot start overlapping checks.
+Details includes negotiated Wi-Fi rates and raw probe results. If a test is
+already running, a new window explains when to try again. Completed results
+can stay open while you run another test.
 
 The quick check downloads up to 10 MB. The optional longer test downloads up to
 50 MB. Both have time limits; incomplete transfers are labeled. Latency probes

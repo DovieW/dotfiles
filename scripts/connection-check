@@ -139,14 +139,20 @@ def check(long=False):
             "connection": label, "metrics": metrics, "note": note}
 
 
+def run_check(long=False):
+    lock_path = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / f"connection-check-{os.getuid()}.lock"
+    with lock_path.open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            message = "Another test is running. Wait for it to finish, then select Run again."
+            return {"summary": message, "details": ""}
+        return check(long)
+
+
 def main():
-    lock = open(Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp")) / f"connection-check-{os.getuid()}.lock", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return
     if "--json" in sys.argv:
-        print(json.dumps(check("--long" in sys.argv), indent=2))
+        print(json.dumps(run_check("--long" in sys.argv), indent=2))
         return
     from PyQt6.QtCore import Qt, QThread, pyqtSignal
     from PyQt6.QtGui import QIcon
@@ -160,7 +166,7 @@ def main():
 
         def run(self):
             try:
-                self.done.emit(check(self.long))
+                self.done.emit(run_check(self.long))
             except Exception as e:
                 self.done.emit({"summary": "Check failed: " + str(e), "details": str(e)})
 
