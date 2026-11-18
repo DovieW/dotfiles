@@ -38,6 +38,17 @@ password login. If Bitwarden spins or authentication hangs, first run
 the user to unlock `kdewallet` in KWalletManager; do not remove its password,
 delete wallet data, or store an unlock password in scripts.
 
+## Tailscale names in configuration
+
+Always use the full Tailscale MagicDNS name (`<machine>.<tailnet>.ts.net`)
+for connections that run without someone typing the hostname. This includes
+saved app connections, scripts, services, and automation. Short names depend on
+DNS search settings. A router can resolve the same short name to a LAN address,
+which caused Herdr's laptop connection to fail while the laptop was online in
+Tailscale. Short SSH aliases are fine for people to type. Set their `HostName`
+to the full MagicDNS name and preserve existing host-key verification when
+changing an alias.
+
 ## “Finalize this computer” protocol
 
 When the user says **“finalize this computer”**, **“finish setting up this
