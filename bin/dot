@@ -6043,6 +6043,7 @@ def codex_daemon_status(managed_codex: Path) -> dict[str, Any]:
         [str(managed_codex), "app-server", "daemon", "version"],
         check=False,
         capture=True,
+        timeout=15,
     )
     if result.returncode:
         return {}
@@ -6267,7 +6268,7 @@ def update_codex_desktop(profile_name: str, *, log_path: Path | None = None) -> 
                                 direct=False, force_kde=False, include_installed_chatgpt=True, log_path=log_path))
 
 
-def restart_codex_remote_control() -> None:
+def restart_codex_remote_control(log_path: Path | None = None) -> None:
     executable = Path.home() / ".codex/packages/standalone/current/codex"
     if not executable.is_file():
         print("Remote Control installation unavailable; no daemon restart attempted.")
@@ -6282,7 +6283,11 @@ def restart_codex_remote_control() -> None:
     ).returncode == 0:
         codex_admin_command(["systemctl", "restart", "codex-remote-control.service"])
     else:
-        run([str(executable), "app-server", "daemon", "restart"])
+        result = run([str(executable), "app-server", "daemon", "restart"],
+                     capture=True, check=False)
+        if log_path is not None:
+            append_codex_update_log(log_path, "Remote Control restart", result)
+        result.check_returncode()
     expected = command_semver([str(executable), "--version"])
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
@@ -6330,20 +6335,26 @@ def append_codex_update_log(path: Path, label: str, result: subprocess.Completed
         log.write((result.stdout or "") + (result.stderr or ""))
 
 
-def codex_update_audit(log_path: Path) -> None:
+def codex_process_audit(log_path: Path | None = None) -> dict[str, Any]:
     result = run(["python3", str(ROOT / "scripts/audit-updated-processes.py")],
                  capture=True, check=False)
-    append_codex_update_log(log_path, "Running process audit", result)
+    detail = " Inspect the update log for details." if log_path else ""
+    if log_path is not None:
+        append_codex_update_log(log_path, "Running process audit", result)
     if result.returncode:
-        raise DotError(f"Process audit failed; details: {log_path}")
+        raise DotError("Process audit failed." + detail)
     try:
-        audit = json.loads(result.stdout)
-        stale = audit["stale_processes"]
-        programs = sorted({p["program"] for p in stale})
-        unreadable = int(audit["unreadable_processes"])
-        reboot = bool(audit["reboot_required"])
-    except (ValueError, KeyError, TypeError) as exc:
-        raise DotError(f"Could not read process audit; details: {log_path}") from exc
+        return json.loads(result.stdout)
+    except ValueError as exc:
+        raise DotError("Could not read process audit." + detail) from exc
+
+
+def codex_update_audit(log_path: Path) -> None:
+    audit = codex_process_audit(log_path)
+    stale = audit["stale_processes"]
+    programs = sorted({p["program"] for p in stale})
+    unreadable = int(audit["unreadable_processes"])
+    reboot = bool(audit["reboot_required"])
     print(f"Process audit: {len(stale)} older processes across {len(programs)} programs; "
           f"{unreadable} processes could not be inspected.")
     if stale:
@@ -6353,6 +6364,50 @@ def codex_update_audit(log_path: Path) -> None:
     print("Audit details are in the log; plugins and bundled assets are not fully covered.")
 
 
+def codex_desktop_activation(update_package: bool) -> tuple[bool, str]:
+    processes = codex_desktop_processes()
+    if not processes:
+        return False, "inactive or unavailable"
+    if update_package:
+        return True, "desktop package will change"
+    proc = Path("/proc")
+    try:
+        bundled = chatgpt_embedded_codex_servers()
+        executables = [(pid, CHATGPT_DESKTOP_EXECUTABLE) for pid in processes]
+        executables.extend((pid, CHATGPT_BUNDLED_CODEX) for pid, parent in bundled
+                           if parent in processes)
+        for pid, installed in executables:
+            if not (proc / str(pid) / "exe").samefile(installed):
+                return True, "running executable differs from installed executable"
+        for stale in codex_process_audit()["stale_processes"]:
+            if stale["uid"] != os.getuid():
+                continue
+            pid = stale["pid"]
+            while pid and pid > 1:
+                if pid in processes:
+                    return True, "desktop process is using replaced code"
+                pid = process_parent_pid(proc, pid)
+    except (OSError, DotError):
+        return False, "running code could not be verified"
+    if not all(any(parent == pid for _, parent in bundled) for pid in processes):
+        return False, "bundled server could not be verified"
+    return False, "running executables match the installation"
+
+
+def codex_remote_activation(target_version: str, update_cli: bool) -> tuple[bool, str]:
+    executable = Path.home() / ".codex/packages/standalone/current/codex"
+    status = codex_daemon_status(executable) if executable.is_file() else {}
+    if status.get("status") == "stopped":
+        return False, "inactive"
+    if status.get("status") != "running" or not status.get("appServerVersion"):
+        return False, "running version unavailable"
+    if status["appServerVersion"] != target_version:
+        return True, f"daemon version {status['appServerVersion']} differs from {target_version}"
+    if update_cli:
+        return True, "managed CLI will change"
+    return False, f"daemon reports {target_version}"
+
+
 def cmd_codex_update(args: argparse.Namespace) -> None:
     profile_name = update_profile(getattr(args, "profile", None))
     profile = load_profile(profile_name)
@@ -6360,33 +6415,46 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
                    or CHATGPT_DESKTOP_EXECUTABLE.is_file())
     check = getattr(args, "check", False)
     yes = getattr(args, "yes", False)
-    if not (check or yes or sys.stdin.isatty()):
-        raise DotError("Codex update restarts active work. Run interactively or pass --yes.")
     print("Checking Codex versions…", flush=True)
     try:
         cli = codex_cli_versions()
         desktop_versions = codex_desktop_versions() if desktop else None
+        managed_cli = run([str(ROOT / "scripts/install-codex"), "--check"], cwd=ROOT,
+                          capture=True, check=False, timeout=20).returncode == 0
+        update_cli = cli.installed != cli.available or not managed_cli
+        update_desktop = bool(desktop_versions and desktop_versions.installed != desktop_versions.available)
+        restart_remote, remote_reason = codex_remote_activation(cli.available, update_cli)
+        reopen_desktop, desktop_reason = codex_desktop_activation(update_desktop) if desktop else (False, "")
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DotError(f"Could not check Codex update versions: {exc}") from exc
     for item in (cli, desktop_versions):
         if item is not None:
             status = " (up to date)" if item.installed == item.available else ""
             print(f"  {item.name}: {item.installed} → {item.available}{status}")
+    if not managed_cli and cli.installed == cli.available:
+        print("  Codex CLI: switch to the managed standalone installation")
+    print(f"  Remote Control: {'restart' if restart_remote else 'no restart'} ({remote_reason})")
+    if desktop:
+        print(f"  ChatGPT Desktop: {'reopen' if reopen_desktop else 'no restart'} ({desktop_reason})")
     if check:
         return
+    if not any((update_cli, update_desktop, restart_remote, reopen_desktop)):
+        print("No package updates or restarts scheduled.")
+        return
     if not yes:
-        activation = "ChatGPT Desktop and Remote Control" if desktop else "Remote Control"
-        answer = input(f"Restarting active {activation} may interrupt turns. "
-                       "Save drafts first. Continue? [Y/n] ").strip().lower()
+        if not sys.stdin.isatty():
+            raise DotError("Run interactively or pass --yes to approve the Codex update plan.")
+        warning = "Restarts may interrupt turns. Save drafts first. " if restart_remote or reopen_desktop else ""
+        answer = input(f"{warning}Continue? [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
             print("Codex update cancelled; nothing changed.")
             return
-    blockers = active_package_transactions()
+    blockers = active_package_transactions() if update_cli or update_desktop else []
     if blockers:
         raise DotError("Another package transaction is running: " + "; ".join(blockers))
-    if desktop and not command_exists("ansible-playbook"):
+    if update_desktop and not command_exists("ansible-playbook"):
         raise DotError("Updating Codex Desktop requires ansible-playbook.")
-    system_remote = command_exists("systemctl") and run(
+    system_remote = restart_remote and command_exists("systemctl") and run(
         ["systemctl", "is-active", "--quiet", "codex-remote-control.service"],
         check=False, capture=True,
     ).returncode == 0
@@ -6394,25 +6462,29 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
     log_path = STATE_DIR / ("codex-update-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".log")
     atomic_text(log_path, f"Codex update on {socket.gethostname()}\n", 0o600)
     print(f"Updating Codex on {socket.gethostname()}. Details: {log_path}")
-    with codex_update_admin(desktop or system_remote):
-        print("Updating standalone CLI…")
-        result = run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
-                     capture=True, check=False)
-        append_codex_update_log(log_path, "Standalone CLI update", result)
-        if result.returncode:
-            raise DotError(f"CLI update failed (exit {result.returncode}); details: {log_path}")
-        version = command_semver([str(Path.home() / ".local/bin/codex"), "--version"])
-        print(f"CLI is current{': ' + version if version else ''}.")
-        if desktop:
+    with codex_update_admin(update_desktop or system_remote):
+        if update_cli:
+            print("Updating standalone CLI…")
+            result = run([str(ROOT / "scripts/install-codex"), "--update"], cwd=ROOT,
+                         capture=True, check=False)
+            append_codex_update_log(log_path, "Standalone CLI update", result)
+            if result.returncode:
+                raise DotError(f"CLI update failed (exit {result.returncode}); details: {log_path}")
+            version = command_semver([str(Path.home() / ".local/bin/codex"), "--version"])
+            print(f"CLI is current{': ' + version if version else ''}.")
+        if update_desktop:
             print("Updating desktop package…")
             update_codex_desktop(profile_name, log_path=log_path)
             print("Desktop package is current.")
         # Finish both package updates before interrupting active connections.
-        restart_codex_remote_control()
-        if desktop:
+        if restart_remote:
+            restart_codex_remote_control(log_path)
+        if reopen_desktop:
             restart_codex_desktop()
         codex_update_audit(log_path)
-    print("Codex update completed. Reopen existing terminal Codex sessions to use the updated CLI.")
+    print("Codex update completed.")
+    if update_cli:
+        print("Reopen existing terminal Codex sessions to use the updated CLI.")
 
 
 def cmd_vite_plus_install(_args: argparse.Namespace) -> None:

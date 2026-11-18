@@ -743,13 +743,12 @@ dot codex update
 
 The **Update Codex** picker action runs the same update. It shows the installed
 and available versions of the standalone CLI and applicable desktop package,
-using fresh release metadata and a temporary signed APT index. It then asks once
-with `[Y/n]` (Enter means Yes), explaining that active turns can be interrupted and
-drafts should be saved. It upgrades the stable standalone CLI and the official
-`chatgpt` APT package whenever the profile manages the desktop **or the desktop is
-already installed**. The temporary desktop inclusion does not change the saved
-profile or Remote Control ownership mode. It does not run unrelated FilmCraft
-configuration.
+using fresh release metadata and a temporary signed APT index. The plan also
+shows which active processes are scheduled to restart and why. It asks once
+with `[Y/n]` (Enter means Yes) when the plan includes a package change or restart,
+and reminds you to save drafts before restarts. The desktop package is included
+when the profile manages it **or it is already installed**. The temporary desktop
+inclusion does not change the saved profile or Remote Control ownership mode.
 
 `dot apply` and Codex update authentication automatically use a KDE password
 dialog when standard input is not an interactive terminal. They recover the
@@ -774,22 +773,23 @@ environment and to service restarts through sudo stdin, then released on success
 or failure. It is never written to logs, arguments, or files. This does not rely
 on sudo timestamp sharing across Ansible processes.
 Terminal output shows stage progress and a short process-audit summary. Full
-package/CLI output and the detailed audit are saved in a private log under
+package/CLI output, daemon restart output, and the detailed audit are saved in a private log under
 `~/.local/state/dotfiles/codex-update-*.log`. Ctrl+C at the menu pause exits the
 pause without a Python traceback.
 
-The updater restarts active Remote Control even when its version is unchanged,
-using its protected system service when active, or the native daemon otherwise.
-It verifies the daemon reports the installed CLI version. It gracefully closes
-and reopens an active desktop, preserving launch flags, and checks that the new
-main process uses the installed executable and its bundled Codex server starts.
+The updater restarts active Remote Control if its version differs from the
+target or the managed CLI installation will change. It uses the protected system
+service when active, or the native daemon otherwise, and verifies the daemon
+reports the installed CLI version. It reopens an active desktop when its package
+will change or the process audit detects replaced code in its process tree. It
+preserves launch flags and verifies the installed executable and bundled server.
 A desktop that refuses to exit is reported, never force-killed. Inactive apps and
 daemons stay inactive. Settings and chat history are retained; existing terminal
 Codex sessions must be exited and reopened manually. SSH proxies and unrelated
 remote-access services are not broadly killed.
 
-Use `dot codex update --yes` to show versions and accept the restarts without prompting,
-or `dot codex update --check` to show versions and exit. Noninteractive updates
+Use `dot codex update --yes` to show and approve the plan without prompting,
+or `dot codex update --check` to show the plan and exit. Noninteractive updates
 require `--yes`. Use `--profile NAME` to select a profile explicitly. The final
 process audit reports replaced executables/libraries, unreadable processes and
 reboot requirements. It cannot establish freshness of every plugin, interpreted
