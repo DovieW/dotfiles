@@ -1,0 +1,13 @@
+[Unit]
+Description=Mute audio after display timeout and on sleep and wake
+PartOf=graphical-session.target
+After=plasma-kwin_wayland.service
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+ExecStart=%h/.local/bin/dot-audio-mute
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=graphical-session.target

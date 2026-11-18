@@ -32,6 +32,11 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, audio]
 
+    - name: Configure automatic audio muting
+      ansible.builtin.import_tasks: tasks/audio-mute.yml
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, audio, audio-mute]
+
     - name: Seed OBS recording profile
       ansible.builtin.import_tasks: tasks/obs.yml
       when: '"obs-studio" in (dot_profile_data.packages.apt | default([]))'

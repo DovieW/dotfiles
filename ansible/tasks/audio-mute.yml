@@ -1,0 +1,53 @@
+---
+- name: Inspect installed audio mute dependencies
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Install audio mute dependencies
+  become: true
+  ansible.builtin.apt:
+    name: [libkscreen-bin, python3-gi, wireplumber]
+    state: present
+  when: >-
+    ['libkscreen-bin', 'python3-gi', 'wireplumber']
+    | difference(ansible_facts.packages.keys() | list) | length > 0
+
+- name: Create audio mute installation directories
+  ansible.builtin.file:
+    path: "{{ ansible_facts.user_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [.local/bin, .config/systemd/user]
+
+- name: Install audio mute watcher
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/power/dot-audio-mute"
+    dest: "{{ ansible_facts.user_dir }}/.local/bin/dot-audio-mute"
+    mode: "0755"
+  register: dot_audio_mute_watcher
+
+- name: Install audio mute user unit
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/dot-audio-mute.service"
+    dest: "{{ ansible_facts.user_dir }}/.config/systemd/user/dot-audio-mute.service"
+    mode: "0644"
+  register: dot_audio_mute_unit
+
+- name: Check for a running graphical session
+  ansible.builtin.command:
+    argv: [systemctl, --user, is-active, --quiet, graphical-session.target]
+  register: dot_audio_mute_session
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Enable audio mute for Plasma sessions
+  ansible.builtin.systemd_service:
+    name: dot-audio-mute.service
+    scope: user
+    daemon_reload: "{{ dot_audio_mute_unit.changed }}"
+    enabled: true
+    state: >-
+      {{ ('restarted' if dot_audio_mute_watcher.changed or dot_audio_mute_unit.changed else 'started')
+         if dot_audio_mute_session.rc == 0 else omit }}
+  when: not ansible_check_mode
