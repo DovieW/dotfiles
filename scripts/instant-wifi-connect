@@ -3,6 +3,7 @@
 from contextlib import closing
 import subprocess
 import sys
+from time import sleep
 
 import dbus
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -17,6 +18,13 @@ NETWORKS = [
 ]
 DEVICE = "org.bluez.Device1"
 ADAPTER = "org.bluez.Adapter1"
+A2DP_SINK = "0000110b-0000-1000-8000-00805f9b34fb"
+RETRYABLE_CONNECTION_ERRORS = {
+    "org.bluez.Error.Failed",
+    "org.bluez.Error.ConnectionAttemptFailed",
+    "org.bluez.Error.InProgress",
+    "org.freedesktop.DBus.Error.NoReply",
+}
 
 
 def connect_wifi(progress, name, uuid):
@@ -61,8 +69,53 @@ def list_bluetooth(progress):
         for path, interfaces in objects.items()
         if (device := interfaces.get(DEVICE)) and device.get("Paired")
     ]
-    message = "Choose a paired device and select Connect." if devices else "No paired Bluetooth devices found."
+    message = "Choose a paired device and select Force Connect." if devices else "No paired Bluetooth devices found."
     return sorted(devices, key=lambda item: item[0].casefold()), message
+
+
+def try_bluetooth_connection(connect, properties):
+    try:
+        connect(timeout=18)
+    except dbus.DBusException as error:
+        if error.get_dbus_name() != "org.bluez.Error.AlreadyConnected":
+            if error.get_dbus_name() not in RETRYABLE_CONNECTION_ERRORS:
+                raise
+            return error.get_dbus_message()
+    if properties.Get(DEVICE, "Connected", timeout=5):
+        return None
+    return "The connection dropped."
+
+
+def recover_bluetooth(progress, name, interface, properties, supports_stereo):
+    first_error = try_bluetooth_connection(interface.Connect, properties)
+    if first_error is None:
+        return f"Connected to {name}."
+
+    progress(f"Clearing the failed connection to {name}…")
+    try:
+        interface.Disconnect(timeout=8)
+    except dbus.DBusException as error:
+        if error.get_dbus_name() != "org.bluez.Error.NotConnected":
+            return f"Could not reset the connection to {name}.\n\n{error.get_dbus_message()}"
+    sleep(1)
+
+    progress(f"Retrying {name}…")
+    retry_error = try_bluetooth_connection(interface.Connect, properties)
+    if retry_error is None:
+        return f"Connected to {name} after retrying."
+
+    details = [f"First attempt: {first_error}", f"Retry: {retry_error}"]
+    if supports_stereo:
+        progress(f"Trying stereo audio directly for {name}…")
+        try:
+            interface.ConnectProfile(A2DP_SINK, timeout=18)
+            if properties.Get(DEVICE, "Connected", timeout=5):
+                return f"Connected to {name} for stereo playback."
+            details.append("Stereo audio: The connection dropped.")
+        except dbus.DBusException as error:
+            details.append(f"Stereo audio: {error.get_dbus_message()}")
+
+    return f"Could not connect to {name}.\n\n" + "\n".join(details)
 
 
 def connect_bluetooth(progress, name, path):
@@ -80,17 +133,11 @@ def connect_bluetooth(progress, name, path):
                 return "Turn on Bluetooth in System Settings, then try again."
 
             proxy = bus.get_object("org.bluez", path, introspect=False)
-            try:
-                dbus.Interface(proxy, DEVICE).Connect(timeout=30)
-            except dbus.DBusException as error:
-                if error.get_dbus_name() != "org.bluez.Error.AlreadyConnected":
-                    raise
+            interface = dbus.Interface(proxy, DEVICE)
             properties = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
-            if properties.Get(DEVICE, "Connected", timeout=5):
-                return f"Connected to {name}."
+            return recover_bluetooth(progress, name, interface, properties, A2DP_SINK in device.get("UUIDs", ()))
     except dbus.DBusException as error:
         return f"Could not connect to {name}.\n\n{error.get_dbus_message()}"
-    return f"{name} did not stay connected. Try again when the device is ready."
 
 
 class Worker(QThread):
@@ -140,6 +187,7 @@ class Window(QDialog):
     def change_type(self):
         self.target.clear()
         bluetooth = self.connection_type.currentText() == "Bluetooth"
+        self.button.setText("Force Connect" if bluetooth else "Connect")
         self.refresh.setVisible(bluetooth)
         if bluetooth:
             self.load_bluetooth()
