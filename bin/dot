@@ -6260,10 +6260,10 @@ def restart_codex_desktop(wait_seconds: float = 30) -> bool:
     raise DotError("Desktop launch was requested but readiness was not confirmed; inspect the app logs.")
 
 
-def update_codex_desktop(profile_name: str, *, check: bool = False, log_path: Path | None = None) -> None:
+def update_codex_desktop(profile_name: str, *, log_path: Path | None = None) -> None:
     # An installed app must be updated even on a headless-profile machine.
     # This override is limited to this tagged run; persisted ownership stays intact.
-    cmd_apply(argparse.Namespace(profile=profile_name, tags="chatgpt", check=check,
+    cmd_apply(argparse.Namespace(profile=profile_name, tags="chatgpt", check=False,
                                 direct=False, force_kde=False, include_installed_chatgpt=True, log_path=log_path))
 
 
@@ -6358,17 +6358,26 @@ def cmd_codex_update(args: argparse.Namespace) -> None:
     profile = load_profile(profile_name)
     desktop = bool(profile.get("features", {}).get("chatgpt_desktop")
                    or CHATGPT_DESKTOP_EXECUTABLE.is_file())
-    if getattr(args, "check", False):
-        print("Read-only Codex update check; no programs will be restarted.")
-        print(check_codex_updates())
-        if desktop:
-            update_codex_desktop(profile_name, check=True)
+    check = getattr(args, "check", False)
+    yes = getattr(args, "yes", False)
+    if not (check or yes or sys.stdin.isatty()):
+        raise DotError("Codex update restarts active work. Run interactively or pass --yes.")
+    print("Checking Codex versions…", flush=True)
+    try:
+        cli = codex_cli_versions()
+        desktop_versions = codex_desktop_versions() if desktop else None
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DotError(f"Could not check Codex update versions: {exc}") from exc
+    for item in (cli, desktop_versions):
+        if item is not None:
+            status = " (up to date)" if item.installed == item.available else ""
+            print(f"  {item.name}: {item.installed} → {item.available}{status}")
+    if check:
         return
-    if not getattr(args, "yes", False):
-        if not sys.stdin.isatty():
-            raise DotError("Codex update restarts active work. Run interactively or pass --yes.")
-        answer = input("Update Codex CLI and desktop, reopen the app and restart active Remote Control? "
-                       "Active turns may be interrupted; save drafts first. [Y/n] ").strip().lower()
+    if not yes:
+        activation = "ChatGPT Desktop and Remote Control" if desktop else "Remote Control"
+        answer = input(f"Restarting active {activation} may interrupt turns. "
+                       "Save drafts first. Continue? [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
             print("Codex update cancelled; nothing changed.")
             return
@@ -7491,11 +7500,11 @@ def parse_codex_release_version(output: str) -> str:
     return version
 
 
-def check_codex_updates() -> UpdateCheckResult:
+def codex_cli_versions() -> AvailableUpdate:
     codex = Path.home() / ".local/bin/codex"
     installed = "not installed"
     if codex.is_file() or codex.is_symlink():
-        result = run([str(codex), "--version"], check=False, capture=True)
+        result = run([str(codex), "--version"], check=False, capture=True, timeout=15)
         if result.returncode:
             raise DotError((result.stderr or result.stdout).strip() or "Codex version check failed.")
         match = re.search(r"(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)", result.stdout)
@@ -7520,10 +7529,58 @@ def check_codex_updates() -> UpdateCheckResult:
     if metadata.returncode:
         raise DotError((metadata.stderr or metadata.stdout).strip() or "Codex release check failed.")
     available = parse_codex_release_version(metadata.stdout)
-    updates = () if installed == available else (
-        AvailableUpdate("codex", installed, available),
+    return AvailableUpdate("Codex CLI", installed, available)
+
+
+def check_codex_updates() -> UpdateCheckResult:
+    version = codex_cli_versions()
+    updates = () if version.installed == version.available else (
+        AvailableUpdate("codex", version.installed, version.available),
     )
     return UpdateCheckResult("Codex CLI", updates)
+
+
+def codex_desktop_versions() -> AvailableUpdate:
+    # Fetch the same signed source the updater configures, keeping APT's
+    # indexes, caches, and update hooks away from the live system.
+    with tempfile.TemporaryDirectory(prefix="dot-codex-apt-") as directory:
+        scratch = Path(directory)
+        lists = scratch / "lists"
+        (lists / "partial").mkdir(parents=True)
+        source = ROOT / "config/apt/chatgpt.sources"
+        keyring = "chatgpt-archive-keyring.asc"
+        shutil.copyfile(source.with_name(keyring), scratch / keyring)
+        preview_source = scratch / source.name
+        preview_source.write_text(source.read_text().replace(
+            f"/usr/share/keyrings/{keyring}", str(scratch / keyring)
+        ))
+        config = scratch / "preview.conf"
+        config.write_text(
+            "#clear APT::Update::Pre-Invoke;\n"
+            "#clear APT::Update::Post-Invoke;\n"
+            "#clear APT::Update::Post-Invoke-Success;\n"
+        )
+        options = [
+            "-c", str(config),
+            "-o", f"Dir::Etc::sourcelist={preview_source}",
+            "-o", "Dir::Etc::sourceparts=-",
+            "-o", f"Dir::State::lists={lists}",
+            "-o", "Dir::Cache::pkgcache=",
+            "-o", "Dir::Cache::srcpkgcache=",
+            "-o", "Acquire::Languages=none",
+        ]
+        env = {**os.environ, "LC_ALL": "C"}
+        run(["apt-get", *options, "-o", "APT::Update::Error-Mode=any", "update"],
+            capture=True, env=env, timeout=60)
+        policy = run(["apt-cache", *options, "policy", "chatgpt"],
+                     capture=True, env=env, timeout=15).stdout
+    versions = dict(re.findall(r"^\s+(Installed|Candidate): (\S+)$", policy, re.MULTILINE))
+    if not versions.get("Installed") or versions.get("Candidate") in (None, "(none)"):
+        raise DotError("APT did not report a ChatGPT Desktop update candidate.")
+    installed = versions["Installed"]
+    return AvailableUpdate("ChatGPT Desktop",
+                           "not installed" if installed == "(none)" else installed,
+                           versions["Candidate"])
 
 
 def strip_ansi(text: str) -> str:

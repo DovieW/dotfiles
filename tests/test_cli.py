@@ -90,6 +90,10 @@ class DotCliTests(unittest.TestCase):
             "restart_codex_remote_control": calls.restart_remote,
             "codex_update_admin": lambda required: contextlib.nullcontext(),
             "codex_update_audit": calls.audit, "append_codex_update_log": calls.log,
+            "codex_cli_versions": lambda: argparse.Namespace(
+                name="Codex CLI", installed="0.162.0", available="0.163.0"),
+            "codex_desktop_versions": lambda: argparse.Namespace(
+                name="ChatGPT Desktop", installed="26.1014.1", available="26.1014.1"),
             "command_semver": lambda _: "0.163.0",
             "run": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "ok", "")),
         }
@@ -151,16 +155,28 @@ class DotCliTests(unittest.TestCase):
 
     def test_codex_update_confirmation_defaults_yes_and_no_cancels(self):
         function = runpy.run_path(str(DOT))["cmd_codex_update"]
-        for answer, expected in (("", 1), ("Y", 1), ("n", 0)):
+        for answer, desktop, expected in (("", True, 1), ("Y", False, 1), ("n", True, 0)):
             calls = mock.Mock(); overrides = self.codex_update_mocks(calls)
             overrides.update({
-                "load_profile": lambda _: {"features": {}},
+                "load_profile": lambda _: {"features": {"chatgpt_desktop": desktop}},
                 "CHATGPT_DESKTOP_EXECUTABLE": mock.Mock(is_file=lambda: False),
             })
+            output = io.StringIO()
+            def confirm(prompt):
+                self.assertIn("Codex CLI: 0.162.0 → 0.163.0", output.getvalue())
+                self.assertEqual("ChatGPT Desktop: 26.1014.1 → 26.1014.1 (up to date)"
+                                 in output.getvalue(), desktop)
+                self.assertIn("[Y/n]", prompt)
+                overrides["run"].assert_not_called()
+                self.assertFalse(list(overrides["STATE_DIR"].iterdir()))
+                return answer
             with mock.patch.dict(function.__globals__, overrides), \
                  mock.patch("sys.stdin.isatty", return_value=True), \
-                 mock.patch("builtins.input", return_value=answer), contextlib.redirect_stdout(io.StringIO()):
+                 mock.patch("builtins.input", side_effect=confirm) as prompt, contextlib.redirect_stdout(output):
                 function(argparse.Namespace(profile="selected"))
+            prompt.assert_called_once()
+            if not expected:
+                overrides["run"].assert_not_called()
             self.assertEqual(calls.restart_remote.call_count, expected)
             self.assertEqual(calls.audit.call_count, expected)
 
@@ -255,15 +271,41 @@ class DotCliTests(unittest.TestCase):
     def test_codex_update_check_never_mutates_or_restarts(self):
         function = runpy.run_path(str(DOT))["cmd_codex_update"]
         mutations = mock.Mock(side_effect=AssertionError("mutation during check"))
-        desktop = mock.Mock()
-        with mock.patch.dict(function.__globals__, {
-            "update_profile": lambda _: "selected", "load_profile": lambda _: {"features": {}},
+        overrides = self.codex_update_mocks(mock.Mock())
+        output = io.StringIO()
+        overrides.update({
+            "load_profile": lambda _: {"features": {}},
             "CHATGPT_DESKTOP_EXECUTABLE": mock.Mock(is_file=lambda: True),
-            "check_codex_updates": lambda: "available", "update_codex_desktop": desktop,
-            "run": mutations, "restart_codex_remote_control": mutations, "restart_codex_desktop": mutations,
-        }), contextlib.redirect_stdout(io.StringIO()):
+            "update_codex_desktop": mutations, "run": mutations, "codex_update_admin": mutations,
+            "restart_codex_remote_control": mutations, "restart_codex_desktop": mutations,
+        })
+        with mock.patch.dict(function.__globals__, overrides), \
+             mock.patch("builtins.input", side_effect=AssertionError("prompt during check")), \
+             contextlib.redirect_stdout(output):
             function(argparse.Namespace(profile="selected", check=True))
-        desktop.assert_called_once_with("selected", check=True)
+        self.assertIn("Codex CLI: 0.162.0 → 0.163.0", output.getvalue())
+        self.assertIn("ChatGPT Desktop: 26.1014.1 → 26.1014.1 (up to date)", output.getvalue())
+        mutations.assert_not_called()
+
+    def test_codex_desktop_versions_reads_candidate_from_isolated_apt_index(self):
+        function = runpy.run_path(str(DOT))["codex_desktop_versions"]
+        def apt(command, **kwargs):
+            config = Path(command[2])
+            self.assertIn("#clear APT::Update::Post-Invoke-Success;", config.read_text())
+            self.assertIn(f"Dir::State::lists={config.parent / 'lists'}", command)
+            self.assertIn("Dir::Cache::pkgcache=", command)
+            self.assertEqual(kwargs["env"]["LC_ALL"], "C")
+            if command[0] == "apt-get":
+                self.assertEqual(command[-1], "update")
+                return subprocess.CompletedProcess(command, 0, "", "")
+            self.assertEqual(command[-2:], ["policy", "chatgpt"])
+            return subprocess.CompletedProcess(
+                command, 0, "chatgpt:\n  Installed: (none)\n  Candidate: 26.1101.1\n", "")
+        with mock.patch.dict(function.__globals__, {
+            "run": mock.Mock(side_effect=apt),
+        }):
+            versions = function()
+        self.assertEqual((versions.installed, versions.available), ("not installed", "26.1101.1"))
 
     def test_codex_desktop_restart_inactive_and_unavailable_display(self):
         module = runpy.run_path(str(DOT)); function = module["restart_codex_desktop"]

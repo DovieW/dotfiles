@@ -741,8 +741,10 @@ device profile:
 dot codex update
 ```
 
-The **Update Codex** picker action runs the same update. It asks once with
-`[Y/n]` (Enter means Yes), explaining that active turns can be interrupted and
+The **Update Codex** picker action runs the same update. It shows the installed
+and available versions of the standalone CLI and applicable desktop package,
+using fresh release metadata and a temporary signed APT index. It then asks once
+with `[Y/n]` (Enter means Yes), explaining that active turns can be interrupted and
 drafts should be saved. It upgrades the stable standalone CLI and the official
 `chatgpt` APT package whenever the profile manages the desktop **or the desktop is
 already installed**. The temporary desktop inclusion does not change the saved
@@ -786,8 +788,8 @@ daemons stay inactive. Settings and chat history are retained; existing terminal
 Codex sessions must be exited and reopened manually. SSH proxies and unrelated
 remote-access services are not broadly killed.
 
-Use `dot codex update --yes` to accept the restarts without prompting, or
-`dot codex update --check` for read-only update checks. Noninteractive updates
+Use `dot codex update --yes` to show versions and accept the restarts without prompting,
+or `dot codex update --check` to show versions and exit. Noninteractive updates
 require `--yes`. Use `--profile NAME` to select a profile explicitly. The final
 process audit reports replaced executables/libraries, unreadable processes and
 reboot requirements. It cannot establish freshness of every plugin, interpreted
