@@ -7,14 +7,29 @@
       - ansible_facts.distribution_major_version | int >= 26
     fail_msg: Diagnostic journal routing requires systemd 256 or later (managed Ubuntu 26.04 baseline).
 
-- name: Install local diagnostic tools
+- name: Read installed diagnostic package state
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Install missing local diagnostic tools
   become: true
   ansible.builtin.apt:
-    name: [pcp, pcp-export-pcp2json, lnav, bpftrace, sysstat, libglib2.0-bin, pipewire-bin, pulseaudio-utils]
+    name: "{{ dot_diagnostic_packages }}"
     state: present
     install_recommends: false
     update_cache: true
     cache_valid_time: 3600
+  vars:
+    dot_diagnostic_packages:
+      - pcp
+      - pcp-export-pcp2json
+      - lnav
+      - bpftrace
+      - sysstat
+      - libglib2.0-bin
+      - pipewire-bin
+      - pulseaudio-utils
+  when: dot_diagnostic_packages | difference(ansible_facts.packages.keys() | list) | length > 0
 
 - name: Create diagnostic policy directories
   become: true
