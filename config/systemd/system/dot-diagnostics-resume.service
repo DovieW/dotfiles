@@ -1,0 +1,19 @@
+[Unit]
+Description=Record the panel and KDE session after system sleep
+After=sleep.target systemd-suspend.service systemd-hibernate.service systemd-hybrid-sleep.service
+After=systemd-suspend-then-hibernate.service nvidia-resume.service
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=exec
+ExecStart=/usr/local/libexec/dot-diagnostic-resume capture
+RuntimeMaxSec=45s
+TimeoutStopSec=3s
+LogNamespace=diagnostics
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=-/run/dot-diagnostics-resume
+NoNewPrivileges=true

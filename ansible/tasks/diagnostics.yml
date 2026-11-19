@@ -41,6 +41,15 @@
     mode: '0755'
   register: dot_diag_script
 
+- name: Install display resume diagnostic collector
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/diagnostic-resume"
+    dest: /usr/local/libexec/dot-diagnostic-resume
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Install signal and resource allowlists
   become: true
   ansible.builtin.copy:
@@ -110,6 +119,18 @@
     - dot-diagnostics-snapshot.service
   register: dot_diag_units
 
+- name: Install display resume diagnostic units
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/system/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - dot-diagnostics-resume-arm.service
+    - dot-diagnostics-resume.service
+
 - name: Activate diagnostic journal sockets
   become: true
   ansible.builtin.systemd_service:
@@ -151,6 +172,13 @@
     name: dot-diagnostics-health.timer
     enabled: true
     state: started
+  when: not ansible_check_mode
+
+- name: Enable display diagnostics for future sleep cycles
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-diagnostics-resume-arm.service
+    enabled: true
   when: not ansible_check_mode
 
 - name: Create diagnostic user directories

@@ -470,6 +470,8 @@ def export(args):
     target = Path(args.output).expanduser().resolve()
     target.mkdir(mode=0o700, parents=True, exist_ok=False)
     target.chmod(0o700)
+    start = dt.datetime.fromisoformat(args.since).timestamp()
+    end = dt.datetime.fromisoformat(args.until).timestamp()
     manifest = {'generated_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
                 'since': args.since, 'until': args.until, 'boot_id': BOOT,
                 'warnings': [], 'post_incident': {}}
@@ -492,8 +494,6 @@ def export(args):
                 for p in source.glob('samples*.jsonl'):
                     shutil.copyfile(p, dest / p.name)
             else:
-                start = dt.datetime.fromisoformat(args.since).timestamp()
-                end = dt.datetime.fromisoformat(args.until).timestamp()
                 dest = target / label
                 dest.mkdir()
                 for prefix, files in archive_groups(source).items():
@@ -519,6 +519,17 @@ def export(args):
     for label, source in [('snapshots', STATE / 'snapshots'), ('pstore', Path('/var/lib/systemd/pstore'))]:
         if source.is_dir():
             shutil.copytree(source, target / label)
+    for path in sorted((STATE / 'resumes').glob('*.jsonl')):
+        if not re.fullmatch(r'\d{8}T\d{6}\.\d{6}Z\.jsonl', path.name):
+            continue
+        armed = dt.datetime.strptime(path.name, '%Y%m%dT%H%M%S.%fZ.jsonl').replace(tzinfo=dt.timezone.utc)
+        try:
+            if armed.timestamp() <= end and path.stat().st_mtime >= start:
+                dest = target / 'resumes'
+                dest.mkdir(exist_ok=True)
+                shutil.copyfile(path, dest / path.name)
+        except OSError as exc:
+            manifest['warnings'].append(f'resume capture {path.name}: {exc}')
     for label, command in [('cores', ['coredumpctl', '--since', args.since, '--until', args.until, '--no-pager', 'list']),
                            ('units', ['systemctl', 'show', *UNITS, '-p', 'ActiveState', '-p', 'NRestarts', '-p', 'ExecMainStartTimestamp']),
                            ('versions', ['dpkg-query', '-W', 'pcp', 'bpftrace', 'systemd', 'sysstat']),

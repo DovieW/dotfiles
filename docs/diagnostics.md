@@ -26,6 +26,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | Devices | Event driven | Selected udev properties and BlueZ connection/service-resolution transitions |
 | Freeze evidence | Existing 30 seconds | Existing bounded root-only recorder; unchanged |
 | Thread snapshot | Manual or severe I/O pressure | At most 10,000 thread states/wait channels, bounded kernel stacks; no userspace memory |
+| Display resume | System sleep on a host with an internal panel | Sleep and display events, panel and backlight state, and bounded KDE session queries for 30 seconds after wake |
 | Health | Ten minutes | Service states, recent heartbeats, actual signal canary, archive freshness, selected error/loss checks |
 
 The services run indefinitely and survive reboot. **Sixty days is an age limit,
@@ -71,8 +72,8 @@ sudo pcp atop -a /var/lib/dot-diagnostics/pcp/ARCHIVE_PREFIX
 ```
 
 Export includes original journal JSON, timestamp-merged text, overlapping PCP
-archives and JSON summaries, bounded freeze records, saved snapshots, archived
-pstore records and core **metadata**. It excludes actual core/kernel memory
+archives and JSON summaries, bounded freeze records, saved snapshots, overlapping
+display-resume captures, archived pstore records and core **metadata**. It excludes actual core/kernel memory
 dumps. The manifest identifies post-incident queries and failed sources. Journal
 exports stop at 200,000 records / 128 MiB per source and report truncation; use a
 narrower window after a log flood. Resource JSON is included separately; pressure,
@@ -81,6 +82,28 @@ Copying a currently active PCP archive is best effort; validate it with
 `pmlogcheck` before relying on it. Exporting never deletes original evidence.
 Saved thread/freeze records may extend beyond the requested interval and contain
 other process names. The caller owns retention of exported incident bundles.
+
+### Display resume
+
+The sleep target arms a private tracefs buffer with power and DRM events before
+sleep. After wake the recorder saves the first batch of kernel events immediately
+and samples for 30 seconds. It records the internal connector, display pipe when
+DRM exposes it, backlight readings, KWin's active-output response, and whether
+the lock screen responds. Generic DRM events report a controller index, which can
+repeat across GPUs. Intel display events include the PCI device and pipe for
+matching them to the internal connector. A completed display update is kernel
+evidence only. Confirm the physical panel and lock screen in person.
+
+Each record is flushed to a root-only JSONL file in
+`/var/lib/dot-diagnostics/resumes`. The first record survives even if nothing
+runs after resume. The next sleep prunes captures older than 14 days and retains
+at most 20. The capture does not change display settings or collect screen
+contents.
+
+For physical acceptance, close and reopen the lid, then check that the new file
+has `pre_sleep`, kernel sleep and display events, panel and session samples, and
+`complete`. Compare to what appeared on the panel. Inspect the capture status with
+`journalctl --namespace=diagnostics -u dot-diagnostics-resume-arm.service -u dot-diagnostics-resume.service`.
 
 The signal trace observes kernel signal generation, rather than only `kill()`.
 The target is a **thread ID**. Sender PID identifies the execution context, which
@@ -131,7 +154,8 @@ guarantee is implied. A scheduled timer does not wake the suspended laptop.
 ## Rollback
 
 Stop/disable the `dot-diagnostics-*` system services/timer and the audio/health
-user services/timer. Remove only this feature's named units, the
+user services/timer. Disable the display resume arm service to remove its sleep
+target hook. Remove only this feature's named units, the
 `70-dotfiles-retention.conf` drop-ins, and `/etc/systemd/journald@diagnostics.conf`;
 restore the backed-up PMCD options and previous sysstat history if desired.
 Reload system/user managers and restart journald for changed retention policy.

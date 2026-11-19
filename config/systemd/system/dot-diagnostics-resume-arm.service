@@ -1,0 +1,24 @@
+[Unit]
+Description=Arm diagnostic display tracing before system sleep
+Before=sleep.target
+After=sys-kernel-tracing.mount
+Wants=sys-kernel-tracing.mount
+StopWhenUnneeded=yes
+ConditionPathExistsGlob=|/sys/class/drm/card*-eDP-*
+ConditionPathExistsGlob=|/sys/class/drm/card*-LVDS-*
+ConditionPathExistsGlob=|/sys/class/drm/card*-DSI-*
+
+[Service]
+UnsetEnvironment=LD_PRELOAD
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/dot-diagnostic-resume arm
+ExecStop=/usr/bin/systemctl --no-block restart dot-diagnostics-resume.service
+TimeoutStartSec=5s
+LogNamespace=diagnostics
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=sleep.target

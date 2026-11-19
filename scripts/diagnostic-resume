@@ -1,0 +1,269 @@
+#!/usr/bin/python3
+"""Record the internal display handoff across system sleep."""
+
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import json
+import os
+from pathlib import Path
+import queue
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+
+STATE = Path('/var/lib/dot-diagnostics/resumes')
+RUNTIME = Path('/run/dot-diagnostics-resume')
+TRACE = Path('/sys/kernel/tracing/instances/dot-diagnostics-resume')
+DRM = Path('/sys/class/drm')
+DEBUG_DRM = Path('/sys/kernel/debug/dri')
+BACKLIGHT = Path('/sys/class/backlight')
+BOOT = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+DELAYS = (0, 1, 3, 7, 15, 30)
+TRACE_EVENTS = (
+    'power/suspend_resume',
+    'drm/drm_vblank_event_queued',
+    'drm/drm_vblank_event_delivered',
+    'i915/intel_pipe_update_end',
+    'i915/intel_crtc_flip_done',
+    'xe/intel_pipe_update_end',
+    'xe/intel_crtc_flip_done',
+)
+
+
+@contextlib.contextmanager
+def lock():
+    RUNTIME.mkdir(mode=0o700, exist_ok=True)
+    with (RUNTIME / 'lock').open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
+
+
+def record(path, phase, **fields):
+    new = not path.exists()
+    with path.open('a') as stream:
+        data = dict(phase=phase, utc=dt.datetime.now(dt.timezone.utc).isoformat(),
+                    boottime_ns=time.clock_gettime_ns(time.CLOCK_BOOTTIME), boot_id=BOOT, **fields)
+        stream.write(json.dumps(data, separators=(',', ':')) + '\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    if new:
+        fd = os.open(STATE, os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def remove_trace():
+    if TRACE.is_dir():
+        (TRACE / 'tracing_on').write_text('0')
+        (TRACE / 'events/enable').write_text('0')
+        TRACE.rmdir()
+
+
+def arm():
+    with lock():
+        STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        files = sorted(STATE.glob('*.jsonl'), reverse=True)
+        for index, file in enumerate(files):
+            if index >= 19 or time.time() - file.stat().st_mtime > 14 * 86400:
+                file.unlink()
+        name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ.jsonl')
+        path = STATE / name
+        record(path, 'pre_sleep')
+        (RUNTIME / 'capture').write_text(name)
+        try:
+            remove_trace()
+            TRACE.mkdir()
+            (TRACE / 'tracing_on').write_text('0')
+            (TRACE / 'buffer_size_kb').write_text('64')
+            clock = TRACE / 'trace_clock'
+            if 'boot' in clock.read_text().replace('[', '').replace(']', '').split():
+                clock.write_text('boot')
+            events = []
+            for event in TRACE_EVENTS:
+                enabled = TRACE / 'events' / event / 'enable'
+                if enabled.exists():
+                    enabled.write_text('1')
+                    events.append(event)
+            (TRACE / 'tracing_on').write_text('1')
+            record(path, 'trace_armed', clock=clock.read_text().strip(), events=events)
+        except OSError as exc:
+            record(path, 'trace_unavailable', error=str(exc))
+            with contextlib.suppress(OSError):
+                remove_trace()
+        print(f'Prepared display resume capture {path.name}', flush=True)
+
+
+def read_text(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def panel_crtc(state, connector):
+    match = re.search(rf'^connector\[\d+\]: {re.escape(connector)}\n(?:[ \t]+[^\n]+\n)*?'
+                      r'[ \t]+crtc=([^\n]+)',
+                      state, re.MULTILINE)
+    return match[1].strip() if match else None
+
+
+def display_state():
+    panels = {}
+    for path in sorted(DRM.glob('card*-*')):
+        card, _, connector = path.name.partition('-')
+        if re.fullmatch(r'(eDP|LVDS|DSI)-\d+', connector):
+            state = read_text(DEBUG_DRM / card.removeprefix('card') / 'state') or ''
+            panels[path.name] = dict(
+                device=(DRM / card / 'device').resolve().name,
+                crtc=panel_crtc(state, connector),
+                **{key: read_text(path / key) for key in ('status', 'enabled', 'dpms')},
+            )
+    lights = {path.name: {key: read_text(path / key) for key in ('actual_brightness', 'bl_power')}
+              for path in sorted(BACKLIGHT.glob('*'))}
+    return dict(panels=panels, backlight=lights)
+
+
+def probe_display(result):
+    try:
+        result.put(display_state())
+    except OSError as exc:
+        result.put(dict(status='unavailable', error=str(exc)))
+
+
+def command(args):
+    try:
+        result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1)
+        return dict(status='ok', reply=result.stdout.strip()) if result.returncode == 0 else dict(status='unavailable')
+    except subprocess.TimeoutExpired:
+        return dict(status='timeout')
+
+
+def session_state():
+    seat = command(['/usr/bin/loginctl', 'show-seat', 'seat0', '-p', 'ActiveSession', '--value'])
+    session = seat.get('reply', '')
+    if not re.fullmatch(r'[a-zA-Z0-9]+', session):
+        return dict(status='no_active_seat_session')
+    result = command(['/usr/bin/loginctl', 'show-session', session, '-p', 'User', '-p', 'Type', '-p', 'LockedHint'])
+    props = dict(line.split('=', 1) for line in result.get('reply', '').splitlines() if '=' in line)
+    uid = props.get('User', '')
+    if props.get('Type') != 'wayland' or not uid.isdecimal() or int(uid) == 0:
+        return dict(status='no_active_wayland_session')
+    runtime = f'/run/user/{uid}'
+    bus = ['/usr/bin/setpriv', '--reuid', uid, '--regid', str(os.stat(runtime).st_gid), '--clear-groups',
+           '/usr/bin/env', '-i', f'XDG_RUNTIME_DIR={runtime}', f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus',
+           '/usr/bin/busctl', '--user', '--auto-start=no', 'call']
+    return dict(
+        locked_hint=props.get('LockedHint'),
+        kwin=command(bus + ['org.kde.KWin', '/KWin', 'org.kde.KWin', 'activeOutputName']),
+        lock_screen=command(bus + ['org.freedesktop.ScreenSaver', '/ScreenSaver', 'org.freedesktop.ScreenSaver', 'GetActive']),
+    )
+
+
+def trace_summary(lines):
+    result = {}
+    for line in lines.splitlines():
+        match = re.search(r'\s(\d+\.\d+): (\w+): (.*)', line)
+        if not match:
+            continue
+        stamp, event, detail = match.groups()
+        if event.startswith('drm_vblank_event_'):
+            detail = re.sub(r'^file=\S+, ', '', detail)
+            key = detail.split(',')[0]
+        elif event in ('intel_crtc_flip_done', 'intel_pipe_update_end'):
+            key = detail.split(', frame=')[0]
+        elif event == 'suspend_resume':
+            key = detail
+        else:
+            continue
+        row = result.setdefault((event, key), dict(event=event, first_s=stamp, first=detail, count=0))
+        row.update(last_s=stamp, last=detail, count=row['count'] + 1)
+    return list(result.values())
+
+
+def drain_trace():
+    if not TRACE.is_dir():
+        return dict(status='unavailable')
+    size_limit = 256 * 1024
+    chunks = bytearray()
+    fd = os.open(TRACE / 'trace_pipe', os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        while len(chunks) < size_limit:
+            try:
+                chunk = os.read(fd, min(65536, size_limit - len(chunks)))
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            chunks.extend(chunk)
+    finally:
+        os.close(fd)
+    overruns = 0
+    for stats in (TRACE / 'per_cpu').glob('cpu*/stats'):
+        match = re.search(r'^overrun:\s*(\d+)', read_text(stats) or '', re.MULTILINE)
+        overruns += int(match[1]) if match else 0
+    return dict(status='ok', byte_limit_reached=len(chunks) == size_limit, buffer_overruns=overruns,
+                events=trace_summary(chunks.decode(errors='replace')))
+
+
+def capture():
+    marker = RUNTIME / 'capture'
+    with lock():
+        name = read_text(marker)
+    if not name:
+        return
+    path = STATE / name
+    started = time.monotonic()
+    worker = None
+    try:
+        for delay in DELAYS:
+            time.sleep(max(0, started + delay - time.monotonic()))
+            with lock():
+                if read_text(marker) != name:
+                    return
+                try:
+                    trace = drain_trace()
+                except OSError as exc:
+                    trace = dict(status='unavailable', error=str(exc))
+                record(path, 'kernel', trace=trace)
+            # Reading DRM state can wait on the same modeset lock we are diagnosing.
+            if worker is None or not worker.is_alive():
+                result = queue.Queue(maxsize=1)
+                worker = threading.Thread(target=probe_display, args=(result,), daemon=True)
+                worker.start()
+            try:
+                session = session_state()
+            except OSError as exc:
+                session = dict(status='unavailable', error=str(exc))
+            record(path, 'session', session=session)
+            try:
+                display = result.get(timeout=0.25)
+            except queue.Empty:
+                display = dict(status='timeout')
+            record(path, 'display', display=display)
+        record(path, 'complete')
+        print(f'Saved display resume capture {path.name}', flush=True)
+    finally:
+        with lock():
+            if read_text(marker) == name:
+                marker.unlink()
+                remove_trace()
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('arm', 'capture'))
+    action = parser.parse_args().action
+    if action == 'arm':
+        arm()
+    else:
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        capture()

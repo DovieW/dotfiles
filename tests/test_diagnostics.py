@@ -5,15 +5,58 @@ import os
 from pathlib import Path
 import runpy
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 D = runpy.run_path(str(ROOT / 'scripts/diagnostics'))
+RESUME = runpy.run_path(str(ROOT / 'scripts/diagnostic-resume'))
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_resume_trace_distinguishes_queued_and_delivered_events(self):
+        events = RESUME['trace_summary'](
+            ' sleep-10 [000] .... 82.111: suspend_resume: machine_suspend[3] end\n'
+            ' kwin_wayland-20 [001] .... 82.112: drm_vblank_event_queued: file=ffff1234, crtc=0, seq=9\n'
+            ' irq-40 [002] .... 82.120: intel_crtc_flip_done: dev 0000:00:02.0, pipe A, frame=9, scanline=1\n'
+            ' irq-40 [002] .... 82.121: drm_vblank_event_delivered: file=ffff1234, crtc=0, seq=9\n'
+            ' irq-40 [002] .... 82.132: drm_vblank_event_delivered: file=ffff1234, crtc=0, seq=10\n')
+        self.assertEqual([event['event'] for event in events], [
+            'suspend_resume', 'drm_vblank_event_queued', 'intel_crtc_flip_done', 'drm_vblank_event_delivered'])
+        self.assertEqual((events[-1]['first_s'], events[-1]['last_s'], events[-1]['count']), ('82.121', '82.132', 2))
+        self.assertNotIn('ffff1234', json.dumps(events))
+
+    def test_resume_connector_parser_keeps_the_internal_panel_pipe(self):
+        state = ('plane[31]: primary\n\tcrtc=pipe A\n'
+                 'connector[98]: eDP-1\n\tcrtc=pipe B\n'
+                 'connector[101]: DP-1\n\tcrtc=(null)\n')
+        self.assertEqual(RESUME['panel_crtc'](state, 'eDP-1'), 'pipe B')
+        self.assertIsNone(RESUME['panel_crtc'](state.replace('\tcrtc=pipe B\n', ''), 'eDP-1'))
+
+    def test_resume_records_kernel_and_session_when_drm_state_read_hangs(self):
+        release = threading.Event()
+        capture = RESUME['capture']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'test.jsonl'
+            (root / 'capture').write_text(path.name)
+            try:
+                with mock.patch.dict(capture.__globals__, {
+                    'STATE': root, 'RUNTIME': root, 'TRACE': root / 'missing-trace',
+                    'DELAYS': (0,), 'display_state': release.wait,
+                    'session_state': lambda: {'kwin': {'status': 'ok'}},
+                }), contextlib.redirect_stdout(io.StringIO()):
+                    capture()
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+                self.assertEqual([row['phase'] for row in rows], ['kernel', 'session', 'display', 'complete'])
+                self.assertEqual(rows[1]['session']['kwin']['status'], 'ok')
+                self.assertEqual(rows[2]['display']['status'], 'timeout')
+                self.assertFalse((root / 'capture').exists())
+            finally:
+                release.set()
+
     def test_planned_signal_collector_stop_is_not_a_crash(self):
         proc = mock.Mock()
         proc.stdout = []
