@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Record the internal display handoff across system sleep."""
+"""Record the display handoff across system sleep."""
 
 import argparse
 import contextlib
@@ -116,19 +116,24 @@ def panel_crtc(state, connector):
 
 
 def display_state():
-    panels = {}
-    for path in sorted(DRM.glob('card*-*')):
+    connectors = {}
+    card_states = {}
+    for status in sorted(DRM.glob('card*-*/status')):
+        path = status.parent
         card, _, connector = path.name.partition('-')
-        if re.fullmatch(r'(eDP|LVDS|DSI)-\d+', connector):
-            state = read_text(DEBUG_DRM / card.removeprefix('card') / 'state') or ''
-            panels[path.name] = dict(
-                device=(DRM / card / 'device').resolve().name,
-                crtc=panel_crtc(state, connector),
-                **{key: read_text(path / key) for key in ('status', 'enabled', 'dpms')},
-            )
+        if connector.startswith('Writeback-'):
+            continue
+        if card not in card_states:
+            card_states[card] = read_text(DEBUG_DRM / card.removeprefix('card') / 'state') or ''
+        connectors[path.name] = dict(
+            device=(DRM / card / 'device').resolve().name,
+            internal=bool(re.fullmatch(r'(eDP|LVDS|DSI)-\d+', connector)),
+            crtc=panel_crtc(card_states[card], connector),
+            **{key: read_text(path / key) for key in ('status', 'enabled', 'dpms')},
+        )
     lights = {path.name: {key: read_text(path / key) for key in ('actual_brightness', 'bl_power')}
               for path in sorted(BACKLIGHT.glob('*'))}
-    return dict(panels=panels, backlight=lights)
+    return dict(connectors=connectors, backlight=lights)
 
 
 def probe_display(result):

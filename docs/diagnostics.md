@@ -26,7 +26,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | Devices | Event driven | Selected udev properties and BlueZ connection/service-resolution transitions |
 | Freeze evidence | Existing 30 seconds | Existing bounded root-only recorder; unchanged |
 | Thread snapshot | Manual or severe I/O pressure | At most 10,000 thread states/wait channels, bounded kernel stacks; no userspace memory |
-| Display resume | System sleep on a host with an internal panel | Sleep and display events, panel and backlight state, and bounded KDE session queries for 30 seconds after wake |
+| Display resume | System sleep on a host with DRM connectors | Sleep and display events, built-in and external output state, and bounded KDE session queries for 30 seconds after wake |
 | Health | Ten minutes | Service states, recent heartbeats, actual signal canary, archive freshness, selected error/loss checks |
 
 The services run indefinitely and survive reboot. **Sixty days is an age limit,
@@ -87,12 +87,12 @@ other process names. The caller owns retention of exported incident bundles.
 
 The sleep target arms a private tracefs buffer with power and DRM events before
 sleep. After wake the recorder saves the first batch of kernel events immediately
-and samples for 30 seconds. It records the internal connector, display pipe when
-DRM exposes it, backlight readings, KWin's active-output response, and whether
+and samples for 30 seconds. It records connector and backlight state, display
+pipes when DRM exposes them, KWin's active-output response, and whether
 the lock screen responds. Generic DRM events report a controller index, which can
 repeat across GPUs. Intel display events include the PCI device and pipe for
-matching them to the internal connector. A completed display update is kernel
-evidence only. Confirm the physical panel and lock screen in person.
+matching them to a connector. A completed display update is kernel
+evidence only. Confirm the physical display and lock screen in person.
 
 Each record is flushed to a root-only JSONL file in
 `/var/lib/dot-diagnostics/resumes`. The first record survives even if nothing
@@ -100,9 +100,9 @@ runs after resume. The next sleep prunes captures older than 14 days and retains
 at most 20. The capture does not change display settings or collect screen
 contents.
 
-For physical acceptance, close and reopen the lid, then check that the new file
-has `pre_sleep`, kernel sleep and display events, panel and session samples, and
-`complete`. Compare to what appeared on the panel. Inspect the capture status with
+For physical acceptance, suspend and wake the workstation, then check that the new file
+has `pre_sleep`, kernel sleep and display events, connector and session samples, and
+`complete`. Compare to what appeared on the display. Inspect the capture status with
 `journalctl --namespace=diagnostics -u dot-diagnostics-resume-arm.service -u dot-diagnostics-resume.service`.
 
 The signal trace observes kernel signal generation, rather than only `kill()`.

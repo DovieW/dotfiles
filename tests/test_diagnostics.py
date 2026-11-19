@@ -35,6 +35,22 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(RESUME['panel_crtc'](state, 'eDP-1'), 'pipe B')
         self.assertIsNone(RESUME['panel_crtc'](state.replace('\tcrtc=pipe B\n', ''), 'eDP-1'))
 
+    def test_resume_collects_external_hdmi_and_ignores_writeback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('card1-HDMI-A-1', 'card1-Writeback-1'):
+                (root / name).mkdir()
+                (root / name / 'status').write_text('connected\n')
+            debug = root / 'debug' / '1'
+            debug.mkdir(parents=True)
+            (debug / 'state').write_text('connector[5]: HDMI-A-1\n\tcrtc=pipe A\n')
+            probe = RESUME['display_state']
+            with mock.patch.dict(probe.__globals__, {'DRM': root, 'DEBUG_DRM': root / 'debug', 'BACKLIGHT': root / 'lights'}):
+                connectors = probe()['connectors']
+        self.assertEqual(list(connectors), ['card1-HDMI-A-1'])
+        self.assertEqual(connectors['card1-HDMI-A-1']['crtc'], 'pipe A')
+        self.assertFalse(connectors['card1-HDMI-A-1']['internal'])
+
     def test_resume_records_kernel_and_session_when_drm_state_read_hangs(self):
         release = threading.Event()
         capture = RESUME['capture']

@@ -1,5 +1,5 @@
 [Unit]
-Description=Record the panel and KDE session after system sleep
+Description=Record the display and KDE session after system sleep
 After=sleep.target systemd-suspend.service systemd-hibernate.service systemd-hybrid-sleep.service
 After=systemd-suspend-then-hibernate.service nvidia-resume.service
 

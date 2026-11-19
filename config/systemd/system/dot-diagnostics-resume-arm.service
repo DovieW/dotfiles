@@ -4,9 +4,7 @@ Before=sleep.target
 After=sys-kernel-tracing.mount
 Wants=sys-kernel-tracing.mount
 StopWhenUnneeded=yes
-ConditionPathExistsGlob=|/sys/class/drm/card*-eDP-*
-ConditionPathExistsGlob=|/sys/class/drm/card*-LVDS-*
-ConditionPathExistsGlob=|/sys/class/drm/card*-DSI-*
+ConditionPathExistsGlob=/sys/class/drm/card*-*/status
 
 [Service]
 UnsetEnvironment=LD_PRELOAD
