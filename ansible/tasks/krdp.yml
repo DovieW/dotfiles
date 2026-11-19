@@ -227,12 +227,21 @@
     - "{{ ansible_facts.env.HOME }}/.local/state/dotfiles/krdp-display.lock"
   when: dot_krdp_tailscale_ready
 
-- name: Create the KRdp service override directory
+- name: Create the KRdp and screen-sharing service override directories
   ansible.builtin.file:
-    path: >-
-      {{ ansible_facts.env.HOME }}/.config/systemd/user/app-org.kde.krdpserver.service.d
+    path: "{{ ansible_facts.env.HOME }}/.config/systemd/user/{{ item }}.service.d"
     state: directory
     mode: "0755"
+  loop: [app-org.kde.krdpserver, xdg-desktop-portal]
+  when: dot_krdp_tailscale_ready
+
+- name: Wait for Plasma before activating the desktop portal
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/user/xdg-desktop-portal.service.d/krdp-session.conf"
+    dest: >-
+      {{ ansible_facts.env.HOME }}/.config/systemd/user/xdg-desktop-portal.service.d/krdp-session.conf
+    mode: "0644"
+  notify: Restart KRdp after private-network configuration
   when: dot_krdp_tailscale_ready
 
 - name: Bind KRdp to Tailscale and manage remote panel visibility

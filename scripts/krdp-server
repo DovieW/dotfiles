@@ -15,6 +15,16 @@ if [[ ! -r "$certificate" || ! -r "$certificate_key" ]]; then
   exit 1
 fi
 
+# Let systemd retry startup until the portal can capture the Plasma session.
+for interface in RemoteDesktop ScreenCast; do
+  if ! busctl --user --timeout=10s get-property \
+    org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop \
+    "org.freedesktop.portal.${interface}" version >/dev/null; then
+    echo "KRdp is waiting for the Plasma ${interface} portal." >&2
+    exit 1
+  fi
+done
+
 exec /usr/bin/krdpserver \
   --address "$tailscale_ip" \
   --port 3389 \
