@@ -227,6 +227,7 @@ def capture():
     path = STATE / name
     started = time.monotonic()
     worker = None
+    sleep_events = display_updates = kwin_replies = 0
     try:
         for delay in DELAYS:
             time.sleep(max(0, started + delay - time.monotonic()))
@@ -238,6 +239,11 @@ def capture():
                 except OSError as exc:
                     trace = dict(status='unavailable', error=str(exc))
                 record(path, 'kernel', trace=trace)
+            for event in trace.get('events', []):
+                if event['event'] == 'suspend_resume':
+                    sleep_events += event['count']
+                elif event['event'] in ('drm_vblank_event_delivered', 'intel_crtc_flip_done'):
+                    display_updates += event['count']
             # Reading DRM state can wait on the same modeset lock we are diagnosing.
             if worker is None or not worker.is_alive():
                 result = queue.Queue(maxsize=1)
@@ -248,13 +254,15 @@ def capture():
             except OSError as exc:
                 session = dict(status='unavailable', error=str(exc))
             record(path, 'session', session=session)
+            kwin_replies += session.get('kwin', {}).get('status') == 'ok'
             try:
                 display = result.get(timeout=0.25)
             except queue.Empty:
                 display = dict(status='timeout')
             record(path, 'display', display=display)
-        record(path, 'complete')
-        print(f'Saved display resume capture {path.name}', flush=True)
+        summary = dict(sleep_events=sleep_events, display_update_events=display_updates, kwin_replies=kwin_replies)
+        record(path, 'complete', **summary)
+        print(f'Saved display resume capture {path.name} {json.dumps(summary)}', flush=True)
     finally:
         with lock():
             if read_text(marker) == name:
