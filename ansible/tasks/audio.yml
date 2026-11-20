@@ -12,12 +12,20 @@
     mode: "0644"
   register: dot_audio_config
 
+- name: Install playback-only Bluetooth audio policy
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/wireplumber/70-bluetooth-playback-only.conf"
+    dest: "{{ ansible_facts.env.HOME }}/.config/wireplumber/wireplumber.conf.d/70-bluetooth-playback-only.conf"
+    mode: "0644"
+  when: dot_profile_data.features.bluetooth_playback_only | default(false)
+  register: dot_bluetooth_audio_config
+
 - name: Explain audio policy activation
   ansible.builtin.debug:
     msg: >-
-      Audio priorities take effect at the next login or WirePlumber restart.
+      Audio configuration takes effect at the next login or WirePlumber restart.
       Existing manually selected defaults take precedence; run wpctl clear-default
       once to opt into automatic selection. See docs/audio.md.
       Audio services are not restarted by dot apply or check mode.
   # This is an immediate status message, not a deferred service action.
-  when: dot_audio_config.changed  # noqa no-handler
+  when: dot_audio_config.changed or dot_bluetooth_audio_config.changed  # noqa no-handler

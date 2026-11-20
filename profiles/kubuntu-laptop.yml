@@ -6,6 +6,7 @@
   "features": {
     "anydesk": false,
     "anarlog": true,
+    "bluetooth_playback_only": true,
     "chatgpt_desktop": true,
     "codexbar": true,
     "godot_engine": true,

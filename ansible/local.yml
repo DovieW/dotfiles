@@ -27,7 +27,7 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, connection-check]
 
-    - name: Configure preferred USB audio devices
+    - name: Configure WirePlumber audio policy
       ansible.builtin.import_tasks: tasks/audio.yml
       when: dot_profile_data.features.kde | default(false)
       tags: [config, audio]
