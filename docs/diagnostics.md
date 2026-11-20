@@ -26,7 +26,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | Devices | Event driven | Selected udev properties and BlueZ connection/service-resolution transitions |
 | Freeze evidence | Existing 30 seconds | Existing bounded root-only recorder; unchanged |
 | Thread snapshot | Manual or severe I/O pressure | At most 10,000 thread states/wait channels, bounded kernel stacks; no userspace memory |
-| Display resume | System sleep on a host with DRM connectors | Sleep and display events, built-in and external output state, and bounded KDE session queries for 30 seconds after wake |
+| Display resume | System sleep or laptop lid-open | Sleep and display events, built-in and external output state, and bounded KDE session queries for 30 seconds |
 | Health | Ten minutes | Service states, recent heartbeats, actual signal canary, archive freshness, selected error/loss checks |
 
 The services run indefinitely and survive reboot. **Sixty days is an age limit,
@@ -94,13 +94,23 @@ repeat across GPUs. Intel display events include the PCI device and pipe for
 matching them to a connector. A completed display update is kernel
 evidence only. Confirm the physical display and lock screen in person.
 
+On laptops, a UPower lid watcher also arms the bounded buffer when the lid
+closes and starts a capture when it opens while the system stays awake.
+If a system sleep occurs too, the sleep hook owns dispatch and both events
+are marked in the same capture. Repeated probe timeouts or a DRM controller
+with a queued event and no observed delivery after three seconds can request
+one bounded thread snapshot. That snapshot records kernel wait evidence.
+
 Each record is flushed to a root-only JSONL file in
 `/var/lib/dot-diagnostics/resumes`. The first record survives even if nothing
-runs after resume. The next sleep prunes captures older than 14 days and retains
+runs after resume. The next capture prunes files older than 14 days and retains
 at most 20. The capture does not change display settings or collect screen
 contents.
 
-For physical acceptance, suspend and wake the workstation, then check that the new file
+For physical acceptance, close and reopen the laptop lid while it stays awake,
+then separately suspend and wake it. Check that the new files have the relevant
+`lid_open` or sleep events, connector and session samples, and `complete`.
+On a workstation without a lid, suspend and wake it and check that the new file
 has `pre_sleep`, kernel sleep and display events, connector and session samples, and
 `complete`. Compare to what appeared on the display. Inspect the capture status with
 `journalctl --namespace=diagnostics -u dot-diagnostics-resume-arm.service -u dot-diagnostics-resume.service`.

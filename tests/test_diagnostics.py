@@ -57,7 +57,7 @@ class DiagnosticsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / 'test.jsonl'
-            (root / 'capture').write_text(path.name)
+            (root / 'capture').write_text(json.dumps(dict(name=path.name, sleep=False, started=False)))
             try:
                 with mock.patch.dict(capture.__globals__, {
                     'STATE': root, 'RUNTIME': root, 'TRACE': root / 'missing-trace',
@@ -72,6 +72,34 @@ class DiagnosticsTests(unittest.TestCase):
                 self.assertFalse((root / 'capture').exists())
             finally:
                 release.set()
+
+    def test_lid_open_dispatches_only_when_sleep_hook_does_not_own_capture(self):
+        on_lid = RESUME['lid_changed']
+        for slept in (False, True):
+            with self.subTest(slept=slept), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                data = dict(name='test.jsonl', sleep=slept, started=False)
+                (root / 'capture').write_text(json.dumps(data))
+                with mock.patch.dict(on_lid.__globals__, {'RUNTIME': root, 'STATE': root}), \
+                        mock.patch('subprocess.run') as dispatch:
+                    on_lid(False)
+                event = json.loads((root / data['name']).read_text())
+                self.assertEqual(event['phase'], 'lid_open')
+                self.assertIn('lid_open_s', json.loads((root / 'capture').read_text()))
+                self.assertEqual(dispatch.call_count, int(not slept))
+
+    def test_suspend_keeps_trace_already_armed_by_lid_close(self):
+        arm = RESUME['arm']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = dict(name='test.jsonl', sleep=False, started=False)
+            (root / 'capture').write_text(json.dumps(data))
+            with mock.patch.dict(arm.__globals__, {'RUNTIME': root, 'STATE': root}), \
+                    mock.patch.dict(arm.__globals__, {'arm_capture': mock.Mock()}) as env:
+                arm()
+                env['arm_capture'].assert_not_called()
+            self.assertTrue(json.loads((root / 'capture').read_text())['sleep'])
+            self.assertEqual(json.loads((root / data['name']).read_text())['phase'], 'pre_sleep')
 
     def test_planned_signal_collector_stop_is_not_a_crash(self):
         proc = mock.Mock()

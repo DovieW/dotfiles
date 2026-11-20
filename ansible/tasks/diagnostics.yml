@@ -29,6 +29,7 @@
       - libglib2.0-bin
       - pipewire-bin
       - pulseaudio-utils
+      - python3-gi
   when: dot_diagnostic_packages | difference(ansible_facts.packages.keys() | list) | length > 0
 
 - name: Create diagnostic policy directories
@@ -64,6 +65,7 @@
     owner: root
     group: root
     mode: '0755'
+  register: dot_diag_resume_script
 
 - name: Install signal and resource allowlists
   become: true
@@ -145,6 +147,8 @@
   loop:
     - dot-diagnostics-resume-arm.service
     - dot-diagnostics-resume.service
+    - dot-diagnostics-lid.service
+  register: dot_diag_display_units
 
 - name: Activate diagnostic journal sockets
   become: true
@@ -194,6 +198,14 @@
   ansible.builtin.systemd_service:
     name: dot-diagnostics-resume-arm.service
     enabled: true
+  when: not ansible_check_mode
+
+- name: Enable laptop lid diagnostics
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-diagnostics-lid.service
+    enabled: true
+    state: "{{ 'restarted' if dot_diag_resume_script.changed or dot_diag_display_units.changed else 'started' }}"
   when: not ansible_check_mode
 
 - name: Create diagnostic user directories

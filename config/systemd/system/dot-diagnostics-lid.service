@@ -1,0 +1,21 @@
+[Unit]
+Description=Watch laptop lid events for display diagnostics
+After=upower.service sys-kernel-tracing.mount
+Wants=upower.service sys-kernel-tracing.mount
+ConditionPathExistsGlob=/proc/acpi/button/lid/*/state
+
+[Service]
+Type=exec
+ExecStart=/usr/local/libexec/dot-diagnostic-resume watch-lid
+UnsetEnvironment=LD_PRELOAD
+Restart=on-failure
+RestartSec=5s
+LogNamespace=diagnostics
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+ProtectHome=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

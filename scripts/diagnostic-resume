@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Record the display handoff across system sleep."""
+"""Record the display handoff across system sleep and lid-open events."""
 
 import argparse
 import contextlib
@@ -29,8 +29,10 @@ TRACE_EVENTS = (
     'power/suspend_resume',
     'drm/drm_vblank_event_queued',
     'drm/drm_vblank_event_delivered',
+    'i915/intel_pipe_update_start',
     'i915/intel_pipe_update_end',
     'i915/intel_crtc_flip_done',
+    'xe/intel_pipe_update_start',
     'xe/intel_pipe_update_end',
     'xe/intel_crtc_flip_done',
 )
@@ -67,38 +69,117 @@ def remove_trace():
         TRACE.rmdir()
 
 
+def load_capture():
+    data = read_text(RUNTIME / 'capture')
+    if data:
+        with contextlib.suppress(ValueError):
+            return json.loads(data)
+    return {}
+
+
+def save_capture(data):
+    temp = RUNTIME / 'capture.tmp'
+    temp.write_text(json.dumps(data))
+    temp.replace(RUNTIME / 'capture')
+
+
+def arm_capture(phase):
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    files = sorted(STATE.glob('*.jsonl'), reverse=True)
+    for index, file in enumerate(files):
+        if index >= 19 or time.time() - file.stat().st_mtime > 14 * 86400:
+            file.unlink()
+    name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ.jsonl')
+    path = STATE / name
+    record(path, phase)
+    data = dict(name=name, sleep=phase == 'pre_sleep', started=False)
+    save_capture(data)
+    try:
+        remove_trace()
+        TRACE.mkdir()
+        (TRACE / 'tracing_on').write_text('0')
+        (TRACE / 'buffer_size_kb').write_text('64')
+        clock = TRACE / 'trace_clock'
+        if 'boot' in clock.read_text().replace('[', '').replace(']', '').split():
+            clock.write_text('boot')
+        events = []
+        for event in TRACE_EVENTS:
+            enabled = TRACE / 'events' / event / 'enable'
+            if enabled.exists():
+                enabled.write_text('1')
+                events.append(event)
+        (TRACE / 'tracing_on').write_text('1')
+        clocks = clock.read_text().strip()
+        data['boot_clock'] = '[boot]' in clocks.split()
+        save_capture(data)
+        record(path, 'trace_armed', clock=clocks, events=events)
+    except OSError as exc:
+        record(path, 'trace_unavailable', error=str(exc))
+        with contextlib.suppress(OSError):
+            remove_trace()
+    print(f'Prepared display resume capture {path.name}', flush=True)
+    return data
+
+
 def arm():
     with lock():
-        STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-        files = sorted(STATE.glob('*.jsonl'), reverse=True)
-        for index, file in enumerate(files):
-            if index >= 19 or time.time() - file.stat().st_mtime > 14 * 86400:
-                file.unlink()
-        name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ.jsonl')
-        path = STATE / name
-        record(path, 'pre_sleep')
-        (RUNTIME / 'capture').write_text(name)
+        data = load_capture()
+        if data and not data['started'] and not data['sleep']:
+            record(STATE / data['name'], 'pre_sleep')
+            data['sleep'] = True
+            save_capture(data)
+        else:
+            arm_capture('pre_sleep')
+
+
+def lid_changed(closed):
+    signal_time = time.clock_gettime(time.CLOCK_BOOTTIME)
+    with lock():
+        data = load_capture()
+        if closed and (not data or data['started']):
+            arm_capture('lid_closed')
+            return
+        if not data:
+            data = arm_capture('lid_open_unarmed')
+        record(STATE / data['name'], 'lid_closed' if closed else 'lid_open', signal_boottime_s=signal_time)
+        if not closed:
+            data['lid_open_s'] = signal_time
+            save_capture(data)
+        # The system sleep hook owns dispatch after a kernel suspend.
+        if closed or data['sleep'] or data['started']:
+            return
+    subprocess.run(['/usr/bin/systemctl', '--no-block', 'restart', 'dot-diagnostics-resume.service'],
+                   check=True, timeout=3)
+
+
+def watch_lid():
+    from gi.repository import Gio, GLib
+
+    proxy = Gio.DBusProxy.new_for_bus_sync(
+        Gio.BusType.SYSTEM, Gio.DBusProxyFlags.DO_NOT_AUTO_START, None,
+        'org.freedesktop.UPower', '/org/freedesktop/UPower', 'org.freedesktop.UPower', None)
+    previous = None
+
+    def changed(source, *_):
+        nonlocal previous
+        value = source.get_cached_property('LidIsClosed')
+        if value is None:
+            return
+        closed = value.get_boolean()
+        if closed == previous:
+            return
         try:
-            remove_trace()
-            TRACE.mkdir()
-            (TRACE / 'tracing_on').write_text('0')
-            (TRACE / 'buffer_size_kb').write_text('64')
-            clock = TRACE / 'trace_clock'
-            if 'boot' in clock.read_text().replace('[', '').replace(']', '').split():
-                clock.write_text('boot')
-            events = []
-            for event in TRACE_EVENTS:
-                enabled = TRACE / 'events' / event / 'enable'
-                if enabled.exists():
-                    enabled.write_text('1')
-                    events.append(event)
-            (TRACE / 'tracing_on').write_text('1')
-            record(path, 'trace_armed', clock=clock.read_text().strip(), events=events)
-        except OSError as exc:
-            record(path, 'trace_unavailable', error=str(exc))
-            with contextlib.suppress(OSError):
-                remove_trace()
-        print(f'Prepared display resume capture {path.name}', flush=True)
+            if previous is not None or closed:
+                lid_changed(closed)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f'Cannot capture lid change: {exc}', file=sys.stderr, flush=True)
+            return
+        previous = closed
+
+    proxy.connect('g-properties-changed', changed)
+    proxy.connect('notify::g-name-owner', changed)
+    changed(proxy)
+    GLib.MainLoop().run()
 
 
 def read_text(path):
@@ -182,7 +263,7 @@ def trace_summary(lines):
         if event.startswith('drm_vblank_event_'):
             detail = re.sub(r'^file=\S+, ', '', detail)
             key = detail.split(',')[0]
-        elif event in ('intel_crtc_flip_done', 'intel_pipe_update_end'):
+        elif event in ('intel_crtc_flip_done', 'intel_pipe_update_start', 'intel_pipe_update_end'):
             key = detail.split(', frame=')[0]
         elif event == 'suspend_resume':
             key = detail
@@ -219,31 +300,50 @@ def drain_trace():
 
 
 def capture():
-    marker = RUNTIME / 'capture'
     with lock():
-        name = read_text(marker)
-    if not name:
-        return
+        data = load_capture()
+        if not data:
+            return
+        name = data['name']
+        data['started'] = True
+        save_capture(data)
     path = STATE / name
     started = time.monotonic()
     worker = None
     sleep_events = display_updates = kwin_replies = 0
+    kwin_timeouts = display_timeouts = 0
+    queued = {}
+    completed = {}
+    snapshot_requested = False
     try:
         for delay in DELAYS:
             time.sleep(max(0, started + delay - time.monotonic()))
             with lock():
-                if read_text(marker) != name:
+                data = load_capture()
+                if data.get('name') != name:
                     return
                 try:
                     trace = drain_trace()
                 except OSError as exc:
                     trace = dict(status='unavailable', error=str(exc))
                 record(path, 'kernel', trace=trace)
+            lid_open = data.get('lid_open_s')
+            reliable_trace = data.get('boot_clock') and not (
+                trace.get('buffer_overruns') or trace.get('byte_limit_reached') or trace['status'] != 'ok')
+            if not reliable_trace:
+                queued.clear()
+                completed.clear()
             for event in trace.get('events', []):
                 if event['event'] == 'suspend_resume':
                     sleep_events += event['count']
                 elif event['event'] in ('drm_vblank_event_delivered', 'intel_crtc_flip_done'):
                     display_updates += event['count']
+                if reliable_trace and lid_open is not None and float(event['last_s']) >= lid_open:
+                    crtc = event['last'].split(',')[0]
+                    if event['event'] == 'drm_vblank_event_queued':
+                        queued.setdefault(crtc, float(event['last_s']))
+                    elif event['event'] == 'drm_vblank_event_delivered':
+                        completed[crtc] = float(event['last_s'])
             # Reading DRM state can wait on the same modeset lock we are diagnosing.
             if worker is None or not worker.is_alive():
                 result = queue.Queue(maxsize=1)
@@ -254,29 +354,47 @@ def capture():
             except OSError as exc:
                 session = dict(status='unavailable', error=str(exc))
             record(path, 'session', session=session)
-            kwin_replies += session.get('kwin', {}).get('status') == 'ok'
+            kwin_status = session.get('kwin', {}).get('status')
+            kwin_replies += kwin_status == 'ok'
+            kwin_timeouts = kwin_timeouts + 1 if kwin_status == 'timeout' else 0
             try:
                 display = result.get(timeout=0.25)
             except queue.Empty:
                 display = dict(status='timeout')
             record(path, 'display', display=display)
-        summary = dict(sleep_events=sleep_events, display_update_events=display_updates, kwin_replies=kwin_replies)
+            display_timeouts = display_timeouts + 1 if display.get('status') == 'timeout' else 0
+            now = time.clock_gettime(time.CLOCK_BOOTTIME)
+            waiting = any(now - stamp >= 3 and completed.get(crtc, 0) < stamp
+                          for crtc, stamp in queued.items())
+            if not snapshot_requested and (kwin_timeouts >= 2 or display_timeouts >= 2 or waiting):
+                try:
+                    subprocess.run(['/usr/bin/systemctl', '--no-block', 'start', 'dot-diagnostics-snapshot.service'],
+                                   check=True, timeout=2)
+                    record(path, 'snapshot_requested', kwin_timeouts=kwin_timeouts,
+                           display_timeouts=display_timeouts, unmatched_display_request=waiting)
+                    snapshot_requested = True
+                except (OSError, subprocess.SubprocessError) as exc:
+                    record(path, 'snapshot_request_failed', error=str(exc))
+        summary = dict(lid_open='lid_open_s' in data, system_sleep=data['sleep'],
+                       sleep_events=sleep_events, display_update_events=display_updates, kwin_replies=kwin_replies)
         record(path, 'complete', **summary)
         print(f'Saved display resume capture {path.name} {json.dumps(summary)}', flush=True)
     finally:
         with lock():
-            if read_text(marker) == name:
-                marker.unlink()
+            if load_capture().get('name') == name:
+                (RUNTIME / 'capture').unlink()
                 remove_trace()
 
 
 if __name__ == '__main__':
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('arm', 'capture'))
+    parser.add_argument('action', choices=('arm', 'capture', 'watch-lid'))
     action = parser.parse_args().action
     if action == 'arm':
         arm()
+    elif action == 'watch-lid':
+        watch_lid()
     else:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         capture()
