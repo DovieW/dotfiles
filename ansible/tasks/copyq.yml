@@ -100,7 +100,7 @@
       unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
   when: not ansible_check_mode
 
-- name: Install or upgrade CopyQ from the official stable channel
+- name: Install or upgrade the managed upstream CopyQ AppImage
   ansible.builtin.command:
     argv: ["{{ dot_repo }}/scripts/install-copyq", "--ensure"]
   register: dot_copyq_install

@@ -7,7 +7,10 @@ case "$mode" in
   *) echo "usage: install-copyq [--ensure|--check]" >&2; exit 2 ;;
 esac
 
-api="https://api.github.com/repos/hluk/CopyQ/releases/latest"
+api="https://api.github.com/repos/hluk/CopyQ"
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+preview_config="$repo_root/config/copyq/wayland-fix-preview.json"
+release_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+-g[0-9a-f]{8})?$'
 app_root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/apps/copyq"
 bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
 marker="$app_root/current-release"
@@ -46,7 +49,7 @@ activate_release() {
 
 local_release_ready() {
   local release="$1" release_dir="$2" image="$3" expected_file="$4" expected
-  [[ "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  [[ "$release" =~ $release_pattern ]] || return 1
   [[ -x "$release_dir/app/AppRun" && -f "$image" && -f "$expected_file" ]] || return 1
   expected="$(<"$expected_file")"
   [[ "$expected" =~ ^[[:xdigit:]]{128}$ ]] || return 1
@@ -56,7 +59,7 @@ local_release_ready() {
 if [[ "$mode" == --check ]]; then
   installed=""
   [[ -f "$marker" ]] && installed="$(<"$marker")"
-  if [[ ! "$installed" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  if [[ ! "$installed" =~ $release_pattern ]]; then
     echo "CopyQ local release marker is missing or invalid." >&2
     exit 1
   fi
@@ -80,7 +83,7 @@ if [[ "$mode" == --check ]]; then
   exit 0
 fi
 
-release_json="$(curl --proto '=https' --tlsv1.2 -fsSL "$api")"
+release_json="$(curl --proto '=https' --tlsv1.2 -fsSL "$api/releases/latest")"
 readarray -t resolved < <(python3 -c '
 import json, sys
 d=json.load(sys.stdin)
@@ -104,6 +107,37 @@ if [[ ! "$release" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   exit 1
 fi
 
+channel="official stable channel"
+artifact=""
+expected=""
+preview_fields="$(python3 -c '
+import json, socket, sys
+with open(sys.argv[1]) as f:
+    config = json.load(f)
+if socket.gethostname() == config["hostname"]:
+    for key in ("fix_commit", "release", "artifact_id", "sha512"):
+        print(config[key])
+' "$preview_config")"
+if [[ -n "$preview_fields" ]]; then
+  readarray -t preview <<<"$preview_fields"
+  if [[ ! "${preview[0]:-}" =~ ^[0-9a-f]{40}$ ||
+        ! "${preview[1]:-}" =~ $release_pattern ||
+        ! "${preview[2]:-}" =~ ^[0-9]+$ ||
+        ! "${preview[3]:-}" =~ ^[0-9a-f]{128}$ ]]; then
+    echo "CopyQ: invalid pinned Wayland fix build." >&2
+    exit 1
+  fi
+  comparison="$(curl --proto '=https' --tlsv1.2 -fsSL "$api/compare/${preview[0]}...$release")"
+  comparison_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$comparison")"
+  if [[ "$comparison_status" != ahead && "$comparison_status" != identical ]]; then
+    release="${preview[1]}"
+    asset_name="CopyQ-${release#v}-x86_64.AppImage"
+    artifact="${preview[2]}"
+    expected="${preview[3]}"
+    channel="pinned upstream Wayland fix build"
+  fi
+fi
+
 release_dir="$app_root/releases/$release"
 image="$release_dir/$asset_name"
 app_dir="$release_dir/app"
@@ -115,8 +149,10 @@ install -d -m 0755 "$app_root"
 work_dir="$(mktemp -d "$app_root/.install.XXXXXX")"
 cleanup() { rm -rf -- "$work_dir"; }
 trap cleanup EXIT
-curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
-expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"
+if [[ -z "$artifact" ]]; then
+  curl --proto '=https' --tlsv1.2 -fsSL "$checksums_url" -o "$work_dir/checksums-sha512.txt"
+  expected="$(awk -v n="$asset_name" '$2 == n || $2 == "*" n {print $1; exit}' "$work_dir/checksums-sha512.txt")"
+fi
 if [[ ! "$expected" =~ ^[[:xdigit:]]{128}$ ]]; then
   echo "CopyQ: official SHA-512 entry is missing or malformed." >&2
   exit 1
@@ -136,7 +172,7 @@ fi
 if [[ "$active_ready" == true ]]; then
   printf '%s\n' "$expected" >"$expected_file"
   chmod 0644 "$expected_file"
-  echo "CopyQ $release is installed from the official stable channel."
+  echo "CopyQ $release is installed from the $channel."
   exit 0
 fi
 if [[ "$runtime_ready" == true ]]; then
@@ -152,7 +188,14 @@ source_image="$image"
 if [[ ! -f "$source_image" ]] ||
    ! printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status; then
   source_image="$work_dir/$asset_name"
-  curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$source_image"
+  if [[ -n "$artifact" ]]; then
+    gh api "repos/hluk/CopyQ/actions/artifacts/$artifact/zip" >"$source_image" || {
+      echo "CopyQ: cannot download the pinned upstream build. Check GitHub authentication and artifact retention." >&2
+      exit 1
+    }
+  else
+    curl --proto '=https' --tlsv1.2 -fsSL "$asset_url" -o "$source_image"
+  fi
   printf '%s  %s\n' "$expected" "$source_image" | sha512sum --check --status
 fi
 chmod 0755 "$source_image"
@@ -188,4 +231,4 @@ mv -- "$release_dir/app.new" "$app_dir"
 activate_release "$release_dir"
 printf '%s\n' "$release" >"$marker"
 rm -rf -- "$release_dir/app.previous"
-echo "CHANGED CopyQ $release installed from the official stable channel."
+echo "CHANGED CopyQ $release installed from the $channel."

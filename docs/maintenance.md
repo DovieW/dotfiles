@@ -407,6 +407,14 @@ Apply with `dot apply --profile <profile> --tags clipboard` on either machine.
 A path on one computer is not accessible to a chat hosted on the other: use
 Herdr's Ctrl-V image bridge for remote panes in either direction.
 
+The IdeaPad uses a pinned upstream CopyQ CI AppImage with the
+[Wayland clipboard crash fix](https://github.com/hluk/CopyQ/pull/3742).
+The installer selects stable releases again once the latest stable tag includes
+the fix. It verifies the pinned AppImage against the digest in
+`config/copyq/wayland-fix-preview.json`. The cached AppImage remains usable
+after the CI artifact expires. An uncached install requires an authenticated
+GitHub CLI while the artifact is available.
+
 Saved machines are Herdr-owned local state, separate from the managed
 `config.toml`; do not replace the catalog during `dot apply`. The explicit
 `default` session avoids accidentally targeting another remote session.
