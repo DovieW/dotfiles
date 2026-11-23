@@ -1,0 +1,210 @@
+#!/usr/bin/python3
+"""Observe a paired workstation over a restricted SSH connection."""
+
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import json
+import os
+from pathlib import Path
+import runpy
+import selectors
+import subprocess
+import sys
+import time
+
+
+CONFIG = Path('/etc/dot-crash-peer')
+STATE = Path('/var/lib/dot-crash-peer')
+LIBEXEC = Path('/usr/local/libexec')
+BOOT = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+INTERVAL = 5
+HEARTBEAT_TIMEOUT = 20
+RECONNECT_DELAY = 15
+SNAPSHOT_COOLDOWN = 300
+
+
+def emit(event, **fields):
+    print(json.dumps(dict(event=event, **fields), separators=(',', ':')), flush=True)
+
+
+def serve():
+    session_state = runpy.run_path(str(LIBEXEC / 'dot-diagnostic-resume'))['session_state']
+    while True:
+        try:
+            session = session_state()
+        except OSError:
+            session = {'status': 'unavailable'}
+        emit('heartbeat', boot_id=BOOT, uptime_s=int(time.monotonic()),
+             suspended_s=int(time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()),
+             kwin=session.get('kwin', {}).get('status', session.get('status', 'unavailable')))
+        time.sleep(INTERVAL)
+
+
+def inbound():
+    request = os.environ.get('SSH_ORIGINAL_COMMAND')
+    if request == 'watch':
+        serve()
+    elif request == 'snapshot':
+        os.execv('/usr/bin/sudo', ['/usr/bin/sudo', '-n', str(LIBEXEC / 'dot-crash-peer'), 'snapshot'])
+    else:
+        sys.exit('This key accepts only watch and snapshot.')
+
+
+def kernel_stacks():
+    # Read only messages generated after the cursor was opened, up to a fixed limit.
+    fd = os.open('/dev/kmsg', os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        os.lseek(fd, 0, os.SEEK_END)
+        Path('/proc/sysrq-trigger').write_text('_wl')
+        messages = []
+        size = 0
+        while size < 256 * 1024:
+            try:
+                data = os.read(fd, 8192)
+            except BlockingIOError:
+                break
+            if not data:
+                break
+            size += len(data)
+            messages.append(data.decode(errors='replace').partition(';')[2].rstrip())
+        emit('kernel_stacks', messages=messages, byte_limit_reached=size >= 256 * 1024)
+    finally:
+        os.close(fd)
+
+
+def snapshot():
+    if os.geteuid() != 0:
+        sys.exit('The snapshot requires the restricted administrator entry point.')
+    guard = Path('/var/lib/dot-diagnostics/crash-peer-snapshot.lock')
+    with guard.open('a+') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            emit('snapshot_skipped', reason='already_running')
+            return
+        lock.seek(0)
+        now = time.time()
+        previous = lock.read().strip()
+        if previous and 0 <= now - float(previous) < SNAPSHOT_COOLDOWN:
+            emit('snapshot_skipped', reason='cooldown')
+            return
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(now))
+        lock.flush()
+        diagnostics = runpy.run_path(str(LIBEXEC / 'dot-diagnostics'))
+        emit('threads', data=diagnostics['thread_snapshot']())
+        try:
+            kernel_stacks()
+        except OSError as exc:
+            emit('kernel_stacks_unavailable', error=str(exc))
+
+
+def ssh_command(peer, request):
+    key = Path.home() / '.local/state/dotfiles/crash-peer/id_ed25519'
+    return ['/usr/bin/ssh', '-4', '-F', '/dev/null', '-T', '-i', str(key),
+            '-o', 'IdentityAgent=none', '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+            '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=ssh-ed25519',
+            '-o', f'UserKnownHostsFile={CONFIG / "known_hosts"}', '-o', 'GlobalKnownHostsFile=/dev/null',
+            '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
+            f'{peer["user"]}@{peer["hostname"]}', request]
+
+
+def collect(peer, reason):
+    code = None
+    try:
+        result = subprocess.run(ssh_command(peer, 'snapshot'), stdout=subprocess.PIPE, timeout=20)
+        payload, code = result.stdout, result.returncode
+    except subprocess.TimeoutExpired as exc:
+        payload = exc.stdout or b''
+    if payload:
+        name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '.jsonl'
+        path = STATE / name
+        with path.open('xb') as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        for old in sorted(STATE.glob('*.jsonl'), reverse=True)[20:]:
+            old.unlink()
+    emit('snapshot_result', reason=reason, exit_code=code, bytes=len(payload), file=name if payload else None)
+
+
+def reconnect_event(previous, current):
+    if previous['boot_id'] != current['boot_id']:
+        return 'peer_rebooted'
+    if current['suspended_s'] - previous['suspended_s'] >= 2:
+        return 'peer_slept_during_gap'
+    return 'peer_reachable_again'
+
+
+def watch_stream(peer):
+    child = subprocess.Popen(ssh_command(peer, 'watch'), stdout=subprocess.PIPE, bufsize=0)
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(child.stdout, selectors.EVENT_READ)
+            while selector.select(HEARTBEAT_TIMEOUT):
+                line = child.stdout.readline(4096)
+                if not line:
+                    break
+                row = json.loads(line)
+                if row['event'] == 'heartbeat':
+                    yield row
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+        child.wait()
+        child.stdout.close()
+
+
+def observe():
+    peer = json.loads((CONFIG / 'peer.json').read_text())
+    previous = None
+    unreachable = False
+    last_capture = float('-inf')
+    last_status = float('-inf')
+    timeouts = 0
+    while True:
+        # Closing the generator also terminates SSH if a record raises an error.
+        with contextlib.closing(watch_stream(peer)) as stream:
+            for row in stream:
+                now = time.monotonic()
+                if previous is None or unreachable:
+                    event = reconnect_event(previous, row) if previous else 'peer_connected'
+                    emit(event, peer=peer['hostname'], heartbeat=row)
+                    unreachable = False
+                    last_status = now
+                elif now - last_status >= 60:
+                    emit('peer_alive', peer=peer['hostname'], heartbeat=row)
+                    last_status = now
+                previous = row
+                timeouts = timeouts + 1 if row['kwin'] == 'timeout' else 0
+                if timeouts >= 3 and now - last_capture >= SNAPSHOT_COOLDOWN:
+                    emit('peer_kwin_timeout', peer=peer['hostname'], heartbeat=row)
+                    last_capture = now
+                    collect(peer, 'kwin_timeout')
+        if not unreachable:
+            unreachable = True
+            emit('peer_unreachable', peer=peer['hostname'], last_heartbeat=previous)
+            if previous and time.monotonic() - last_capture >= SNAPSHOT_COOLDOWN:
+                last_capture = time.monotonic()
+                collect(peer, 'heartbeats_stopped')
+        timeouts = 0
+        time.sleep(RECONNECT_DELAY)
+
+
+def grab():
+    peer = json.loads((CONFIG / 'peer.json').read_text())
+    collect(peer, 'manual')
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('observe', 'inbound', 'snapshot', 'grab'))
+    globals()[parser.parse_args().action]()

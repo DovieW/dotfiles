@@ -10,7 +10,8 @@ This does not restart Chrome or reboot the laptop. A normal reboot is required
 after first installing kdump, followed by `sudo kdump-config show` and a check
 that `/sys/kernel/kexec_crash_loaded` contains `1`. No deliberate crash test is
 performed. Ubuntu's default kdump loader enables `kernel.panic_on_oops=1` when
-armed; no panic-on-hang or panic-on-OOM setting is added.
+armed. The paired IdeaPad and desktop also enable the hard-lockup dump policy
+through the `diagnostics` tag.
 
 ## Chrome backups
 
@@ -114,6 +115,41 @@ Do not trigger `c` (a deliberate kernel crash) without a separately planned test
 After a reboot preserve previous-boot journals, the recorder files, pstore,
 and any kernel dump before troubleshooting. An abrupt journal end, graphics
 warnings, or high I/O PSI alone does not establish a root cause.
+
+## Hard lockups and peer observation
+
+On the paired IdeaPad and desktop, `dot-hardlockup-dump.service` enables
+`kernel.hardlockup_panic=1` when the NMI watchdog and crash kernel are both
+available. A detected hard CPU lockup can end the current session and run
+kdump. A display stall or a firmware lockup may produce no watchdog event.
+Verify the armed state with `cat /sys/kernel/kexec_crash_loaded` and
+`sysctl kernel.nmi_watchdog kernel.hardlockup_panic`.
+
+Each `dot-crash-peer.service` reads the other machine's Linux and KWin
+heartbeats over one SSH stream. Three consecutive KWin timeouts or loss of
+the stream can request a thread and CPU-stack snapshot. Evidence is stored on
+the observing machine in `/var/lib/dot-crash-peer`, with up to 20 private
+captures. A connection loss can be sleep or a network outage. The observer
+records a peer reboot or sleep interval when its next heartbeat confirms one.
+If the desktop is frozen and SSH is still reachable, run
+`/usr/local/libexec/dot-crash-peer grab` on the IdeaPad. The same command on
+the desktop requests a capture from the IdeaPad.
+
+Check `journalctl --namespace=diagnostics -u dot-crash-peer.service` on the
+observing machine. These checks need an awake observer and a working network
+path to obtain a snapshot. A dump can still be written locally if the watchdog
+detects a hard lockup while the peer is unavailable.
+
+The tracked `config/diagnostics/crash-peers.json` contains the paired hosts,
+pinned host keys, and enrolled observer public keys. The corresponding private
+key stays on its own machine under `~/.local/state/dotfiles/crash-peer/`.
+The managed SSH entry confines the peer key to its Tailscale address and to
+status streaming or the rate-limited snapshot. Re-enroll keys in the manifest
+after a reinstall or host key change. Apply the `diagnostics` tag on both hosts.
+To suspend this policy on a paired host, disable and stop
+`dot-crash-peer.service` and `dot-hardlockup-dump.service`. To revoke a peer,
+remove its `dot-crash-peer-managed` entry from the receiving host's
+`~/.ssh/authorized_keys` and update the pairing manifest.
 
 References: [Ubuntu kdump](https://ubuntu.com/server/docs/how-to/software/kernel-crash-dump/),
 [kernel SysRq documentation](https://docs.kernel.org/admin-guide/sysrq.html).

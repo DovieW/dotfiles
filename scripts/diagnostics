@@ -415,7 +415,7 @@ def health():
     return 1 if errors else 0
 
 
-def snapshot():
+def thread_snapshot():
     """Bounded thread/wait snapshots; cannot reconstruct every userspace lock."""
     threads = []
     stacks = 0
@@ -437,11 +437,16 @@ def snapshot():
                 break
         except (OSError, ValueError):
             continue
+    return dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(), boot_id=BOOT,
+                threads=threads, thread_limit=10000,
+                pressure={k: Path('/proc/pressure/' + k).read_text() for k in ('cpu', 'io', 'memory')})
+
+
+def snapshot():
+    data = thread_snapshot()
     name = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '.json'
-    atomic(STATE / 'snapshots' / name, dict(utc=dt.datetime.now(dt.timezone.utc).isoformat(),
-           boot_id=BOOT, threads=threads, thread_limit=10000,
-           pressure={k: Path('/proc/pressure/' + k).read_text() for k in ('cpu', 'io', 'memory')}))
-    emit('thread_snapshot', file=name, threads=len(threads))
+    atomic(STATE / 'snapshots' / name, data)
+    emit('thread_snapshot', file=name, threads=len(data['threads']))
 
 
 def pcp_time(value):

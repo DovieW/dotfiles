@@ -242,10 +242,15 @@ def session_state():
     uid = props.get('User', '')
     if props.get('Type') != 'wayland' or not uid.isdecimal() or int(uid) == 0:
         return dict(status='no_active_wayland_session')
+    if os.geteuid() not in (0, int(uid)):
+        return dict(status='different_session_user')
     runtime = f'/run/user/{uid}'
-    bus = ['/usr/bin/setpriv', '--reuid', uid, '--regid', str(os.stat(runtime).st_gid), '--clear-groups',
-           '/usr/bin/env', '-i', f'XDG_RUNTIME_DIR={runtime}', f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus',
-           '/usr/bin/busctl', '--user', '--auto-start=no', 'call']
+    launch = []
+    if os.geteuid() == 0:
+        launch = ['/usr/bin/setpriv', '--reuid', uid, '--regid', str(os.stat(runtime).st_gid), '--clear-groups']
+    bus = launch + ['/usr/bin/env', '-i', f'XDG_RUNTIME_DIR={runtime}',
+                    f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus',
+                    '/usr/bin/busctl', '--user', '--auto-start=no', 'call']
     return dict(
         locked_hint=props.get('LockedHint'),
         kwin=command(bus + ['org.kde.KWin', '/KWin', 'org.kde.KWin', 'activeOutputName']),

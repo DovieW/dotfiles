@@ -1,0 +1,21 @@
+[Unit]
+Description=Observe the other workstation and collect evidence of freezes
+After=tailscaled.service network.target
+
+[Service]
+Type=exec
+User={{ ansible_facts.user_id }}
+ExecStart=/usr/local/libexec/dot-crash-peer observe
+Restart=on-failure
+RestartSec=10s
+UnsetEnvironment=SSH_AUTH_SOCK LD_PRELOAD
+LogNamespace=diagnostics
+StateDirectory=dot-crash-peer
+StateDirectoryMode=0700
+UMask=0077
+ProtectHome=read-only
+ProtectSystem=strict
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

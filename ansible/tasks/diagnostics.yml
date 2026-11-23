@@ -240,3 +240,11 @@
     state: "{{ 'restarted' if dot_diag_user_units.changed or dot_diag_script.changed else 'started' }}"
   loop: [dot-diagnostics-audio.service, dot-diagnostics-health.timer]
   when: not ansible_check_mode
+
+- name: Configure paired workstation crash diagnostics
+  ansible.builtin.include_tasks: crash-peer.yml
+  vars:
+    crash_hosts: "{{ lookup('ansible.builtin.file', dot_repo ~ '/config/diagnostics/crash-peers.json') | from_json }}"
+    crash_local: "{{ crash_hosts[ansible_facts.hostname] }}"
+    crash_peer: "{{ crash_hosts[crash_local.peer] }}"
+  when: ansible_facts.hostname in crash_hosts

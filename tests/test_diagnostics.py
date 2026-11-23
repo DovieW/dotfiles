@@ -13,9 +13,24 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 D = runpy.run_path(str(ROOT / 'scripts/diagnostics'))
 RESUME = runpy.run_path(str(ROOT / 'scripts/diagnostic-resume'))
+PEER = runpy.run_path(str(ROOT / 'scripts/crash-peer'))
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_peer_distinguishes_reboot_sleep_and_network_outage(self):
+        classify = PEER['reconnect_event']
+        old = {'boot_id': 'before', 'suspended_s': 10}
+        self.assertEqual(classify(old, {'boot_id': 'after', 'suspended_s': 0}), 'peer_rebooted')
+        self.assertEqual(classify(old, {'boot_id': 'before', 'suspended_s': 14}), 'peer_slept_during_gap')
+        self.assertEqual(classify(old, {'boot_id': 'before', 'suspended_s': 10}), 'peer_reachable_again')
+
+    def test_peer_key_rejects_shell_and_extra_arguments(self):
+        for request in ('', 'sh', 'snapshot extra', 'watch; sh', 'sudo reboot'):
+            with self.subTest(request=request), mock.patch.dict(os.environ, {'SSH_ORIGINAL_COMMAND': request}), \
+                    mock.patch('os.execv') as execv, self.assertRaises(SystemExit):
+                PEER['inbound']()
+                execv.assert_not_called()
+
     def test_resume_trace_distinguishes_queued_and_delivered_events(self):
         events = RESUME['trace_summary'](
             ' sleep-10 [000] .... 82.111: suspend_resume: machine_suspend[3] end\n'

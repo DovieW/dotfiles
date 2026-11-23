@@ -1,0 +1,116 @@
+---
+- name: Verify the paired workstation identity
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.user_id == crash_local.user
+
+- name: Install crash peer collector
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/crash-peer"
+    dest: /usr/local/libexec/dot-crash-peer
+    owner: root
+    group: root
+    mode: '0755'
+  register: crash_collector
+
+- name: Create crash peer configuration directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/dot-crash-peer
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the peer destination and pinned SSH host key
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "/etc/dot-crash-peer/{{ item.name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: peer.json
+      content: "{{ {'hostname': crash_peer.hostname, 'user': crash_peer.user} | to_json }}\n"
+    - name: known_hosts
+      content: "{{ crash_peer.hostname }} {{ crash_peer.host_key }}\n"
+  register: crash_peer_config
+
+- name: Allow the peer key to request only diagnostic operations
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_facts.user_dir }}/.ssh/authorized_keys"
+    regexp: ' dot-crash-peer-managed$'
+    line: >-
+      restrict,from="{{ crash_peer.address }}",command="/usr/local/libexec/dot-crash-peer inbound"
+      {{ crash_peer.client_key }} dot-crash-peer-managed
+    create: true
+    mode: '0600'
+
+- name: Allow the diagnostic entry point to collect kernel stacks
+  become: true
+  ansible.builtin.copy:
+    content: "{{ crash_local.user }} ALL=(root) NOPASSWD: /usr/local/libexec/dot-crash-peer snapshot\n"
+    dest: /etc/sudoers.d/92-dot-crash-peer
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Install the paired-workstation observer unit
+  become: true
+  ansible.builtin.template:
+    src: "{{ dot_repo }}/config/systemd/system/dot-crash-peer.service"
+    dest: /etc/systemd/system/dot-crash-peer.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: crash_observer_unit
+
+- name: Install the hard-lockup dump policy
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/systemd/system/dot-hardlockup-dump.service"
+    dest: /etc/systemd/system/dot-hardlockup-dump.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable hard-lockup dumps when the dump kernel is loaded
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-hardlockup-dump.service
+    daemon_reload: true
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+
+- name: Check whether the enrolled observer key is available
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/ssh-keygen
+      - -y
+      - -f
+      - "{{ ansible_facts.user_dir }}/.local/state/dotfiles/crash-peer/id_ed25519"
+  register: crash_observer_key
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Report need to re-enroll a missing or replaced observer key
+  ansible.builtin.debug:
+    msg: The crash observer requires the local key enrolled in config/diagnostics/crash-peers.json.
+  when: crash_observer_key.stdout.split()[:2] | join(' ') != crash_local.client_key
+
+- name: Enable reciprocal crash observation
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-crash-peer.service
+    enabled: true
+    state: >-
+      {{ 'restarted' if crash_collector.changed or crash_peer_config.changed
+         or crash_observer_unit.changed else 'started' }}
+  when:
+    - not ansible_check_mode
+    - crash_observer_key.stdout.split()[:2] | join(' ') == crash_local.client_key

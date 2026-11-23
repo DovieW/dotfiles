@@ -1,0 +1,16 @@
+[Unit]
+Description=Enable crash dumps for detected hard CPU lockups
+BindsTo=kdump-tools.service
+After=kdump-tools.service
+PartOf=kdump-tools.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecCondition=/usr/bin/grep -qx 1 /sys/kernel/kexec_crash_loaded
+ExecCondition=/usr/bin/grep -qx 1 /proc/sys/kernel/nmi_watchdog
+ExecStart=/usr/sbin/sysctl -w kernel.hardlockup_panic=1
+ExecStop=/usr/sbin/sysctl -w kernel.hardlockup_panic=0
+
+[Install]
+WantedBy=kdump-tools.service
