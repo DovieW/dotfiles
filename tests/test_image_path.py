@@ -29,6 +29,33 @@ class ImagePathTests(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
+    def test_copyq_configuration_requires_the_image_staging_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bin_dir = Path(directory) / "bin"
+            bin_dir.mkdir()
+            copyq = bin_dir / "copyq"
+            copyq.write_text(
+                '#!/bin/sh\ntest -x "$XDG_BIN_HOME/dot-paste-image-path" || exit 1\nprintf ready\n'
+            )
+            copyq.chmod(0o755)
+            env = {
+                **os.environ,
+                "XDG_BIN_HOME": str(bin_dir),
+                "XDG_DATA_HOME": directory,
+                "XDG_STATE_HOME": directory,
+            }
+            configure = [str(ROOT / "scripts/configure-copyq")]
+            image_helper = bin_dir / "dot-paste-image-path"
+
+            check = subprocess.run([*configure, "--check"], env=env, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 1)
+            self.assertIn("image staging helper is missing", check.stderr)
+            self.assertFalse(image_helper.exists())
+
+            subprocess.run([*configure, "--ensure"], env=env, check=True, capture_output=True)
+            self.assertTrue(image_helper.is_symlink())
+            self.assertEqual(image_helper.resolve(), ROOT / "scripts/dot-paste-image-path")
+
     @unittest.skipIf(QImage is None, "PyQt6 desktop image codecs unavailable")
     def test_clipboard_image_is_converted_to_private_png_without_writing_clipboard(self):
         from PyQt6.QtCore import QBuffer, QIODevice

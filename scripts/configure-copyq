@@ -8,8 +8,18 @@ case "$mode" in
 esac
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-copyq_bin="${XDG_BIN_HOME:-$HOME/.local/bin}/copyq"
+bin_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+copyq_bin="$bin_dir/copyq"
+image_helper="$bin_dir/dot-paste-image-path"
 [[ -x "$copyq_bin" ]] || { echo "CopyQ is not installed." >&2; exit 1; }
+
+if [[ "$mode" == --ensure && ! -e "$image_helper" && ! -L "$image_helper" ]]; then
+  ln -s -- "$root/scripts/dot-paste-image-path" "$image_helper"
+fi
+if [[ ! -f "$image_helper" || ! -x "$image_helper" ]]; then
+  echo "CopyQ image staging helper is missing or not executable at $image_helper." >&2
+  exit 1
+fi
 
 wait_until_ready() {
   for _ in {1..40}; do
@@ -40,8 +50,13 @@ if [[ "$mode" == --check ]]; then
     grep -qx true || { echo "CopyQ clipboard settings drifted." >&2; exit 1; }
   "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Wayland paste' && c.isScript})" |
     grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
-  "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles stage clipboard images' && c.automatic})" |
-    grep -qx true || { echo "CopyQ image staging command is missing." >&2; exit 1; }
+  "$copyq_bin" eval "
+    var helper = JSON.stringify(str(arguments[1]));
+    print(commands().some(function(c) {
+      return c.name == 'Dotfiles stage clipboard images' && c.automatic && c.cmd.indexOf(helper) >= 0;
+    }));
+  " "$image_helper" |
+    grep -qx true || { echo "CopyQ image staging command is missing or points to a different helper." >&2; exit 1; }
   "$copyq_bin" eval "commands().every(function(c){return c.name != 'Dotfiles Clipboard History'})" |
     grep -qx true || { echo "CopyQ still owns a global shortcut that belongs to KDE." >&2; exit 1; }
   "$copyq_bin" eval "global.dotfilesPasteVersion == 5 && global.paste === global.dotfilesPaste" |
@@ -63,6 +78,6 @@ fi
 "$copyq_bin" --start-server >/dev/null 2>&1 || true
 wait_until_ready
 "$copyq_bin" eval 'loadTheme(arguments[1])' "$root/config/copyq/github-dark.ini"
-"$copyq_bin" eval - <"$root/config/copyq/configure.js"
+"$copyq_bin" eval - "$image_helper" <"$root/config/copyq/configure.js"
 
 echo "CopyQ clipboard history and GitHub Dark theme configured."
