@@ -117,8 +117,8 @@ def reset_idle_adapter(bus, path):
 
     proxy = bus.get_object("org.bluez", path, introspect=False)
     properties = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
-    properties.Set(ADAPTER, "Powered", dbus.Boolean(False), timeout=5)
-    properties.Set(ADAPTER, "Powered", dbus.Boolean(True), timeout=8)
+    properties.Set(ADAPTER, "Powered", dbus.Boolean(False), signature="ssv", timeout=5)
+    properties.Set(ADAPTER, "Powered", dbus.Boolean(True), signature="ssv", timeout=8)
     return True
 
 
