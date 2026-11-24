@@ -8,7 +8,10 @@ from time import sleep
 import dbus
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
 
 # Display name and NetworkManager profile UUID. Add more choices here.
 NETWORKS = [
@@ -20,10 +23,10 @@ NETWORKS = [
 DEVICE = "org.bluez.Device1"
 ADAPTER = "org.bluez.Adapter1"
 A2DP_SINK = "0000110b-0000-1000-8000-00805f9b34fb"
+BUSY_ERRORS = {"br-connection-busy", "le-connection-busy", "Bluetooth connection in progress"}
 RETRYABLE_CONNECTION_ERRORS = {
     "org.bluez.Error.Failed",
     "org.bluez.Error.ConnectionAttemptFailed",
-    "org.bluez.Error.InProgress",
     "org.freedesktop.DBus.Error.NoReply",
 }
 
@@ -70,7 +73,7 @@ def list_bluetooth(progress):
         for path, interfaces in objects.items()
         if (device := interfaces.get(DEVICE)) and device.get("Paired")
     ]
-    message = "Choose a paired device and select Force Connect." if devices else "No paired Bluetooth devices found."
+    message = "" if devices else "No paired Bluetooth devices found."
     return sorted(devices, key=lambda item: item[0].casefold()), message
 
 
@@ -78,8 +81,11 @@ def try_bluetooth_connection(connect, properties):
     try:
         connect(timeout=18)
     except dbus.DBusException as error:
-        if error.get_dbus_name() != "org.bluez.Error.AlreadyConnected":
-            if error.get_dbus_name() not in RETRYABLE_CONNECTION_ERRORS:
+        code = error.get_dbus_name()
+        if code == "org.bluez.Error.InProgress":
+            return "Bluetooth connection in progress"
+        if code != "org.bluez.Error.AlreadyConnected":
+            if code not in RETRYABLE_CONNECTION_ERRORS:
                 raise
             return error.get_dbus_message()
     if properties.Get(DEVICE, "Connected", timeout=5):
@@ -87,7 +93,28 @@ def try_bluetooth_connection(connect, properties):
     return "The connection dropped."
 
 
-def recover_bluetooth(progress, name, interface, properties, supports_stereo):
+def reset_idle_adapter(bus, path):
+    objects = bluez_objects(bus)
+    interfaces = objects.get(path, {})
+    adapter = interfaces.get(ADAPTER, {})
+    advertising = interfaces.get("org.bluez.LEAdvertisingManager1", {})
+    if not adapter.get("Powered") or adapter.get("Discovering") or adapter.get("Discoverable"):
+        return False
+    if advertising.get("ActiveInstances") or any(
+        device.get("Adapter") == path and device.get("Connected")
+        for interfaces in objects.values()
+        if (device := interfaces.get(DEVICE))
+    ):
+        return False
+
+    proxy = bus.get_object("org.bluez", path, introspect=False)
+    properties = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
+    properties.Set(ADAPTER, "Powered", dbus.Boolean(False), timeout=5)
+    properties.Set(ADAPTER, "Powered", dbus.Boolean(True), timeout=8)
+    return True
+
+
+def recover_bluetooth(progress, name, interface, properties, supports_stereo, reset_adapter):
     first_error = try_bluetooth_connection(interface.Connect, properties)
     if first_error is None:
         return f"Connected to {name}."
@@ -106,6 +133,28 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo):
         return f"Connected to {name} after retrying."
 
     details = [f"First attempt: {first_error}", f"Retry: {retry_error}"]
+    if retry_error in BUSY_ERRORS:
+        progress(f"Bluetooth is busy. Waiting briefly before retrying {name}…")
+        sleep(2)
+        retry_error = try_bluetooth_connection(interface.Connect, properties)
+        if retry_error is None:
+            return f"Connected to {name} after retrying."
+        details.append(f"Delayed retry: {retry_error}")
+
+    if retry_error in BUSY_ERRORS:
+        progress("Checking whether the laptop Bluetooth adapter can be reset…")
+        try:
+            if reset_adapter():
+                progress(f"Reconnecting to {name} after resetting the adapter…")
+                retry_error = try_bluetooth_connection(interface.Connect, properties)
+                if retry_error is None:
+                    return f"Connected to {name} after resetting the laptop Bluetooth adapter."
+                details.append(f"After adapter reset: {retry_error}")
+            else:
+                details.append("Adapter reset skipped because laptop Bluetooth was not idle.")
+        except dbus.DBusException as error:
+            details.append(f"Bluetooth recovery: {error.get_dbus_message()}")
+
     if supports_stereo:
         progress(f"Trying stereo audio directly for {name}…")
         try:
@@ -116,7 +165,10 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo):
         except dbus.DBusException as error:
             details.append(f"Stereo audio: {error.get_dbus_message()}")
 
-    return f"Could not connect to {name}.\n\n" + "\n".join(details)
+    message = f"Could not connect to {name}."
+    if retry_error in BUSY_ERRORS and supports_stereo:
+        message += " Bluetooth stayed busy. If your phone keeps reconnecting, turn Bluetooth off on it and tap the earbuds again."
+    return message + "\n\n" + "\n".join(details)
 
 
 def connect_bluetooth(progress, name, path):
@@ -136,7 +188,10 @@ def connect_bluetooth(progress, name, path):
             proxy = bus.get_object("org.bluez", path, introspect=False)
             interface = dbus.Interface(proxy, DEVICE)
             properties = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
-            return recover_bluetooth(progress, name, interface, properties, A2DP_SINK in device.get("UUIDs", ()))
+            return recover_bluetooth(
+                progress, name, interface, properties, A2DP_SINK in device.get("UUIDs", ()),
+                lambda: reset_idle_adapter(bus, device["Adapter"]),
+            )
     except dbus.DBusException as error:
         return f"Could not connect to {name}.\n\n{error.get_dbus_message()}"
 
@@ -164,73 +219,94 @@ class Window(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Instant Connect")
-        self.setMinimumWidth(400)
+        self.resize(560, 340)
         layout = QVBoxLayout(self)
-        self.connection_type = QComboBox()
-        self.connection_type.addItems(["Wi-Fi", "Bluetooth"])
-        layout.addWidget(self.connection_type)
-        self.target = QComboBox()
-        layout.addWidget(self.target)
+        choices = QHBoxLayout()
+        layout.addLayout(choices, 1)
+        self.wifi = QGroupBox("Wi-Fi")
+        wifi = QVBoxLayout(self.wifi)
+        for name, uuid in NETWORKS:
+            wifi.addWidget(self.target_button(connect_wifi, name, uuid))
+        wifi.addStretch()
+        choices.addWidget(self.wifi, 1)
+
+        self.bluetooth = QGroupBox("Bluetooth")
+        bluetooth = QVBoxLayout(self.bluetooth)
+        self.bluetooth_status = QLabel()
+        self.bluetooth_status.setWordWrap(True)
+        self.bluetooth_status.setTextFormat(Qt.TextFormat.PlainText)
+        bluetooth.addWidget(self.bluetooth_status)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.devices = QWidget()
+        self.device_buttons = QVBoxLayout(self.devices)
+        self.device_buttons.setContentsMargins(0, 0, 0, 0)
+        self.device_buttons.addStretch()
+        scroll.setWidget(self.devices)
+        bluetooth.addWidget(scroll, 1)
+        self.refresh = QPushButton("Refresh devices")
+        self.refresh.clicked.connect(self.load_bluetooth)
+        bluetooth.addWidget(self.refresh)
+        choices.addWidget(self.bluetooth, 1)
+
         self.status = QLabel()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
+        self.status.setText("Click a network or device to connect.")
         layout.addWidget(self.status)
-        self.button = QPushButton("Connect")
-        self.button.clicked.connect(self.connect_target)
-        layout.addWidget(self.button)
-        self.refresh = QPushButton("Refresh devices")
-        self.refresh.clicked.connect(self.load_bluetooth)
-        layout.addWidget(self.refresh)
         self.worker = None
-        self.connection_type.currentIndexChanged.connect(self.change_type)
-        self.change_type()
+        self.device_worker = None
+        self.load_bluetooth()
 
-    def change_type(self):
-        self.target.clear()
-        bluetooth = self.connection_type.currentText() == "Bluetooth"
-        self.button.setText("Force Connect" if bluetooth else "Connect")
-        self.refresh.setVisible(bluetooth)
-        if bluetooth:
-            self.load_bluetooth()
-        else:
-            self.set_targets((NETWORKS, "Choose a saved network and select Connect."))
-            self.button.setEnabled(True)
+    def target_button(self, operation, name, identifier):
+        button = QPushButton(name.replace("&", "&&"))
+        button.setMinimumHeight(38)
+        button.setAutoDefault(False)
+        button.clicked.connect(lambda: self.start_connection(operation, name, identifier))
+        return button
 
-    def set_targets(self, result):
+    def set_devices(self, result):
         choices, message = result
-        selected = self.target.currentData()
-        self.target.clear()
+        while self.device_buttons.count() > 1:
+            self.device_buttons.takeAt(0).widget().deleteLater()
         for name, identifier in choices:
-            self.target.addItem(name, identifier)
-        index = self.target.findData(selected)
-        if index >= 0:
-            self.target.setCurrentIndex(index)
-        self.status.setText(message)
+            self.device_buttons.insertWidget(self.device_buttons.count() - 1,
+                                             self.target_button(connect_bluetooth, name, identifier))
+        self.show_bluetooth_status(message)
+
+    def show_bluetooth_status(self, message):
+        self.bluetooth_status.setText(message)
+        self.bluetooth_status.setVisible(bool(message))
 
     def load_bluetooth(self):
-        self.status.setText("Reading paired Bluetooth devices…")
-        self.start_worker(list_bluetooth, self.set_targets)
+        self.devices.setEnabled(False)
+        self.refresh.setEnabled(False)
+        self.show_bluetooth_status("Reading paired devices…")
+        self.device_worker = Worker(list_bluetooth)
+        self.device_worker.result.connect(self.set_devices)
+        self.device_worker.failed.connect(self.show_bluetooth_status)
+        self.device_worker.finished.connect(self.device_list_finished)
+        self.device_worker.start()
 
-    def connect_target(self):
-        operation = connect_wifi if self.connection_type.currentText() == "Wi-Fi" else connect_bluetooth
-        self.start_worker(operation, self.status.setText, self.target.currentText(), self.target.currentData())
+    def device_list_finished(self):
+        self.devices.setEnabled(True)
+        self.refresh.setEnabled(True)
 
-    def start_worker(self, operation, callback, *args):
-        for widget in (self.connection_type, self.target, self.button, self.refresh):
-            widget.setEnabled(False)
-        self.worker = Worker(operation, *args)
+    def start_connection(self, operation, name, identifier):
+        self.wifi.setEnabled(False)
+        self.bluetooth.setEnabled(False)
+        self.status.setText(f"Connecting to {name}…")
+        self.worker = Worker(operation, name, identifier)
         self.worker.progress.connect(self.status.setText)
-        self.worker.result.connect(callback)
+        self.worker.result.connect(self.status.setText)
         self.worker.failed.connect(self.status.setText)
         self.worker.finished.connect(self.connection_finished)
         self.worker.start()
 
     def connection_finished(self):
-        self.connection_type.setEnabled(True)
-        self.refresh.setEnabled(True)
-        has_targets = self.target.count() > 0
-        self.target.setEnabled(has_targets)
-        self.button.setEnabled(has_targets)
+        self.wifi.setEnabled(True)
+        self.bluetooth.setEnabled(True)
 
 
 if __name__ == "__main__":
@@ -241,6 +317,7 @@ if __name__ == "__main__":
     window.show()
     exit_code = app.exec()
     # The dialog can close immediately while the bounded operation finishes.
-    if window.worker is not None:
-        window.worker.wait()
+    for worker in (window.worker, window.device_worker):
+        if worker is not None:
+            worker.wait()
     sys.exit(exit_code)
