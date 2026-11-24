@@ -1,6 +1,10 @@
 #!/usr/bin/python3
 """Connect to a saved Wi-Fi network or paired Bluetooth device on demand."""
 from contextlib import closing
+import http.client
+import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 from time import sleep
@@ -171,6 +175,36 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo, re
     return message + "\n\n" + "\n".join(details)
 
 
+def release_phone_earbuds(progress, address):
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    try:
+        config = json.loads((config_dir / "instant-connect/phone-handoff.json").read_text())
+        if not isinstance(config, dict) or not isinstance(config.get("device"), str):
+            raise ValueError("Missing Bluetooth device address")
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return "Could not read the phone handoff settings."
+
+    if address.upper() != config["device"].upper():
+        return None
+    host, token = config.get("host"), config.get("token")
+    if not isinstance(host, str) or not host.endswith(".ts.net") or not isinstance(token, str) or not token:
+        return "The phone handoff needs a Tailscale hostname and a token."
+
+    progress("Releasing the earbuds from your phone…")
+    with closing(http.client.HTTPConnection(host, 7334, timeout=12)) as connection:
+        try:
+            connection.request("POST", "/7334", body=token.encode("ascii"),
+                               headers={"Content-Type": "text/plain"})
+            with connection.getresponse() as response:
+                if response.status == 200 and response.read(64) == b"false":
+                    return None
+        except (OSError, ValueError, http.client.HTTPException):
+            return "Could not confirm the earbuds were released by your phone. Check that Tasker is reachable."
+    return "Tasker did not confirm that the phone released the earbuds."
+
+
 def connect_bluetooth(progress, name, path):
     progress(f"Connecting to {name}…")
     try:
@@ -184,6 +218,10 @@ def connect_bluetooth(progress, name, path):
             adapter = objects.get(device["Adapter"], {}).get(ADAPTER, {})
             if not adapter.get("Powered"):
                 return "Turn on Bluetooth in System Settings, then try again."
+
+            handoff_error = release_phone_earbuds(progress, device["Address"])
+            if handoff_error:
+                return handoff_error
 
             proxy = bus.get_object("org.bluez", path, introspect=False)
             interface = dbus.Interface(proxy, DEVICE)
