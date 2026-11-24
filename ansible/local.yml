@@ -32,6 +32,11 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, audio]
 
+    - name: Configure the device-aware volume popup
+      ansible.builtin.import_tasks: tasks/audio-osd.yml
+      when: dot_profile_data.features.kde | default(false)
+      tags: [config, audio, audio-osd]
+
     - name: Configure automatic output volume reset
       ansible.builtin.import_tasks: tasks/audio-mute.yml
       when: dot_profile_data.features.kde | default(false)

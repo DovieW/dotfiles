@@ -1,0 +1,4 @@
+module org.kde.plasma.workspace.osd
+plugin plasmashell_osd
+Osd 254.0 Osd.qml
+OsdItem 254.0 OsdItem.qml

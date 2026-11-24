@@ -36,6 +36,15 @@ running may need to reopen their audio stream.
 
 The configuration follows WirePlumber's [node priority policy](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/priorities.html).
 
+## Volume popup device icon
+
+The Plasma volume popup uses a headset, headphones, speaker, or display icon
+for recognized active outputs. Mute and high-volume warnings use Plasma's
+standard icons. This also follows a manual change to the default output.
+
+Apply with `bin/dot apply --profile kubuntu-laptop --tags audio-osd`, then
+log out and back in or restart the `plasma-plasmashell.service` user unit.
+
 ## Automatic volume reset
 
 On the Kubuntu desktop and laptop profiles, `dot-audio-mute.service` listens for

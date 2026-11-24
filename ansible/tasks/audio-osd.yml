@@ -1,0 +1,57 @@
+---
+- name: Locate the installed Plasma OSD module
+  ansible.builtin.command:
+    argv: [dpkg-query, -S, "*/qt6/qml/org/kde/plasma/workspace/osd/OsdItem.qml"]
+  register: dot_audio_osd_package
+  changed_when: false
+  failed_when: dot_audio_osd_package.rc not in [0, 1]
+  check_mode: false
+
+- name: Set the Plasma OSD installation paths
+  ansible.builtin.set_fact:
+    dot_audio_osd_stock: >-
+      {{ dot_audio_osd_package.stdout.split(': ', 1) | last }}
+    dot_audio_osd_module: >-
+      {{ ansible_facts['user_dir'] }}/.local/share/dotfiles/qml/org/kde/plasma/workspace/osd
+    dot_audio_osd_dropin: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/plasma-plasmashell.service.d"
+
+- name: Configure the device-aware volume popup
+  when: dot_audio_osd_stock | length > 0
+  block:
+    - name: Create Plasma OSD override directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ dot_audio_osd_module }}"
+        - "{{ dot_audio_osd_dropin }}"
+
+    - name: Install the Plasma OSD module override
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/plasma/audio-osd/{{ item }}"
+        dest: "{{ dot_audio_osd_module }}/{{ item }}"
+        mode: "0644"
+      loop: [qmldir, Osd.qml]
+
+    - name: Link the packaged Plasma OSD renderer and plugin
+      ansible.builtin.file:
+        src: "{{ dot_audio_osd_stock | dirname }}/{{ item }}"
+        dest: "{{ dot_audio_osd_module }}/{{ item }}"
+        state: link
+      loop: [OsdItem.qml, libplasmashell_osd.so]
+
+    - name: Enable the OSD override in the Plasma shell
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/systemd/user/plasma-plasmashell.service.d/30-dot-audio-osd.conf"
+        dest: "{{ dot_audio_osd_dropin }}/30-dot-audio-osd.conf"
+        mode: "0644"
+      register: dot_audio_osd_service
+
+    - name: Reload Plasma shell service configuration
+      ansible.builtin.systemd_service:
+        scope: user
+        daemon_reload: true
+      when:
+        - dot_audio_osd_service.changed
+        - not ansible_check_mode
