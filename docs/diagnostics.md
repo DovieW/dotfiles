@@ -17,7 +17,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | Source | Frequency | Contents and limits |
 | --- | --- | --- |
 | General journal | Event driven | Existing app/kernel/service messages; 8 GiB, maximum age 30 days |
-| Diagnostic journal | Event driven | Separate namespace `diagnostics`; 1 GiB, maximum age 60 days; 30-second synchronization |
+| Diagnostic journal | Event driven | Separate `diagnostics` namespace with 64 GiB on the IdeaPad and 1 GiB by default, a 60-day maximum age, and 30-second synchronization |
 | Signals | Event driven | SIGKILL, SIGTERM and common fatal signals; generation result, sender context and target TID/name |
 | Process exits | Event driven | Leader exit status, identity/start time; not proof all threads have finished |
 | Kernel OOM | Event driven | `oom:mark_victim`; userspace memory-manager decisions remain in their service journals |
@@ -34,6 +34,8 @@ not a service expiry or a promise of minimum retained history.** Size caps can
 shorten coverage. Journal namespaces have independent budgets, so application
 chatter cannot evict the dedicated diagnostic stream. Native journal rotation
 can temporarily exceed nominal size limits because active files are retained.
+The IdeaPad allows up to 4,096 journal files so the file-count limit leaves
+room for the 64 GiB budget with 32 MiB files.
 
 The PCP wrapper makes hourly archives in `/var/lib/dot-diagnostics/pcp`, removes
 completed archives older than 14 days or exceeding 4 GiB, compresses completed
@@ -166,8 +168,10 @@ guarantee is implied. A scheduled timer does not wake the suspended laptop.
 Stop/disable the `dot-diagnostics-*` system services/timer and the audio/health
 user services/timer. Disable the display resume arm service to remove its sleep
 target hook. Remove only this feature's named units, the
-`70-dotfiles-retention.conf` drop-ins, and `/etc/systemd/journald@diagnostics.conf`;
-restore the backed-up PMCD options and previous sysstat history if desired.
+`70-dotfiles-retention.conf` drop-ins and `/etc/systemd/journald@diagnostics.conf`.
+On the IdeaPad, also remove
+`/etc/systemd/journald@diagnostics.conf.d/70-dotfiles-ideapad-retention.conf`.
+Restore the backed-up PMCD options and previous sysstat history if desired.
 Reload system/user managers and restart journald for changed retention policy.
 Keep the existing crash/freeze setup and all collected evidence. Do not vacuum
 the journal or delete archives as part of rollback. Set `diagnostics` false in a

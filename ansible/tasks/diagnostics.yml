@@ -92,6 +92,27 @@
     - {src: coredump.conf, dest: /etc/systemd/coredump.conf.d/70-dotfiles-retention.conf}
   register: dot_diag_journals
 
+- name: Set the IdeaPad diagnostic journal budget
+  when: ansible_facts.hostname == 'dovie-ideapad-linux'
+  become: true
+  block:
+    - name: Create the diagnostic journal drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/journald@diagnostics.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install the IdeaPad diagnostic journal retention override
+      ansible.builtin.copy:
+        src: "{{ dot_repo }}/config/diagnostics/ideapad-journal.conf"
+        dest: /etc/systemd/journald@diagnostics.conf.d/70-dotfiles-ideapad-retention.conf
+        owner: root
+        group: root
+        mode: '0644'
+      register: dot_diag_ideapad_journal
+
 - name: Bind performance collector to this host only
   become: true
   ansible.builtin.copy:
@@ -164,7 +185,11 @@
     name: "{{ item }}"
     state: restarted
   loop: [systemd-journald.service, systemd-journald@diagnostics.service]
-  when: dot_diag_journals.changed and not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - >-
+      dot_diag_journals.changed or
+      (item == 'systemd-journald@diagnostics.service' and dot_diag_ideapad_journal is changed)
 
 - name: Activate local performance metrics
   become: true
