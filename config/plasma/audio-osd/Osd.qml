@@ -27,19 +27,34 @@ OsdWindow {
             return volumeIcon;
         }
 
-        const deviceIcon = output.properties?.["device.icon_name"] ?? "";
-        const form = output.formFactor ?? "";
+        const properties = output.properties ?? {};
+        const deviceIcon = properties["device.icon_name"] ?? output.iconName ?? "";
+        const form = (output.formFactor ?? "").toLowerCase();
+        const port = output.ports?.[output.activePortIndex]?.name ?? "";
+        // A laptop sink may expose both speakers and a headphone jack.
+        if (/headset/i.test(port)) {
+            return "audio-headset-symbolic";
+        }
+        if (/headphone/i.test(port)) {
+            return "audio-headphones-symbolic";
+        }
+        if (deviceIcon.startsWith("video-display") || /hdmi|displayport/i.test(port + " " + (output.name ?? ""))) {
+            return "video-display";
+        }
+        if (/speaker|line[-_ ]?out/i.test(port)) {
+            return "audio-speakers-symbolic";
+        }
         if (form === "headset" || deviceIcon.startsWith("audio-headset")) {
             return "audio-headset-symbolic";
         }
-        if (form === "headphone" || deviceIcon.startsWith("audio-headphones")) {
+        if (["headphone", "headphones"].includes(form) || deviceIcon.startsWith("audio-headphones")) {
             return "audio-headphones-symbolic";
-        }
-        if (deviceIcon === "video-display" || /hdmi/i.test(output.name ?? "")) {
-            return "video-display";
         }
         if (form === "speaker" || deviceIcon.startsWith("audio-speakers")) {
             return "audio-speakers-symbolic";
+        }
+        if (properties["device.bus"] === "usb" || /spdif|s\/pdif|iec958/i.test(port)) {
+            return "audio-card-symbolic";
         }
         return volumeIcon;
     }
