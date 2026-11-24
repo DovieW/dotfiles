@@ -31,6 +31,11 @@ OsdWindow {
         const deviceIcon = properties["device.icon_name"] ?? output.iconName ?? "";
         const form = (output.formFactor ?? "").toLowerCase();
         const port = output.ports?.[output.activePortIndex]?.name ?? "";
+        // Bluetooth stereo can report the same headset port as call audio.
+        if (/^a2dp(?:[-_]|$)/.test(properties["api.bluez5.profile"] ?? "")) {
+            return deviceIcon.startsWith("audio-speakers") || form === "speaker"
+                ? "audio-speakers-symbolic" : "audio-headphones-symbolic";
+        }
         // A laptop sink may expose both speakers and a headphone jack.
         if (/headset/i.test(port)) {
             return "audio-headset-symbolic";

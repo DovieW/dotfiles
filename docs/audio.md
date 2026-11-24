@@ -39,10 +39,11 @@ The configuration follows WirePlumber's [node priority policy](https://pipewire.
 ## Volume popup device icon
 
 The Plasma volume popup uses the active output and its current port. Bluetooth
-earbuds and headsets, wired headphones, speakers and line out, and HDMI or
-DisplayPort have distinct icons. USB audio interfaces and digital outputs
-with no more specific match use a sound-card icon. Mute and high-volume
-warnings use Plasma's standard icons.
+stereo earbuds and wired headphones use the headphones icon. Bluetooth call
+audio uses the headset icon. Speakers and line out use the speaker icon, and
+HDMI or DisplayPort uses a display icon. USB audio interfaces and digital outputs
+with no more specific match use a sound-card icon. Mute and high-volume warnings
+use Plasma's standard icons.
 
 Apply with `bin/dot apply --profile kubuntu-laptop --tags audio-osd`, then
 log out and back in or restart the `plasma-plasmashell.service` user unit.
