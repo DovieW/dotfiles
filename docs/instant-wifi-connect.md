@@ -13,6 +13,10 @@ Bluetooth device to connect immediately.
   no connected devices, discovery, discoverability, or active LE advertisements.
   For devices that advertise stereo playback, it can also try A2DP directly.
   Pairings are preserved. If recovery fails, the launcher shows the errors.
+  **Restart Bluetooth** is always visible. It checks for connected Bluetooth
+  devices, then uses the desktop authorization prompt to restart the laptop's
+  Bluetooth service. If you selected a device earlier, it retries that device
+  after the restart.
 
 Install with `bin/dot apply --profile kubuntu-laptop --tags connection-check`.
 
