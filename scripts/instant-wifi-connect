@@ -35,6 +35,10 @@ RETRYABLE_CONNECTION_ERRORS = {
 }
 
 
+class PhoneHandoffError(Exception):
+    pass
+
+
 def connect_wifi(progress, name, uuid):
     active = subprocess.run(
         ["nmcli", "-t", "-f", "UUID", "connection", "show", "--active"],
@@ -198,14 +202,21 @@ def release_phone_earbuds(progress, address):
             connection.request("POST", "/7334", body=token.encode("ascii"),
                                headers={"Content-Type": "text/plain"})
             with connection.getresponse() as response:
-                if response.status == 200 and response.read(64) == b"false":
-                    return None
+                if response.status == 200:
+                    state = response.read(64)
+                    if state == b"false":
+                        return None
+                    if state == b"true":
+                        return ("The earbuds are still connected to your phone. "
+                                "Open their Bluetooth settings on your phone, tap Disconnect, then try again.")
+                if response.status == 503:
+                    return "Tasker timed out before it could confirm the earbuds were disconnected."
         except (OSError, ValueError, http.client.HTTPException):
             return "Could not confirm the earbuds were released by your phone. Check that Tasker is reachable."
     return "Tasker did not confirm that the phone released the earbuds."
 
 
-def connect_bluetooth(progress, name, path):
+def connect_bluetooth(progress, name, path, *, phone_handoff=True):
     progress(f"Connecting to {name}…")
     try:
         with closing(dbus.SystemBus(private=True)) as bus:
@@ -219,9 +230,10 @@ def connect_bluetooth(progress, name, path):
             if not adapter.get("Powered"):
                 return "Turn on Bluetooth in System Settings, then try again."
 
-            handoff_error = release_phone_earbuds(progress, device["Address"])
-            if handoff_error:
-                return handoff_error
+            if phone_handoff:
+                handoff_error = release_phone_earbuds(progress, device["Address"])
+                if handoff_error:
+                    raise PhoneHandoffError(handoff_error)
 
             proxy = bus.get_object("org.bluez", path, introspect=False)
             interface = dbus.Interface(proxy, DEVICE)
@@ -238,6 +250,7 @@ class Worker(QThread):
     progress = pyqtSignal(str)
     result = pyqtSignal(object)
     failed = pyqtSignal(str)
+    handoff_failed = pyqtSignal(str)
 
     def __init__(self, operation, *args):
         super().__init__()
@@ -247,6 +260,8 @@ class Worker(QThread):
     def run(self):
         try:
             self.result.emit(self.operation(self.progress.emit, *self.args))
+        except PhoneHandoffError as error:
+            self.handoff_failed.emit(str(error))
         except dbus.DBusException as error:
             self.failed.emit(f"Could not read Bluetooth devices.\n\n{error.get_dbus_message()}")
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -293,6 +308,11 @@ class Window(QDialog):
         self.status.setWordWrap(True)
         self.status.setText("Click a network or device to connect.")
         layout.addWidget(self.status)
+        self.retry_without_phone = QPushButton("Try laptop connection anyway")
+        self.retry_without_phone.hide()
+        self.retry_without_phone.clicked.connect(self.retry_bluetooth)
+        layout.addWidget(self.retry_without_phone)
+        self.bluetooth_target = None
         self.worker = None
         self.device_worker = None
         self.load_bluetooth()
@@ -332,6 +352,9 @@ class Window(QDialog):
         self.refresh.setEnabled(True)
 
     def start_connection(self, operation, name, identifier):
+        self.retry_without_phone.hide()
+        self.retry_without_phone.setEnabled(False)
+        self.bluetooth_target = (name, identifier) if operation is connect_bluetooth else None
         self.wifi.setEnabled(False)
         self.bluetooth.setEnabled(False)
         self.status.setText(f"Connecting to {name}…")
@@ -339,12 +362,26 @@ class Window(QDialog):
         self.worker.progress.connect(self.status.setText)
         self.worker.result.connect(self.status.setText)
         self.worker.failed.connect(self.status.setText)
+        self.worker.handoff_failed.connect(self.show_handoff_failure)
         self.worker.finished.connect(self.connection_finished)
         self.worker.start()
+
+    def show_handoff_failure(self, message):
+        self.status.setText(message)
+        self.retry_without_phone.show()
+
+    def retry_bluetooth(self):
+        if self.bluetooth_target is not None:
+            name, identifier = self.bluetooth_target
+            self.start_connection(
+                lambda progress, label, path: connect_bluetooth(progress, label, path, phone_handoff=False),
+                name, identifier,
+            )
 
     def connection_finished(self):
         self.wifi.setEnabled(True)
         self.bluetooth.setEnabled(True)
+        self.retry_without_phone.setEnabled(True)
 
 
 if __name__ == "__main__":
