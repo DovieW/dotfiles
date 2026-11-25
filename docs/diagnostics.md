@@ -27,6 +27,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | Freeze evidence | Existing 30 seconds | Existing bounded root-only recorder; unchanged |
 | Thread snapshot | Manual or severe I/O pressure | At most 10,000 thread states/wait channels, bounded kernel stacks; no userspace memory |
 | Display resume | System sleep or laptop lid-open | Sleep and display events, built-in and external output state, and bounded KDE session queries for 30 seconds |
+| Wake source | Before and after each system sleep | Kernel-reported wake interrupt, sleep transition markers, wake-source activations and ACPI interrupt count changes |
 | Health | Ten minutes | Service states, recent heartbeats, actual signal canary, archive freshness, selected error/loss checks |
 
 The services run indefinitely and survive reboot. **Sixty days is an age limit,
@@ -75,7 +76,7 @@ sudo pcp atop -a /var/lib/dot-diagnostics/pcp/ARCHIVE_PREFIX
 
 Export includes original journal JSON, timestamp-merged text, overlapping PCP
 archives and JSON summaries, bounded freeze records, saved snapshots, overlapping
-display-resume captures, archived pstore records and core **metadata**. It excludes actual core/kernel memory
+display-resume captures, wake records, archived pstore records and core **metadata**. It excludes actual core/kernel memory
 dumps. The manifest identifies post-incident queries and failed sources. Journal
 exports stop at 200,000 records / 128 MiB per source and report truncation; use a
 narrower window after a log flood. Resource JSON is included separately; pressure,
@@ -116,6 +117,21 @@ On a workstation without a lid, suspend and wake it and check that the new file
 has `pre_sleep`, kernel sleep and display events, connector and session samples, and
 `complete`. Compare to what appeared on the display. Inspect the capture status with
 `journalctl --namespace=diagnostics -u dot-diagnostics-resume-arm.service -u dot-diagnostics-resume.service`.
+
+### Wake source
+
+The systemd sleep hook records each sleep attempt before the kernel transition
+and saves wake evidence before systemd finishes the operation. Each attempt
+has a private trace buffer and a before-and-after comparison of ACPI interrupt
+counters. The post record includes the wake IRQ and its registered handlers
+when the kernel reports an IRQ. Match the boot ID and boot-time timestamps to
+the system journal. Trace activations, shared IRQs and ACPI counter increases
+are candidates and can include activity during suspend preparation or resume.
+
+Root-only JSONL files in `/var/lib/dot-diagnostics/wakes` rotate at 1 MiB per
+file, retaining up to four files. The next capture prunes files last written
+more than 30 days ago. This history is independent of display capture rotation.
+The hook runs only at sleep boundaries and sends no network traffic.
 
 The signal trace observes kernel signal generation, rather than only `kill()`.
 The target is a **thread ID**. Sender PID identifies the execution context, which

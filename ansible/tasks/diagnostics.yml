@@ -67,6 +67,15 @@
     mode: '0755'
   register: dot_diag_resume_script
 
+- name: Install wake-source recording for every system sleep
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/diagnostic-wake"
+    dest: /usr/lib/systemd/system-sleep/dot-diagnostics-wake
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Install signal and resource allowlists
   become: true
   ansible.builtin.copy:

@@ -1,0 +1,200 @@
+#!/usr/bin/python3
+"""Save kernel wake evidence at the systemd sleep boundary."""
+
+import datetime as dt
+import errno
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import time
+
+
+STATE = Path('/var/lib/dot-diagnostics/wakes')
+PENDING = Path('/run/dot-diagnostics-wake.json')
+TRACE = Path('/sys/kernel/tracing/instances/dot-diagnostics-wake')
+POWER = Path('/sys/power')
+ACPI_INTERRUPTS = Path('/sys/firmware/acpi/interrupts')
+IRQ = Path('/sys/kernel/irq')
+BOOT_ID = Path('/proc/sys/kernel/random/boot_id')
+EVENTS = ('power/suspend_resume', 'power/wakeup_source_activate')
+HISTORY_BYTES = 1024 * 1024
+HISTORY_FILES = 4
+HISTORY_AGE = 30 * 86400
+TRACE_BYTES = 128 * 1024
+EVIDENCE_LIMIT = 24
+
+
+def text(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def acpi_counts():
+    counts = {}
+    for path in ACPI_INTERRUPTS.iterdir() if ACPI_INTERRUPTS.is_dir() else ():
+        if not (re.fullmatch(r'gpe[0-9A-Fa-f]+', path.name) or path.name.startswith('ff_')
+                or path.name in ('sci', 'sci_not')):
+            continue
+        value = (text(path) or '').split(maxsplit=1)
+        if value and value[0].isdecimal():
+            counts[path.name] = int(value[0])
+    return counts
+
+
+def wake_irq():
+    try:
+        number = int((POWER / 'pm_wakeup_irq').read_text())
+    except ValueError:
+        return {'status': 'invalid'}
+    except OSError as exc:
+        return {'status': 'none_reported' if exc.errno == errno.ENODATA else 'unavailable'}
+    return {'status': 'reported', 'number': number, 'actions': text(IRQ / str(number) / 'actions')}
+
+
+def remove_trace():
+    if TRACE.is_dir():
+        (TRACE / 'tracing_on').write_text('0')
+        (TRACE / 'events/enable').write_text('0')
+        TRACE.rmdir()
+
+
+def arm_trace():
+    remove_trace()
+    TRACE.mkdir()
+    (TRACE / 'tracing_on').write_text('0')
+    (TRACE / 'buffer_size_kb').write_text('16')
+    clock = TRACE / 'trace_clock'
+    if 'boot' in clock.read_text().replace('[', '').replace(']', '').split():
+        clock.write_text('boot')
+    enabled = []
+    for event in EVENTS:
+        path = TRACE / 'events' / event / 'enable'
+        if path.exists():
+            path.write_text('1')
+            enabled.append(event)
+    (TRACE / 'tracing_on').write_text('1')
+    return {'status': 'armed', 'events': enabled, 'clock': clock.read_text().strip()}
+
+
+def trace_evidence(raw):
+    events = []
+    for line in raw.splitlines():
+        match = re.search(r'\s(\d+\.\d+): (suspend_resume|wakeup_source_activate): (.+)', line)
+        if not match:
+            continue
+        stamp, event, detail = match.groups()
+        if event == 'wakeup_source_activate':
+            detail = detail.split(' state=', 1)[0]
+        elif not re.match(r'(suspend_enter|machine_suspend|suspend_exit|dpm_suspend_noirq|dpm_resume_noirq)\[', detail):
+            continue
+        events.append({'time_s': stamp, 'event': event, 'detail': detail[:96]})
+    omitted = max(0, len(events) - EVIDENCE_LIMIT)
+    if omitted:
+        # Keep both the start of the attempt and the events closest to resume.
+        events = events[:EVIDENCE_LIMIT // 3] + events[-(EVIDENCE_LIMIT * 2 // 3):]
+    return {'events': events, 'events_omitted': omitted}
+
+
+def read_trace():
+    if not TRACE.is_dir():
+        return {'status': 'unavailable'}
+    (TRACE / 'tracing_on').write_text('0')
+    with (TRACE / 'trace').open('rb') as stream:
+        raw = stream.read(TRACE_BYTES + 1)
+    overruns = 0
+    for stats in (TRACE / 'per_cpu').glob('cpu*/stats'):
+        match = re.search(r'^overrun:\s*(\d+)', text(stats) or '', re.MULTILINE)
+        if match:
+            overruns += int(match[1])
+    return dict(status='ok', read_limit=len(raw) > TRACE_BYTES, buffer_overruns=overruns,
+                **trace_evidence(raw[:TRACE_BYTES].decode(errors='replace')))
+
+
+def record(phase, boot_id, **fields):
+    now = dt.datetime.now(dt.timezone.utc)
+    row = dict(utc=now.isoformat(), boot_id=boot_id, phase=phase, **fields)
+    payload = (json.dumps(row, separators=(',', ':')) + '\n').encode()
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    files = []
+    for path in sorted(STATE.glob('*.jsonl')):
+        stat = path.stat()
+        if now.timestamp() - stat.st_mtime > HISTORY_AGE:
+            path.unlink()
+        else:
+            files.append((path, stat.st_size))
+    if files and files[-1][1] + len(payload) <= HISTORY_BYTES:
+        path = files[-1][0]
+        new = False
+    else:
+        path = STATE / now.strftime('%Y%m%dT%H%M%S.%fZ.jsonl')
+        new = True
+        for old, _ in files[:-(HISTORY_FILES - 1)]:
+            old.unlink()
+    with path.open('ab') as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if new:
+        for directory in (STATE, STATE.parent):
+            descriptor = os.open(directory, os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+
+def pre(operation, action, boot_id):
+    stamp = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+    baseline = dict(boot_id=boot_id, operation=operation, action=action, before_ns=stamp,
+                    acpi=acpi_counts())
+    temp = PENDING.with_suffix('.tmp')
+    temp.write_text(json.dumps(baseline))
+    temp.replace(PENDING)
+    try:
+        trace = arm_trace()
+    except OSError as exc:
+        trace = {'status': 'unavailable', 'error': str(exc)}
+    record('pre_sleep', boot_id, operation=operation, action=action, boottime_ns=stamp,
+           mem_sleep=text(POWER / 'mem_sleep'), irq=wake_irq(), trace=trace)
+
+
+def post(operation, action, boot_id):
+    stamp = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+    irq = wake_irq()
+    try:
+        trace = read_trace()
+    except OSError as exc:
+        trace = {'status': 'unavailable', 'error': str(exc)}
+    try:
+        remove_trace()
+    except OSError as exc:
+        trace['cleanup_error'] = str(exc)
+    after = acpi_counts()
+    try:
+        baseline = json.loads(text(PENDING) or '{}')
+    except ValueError:
+        baseline = {}
+    PENDING.unlink(missing_ok=True)
+    paired = (boot_id, operation, action) == tuple(baseline.get(key) for key in ('boot_id', 'operation', 'action'))
+    before = baseline['acpi'] if paired else {}
+    changes = {key: after[key] - count for key, count in sorted(before.items()) if after.get(key, count) > count}
+    record('post_sleep', boot_id, operation=operation, action=action, boottime_ns=stamp,
+           before_ns=baseline['before_ns'] if paired else None, irq=irq,
+           acpi_count_increases=dict(list(changes.items())[:EVIDENCE_LIMIT]),
+           acpi_omitted=max(0, len(changes) - EVIDENCE_LIMIT),
+           acpi_baseline_available=bool(before), trace=trace)
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    phase, operation = sys.argv[1:]
+    action = os.getenv('SYSTEMD_SLEEP_ACTION', operation)
+    boot_id = BOOT_ID.read_text().strip()
+    if phase == 'pre':
+        pre(operation, action, boot_id)
+    elif phase == 'post':
+        post(operation, action, boot_id)

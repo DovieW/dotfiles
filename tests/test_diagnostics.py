@@ -13,6 +13,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 D = runpy.run_path(str(ROOT / 'scripts/diagnostics'))
 RESUME = runpy.run_path(str(ROOT / 'scripts/diagnostic-resume'))
+WAKE = runpy.run_path(str(ROOT / 'scripts/diagnostic-wake'))
 PEER = runpy.run_path(str(ROOT / 'scripts/crash-peer'))
 
 
@@ -42,6 +43,58 @@ class DiagnosticsTests(unittest.TestCase):
             'suspend_resume', 'drm_vblank_event_queued', 'intel_crtc_flip_done', 'drm_vblank_event_delivered'])
         self.assertEqual((events[-1]['first_s'], events[-1]['last_s'], events[-1]['count']), ('82.121', '82.132', 2))
         self.assertNotIn('ffff1234', json.dumps(events))
+
+    def test_wake_trace_preserves_sleep_markers_and_wakeup_device_names(self):
+        result = WAKE['trace_evidence'](
+            ' sleep-10 [000] .... 82.111: suspend_resume: machine_suspend[3] begin\n'
+            ' irq-40 [002] .... 82.120: wakeup_source_activate: ACPI:Event state=0x40210001\n'
+            ' irq-40 [002] .... 82.121: suspend_resume: machine_suspend[3] end\n')
+        self.assertEqual([event['detail'] for event in result['events']], [
+            'machine_suspend[3] begin', 'ACPI:Event', 'machine_suspend[3] end'])
+
+    def test_wake_hook_persists_paired_wake_even_when_tracefs_is_unavailable(self):
+        pre, post = WAKE['pre'], WAKE['post']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pending = root / 'pending.json'
+            state = root / 'wakes'
+            acpi = root / 'acpi'
+            acpi.mkdir()
+            (acpi / 'gpe37').write_text('4 enabled\n')
+            (acpi / 'gpe38').write_text('9 enabled\n')
+            (root / 'pm_wakeup_irq').write_text('9\n')
+            irq = root / '9'
+            irq.mkdir()
+            (irq / 'actions').write_text('acpi\n')
+            with mock.patch.dict(pre.__globals__, {
+                'STATE': state, 'PENDING': pending, 'POWER': root, 'IRQ': root,
+                'ACPI_INTERRUPTS': acpi, 'TRACE': root / 'missing' / 'instance',
+            }):
+                pre('suspend', 'suspend', 'boot')
+                (acpi / 'gpe37').write_text('6 enabled\n')
+                post('suspend', 'suspend', 'boot')
+            before, after = [json.loads(line) for line in next(state.glob('*.jsonl')).read_text().splitlines()]
+            self.assertEqual(before['boottime_ns'], after['before_ns'])
+            self.assertEqual(after['irq'], {'status': 'reported', 'number': 9, 'actions': 'acpi'})
+            self.assertEqual(after['acpi_count_increases'], {'gpe37': 2})
+            self.assertEqual(after['trace']['status'], 'unavailable')
+            self.assertFalse(pending.exists())
+
+    def test_wake_history_stays_bounded_and_survives_a_hundred_retries(self):
+        record = WAKE['record']
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'wakes'
+            with mock.patch.dict(record.__globals__, {'STATE': state}):
+                for i in range(102):
+                    record('pre_sleep', 'boot', attempt=i)
+                    record('post_sleep', 'boot', attempt=i, trace='x' * 3800)
+                self.assertIn('"attempt":0', next(state.glob('*.jsonl')).read_text())
+                for i in range(12):
+                    record('post_sleep', 'boot', attempt=i + 102, trace='x' * (480 * 1024))
+            files = list(state.glob('*.jsonl'))
+            self.assertEqual(len(files), 4)
+            self.assertTrue(all(p.stat().st_size <= 1024 * 1024 for p in files))
+            self.assertIn('"attempt":113', max(files).read_text())
 
     def test_resume_connector_parser_keeps_the_internal_panel_pipe(self):
         state = ('plane[31]: primary\n\tcrtc=pipe A\n'

@@ -535,6 +535,23 @@ def export(args):
                 shutil.copyfile(path, dest / path.name)
         except OSError as exc:
             manifest['warnings'].append(f'resume capture {path.name}: {exc}')
+    wake_lines = []
+    for path in sorted((STATE / 'wakes').glob('*.jsonl')):
+        try:
+            with path.open() as stream:
+                for line in stream:
+                    try:
+                        stamp = dt.datetime.fromisoformat(json.loads(line)['utc']).timestamp()
+                    except (KeyError, TypeError, ValueError):
+                        manifest['warnings'].append(f'invalid wake record in {path.name}')
+                        continue
+                    if start <= stamp <= end:
+                        wake_lines.append(line.rstrip())
+                        timeline.append((int(stamp * 1e6), 'wake', line.rstrip()))
+        except OSError as exc:
+            manifest['warnings'].append(f'wake capture {path.name}: {exc}')
+    if wake_lines:
+        (target / 'wakes.jsonl').write_text('\n'.join(wake_lines) + '\n')
     for label, command in [('cores', ['coredumpctl', '--since', args.since, '--until', args.until, '--no-pager', 'list']),
                            ('units', ['systemctl', 'show', *UNITS, '-p', 'ActiveState', '-p', 'NRestarts', '-p', 'ExecMainStartTimestamp']),
                            ('versions', ['dpkg-query', '-W', 'pcp', 'bpftrace', 'systemd', 'sysstat']),
