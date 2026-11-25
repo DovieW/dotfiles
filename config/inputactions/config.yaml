@@ -7,27 +7,19 @@ emergency_combination: [backspace, enter, space]
 
 touchpad:
   gestures:
-    # Direction-specific triggers follow the reliable native swipe recognition
-    # path while repeated update actions make volume follow the fingers.
+    # Accept motion within 30 degrees of vertical. Use the fine volume shortcuts
+    # so the swipe can track finger movement independently of the media keys.
     - type: swipe
       fingers: 3
-      direction: up
-      accelerated: true
+      angle: 60-120
+      bidirectional: true
       actions:
         - on: update
-          interval: 10
-          input:
-            - keyboard: [volumeup]
-
-    - type: swipe
-      fingers: 3
-      direction: down
-      accelerated: true
-      actions:
+          interval: 2
+          plasma_shortcut: kmix,increase_volume_small
         - on: update
-          interval: 10
-          input:
-            - keyboard: [volumedown]
+          interval: -2
+          plasma_shortcut: kmix,decrease_volume_small
 
     # Windows switches applications with a three-finger horizontal swipe.
     - type: swipe

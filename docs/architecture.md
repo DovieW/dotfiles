@@ -486,17 +486,16 @@ third-party Plasma code is required.
 Plasma 6.6 does not expose configurable touchpad gestures. The Kubuntu profile
 therefore enables the InputActions KWin plugin and tracks its YAML configuration
 in `config/inputactions/config.yaml`. The mapping follows Windows: three-finger
-horizontal swipes cycle applications; continuous direction-specific
-three-finger vertical controls track the fingers through the full volume range;
-and four-finger horizontal swipes move between virtual desktops. Four-finger
-down explicitly exposes the desktop and four-finger up explicitly restores the
+horizontal swipes cycle applications, three-finger vertical swipes track finger
+movement to adjust volume, and four-finger horizontal swipes move between virtual
+desktops. Four-finger down exposes the desktop and four-finger up restores the
 windows. A state-aware adapter works around KWin 6.6 ignoring direct
 `showDesktop(bool)` DBus calls while avoiding the nondeterminism of blindly
 toggling KDE's Show Desktop action.
 
-The volume gesture emits continuous media-key updates. Plasma's global
-volume-change feedback is disabled in the tracked `plasmaparc`, preventing a
-sound on every step while retaining the visual volume display.
+The volume gesture invokes KDE's one-percentage-point volume shortcuts.
+Plasma's volume-change feedback is disabled in the tracked `plasmaparc`,
+preventing a sound on every step while retaining the visual volume display.
 
 InputActions follows the latest stable tags of its control-tool and KWin-plugin
 repositories. Because the plugin links against KWin, the build state records

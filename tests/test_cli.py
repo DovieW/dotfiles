@@ -3789,10 +3789,11 @@ else:
         self.assertIn("fingers: 4", gestures)
         self.assertRegex(
             gestures,
-            r"(?s)fingers: 3\n\s+direction: up\n"
-            r"\s+accelerated: true.*?interval: 10.*?keyboard: "
-            r"\[volumeup\].*?fingers: 3\n\s+direction: down\n"
-            r"\s+accelerated: true.*?interval: 10.*?keyboard: \[volumedown\]",
+            r"fingers: 3\n\s+angle: 60-120\n\s+bidirectional: true\n"
+            r"\s+actions:\n\s+- on: update\n\s+interval: 2\n"
+            r"\s+plasma_shortcut: kmix,increase_volume_small\n"
+            r"\s+- on: update\n\s+interval: -2\n"
+            r"\s+plasma_shortcut: kmix,decrease_volume_small",
         )
         self.assertIn("plasma_shortcut: kwin,Walk Through Windows", gestures)
         self.assertRegex(
