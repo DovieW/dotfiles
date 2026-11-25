@@ -37,13 +37,13 @@ private random token.
    cannot skip restoration. Instant Connect tries the laptop connection as
    soon as it receives `false`.
 3. Wait 30 seconds.
-4. Use Bluetooth → On.
+4. Run Java Code to restore Bluetooth through Tasker Settings, verify
+   `BluetoothAdapter.STATE_ON`, and retry once if needed.
 
-On the S25 Ultra, Tasker's built-in Bluetooth Off action could stall while
-Android kept background BLE available. This code requests the toggle through
-the same Tasker Settings helper and checks Android's public adapter state
-without waiting for the helper's callback. It was tested with Tasker Settings
-2.0.
+On the S25 Ultra, Tasker's built-in Bluetooth actions could change the radio
+state and then stall. These actions request the toggle through the same Tasker
+Settings helper and check Android's public adapter state without waiting for
+the helper's callback. They use Tasker Settings 2.0.
 
 ```java
 adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
@@ -59,6 +59,21 @@ for (int i = 0; i < 30 && adapter.getState() != 10; i++) {
     Thread.sleep(100);
 }
 tasker.setVariable("bt_connected", adapter.getState() != 10);
+```
+
+For the restore action, repeat the setup through `EXTRA_PLUGIN_RECEIVER` with
+`{"value":true}` as the input payload. Then run:
+
+```java
+for (int attempt = 0; attempt < 2 && adapter.getState() != 12; attempt++) {
+    context.startService(request);
+    for (int i = 0; i < 30 && adapter.getState() != 12; i++) {
+        Thread.sleep(100);
+    }
+}
+if (adapter.getState() != 12) {
+    tasker.showToast("Phone Bluetooth did not turn back on.");
+}
 ```
 
 Set `~/.config/instant-connect/phone-handoff.json` (or its equivalent under
