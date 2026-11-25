@@ -6,9 +6,9 @@
   "approved_tags": ["gpu", "meshcentral", "nomachine", "touchpad"],
   "charge_schedule": {
     "full_charge_windows": [
-      {"days": [0, 1, 2, 3, 4, 5, 6], "start": "05:00", "end": "08:00"},
-      {"days": [0, 1, 2, 3], "start": "15:00", "end": "16:30"},
-      {"days": [4], "start": "10:45", "end": "12:15"}
+      {"days": [0, 1, 2, 3, 4, 5, 6], "start": "05:15", "ready": "06:00", "end": "08:00"},
+      {"days": [0, 1, 2, 3], "start": "15:00", "ready": "16:15", "end": "16:30"},
+      {"days": [4], "start": "10:45", "ready": "12:00", "end": "12:15"}
     ]
   },
   "sleep_safety": {

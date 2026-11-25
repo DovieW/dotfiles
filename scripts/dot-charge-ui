@@ -1,0 +1,319 @@
+#!/usr/bin/python3
+"""KDE desktop controls for the IdeaPad charge schedule."""
+
+import datetime as dt
+import json
+import statistics
+import subprocess
+import sys
+
+import dbus
+from PyQt6.QtCore import QProcess, Qt, QTime, QTimer
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import (
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QSpinBox, QTableWidget,
+    QTableWidgetItem, QTabWidget, QTimeEdit, QVBoxLayout, QWidget,
+)
+
+
+COMMAND = '/usr/local/bin/dot-charge'
+UPOWER = 'org.freedesktop.UPower'
+DEVICE = UPOWER + '.Device'
+DAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+
+def battery():
+    return dbus.SystemBus().get_object(UPOWER, '/org/freedesktop/UPower/devices/battery_BAT0', introspect=False)
+
+
+def policy():
+    result = subprocess.run([COMMAND, 'status', '--json'], text=True, capture_output=True, timeout=3)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or 'Could not read the charge policy.')
+    return json.loads(result.stdout)
+
+
+def charging_sessions(rows):
+    """Split observations at power changes or gaps that could include sleep."""
+    sessions = []
+    active = []
+    for stamp, value, state in sorted(rows):
+        row = (int(stamp), float(value))
+        if active and row[0] - active[-1][0] > 300:
+            if len(active) > 1:
+                sessions.append(active)
+            active = []
+        if state == 1:
+            active.append(row)
+        elif active:
+            if state == 4 and value >= active[-1][1]:
+                active.append(row)
+            if len(active) > 1:
+                sessions.append(active)
+            active = []
+    if len(active) > 1:
+        sessions.append(active)
+    return sessions
+
+
+def top_up_minutes(sessions):
+    samples = []
+    for session in sessions:
+        start = next((stamp for stamp, value in session if 80 <= value < 82), None)
+        end = next((stamp for stamp, value in session if start is not None and stamp > start and value >= 98), None)
+        if end is not None:
+            samples.append((end - start) / 60)
+    return samples
+
+
+def timestr(value):
+    return dt.time.fromisoformat(value).strftime('%-I:%M %p')
+
+
+def field(text=''):
+    label = QLabel(text)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setWordWrap(True)
+    return label
+
+
+def table(headers):
+    view = QTableWidget(0, len(headers))
+    view.setHorizontalHeaderLabels(headers)
+    view.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    view.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    view.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+    view.setAlternatingRowColors(True)
+    view.verticalHeader().hide()
+    view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    return view
+
+
+def fill(view, rows):
+    view.setRowCount(len(rows))
+    for index, row in enumerate(rows):
+        for column, value in enumerate(row):
+            view.setItem(index, column, QTableWidgetItem(str(value)))
+
+
+class EditWindow(QDialog):
+    def __init__(self, parent, entry):
+        super().__init__(parent)
+        self.setWindowTitle('Edit charge window')
+        layout = QFormLayout(self)
+        day_row = QHBoxLayout()
+        self.days = []
+        for index, name in enumerate(DAYS):
+            box = QCheckBox(name)
+            box.setChecked(index in entry['days'])
+            self.days.append(box)
+            day_row.addWidget(box)
+        layout.addRow('Days', day_row)
+        self.times = []
+        for label, value in (('Start top-up', entry['start']), ('Ready by', entry.get('ready', entry['end'])),
+                             ('Return to ~80%', entry['end'])):
+            edit = QTimeEdit(QTime.fromString(value, 'HH:mm'))
+            edit.setDisplayFormat('h:mm AP')
+            self.times.append(edit)
+            layout.addRow(label, edit)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def values(self):
+        days = ''.join(str(index) for index, box in enumerate(self.days) if box.isChecked())
+        return [days, *(edit.time().toString('HH:mm') for edit in self.times)]
+
+
+class Window(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Battery Charging')
+        self.resize(660, 480)
+        self.windows = []
+        self.process = QProcess(self)
+        self.process.finished.connect(self.command_finished)
+        self.process.errorOccurred.connect(self.command_error)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
+        live = QGroupBox('Battery now')
+        overview = QVBoxLayout(live)
+        self.level = QProgressBar()
+        self.current = field()
+        self.next = field()
+        overview.addWidget(self.level)
+        overview.addWidget(self.current)
+        overview.addWidget(self.next)
+        outer.addWidget(live)
+
+        self.tabs = QTabWidget()
+        outer.addWidget(self.tabs, 1)
+        self.build_schedule()
+        self.build_history()
+        self.message = field()
+        self.message.setVisible(False)
+        outer.addWidget(self.message)
+
+        self.refresh_status()
+        self.refresh_history()
+        refresh = QTimer(self)
+        refresh.timeout.connect(self.refresh_status)
+        refresh.start(20000)
+
+    def build_schedule(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.events = table(('Days', 'Start top-up', 'Ready by', 'Return to ~80%'))
+        self.events.cellDoubleClicked.connect(self.edit_selected)
+        layout.addWidget(self.events, 1)
+        self.edit = QPushButton('Edit selected window…')
+        self.edit.setIcon(QIcon.fromTheme('document-edit'))
+        self.edit.clicked.connect(self.edit_selected)
+        layout.addWidget(self.edit, 0, Qt.AlignmentFlag.AlignRight)
+
+        overrides = QGroupBox('Temporary override')
+        row = QHBoxLayout(overrides)
+        self.target = QComboBox()
+        self.target.addItem('Limit to ~80%', 80)
+        self.target.addItem('Allow 100%', 100)
+        row.addWidget(self.target, 1)
+        self.amount = QSpinBox()
+        self.amount.setRange(1, 9999)
+        self.amount.setValue(2)
+        self.amount.setAccessibleName('Duration')
+        row.addWidget(self.amount)
+        self.units = QComboBox()
+        self.units.addItem('hours', 'h')
+        self.units.addItem('days', 'd')
+        row.addWidget(self.units)
+        self.hold = QPushButton('Apply')
+        self.hold.clicked.connect(self.apply_override)
+        row.addWidget(self.hold)
+        self.auto = QPushButton('Resume schedule')
+        self.auto.clicked.connect(lambda: self.run_command(['auto']))
+        row.addWidget(self.auto)
+        layout.addWidget(overrides)
+        self.tabs.addTab(page, 'Schedule')
+
+    def build_history(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        heading = QHBoxLayout()
+        self.history_summary = field()
+        heading.addWidget(self.history_summary, 1)
+        refresh = QPushButton('Refresh')
+        refresh.setIcon(QIcon.fromTheme('view-refresh'))
+        refresh.clicked.connect(self.refresh_history)
+        heading.addWidget(refresh)
+        layout.addLayout(heading)
+        self.history = table(('Started', 'Charge gained', 'Observed time', 'Median battery watts'))
+        layout.addWidget(self.history, 1)
+        self.tabs.addTab(page, 'Recent charging')
+
+    def notice(self, text):
+        self.message.setText(text)
+        self.message.setVisible(bool(text))
+
+    def refresh_status(self):
+        try:
+            data = policy()
+            props = battery().GetAll(DEVICE, dbus_interface='org.freedesktop.DBus.Properties', timeout=2)
+        except (OSError, ValueError, subprocess.TimeoutExpired, dbus.DBusException) as exc:
+            self.notice(str(exc))
+            return
+        self.level.setValue(data['battery'])
+        state = int(props.get('State', 0))
+        rate = float(props.get('EnergyRate', 0))
+        watts = f'Charging · {rate:.0f} W into battery' if state == 1 else (
+            f'Discharging · {rate:.0f} W draw' if state == 2 else 'Battery idle')
+        health = float(props.get('Capacity', 0))
+        self.current.setText(f'{watts}   ·   {health:.1f}% health   ·   {props.get("ChargeCycles", "—")} cycles')
+        timestamp = dt.datetime.fromtimestamp(data['next']).strftime('%a %-I:%M %p')
+        self.next.setText(f'{data["mode"]}   ·   {data["reason"].capitalize()} {timestamp}')
+        self.auto.setEnabled(bool(data['override']) and self.process.state() == QProcess.ProcessState.NotRunning)
+        if data['windows'] != self.windows:
+            selected = max(0, self.events.currentRow())
+            self.windows = data['windows']
+            fill(self.events, [(self.day_label(entry['days']), timestr(entry['start']),
+                                timestr(entry.get('ready', entry['end'])), timestr(entry['end']))
+                               for entry in self.windows])
+            self.events.selectRow(min(selected, len(self.windows) - 1))
+
+    @staticmethod
+    def day_label(days):
+        if days == list(range(7)):
+            return 'Every day'
+        if len(days) > 1 and days == list(range(days[0], days[-1] + 1)):
+            return f'{DAYS[days[0]]}–{DAYS[days[-1]]}'
+        return ', '.join(DAYS[day] for day in days)
+
+    def refresh_history(self):
+        try:
+            device = battery()
+            week = dbus.UInt32(7 * 86400)
+            rows = device.GetHistory('charge', week, dbus.UInt32(3500), dbus_interface=DEVICE, timeout=3)
+            rates = device.GetHistory('rate', week, dbus.UInt32(6000), dbus_interface=DEVICE, timeout=3)
+        except (OSError, dbus.DBusException) as exc:
+            self.history_summary.setText(f'Battery history unavailable. {exc}')
+            return
+        sessions = charging_sessions(rows)
+        recent = [session for session in sessions if session[-1][1] > session[0][1]]
+        minutes = top_up_minutes(recent)
+        summary = f'Last 7 days · {len(recent)} recorded charging sessions'
+        if minutes:
+            summary += f' · 80–98% median {statistics.median(minutes):.0f} min ({len(minutes)} samples)'
+        self.history_summary.setText(summary + '\nGaps over five minutes split the recorded sessions. Watts are measured at the battery.')
+        history_rows = []
+        for session in reversed(recent):
+            start, opening = session[0]
+            end, closing = session[-1]
+            samples = [float(watts) for stamp, watts, state in rates if start <= stamp <= end and state == 1 and watts > 0]
+            history_rows.append((dt.datetime.fromtimestamp(start).strftime('%a %b %d, %-I:%M %p'),
+                                 f'{opening:.0f}% → {closing:.0f}%', f'{(end - start) / 60:.0f} min',
+                                 f'{statistics.median(samples):.0f} W' if samples else '—'))
+        fill(self.history, history_rows)
+
+    def edit_selected(self, *_):
+        index = self.events.currentRow()
+        if not 0 <= index < len(self.windows) or self.process.state() != QProcess.ProcessState.NotRunning:
+            return
+        dialog = EditWindow(self, self.windows[index])
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.run_command(['set-window', str(index), *dialog.values()])
+
+    def apply_override(self):
+        duration = f'{self.amount.value()}{self.units.currentData()}'
+        self.run_command(['hold', duration, '--percent', str(self.target.currentData())])
+
+    def run_command(self, args):
+        self.hold.setEnabled(False)
+        self.auto.setEnabled(False)
+        self.edit.setEnabled(False)
+        self.notice('Applying…')
+        self.process.start(COMMAND, args)
+
+    def command_finished(self, code, _status):
+        error = bytes(self.process.readAllStandardError()).decode(errors='replace').strip()
+        self.notice('Saved.' if code == 0 else error or 'Could not save the charge settings.')
+        self.hold.setEnabled(True)
+        self.edit.setEnabled(True)
+        self.refresh_status()
+
+    def command_error(self, error):
+        if error == QProcess.ProcessError.FailedToStart:
+            self.command_finished(1, None)
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    app.setDesktopFileName('io.github.doview.battery-charging')
+    app.setWindowIcon(QIcon.fromTheme('battery'))
+    window = Window()
+    window.show()
+    exit_code = app.exec()
+    if window.process.state() != QProcess.ProcessState.NotRunning:
+        window.process.waitForFinished(10000)
+    sys.exit(exit_code)

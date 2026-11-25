@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Battery Charging
+Comment=Edit charge schedules, set temporary limits, and view recent battery charging
+Keywords=battery;charge;charging;power;schedule;conservation;top-up;
+Exec=/usr/local/bin/dot-charge-ui
+Icon=battery
+Terminal=false
+Categories=Settings;
+StartupNotify=true

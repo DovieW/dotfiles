@@ -43,14 +43,30 @@ def schedule(now, windows):
     return (100 if active else 80), min(upcoming).timestamp()
 
 
-def policy(now):
+def read_windows():
+    try:
+        path = STATE / 'schedule.json'
+        data = path.read_text()
+    except FileNotFoundError:
+        data = CONFIG.read_text()
+    return json.loads(data)['full_charge_windows']
+
+
+def current_override(now):
     try:
         override = json.loads((STATE / 'override.json').read_text())
     except FileNotFoundError:
         override = None
     if override and now.timestamp() < override['until']:
+        return override
+    return None
+
+
+def policy(now):
+    override = current_override(now)
+    if override:
         return override['percent'], override['until'], 'override expires'
-    percent, deadline = schedule(now, json.loads(CONFIG.read_text())['full_charge_windows'])
+    percent, deadline = schedule(now, read_windows())
     return percent, deadline, 'schedule changes'
 
 
@@ -101,48 +117,90 @@ def watch():
         os.close(fd)
 
 
-def update_override(args):
+def write_json(path, value):
+    temp = path.with_suffix('.tmp')
+    temp.write_text(json.dumps(value) + '\n')
+    temp.replace(path)
+
+
+def edit_window(args):
+    windows = read_windows()
+    if not 0 <= args.index < len(windows):
+        raise ValueError('Unknown schedule row.')
+    if not re.fullmatch(r'[0-6]{1,7}', args.days) or len(set(args.days)) != len(args.days):
+        raise ValueError('Choose at least one day.')
+    for value in (args.start, args.ready, args.end):
+        if not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', value):
+            raise ValueError('Times must use HH:MM.')
+    if not args.start < args.ready <= args.end:
+        raise ValueError('Start must come before Ready by, and the window must stay open until that deadline.')
+    window = dict(days=sorted(map(int, args.days)), start=args.start, ready=args.ready, end=args.end)
+    for index, other in enumerate(windows):
+        if (index != args.index and set(window['days']).intersection(other['days'])
+                and window['start'] < other['end'] and other['start'] < window['end']):
+            raise ValueError('Charge windows on the same day must not overlap.')
+    windows[args.index] = window
+    path = STATE / 'schedule.json'
+    if windows == json.loads(CONFIG.read_text())['full_charge_windows']:
+        path.unlink(missing_ok=True)
+    else:
+        write_json(path, {'full_charge_windows': windows})
+
+
+def update(args):
     with lock():
         path = STATE / 'override.json'
-        if args.action == 'auto':
+        if args.action == 'set-window':
+            edit_window(args)
+        elif args.action == 'auto':
             path.unlink(missing_ok=True)
         else:
             seconds = int(args.duration[:-1]) * (3600 if args.duration.endswith('h') else 86400)
             override = dict(percent=args.percent, until=int(dt.datetime.now().timestamp()) + seconds)
-            temp = path.with_suffix('.tmp')
-            temp.write_text(json.dumps(override) + '\n')
-            temp.replace(path)
+            write_json(path, override)
         apply(policy(dt.datetime.now())[0])
     subprocess.run(['/usr/bin/systemctl', 'restart', UNIT], check=True)
 
 
-def status():
-    percent, deadline, reason = policy(dt.datetime.now())
+def status(as_json=False):
+    now = dt.datetime.now()
+    percent, deadline, reason = policy(now)
     mode = 'Conservation (~80%)' if charge_mode() == 'Long_Life' else 'Full charge'
-    print(f'Battery {int(BATTERY_PERCENT.read_text())}% · {mode}')
+    battery = int(BATTERY_PERCENT.read_text())
+    if as_json:
+        print(json.dumps(dict(battery=battery, mode=mode, target=percent, next=deadline, reason=reason,
+                              override=current_override(now), windows=read_windows())))
+        return
+    print(f'Battery {battery}% · {mode}')
     print(f'Target {percent}% · {reason} at {dt.datetime.fromtimestamp(deadline).astimezone():%a %b %d %I:%M %p %Z}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action')
-    sub.add_parser('status', help='Show the current battery and charge policy')
+    sub.add_parser('status', help='Show the current battery and charge policy').add_argument('--json', action='store_true')
     hold = sub.add_parser('hold', help='Temporarily override the charge policy')
     hold.add_argument('duration', type=duration, help='A duration such as 2h or 3d')
     hold.add_argument('--percent', type=int, choices=(80, 100), default=80)
     sub.add_parser('auto', help='Clear the override and resume the schedule')
+    window = sub.add_parser('set-window', help='Edit a scheduled charge window')
+    window.add_argument('index', type=int)
+    for field in ('days', 'start', 'ready', 'end'):
+        window.add_argument(field)
     sub.add_parser('watch', help=argparse.SUPPRESS)
     sub.add_parser('reconcile', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.action in (None, 'status'):
-        status()
-    elif args.action in ('hold', 'auto'):
+        status(getattr(args, 'json', False))
+    elif args.action in ('hold', 'auto', 'set-window'):
         if os.geteuid() != 0:
             command = ['/usr/bin/sudo', '-n', '/usr/local/bin/dot-charge', args.action]
             if args.action == 'hold':
                 command.extend([args.duration, '--percent', str(args.percent)])
+            elif args.action == 'set-window':
+                command.extend([str(args.index), args.days, args.start, args.ready, args.end])
             os.execv(command[0], command)
-        update_override(args)
+        update(args)
         status()
     elif args.action == 'watch':
         watch()

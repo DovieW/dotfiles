@@ -30,12 +30,40 @@
     - {src: 'config/systemd/system-sleep/dot-charge', dest: '/usr/lib/systemd/system-sleep/dot-charge', mode: '0755'}
   register: dot_charge_files
 
+- name: Install Qt and UPower bindings for the battery controls
+  become: true
+  ansible.builtin.apt:
+    name: [python3-pyqt6, python3-dbus]
+    state: present
+
+- name: Install the Battery Charging app and launcher
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: 'scripts/dot-charge-ui', dest: '/usr/local/bin/dot-charge-ui', mode: '0755'}
+    - src: config/applications/io.github.doview.battery-charging.desktop
+      dest: /usr/share/applications/io.github.doview.battery-charging.desktop
+      mode: '0644'
+  register: dot_charge_launcher
+
+- name: Refresh the KDE launcher cache for Battery Charging
+  ansible.builtin.command:
+    argv: [kbuildsycoca6, --noincremental]
+  changed_when: false
+  when: dot_charge_launcher.changed and not ansible_check_mode
+
 - name: Allow the local owner to set or clear a temporary charge override
   become: true
   ansible.builtin.copy:
     content: |
       {{ ansible_facts.user_id }} ALL=(root) NOPASSWD: /usr/local/bin/dot-charge auto
       {{ ansible_facts.user_id }} ALL=(root) NOPASSWD: /usr/local/bin/dot-charge hold *
+      {{ ansible_facts.user_id }} ALL=(root) NOPASSWD: /usr/local/bin/dot-charge set-window *
     dest: /etc/sudoers.d/93-dot-charge
     owner: root
     group: root
