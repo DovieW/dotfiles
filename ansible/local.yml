@@ -1009,6 +1009,42 @@
       when: dot_device_manifest.sleep_safety is not defined
       tags: [config, power]
 
+    - name: Disable AC adapter wake on the managed IdeaPad
+      become: true
+      when: (dot_device_manifest.device_id | default('')) == 'dovie-ideapad-linux'
+      tags: [config, power]
+      block:
+        - name: Install the IdeaPad adapter wake rule
+          ansible.builtin.copy:
+            src: "{{ dot_repo }}/config/udev/90-dotfiles-ideapad-adapter-wake.rules"
+            dest: /etc/udev/rules.d/90-dotfiles-ideapad-adapter-wake.rules
+            owner: root
+            group: root
+            mode: "0644"
+          register: dot_ideapad_adapter_rule
+
+        - name: Read the current AC adapter wake setting
+          ansible.builtin.slurp:
+            src: /sys/class/power_supply/ADP0/power/wakeup
+          register: dot_ideapad_adapter_wake
+          when: not ansible_check_mode
+
+        - name: Reload udev for the IdeaPad adapter rule
+          ansible.builtin.command:
+            argv: [udevadm, control, --reload-rules]
+          changed_when: false
+          when:
+            - not ansible_check_mode
+            - dot_ideapad_adapter_rule.changed or (dot_ideapad_adapter_wake.content | b64decode | trim) == 'enabled'
+
+        - name: Apply the AC adapter wake rule to ADP0
+          ansible.builtin.command:
+            argv: [udevadm, trigger, --action=change, --settle, /sys/class/power_supply/ADP0]
+          changed_when: true
+          when:
+            - not ansible_check_mode
+            - (dot_ideapad_adapter_wake.content | b64decode | trim) == 'enabled'
+
     - name: Make the IdeaPad screenshot key emit Print
       become: true
       ansible.builtin.copy:

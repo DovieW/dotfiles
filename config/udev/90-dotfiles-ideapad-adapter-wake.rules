@@ -1,0 +1,2 @@
+# The power-supply driver can publish its wake attribute after the add event.
+ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="ADP0", KERNELS=="ACPI0003:00", ATTR{power/wakeup}=="enabled", ATTR{power/wakeup}="disabled"
