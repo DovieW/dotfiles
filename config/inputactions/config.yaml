@@ -7,22 +7,24 @@ emergency_combination: [backspace, enter, space]
 
 touchpad:
   gestures:
-    # Accept motion within 45 degrees of vertical. The socket worker combines
-    # pending steps before writing to PipeWire, even during a fast swipe.
+    # Accept motion within 45 degrees of vertical. Twenty-five steps cover the
+    # full volume range. Cap extra steps to keep long swipes from queuing work.
     - type: swipe
       fingers: 3
       angle: 45-135
       bidirectional: true
       actions:
         - on: update
-          interval: 1.5
+          interval: 16
+          limit: 28
           wait: true
           command: >-
             [ -p "$XDG_RUNTIME_DIR/dot-volume-swipe" ] &&
             printf + | dd status=none conv=nocreat,notrunc oflag=nonblock,nofollow
             of="$XDG_RUNTIME_DIR/dot-volume-swipe"
         - on: update
-          interval: -1.5
+          interval: -16
+          limit: 28
           wait: true
           command: >-
             [ -p "$XDG_RUNTIME_DIR/dot-volume-swipe" ] &&

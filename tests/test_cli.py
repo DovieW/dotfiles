@@ -3790,10 +3790,10 @@ else:
         self.assertRegex(
             gestures,
             r"fingers: 3\n\s+angle: 45-135\n\s+bidirectional: true\n"
-            r"\s+actions:\n\s+- on: update\n\s+interval: 1\.5\n"
+            r"\s+actions:\n\s+- on: update\n\s+interval: 16\n\s+limit: 28\n"
             r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
             r"\s+printf \+ \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"\n"
-            r"\s+- on: update\n\s+interval: -1\.5\n"
+            r"\s+- on: update\n\s+interval: -16\n\s+limit: 28\n"
             r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
             r"\s+printf -- - \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"",
         )
