@@ -21,6 +21,34 @@ OsdWindow {
     property alias osdAdditionalText: osd.osdAdditionalText
     property alias showingProgress: osd.showingProgress
     property string icon
+    readonly property bool showingOutputVolume: visible && showingProgress
+        && /^audio-volume-(low|medium|high(?:-warning|-danger)?)$/.test(icon)
+    property real volumeFill: 0
+
+    onShowingOutputVolumeChanged: {
+        fillAnimation.stop();
+        if (showingOutputVolume) {
+            volumeFill = osd.progressTarget;
+        }
+    }
+
+    function updateVolumeFill() {
+        if (!showingOutputVolume || volumeFill === osd.progressTarget) {
+            return;
+        }
+        fillAnimation.stop();
+        fillAnimation.from = volumeFill;
+        fillAnimation.to = osd.progressTarget;
+        fillAnimation.start();
+    }
+
+    NumberAnimation {
+        id: fillAnimation
+        target: root
+        property: "volumeFill"
+        duration: 85
+        easing.type: Easing.OutCubic
+    }
 
     function outputIcon(volumeIcon, output) {
         if (!/^audio-volume-(low|medium|high)$/.test(volumeIcon) || !output) {
@@ -70,5 +98,8 @@ OsdWindow {
     mainItem: OsdItem {
         id: osd
         icon: root.outputIcon(root.icon, Audio.PreferredDevice.sink)
+        barProgress: root.showingOutputVolume ? root.volumeFill : progressTarget
+        // Plasma sets the value and icon in sequence.
+        onProgressTargetChanged: Qt.callLater(root.updateVolumeFill)
     }
 }

@@ -18,6 +18,16 @@
 - name: Configure the device-aware volume popup
   when: dot_audio_osd_stock | length > 0
   block:
+    - name: Render the volume bar customization for the installed Plasma version
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_facts.python.executable }}"
+          - "{{ dot_repo }}/config/plasma/audio-osd/render-item.py"
+          - "{{ dot_audio_osd_stock }}"
+      register: dot_audio_osd_item
+      changed_when: false
+      check_mode: false
+
     - name: Create Plasma OSD override directories
       ansible.builtin.file:
         path: "{{ item }}"
@@ -34,12 +44,18 @@
         mode: "0644"
       loop: [qmldir, Osd.qml]
 
-    - name: Link the packaged Plasma OSD renderer and plugin
+    - name: Install the generated Plasma OSD renderer
+      ansible.builtin.copy:
+        content: "{{ dot_audio_osd_item.stdout }}\n"
+        dest: "{{ dot_audio_osd_module }}/OsdItem.qml"
+        follow: false
+        mode: "0644"
+
+    - name: Link the packaged Plasma OSD plugin
       ansible.builtin.file:
-        src: "{{ dot_audio_osd_stock | dirname }}/{{ item }}"
-        dest: "{{ dot_audio_osd_module }}/{{ item }}"
+        src: "{{ dot_audio_osd_stock | dirname }}/libplasmashell_osd.so"
+        dest: "{{ dot_audio_osd_module }}/libplasmashell_osd.so"
         state: link
-      loop: [OsdItem.qml, libplasmashell_osd.so]
 
     - name: Enable the OSD override in the Plasma shell
       ansible.builtin.copy:

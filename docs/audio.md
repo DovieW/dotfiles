@@ -45,6 +45,9 @@ HDMI or DisplayPort uses a display icon. USB audio interfaces and digital output
 with no more specific match use a sound-card icon. Mute and high-volume warnings
 use Plasma's standard icons.
 
+The bar animates between output volume levels while the percentage displays the
+actual level. The animation also applies to hardware volume keys.
+
 Apply with `bin/dot apply --profile kubuntu-laptop --tags audio-osd`, then
 log out and back in or restart the `plasma-plasmashell.service` user unit.
 
