@@ -207,8 +207,9 @@ def release_phone_earbuds(progress, address):
                     if state == b"false":
                         return None
                     if state == b"true":
-                        return ("The earbuds are still connected to your phone. "
-                                "Open their Bluetooth settings on your phone, tap Disconnect, then try again.")
+                        return ("Your phone still reports a Bluetooth link to the earbuds. "
+                                "If the earbuds show Disconnected in your phone's settings, "
+                                "select Try laptop connection anyway.")
                 if response.status == 503:
                     return "Tasker timed out before it could confirm the earbuds were disconnected."
         except (OSError, ValueError, http.client.HTTPException):

@@ -26,8 +26,12 @@ For one paired headset, Instant Connect can ask Tasker to release it from the
 phone before connecting. Create a Tasker HTTP Request event for `POST /7334`
 on port 7334, with no quick response and a 10-second timeout. The task should
 use Bluetooth Connection → Disconnect for that headset with a 2-second
-timeout and **Continue Task After Error** enabled, then Bluetooth Info →
-Single Device for the same address.
+timeout and **Continue Task After Error** enabled. On Android 36.1 or later,
+use Tasker's Java Code action to get the paired `BluetoothDevice`, check
+`isConnected(int)` for both classic Bluetooth and LE, and set
+`%bt_connected` to the result. Poll briefly to let a pending disconnect
+finish. Bluetooth Info → Single Device can open a new LE link while
+collecting device information, so omit that action from the handoff.
 Scope the disconnect and HTTP Response
 actions to requests whose `%http_request_body` matches a private random token.
 Have HTTP Response use `%http_request_id`, status 200, and a text body of
