@@ -18,39 +18,67 @@ def wpctl(*arguments):
     ).strip()
 
 
-def apply_motion(events):
-    description = wpctl("inspect", "@DEFAULT_AUDIO_SINK@")
-    sink = description.partition(",")[0].removeprefix("id ")
-    if not sink.isdecimal():
-        raise ValueError("Could not identify the default audio output")
-    fields = wpctl("get-volume", sink).split()
-    initial = round(float(fields[1]) * 100)
-    volume = initial
-    for event in events:
-        if event == ord("+"):
-            volume = min(100, volume + STEP)
-        elif event == ord("-"):
-            volume = max(0, volume - STEP)
+class VolumeSwipe:
+    def __init__(self, show_volume):
+        self.show_volume = show_volume
+        self.sink = None
+        self.volume = 0
+        self.muted = False
 
-    unmute = volume > 0 and b"+" in events and "[MUTED]" in fields
-    if volume == initial and not unmute:
-        return
-    if volume != initial:
-        wpctl("set-volume", sink, f"{volume}%")
-    if unmute:
-        wpctl("set-mute", sink, "0")
-    subprocess.run(
-        [
-            "/usr/bin/busctl", "--user", "--expect-reply=no", "call",
-            "org.kde.plasmashell", "/org/kde/osdService", "org.kde.osdService",
-            "volumeChanged", "i", str(volume),
-        ],
-        check=False,
-        timeout=1,
-    )
+    def receive(self, events):
+        while events:
+            motion, ended, events = events.partition(b"|")
+            if motion:
+                self.apply_motion(motion)
+            if ended:
+                self.sink = None
+
+    def apply_motion(self, events):
+        if self.sink is None:
+            # Pin the output and read its current level once per swipe.
+            description = wpctl("inspect", "@DEFAULT_AUDIO_SINK@")
+            sink = description.partition(",")[0].removeprefix("id ")
+            if not sink.isdecimal():
+                raise ValueError("Could not identify the default audio output")
+            fields = wpctl("get-volume", sink).split()
+            self.volume = round(float(fields[1]) * 100)
+            self.muted = "[MUTED]" in fields
+            self.sink = sink
+
+        volume = self.volume
+        for event in events:
+            if event == ord("+"):
+                volume = min(100, volume + STEP)
+            elif event == ord("-"):
+                volume = max(0, volume - STEP)
+
+        unmute = volume > 0 and b"+" in events and self.muted
+        if volume == self.volume and not unmute:
+            return
+        if volume != self.volume:
+            wpctl("set-volume", self.sink, f"{volume}%")
+            self.volume = volume
+        if unmute:
+            wpctl("set-mute", self.sink, "0")
+            self.muted = False
+        self.show_volume(volume)
 
 
 def main():
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+    def show_volume(percent):
+        message = Gio.DBusMessage.new_method_call(
+            "org.kde.plasmashell", "/org/kde/osdService",
+            "org.kde.osdService", "volumeChanged",
+        )
+        message.set_body(GLib.Variant("(i)", (percent,)))
+        message.set_flags(Gio.DBusMessageFlags.NO_REPLY_EXPECTED)
+        bus.send_message(message, Gio.DBusSendMessageFlags.NONE)
+
+    swipe = VolumeSwipe(show_volume)
     # The socket remains open even when the worker exits between swipes.
     while select([INPUT_FD], [], [], IDLE_SECONDS)[0]:
         events = os.read(INPUT_FD, 4096)
@@ -58,8 +86,9 @@ def main():
             return
         try:
             # Read all pending motion once and publish one update for the batch.
-            apply_motion(events)
-        except (IndexError, OSError, ValueError, subprocess.SubprocessError) as error:
+            swipe.receive(events)
+        except (GLib.Error, IndexError, OSError, ValueError, subprocess.SubprocessError) as error:
+            swipe.sink = None
             logging.warning("Volume swipe could not update the audio output: %s", error)
 
 

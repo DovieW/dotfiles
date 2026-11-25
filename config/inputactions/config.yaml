@@ -8,7 +8,7 @@ emergency_combination: [backspace, enter, space]
 touchpad:
   gestures:
     # Accept motion within 45 degrees of vertical. Twenty-five steps cover the
-    # full volume range. Cap extra steps to keep long swipes from queuing work.
+    # full volume range. Allow reversals without exhausting a direction.
     - type: swipe
       fingers: 3
       angle: 45-135
@@ -16,7 +16,6 @@ touchpad:
       actions:
         - on: update
           interval: 16
-          limit: 28
           wait: true
           command: >-
             [ -p "$XDG_RUNTIME_DIR/dot-volume-swipe" ] &&
@@ -24,11 +23,17 @@ touchpad:
             of="$XDG_RUNTIME_DIR/dot-volume-swipe"
         - on: update
           interval: -16
-          limit: 28
           wait: true
           command: >-
             [ -p "$XDG_RUNTIME_DIR/dot-volume-swipe" ] &&
             printf -- - | dd status=none conv=nocreat,notrunc oflag=nonblock,nofollow
+            of="$XDG_RUNTIME_DIR/dot-volume-swipe"
+        - on: end_cancel
+          conflicting: false
+          wait: true
+          command: >-
+            [ -p "$XDG_RUNTIME_DIR/dot-volume-swipe" ] &&
+            printf '|' | dd status=none conv=nocreat,notrunc oflag=nonblock,nofollow
             of="$XDG_RUNTIME_DIR/dot-volume-swipe"
 
     # Windows switches applications with a three-finger horizontal swipe.

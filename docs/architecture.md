@@ -494,9 +494,10 @@ windows. A state-aware adapter works around KWin 6.6 ignoring direct
 toggling KDE's Show Desktop action.
 
 The volume gesture sends four-percentage-point steps to a user socket. The
-worker combines pending steps into one PipeWire update and shows Plasma's
-volume indicator as the volume changes. The worker exits after a brief idle
-period. Plasma's volume-change sound is disabled in the tracked `plasmaparc`.
+worker reads the output and its level at the start of the swipe, batches pending
+steps, and updates Plasma's volume indicator directly over D-Bus. The worker
+exits after a brief idle period. Plasma's volume-change sound is disabled in the
+tracked `plasmaparc`.
 
 InputActions follows the latest stable tags of its control-tool and KWin-plugin
 repositories. Because the plugin links against KWin, the build state records

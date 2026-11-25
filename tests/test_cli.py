@@ -3790,13 +3790,14 @@ else:
         self.assertRegex(
             gestures,
             r"fingers: 3\n\s+angle: 45-135\n\s+bidirectional: true\n"
-            r"\s+actions:\n\s+- on: update\n\s+interval: 16\n\s+limit: 28\n"
+            r"\s+actions:\n\s+- on: update\n\s+interval: 16\n"
             r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
             r"\s+printf \+ \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"\n"
-            r"\s+- on: update\n\s+interval: -16\n\s+limit: 28\n"
+            r"\s+- on: update\n\s+interval: -16\n"
             r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
             r"\s+printf -- - \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"",
         )
+        self.assertIn("printf '|' | dd", gestures)
         socket = (ROOT / "config/systemd/user/dot-volume-swipe.socket").read_text()
         service = (ROOT / "config/systemd/user/dot-volume-swipe.service").read_text()
         self.assertIn("ListenFIFO=%t/dot-volume-swipe", socket)
@@ -3834,29 +3835,48 @@ else:
         self.assertIn('"gestures"', cli)
 
     def test_volume_swipe_batches_steps_and_preserves_reversal_at_the_limit(self):
-        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))
-        apply_motion = swipe["apply_motion"]
+        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))["VolumeSwipe"]
+        osd = mock.Mock()
+        gesture = swipe(osd)
         backend = mock.Mock(side_effect=["id 27, type PipeWire:Interface:Node", "Volume: 0.96", ""])
-        with mock.patch.dict(apply_motion.__globals__, {"wpctl": backend}), \
-             mock.patch("subprocess.run") as osd:
-            apply_motion(b"+++--")
+        with mock.patch.dict(swipe.apply_motion.__globals__, {"wpctl": backend}):
+            gesture.receive(b"+++--")
         self.assertEqual(backend.call_args_list, [
             mock.call("inspect", "@DEFAULT_AUDIO_SINK@"),
             mock.call("get-volume", "27"),
             mock.call("set-volume", "27", "92%"),
         ])
-        self.assertEqual(osd.call_args.args[0][-3:], ["volumeChanged", "i", "92"])
+        osd.assert_called_once_with(92)
 
     def test_volume_swipe_unmutes_when_raised_from_zero(self):
-        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))
-        apply_motion = swipe["apply_motion"]
+        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))["VolumeSwipe"]
+        gesture = swipe(mock.Mock())
         backend = mock.Mock(side_effect=["id 27, type PipeWire:Interface:Node", "Volume: 0.00 [MUTED]", "", ""])
-        with mock.patch.dict(apply_motion.__globals__, {"wpctl": backend}), \
-             mock.patch("subprocess.run"):
-            apply_motion(b"+")
+        with mock.patch.dict(swipe.apply_motion.__globals__, {"wpctl": backend}):
+            gesture.receive(b"+")
         self.assertEqual(backend.call_args_list[-2:], [
             mock.call("set-volume", "27", "4%"),
             mock.call("set-mute", "27", "0"),
+        ])
+
+    def test_volume_swipe_reuses_output_until_the_gesture_ends(self):
+        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))["VolumeSwipe"]
+        gesture = swipe(mock.Mock())
+        backend = mock.Mock(side_effect=[
+            "id 27, type PipeWire:Interface:Node", "Volume: 0.50", "", "",
+            "id 30, type PipeWire:Interface:Node", "Volume: 0.24", "",
+        ])
+        with mock.patch.dict(swipe.apply_motion.__globals__, {"wpctl": backend}):
+            gesture.receive(b"-")
+            gesture.receive(b"-|-")
+        self.assertEqual(backend.call_args_list, [
+            mock.call("inspect", "@DEFAULT_AUDIO_SINK@"),
+            mock.call("get-volume", "27"),
+            mock.call("set-volume", "27", "46%"),
+            mock.call("set-volume", "27", "42%"),
+            mock.call("inspect", "@DEFAULT_AUDIO_SINK@"),
+            mock.call("get-volume", "30"),
+            mock.call("set-volume", "30", "20%"),
         ])
 
     def test_kubuntu_scopes_touchpad_jump_workaround(self):
