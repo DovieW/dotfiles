@@ -22,27 +22,50 @@ Install with `bin/dot apply --profile kubuntu-laptop --tags connection-check`.
 
 ## Optional phone handoff
 
-For one paired headset, Instant Connect can ask Tasker to release it from the
-phone before connecting. Create a Tasker HTTP Request event for `POST /7334`
-on port 7334, with no quick response and a 10-second timeout. The task should
-use Bluetooth Connection → Disconnect for that headset with a 2-second
-timeout and **Continue Task After Error** enabled. On Android 36.1 or later,
-use Tasker's Java Code action to get the paired `BluetoothDevice`, check
-`isConnected(int)` for both classic Bluetooth and LE, and set
-`%bt_connected` to the result. Poll briefly to let a pending disconnect
-finish. Bluetooth Info → Single Device can open a new LE link while
-collecting device information, so omit that action from the handoff.
-Scope the disconnect and HTTP Response
-actions to requests whose `%http_request_body` matches a private random token.
-Have HTTP Response use `%http_request_id`, status 200, and a text body of
-`%bt_connected`. The launcher proceeds only on a successful response of
-`false`.
+For one paired headset, Instant Connect can ask Tasker to pause the phone's
+Bluetooth before connecting. Other phone Bluetooth accessories also disconnect
+briefly. Create a Tasker HTTP Request event for `POST /7334` on port 7334, with
+no quick response and a 10-second timeout. Set collision handling to
+**Abort New Task** so a repeated request cannot interrupt Bluetooth restoration.
+Give all four actions the same condition matching `%http_request_body` to a
+private random token.
+
+1. Run the Java Code below to request Bluetooth off through Tasker Settings.
+   Enable **Continue Task After Error**.
+2. Use HTTP Response with `%http_request_id`, status 200, and a text body of
+   `%bt_connected`. Enable **Continue Task After Error** so a lost response
+   cannot skip restoration. Instant Connect tries the laptop connection as
+   soon as it receives `false`.
+3. Wait 30 seconds.
+4. Use Bluetooth → On.
+
+On the S25 Ultra, Tasker's built-in Bluetooth Off action could stall while
+Android kept background BLE available. This code requests the toggle through
+the same Tasker Settings helper and checks Android's public adapter state
+without waiting for the helper's callback. It was tested with Tasker Settings
+2.0.
+
+```java
+adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+pkg = "com.joaomgcd.taskersettings";
+request = new android.content.Intent();
+request.setClassName(pkg, pkg + ".ServiceBackCompat");
+request.putExtra(pkg + ".EXTRA_TYPE", "ToggleBluetooth");
+request.putExtra(pkg + ".EXTRA_INPUT", "{\"value\":false}");
+request.putExtra(pkg + ".EXTRA_PLUGIN_RECEIVER",
+    (android.os.Parcelable) new android.os.ResultReceiver((android.os.Handler) null));
+context.startService(request);
+for (int i = 0; i < 30 && adapter.getState() != 10; i++) {
+    Thread.sleep(100);
+}
+tasker.setVariable("bt_connected", adapter.getState() != 10);
+```
 
 Set `~/.config/instant-connect/phone-handoff.json` (or its equivalent under
 `XDG_CONFIG_HOME`) to a private JSON file with `host` (the phone's full
 Tailscale MagicDNS name), `device` (the headset address), and `token` (the
-same value used in Tasker). Keep the file mode at 0600. The phone's Bluetooth
-radio remains enabled. After handoff fails, **Try laptop connection anyway**
+same value used in Tasker). Keep the file mode at 0600. After handoff fails,
+**Try laptop connection anyway**
 retries the selected device without making another request to the phone. This
 is useful if you manually disconnected the earbuds in the phone's Bluetooth
 settings and Tasker still reports a link.
