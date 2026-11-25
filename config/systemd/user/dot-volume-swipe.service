@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply touchpad volume swipe updates
+BindsTo=dot-volume-swipe.socket
+After=dot-volume-swipe.socket
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/dot-volume-swipe
+StandardInput=socket
+StandardOutput=journal

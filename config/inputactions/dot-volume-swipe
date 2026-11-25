@@ -1,0 +1,67 @@
+#!/usr/bin/python3
+"""Apply the queued motion from InputActions to the current audio output."""
+
+import logging
+import os
+from select import select
+import subprocess
+
+
+STEP = 4
+INPUT_FD = 0
+IDLE_SECONDS = 2
+
+
+def wpctl(*arguments):
+    return subprocess.check_output(
+        ["/usr/bin/wpctl", *arguments], text=True, timeout=1,
+    ).strip()
+
+
+def apply_motion(events):
+    description = wpctl("inspect", "@DEFAULT_AUDIO_SINK@")
+    sink = description.partition(",")[0].removeprefix("id ")
+    if not sink.isdecimal():
+        raise ValueError("Could not identify the default audio output")
+    fields = wpctl("get-volume", sink).split()
+    initial = round(float(fields[1]) * 100)
+    volume = initial
+    for event in events:
+        if event == ord("+"):
+            volume = min(100, volume + STEP)
+        elif event == ord("-"):
+            volume = max(0, volume - STEP)
+
+    unmute = volume > 0 and b"+" in events and "[MUTED]" in fields
+    if volume == initial and not unmute:
+        return
+    if volume != initial:
+        wpctl("set-volume", sink, f"{volume}%")
+    if unmute:
+        wpctl("set-mute", sink, "0")
+    subprocess.run(
+        [
+            "/usr/bin/busctl", "--user", "--expect-reply=no", "call",
+            "org.kde.plasmashell", "/org/kde/osdService", "org.kde.osdService",
+            "volumeChanged", "i", str(volume),
+        ],
+        check=False,
+        timeout=1,
+    )
+
+
+def main():
+    # The socket remains open even when the worker exits between swipes.
+    while select([INPUT_FD], [], [], IDLE_SECONDS)[0]:
+        events = os.read(INPUT_FD, 4096)
+        if not events:
+            return
+        try:
+            # Read all pending motion once and publish one update for the batch.
+            apply_motion(events)
+        except (IndexError, OSError, ValueError, subprocess.SubprocessError) as error:
+            logging.warning("Volume swipe could not update the audio output: %s", error)
+
+
+if __name__ == "__main__":
+    main()

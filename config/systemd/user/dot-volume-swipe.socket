@@ -1,0 +1,11 @@
+[Unit]
+Description=Receive touchpad volume swipe updates
+PartOf=graphical-session.target
+
+[Socket]
+ListenFIFO=%t/dot-volume-swipe
+SocketMode=0600
+RemoveOnStop=yes
+
+[Install]
+WantedBy=graphical-session.target

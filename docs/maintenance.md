@@ -460,9 +460,8 @@ validation command that imports the project and runs its tests headlessly.
 
 ## Customize touchpad gestures
 
-The portable gesture map is
-`config/inputactions/config.yaml`. It reloads automatically when changed; use
-the explicit command when testing or diagnosing it:
+The portable gesture map is `config/inputactions/config.yaml`. After editing
+it, reload the running InputActions effect and check its status:
 
 ```bash
 dot gestures reload
@@ -471,8 +470,9 @@ dot gestures status
 
 `dot gestures reload` installs the tracked gesture file and its helper before
 reloading InputActions, so it is the quick no-sudo path after editing the
-repository. Three-finger vertical swipes adjust volume as the fingers move,
-using serialized PipeWire updates. The volume indicator appears at the end.
+repository. Three-finger vertical swipes adjust volume as the fingers move.
+A socket-activated worker combines pending motion into PipeWire updates and
+shows the volume indicator during the swipe.
 
 If the volume also sticks with keyboard keys and the sound slider, follow
 [the shared audio-state recovery](troubleshooting.md#volume-percentage-sticks-with-keys-slider-and-touchpad-gestures)

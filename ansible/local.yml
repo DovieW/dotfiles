@@ -614,6 +614,7 @@
         - shell
         - git
         - kde
+        - gestures
         - file-manager
         - lockscreen
         - power

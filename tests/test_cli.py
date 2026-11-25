@@ -3791,10 +3791,16 @@ else:
             gestures,
             r"fingers: 3\n\s+angle: 45-135\n\s+bidirectional: true\n"
             r"\s+actions:\n\s+- on: update\n\s+interval: 1\.5\n"
-            r"\s+wait: true\n\s+command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%\+[^\n]*\n"
+            r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
+            r"\s+printf \+ \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"\n"
             r"\s+- on: update\n\s+interval: -1\.5\n"
-            r"\s+wait: true\n\s+command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%-",
+            r"\s+wait: true\n\s+command: >-\n[^\n]+\n"
+            r"\s+printf -- - \| dd [^\n]*\n\s+of=\"[^\n]*dot-volume-swipe\"",
         )
+        socket = (ROOT / "config/systemd/user/dot-volume-swipe.socket").read_text()
+        service = (ROOT / "config/systemd/user/dot-volume-swipe.service").read_text()
+        self.assertIn("ListenFIFO=%t/dot-volume-swipe", socket)
+        self.assertIn("StandardInput=socket", service)
         self.assertIn("plasma_shortcut: kwin,Walk Through Windows", gestures)
         self.assertRegex(
             gestures,
@@ -3826,6 +3832,32 @@ else:
         self.assertIn('"services][org.kde.krunner.desktop"', cli)
         self.assertIn('"services][com.mitchellh.ghostty.desktop"', cli)
         self.assertIn('"gestures"', cli)
+
+    def test_volume_swipe_batches_steps_and_preserves_reversal_at_the_limit(self):
+        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))
+        apply_motion = swipe["apply_motion"]
+        backend = mock.Mock(side_effect=["id 27, type PipeWire:Interface:Node", "Volume: 0.96", ""])
+        with mock.patch.dict(apply_motion.__globals__, {"wpctl": backend}), \
+             mock.patch("subprocess.run") as osd:
+            apply_motion(b"+++--")
+        self.assertEqual(backend.call_args_list, [
+            mock.call("inspect", "@DEFAULT_AUDIO_SINK@"),
+            mock.call("get-volume", "27"),
+            mock.call("set-volume", "27", "92%"),
+        ])
+        self.assertEqual(osd.call_args.args[0][-3:], ["volumeChanged", "i", "92"])
+
+    def test_volume_swipe_unmutes_when_raised_from_zero(self):
+        swipe = runpy.run_path(str(ROOT / "config/inputactions/dot-volume-swipe"))
+        apply_motion = swipe["apply_motion"]
+        backend = mock.Mock(side_effect=["id 27, type PipeWire:Interface:Node", "Volume: 0.00 [MUTED]", "", ""])
+        with mock.patch.dict(apply_motion.__globals__, {"wpctl": backend}), \
+             mock.patch("subprocess.run"):
+            apply_motion(b"+")
+        self.assertEqual(backend.call_args_list[-2:], [
+            mock.call("set-volume", "27", "4%"),
+            mock.call("set-mute", "27", "0"),
+        ])
 
     def test_kubuntu_scopes_touchpad_jump_workaround(self):
         profile = json.loads((ROOT / "profiles/kubuntu-laptop.yml").read_text())

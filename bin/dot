@@ -2544,6 +2544,7 @@ def configure_repository_hooks() -> int:
 def apply_direct(
     profile_name: str,
     *,
+    check: bool = False,
     force_kde: bool = False,
     selected_tags: set[str] | None = None,
     kde_preflight_done: bool = False,
@@ -2556,6 +2557,13 @@ def apply_direct(
 
     def selected(*tags: str) -> bool:
         return apply_all or bool(selected_tags.intersection(tags))
+
+    if features.get("inputactions") and selected("kde", "gestures") and not check:
+        changes += install_volume_swipe()
+        mapping_changed = install_gesture_mapping()
+        changes += mapping_changed
+        if mapping_changed and inputactions_effect_loaded():
+            load_inputactions_effect()
 
     if features.get("kde") and selected("file-manager") and not selected("kde"):
         changes += configure_dolphin_file_manager()
@@ -3370,8 +3378,6 @@ def apply_direct(
             ROOT / "config/systemd/user/dot-dolphin-launch.service": Path.home() / ".config/systemd/user/dot-dolphin-launch.service",
             ROOT / "config/systemd/user/dot-obsidian-launch.service": Path.home() / ".config/systemd/user/dot-obsidian-launch.service",
             ROOT / "config/obsidian/dot-obsidian.desktop": Path.home() / ".local/share/applications/dot-obsidian.desktop",
-            ROOT / "config/inputactions/config.yaml": Path.home() / ".config/inputactions/config.yaml",
-            ROOT / "config/inputactions/dot-show-desktop": Path.home() / ".local/bin/dot-show-desktop",
             ROOT / "config/lazygit/config.yml": Path.home() / ".config/lazygit/config.yml",
             ROOT / "config/lazydocker/config.yml": Path.home() / ".config/lazydocker/config.yml",
             ROOT / "config/mpv/input.conf": Path.home() / ".config/mpv/input.conf",
@@ -4163,6 +4169,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             print("ansible-playbook is unavailable; applying portable configuration directly.", file=sys.stderr)
         apply_direct(
             args.profile,
+            check=args.check,
             force_kde=force_kde,
             selected_tags=direct_tags,
             kde_preflight_done=bool(kde_requested),
@@ -7055,6 +7062,59 @@ def inputactions_effect_loaded() -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
+def install_volume_swipe() -> int:
+    user = Path.home()
+    unit_dir = Path("config/systemd/user")
+    units = ("dot-volume-swipe.socket", "dot-volume-swipe.service")
+    changed = sum(
+        copy_managed_file(ROOT / unit_dir / unit, user / ".config/systemd/user" / unit)
+        for unit in units
+    )
+    changed += copy_managed_file(
+        ROOT / "config/inputactions/dot-volume-swipe", user / ".local/bin/dot-volume-swipe",
+    )
+    if changed:
+        run(["systemctl", "--user", "daemon-reload"])
+    run(["systemctl", "--user", "enable", "--now", "dot-volume-swipe.socket"])
+    return changed
+
+
+def volume_swipe_socket_active() -> bool:
+    return command_exists("systemctl") and run(
+        ["systemctl", "--user", "is-active", "--quiet", "dot-volume-swipe.socket"],
+        check=False, capture=True,
+    ).returncode == 0
+
+
+def install_gesture_mapping() -> int:
+    changed = int(copy_managed_file(
+        ROOT / "config/inputactions/config.yaml",
+        Path.home() / ".config/inputactions/config.yaml",
+    ))
+    changed += copy_managed_file(
+        ROOT / "config/inputactions/dot-show-desktop",
+        Path.home() / ".local/bin/dot-show-desktop",
+    )
+    return changed
+
+
+def load_inputactions_effect() -> None:
+    # InputActions' config watcher may miss an atomic replacement. Loading the
+    # effect again makes its config provider read the file from disk.
+    command = ["qdbus6", "org.kde.KWin", "/Effects"]
+    if inputactions_effect_loaded():
+        run([*command, "org.kde.kwin.Effects.unloadEffect", "kwin_gestures"])
+    loaded = run(
+        [*command, "org.kde.kwin.Effects.loadEffect", "kwin_gestures"],
+        check=False, capture=True,
+    )
+    if loaded.returncode != 0 or loaded.stdout.strip() != "true":
+        raise DotError(
+            "KWin could not load InputActions. Log out and back in, "
+            "then run `dot gestures status`."
+        )
+
+
 def cmd_gestures(args: argparse.Namespace) -> None:
     action = args.gestures_action
     if action == "disable":
@@ -7084,6 +7144,8 @@ def cmd_gestures(args: argparse.Namespace) -> None:
                     "kwin_gestures",
                 ]
             )
+        if volume_swipe_socket_active():
+            run(["systemctl", "--user", "disable", "--now", "dot-volume-swipe.socket"])
         print(
             "InputActions is disabled for this session and in the live KWin "
             "configuration. Re-enable it with `dot gestures enable`."
@@ -7092,9 +7154,10 @@ def cmd_gestures(args: argparse.Namespace) -> None:
 
     if action == "enable":
         require_commands(
-            ["inputactions", "kwriteconfig6", "qdbus6"],
+            ["inputactions", "kwriteconfig6", "qdbus6", "systemctl"],
             "Run `dot apply --profile kubuntu-laptop --tags gestures` first.",
         )
+        install_volume_swipe()
         run(
             [
                 "kwriteconfig6",
@@ -7107,44 +7170,21 @@ def cmd_gestures(args: argparse.Namespace) -> None:
                 "true",
             ]
         )
-        if not inputactions_effect_loaded():
-            loaded = run(
-                [
-                    "qdbus6",
-                    "org.kde.KWin",
-                    "/Effects",
-                    "org.kde.kwin.Effects.loadEffect",
-                    "kwin_gestures",
-                ],
-                check=False,
-                capture=True,
-            )
-            if loaded.returncode != 0 or loaded.stdout.strip() != "true":
-                raise DotError(
-                    "KWin could not load InputActions. Log out and back in, "
-                    "then run `dot gestures status`."
-                )
-        run(["inputactions", "config", "reload"])
+        load_inputactions_effect()
         run(["inputactions", "config", "issues"])
         print("Windows-style touchpad gestures are enabled.")
         return
 
     if action == "reload":
         require_commands(
-            ["inputactions"],
+            ["inputactions", "qdbus6", "systemctl"],
             "Run `dot apply --profile kubuntu-laptop --tags gestures` first.",
         )
         if not inputactions_effect_loaded():
             raise DotError("InputActions is disabled; run `dot gestures enable`.")
-        copy_managed_file(
-            ROOT / "config/inputactions/config.yaml",
-            Path.home() / ".config/inputactions/config.yaml",
-        )
-        copy_managed_file(
-            ROOT / "config/inputactions/dot-show-desktop",
-            Path.home() / ".local/bin/dot-show-desktop",
-        )
-        run(["inputactions", "config", "reload"])
+        install_volume_swipe()
+        install_gesture_mapping()
+        load_inputactions_effect()
         run(["inputactions", "config", "issues"])
         print("Installed, reloaded, and validated the touchpad gesture configuration.")
         return
@@ -7170,6 +7210,7 @@ def cmd_gestures(args: argparse.Namespace) -> None:
         check=False,
         capture=True,
     ) if command_exists("inputactions") and inputactions_effect_loaded() else None
+    volume_socket = volume_swipe_socket_active()
     print(
         f"[{'OK' if build_check.returncode == 0 else 'FAIL'}] build: "
         f"{(build_check.stdout or build_check.stderr).strip()}"
@@ -7182,6 +7223,10 @@ def cmd_gestures(args: argparse.Namespace) -> None:
         f"[{'OK' if inputactions_effect_loaded() else 'FAIL'}] KWin effect: "
         f"{'loaded' if inputactions_effect_loaded() else 'disabled or unavailable'}"
     )
+    print(
+        f"[{'OK' if volume_socket else 'FAIL'}] volume swipe: "
+        f"{'listening' if volume_socket else 'run dot gestures enable'}"
+    )
     if issues is not None:
         detail = (issues.stdout or issues.stderr).strip() or "no configuration issues"
         print(f"[{'OK' if issues.returncode == 0 else 'FAIL'}] validation: {detail}")
@@ -7189,6 +7234,7 @@ def cmd_gestures(args: argparse.Namespace) -> None:
         build_check.returncode != 0
         or not config_matches
         or not inputactions_effect_loaded()
+        or not volume_socket
         or (issues is not None and issues.returncode != 0)
     ):
         raise DotError("Touchpad gesture status has failing checks.")
@@ -12509,6 +12555,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "loaded"
                 if effect_loaded
                 else "run dot gestures enable; log out and back in if KWin was updated",
+            )
+            volume_socket = volume_swipe_socket_active()
+            failures += not doctor_check(
+                "touchpad volume swipe socket",
+                volume_socket,
+                "listening" if volume_socket else "run dot gestures enable",
             )
             if effect_loaded and command_exists("inputactions"):
                 gesture_issues = run(
