@@ -126,8 +126,9 @@ On the IdeaPad, a successful dispatch of the display capture also starts
 KWin response, resource pressure and relevant kernel wait stacks every five
 seconds. The trace runs in its own tracefs instance. When the NVIDIA module
 accepts the probes, it pairs acquire entry and return, try-acquire, and release
-for its read/write lock wrappers. It tracks which locks intersect the NVIDIA
-ACPI callback. Lock IDs are pseudonyms scoped to a capture. Observed holders
+for its read/write lock wrappers. It matches NVIDIA ACPI waiters to locks from
+kernel wait stacks, with optional callback probes on the driver's Linux
+wrapper. Lock IDs are pseudonyms scoped to a capture. Observed holders
 are limited to acquisitions seen during the trace. The collector clears inferred
 holders when the trace reports lost events, and repeated loss stops lock probes
 for the window. It continues sampling kernel wait stacks if probes are unavailable.

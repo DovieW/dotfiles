@@ -61,8 +61,13 @@ def probe_commands():
         yield name, f'p:{GROUP}/{name} nvidia:{symbol} lock=$arg1:x64'
         fetch = '' if name.startswith('drop_') else ' result=$retval:u32'
         yield f'{name}_done', f'r128:{GROUP}/{name}_done nvidia:{symbol}{fetch}'
-    yield 'acpi', f'p:{GROUP}/acpi nvidia:rm_acpi_nvpcf_notify'
-    yield 'acpi_done', f'r128:{GROUP}/acpi_done nvidia:rm_acpi_nvpcf_notify'
+
+
+def acpi_commands():
+    # The closed RM callback is marked notrace on the installed driver.
+    # The Linux-side wrapper is a separate, optional source of context.
+    yield 'acpi', f'p:{GROUP}/acpi nvidia:nv_acpi_nvpcf_event'
+    yield 'acpi_done', f'r128:{GROUP}/acpi_done nvidia:nv_acpi_nvpcf_event'
 
 
 class LockEvents:
@@ -121,10 +126,14 @@ class LockEvents:
                 self.events.append(dict(summary, lock=token, tid=tid, mode=mode,
                                         acpi=acpi, monotonic_s=at))
 
-    def snapshot(self, now):
+    def snapshot(self, now, stack_waiters=()):
         waiting = []
         for (tid, call), (entered, token, acpi) in self.pending.items():
-            if acpi and call.startswith('take_') and now - entered >= 3:
+            if not call.startswith('take_') or not (acpi or tid in stack_waiters):
+                continue
+            if len(self.relevant) < 32:
+                self.relevant.add(token)
+            if now - entered >= 3:
                 owners = self.holders.get(token, {})
                 waiting.append({'tid': tid, 'lock': token, 'wait_s': round(now - entered, 2),
                                 'observed_holders': [{'tid': owner, 'mode': mode, 'held_s': round(now - at, 2)}
@@ -144,11 +153,19 @@ class Trace:
         self.guard = None
         self.chunk = b''
         self.last_loss = 0
+        self.acpi_context = 'blocked_task_stacks'
         self.events = LockEvents()
 
     def command(self, value):
-        with (self.root / 'kprobe_events').open('a') as f:
-            f.write(value + '\n')
+        # Text append mode seeks to EOF on open. This tracefs command endpoint
+        # rejects that seek, and O_TRUNC would delete other tracers' probes.
+        fd = os.open(self.root / 'kprobe_events', os.O_WRONLY)
+        try:
+            data = (value + '\n').encode()
+            if os.write(fd, data) != len(data):
+                raise OSError('Incomplete kprobe command write')
+        finally:
+            os.close(fd)
 
     def open(self):
         try:
@@ -166,11 +183,13 @@ class Trace:
             (self.instance / 'tracing_on').write_text('0')
             # Clear only this collector's names from an interrupted older run.
             own = self.root / 'events' / GROUP
-            for name, command in probe_commands():
+            for name, _ in (*probe_commands(), *acpi_commands()):
                 if (own / name).is_dir():
                     self.command(f'-:{GROUP}/{name}')
+            for name, command in probe_commands():
                 self.command(command)
                 self.probes.append(name)
+            self.register_acpi_context()
             (self.instance / 'trace_clock').write_text('mono')
             (self.instance / 'buffer_size_kb').write_text('32')
             (self.instance / 'events' / GROUP / 'enable').write_text('1')
@@ -180,6 +199,19 @@ class Trace:
         except OSError:
             self.close()
             raise
+
+    def register_acpi_context(self):
+        added = []
+        try:
+            for name, command in acpi_commands():
+                self.command(command)
+                added.append(name)
+        except OSError:
+            for name in reversed(added):
+                self.command(f'-:{GROUP}/{name}')
+            return
+        self.probes.extend(added)
+        self.acpi_context = 'driver_callback_and_blocked_task_stacks'
 
     def loss_count(self):
         loss = 0
@@ -194,7 +226,7 @@ class Trace:
                 loss += int(fields[2])
         return loss
 
-    def drain(self):
+    def drain(self, stack_waiters=()):
         data = bytearray(self.chunk)
         while len(data) < 96 * 1024:
             try:
@@ -215,7 +247,7 @@ class Trace:
             for line in lines:
                 self.events.observe(line.decode(errors='replace'))
         self.last_loss = loss
-        return dict(self.events.snapshot(time.monotonic()), missed_total=loss,
+        return dict(self.events.snapshot(time.monotonic(), stack_waiters), missed_total=loss,
                     batch_unreliable=bad, read_limit_reached=capped)
 
     def close(self):
@@ -372,12 +404,21 @@ def capture(seconds=WINDOW_S):
         while (now := time.monotonic()) < started + seconds:
             if time.clock_gettime(time.CLOCK_BOOTTIME) - now - suspend_offset > 1:
                 break
-            session = session_state(include_lock_screen=False)
+            try:
+                session = session_state(include_lock_screen=False)
+            except OSError:
+                session = {'status': 'unavailable'}
             kwin = session.get('kwin', {}).get('status', session.get('status', 'unavailable'))
             timeouts = timeouts + 1 if kwin == 'timeout' else 0
             blocked = blocked_tasks()
             waits = nvidia_waiters(blocked)
-            evidence = trace.drain() if trace.fd is not None else {}
+            evidence = {}
+            if trace.fd is not None:
+                try:
+                    evidence = trace.drain(waits)
+                except OSError as exc:
+                    trace.close()
+                    trace_status = f'stopped_after_read_error: {exc.strerror or type(exc).__name__}'
             if evidence.get('batch_unreliable'):
                 bad_batches += 1
             if bad_batches >= 3 and trace.fd is not None:
@@ -388,6 +429,7 @@ def capture(seconds=WINDOW_S):
             row = {'event': 'post_resume', 'run': ident, 'sequence': seq, 'boot_id': BOOT,
                    'utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'elapsed_s': round(now - started, 2),
                    'kwin': kwin, 'locked_hint': session.get('locked_hint'), 'lock_trace': trace_status,
+                   'acpi_context': trace.acpi_context if trace.fd is not None else 'blocked_task_stacks',
                    'nvidia_acpi_waiters': sorted(waits), 'snapshot_reason': reason if not fired else None}
             append(path, dict(row, blocked=blocked, locks=evidence, trace_available=trace_available,
                               pressure={key: text(Path('/proc/pressure') / key) for key in ('cpu', 'io', 'memory')}))
@@ -432,7 +474,7 @@ def main():
         trace = Trace()
         try:
             trace.open()
-            print(f'Enabled {len(trace.probes)} isolated NVIDIA lock probes')
+            print(f'Enabled {len(trace.probes)} isolated NVIDIA probes, ACPI context {trace.acpi_context}')
         finally:
             trace.close()
     else:

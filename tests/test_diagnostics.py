@@ -104,6 +104,39 @@ class DiagnosticsTests(unittest.TestCase):
         trace.reset()
         self.assertEqual(trace.snapshot(11), {'events': [], 'waiting': []})
 
+    def test_trace_command_uses_a_single_write_without_seek_or_truncation(self):
+        trace = POST['Trace'](Path('/trace'))
+        value = 'p:dot_post_resume/acpi nvidia:rm_acpi_nvpcf_notify'
+        data = (value + '\n').encode()
+        with (
+            mock.patch('os.open', return_value=8) as opened,
+            mock.patch('os.write', return_value=len(data)) as written,
+            mock.patch('os.close') as closed,
+        ):
+            trace.command(value)
+        opened.assert_called_once_with(Path('/trace/kprobe_events'), os.O_WRONLY)
+        written.assert_called_once_with(8, data)
+        closed.assert_called_once_with(8)
+
+    def test_blocked_stack_correlates_wait_with_holder_when_callback_probe_is_unavailable(self):
+        trace = POST['LockEvents']()
+        trace.observe('worker-1 [001] ..... 1.000000: take_w: (probe) lock=0x1234')
+        trace.observe('worker-1 [001] ..... 1.100000: take_w_done: (probe) result=0')
+        trace.observe('worker-2 [001] ..... 2.000000: take_w: (probe) lock=0x1234')
+        self.assertEqual(trace.snapshot(8)['waiting'], [])
+        wait = trace.snapshot(8, {2})['waiting'][0]
+        self.assertEqual(wait['tid'], 2)
+        self.assertEqual(wait['observed_holders'][0]['tid'], 1)
+
+    def test_unavailable_callback_probe_keeps_mandatory_lock_probes(self):
+        trace = POST['Trace'](Path('/trace'))
+        trace.probes = ['take_r', 'take_r_done']
+        trace.command = mock.Mock(side_effect=[None, OSError('notrace'), None])
+        trace.register_acpi_context()
+        self.assertEqual(trace.probes, ['take_r', 'take_r_done'])
+        self.assertEqual(trace.acpi_context, 'blocked_task_stacks')
+        self.assertEqual(trace.command.call_args.args, ('-:dot_post_resume/acpi',))
+
     def test_nvidia_wait_classifier_requires_the_acpi_and_lock_frames(self):
         rows = [
             {'tid': 8, 'stack': ['rm_acpi_nvpcf_notify', 'os_acquire_rwlock_write']},
