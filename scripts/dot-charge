@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 
@@ -20,6 +21,16 @@ CHARGE_TYPES = Path('/sys/class/power_supply/BAT0/charge_types')
 BATTERY_PERCENT = Path('/sys/class/power_supply/BAT0/capacity')
 UNIT = 'dot-charge.service'
 CLOCK_REALTIME_ALARM = 8  # Linux UAPI: include/uapi/linux/time.h.
+TELEMETRY = '/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry'
+
+
+def notify(kind, **detail):
+    # Telemetry may be stopped or unavailable. The scheduler owns all firmware decisions.
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK) as client:
+            client.sendto(json.dumps(dict(kind=kind, **detail)).encode(), str(STATE / 'telemetry/notify.sock'))
+    except OSError:
+        pass
 
 
 def duration(value):
@@ -92,12 +103,15 @@ def apply(percent):
         if (charge_mode() == 'Long_Life') != (percent == 80):
             raise ValueError('The firmware did not apply the requested charging mode.')
         print(f'Applied charge target {percent}%', flush=True)
+        return True
+    return False
 
 
 def reconcile():
     with lock():
         percent, deadline, reason = policy(dt.datetime.now())
-        apply(percent)
+        if apply(percent):
+            notify('firmware_change', percent=percent, reason=reason)
     return deadline, reason
 
 
@@ -158,7 +172,9 @@ def update(args):
             seconds = int(args.duration[:-1]) * (3600 if args.duration.endswith('h') else 86400)
             override = dict(percent=args.percent, until=int(dt.datetime.now().timestamp()) + seconds)
             write_json(path, override)
-        apply(policy(dt.datetime.now())[0])
+        percent, _, reason = policy(dt.datetime.now())
+        changed = apply(percent)
+        notify(args.action, percent=percent, reason=reason, firmware_changed=changed)
     subprocess.run(['/usr/bin/systemctl', 'restart', UNIT], check=True)
 
 
@@ -179,6 +195,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action')
     sub.add_parser('status', help='Show the current battery and charge policy').add_argument('--json', action='store_true')
+    reports = {
+        'history': 'Show recent battery observations and events',
+        'stats': 'Estimate battery exposure, throughput, and charging performance',
+        'export': 'Export raw battery telemetry as CSV or JSON',
+    }
+    for name, help_text in reports.items():
+        sub.add_parser(name, help=help_text, add_help=False)
+    if len(sys.argv) >= 2 and sys.argv[1] in reports:
+        os.execv(TELEMETRY, [TELEMETRY, *sys.argv[1:]])
     hold = sub.add_parser('hold', help='Temporarily override the charge policy')
     hold.add_argument('duration', type=duration, help='A duration such as 2h or 3d')
     hold.add_argument('--percent', type=int, choices=(80, 100), default=80)

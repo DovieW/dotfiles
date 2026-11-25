@@ -33,7 +33,7 @@
 - name: Install Qt and UPower bindings for the battery controls
   become: true
   ansible.builtin.apt:
-    name: [python3-pyqt6, python3-dbus]
+    name: [python3-pyqt6, python3-dbus, python3-gi, python3-pyudev]
     state: present
 
 - name: Install the Battery Charging app and launcher
@@ -77,4 +77,65 @@
     daemon_reload: true
     enabled: true
     state: "{{ 'restarted' if dot_charge_policy.changed or dot_charge_files.changed else 'started' }}"
+  when: not ansible_check_mode
+
+- name: Prepare the private battery telemetry directory
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/dot-charge/telemetry
+    state: directory
+    owner: root
+    group: "{{ ansible_facts.user_gid }}"
+    mode: '2750'
+
+- name: Create the battery telemetry code directory
+  become: true
+  ansible.builtin.file:
+    path: /usr/local/libexec/dotfiles/charge-telemetry
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install battery telemetry and its systemd units
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: 'config/power/charge-telemetry/battery_store.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_store.py', mode: '0644'}
+    - {src: 'config/power/charge-telemetry/battery_collect.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_collect.py', mode: '0644'}
+    - {src: 'config/power/charge-telemetry/battery_report.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_report.py', mode: '0644'}
+    - {src: 'config/power/charge-telemetry/dot-charge-telemetry', dest: '/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry', mode: '0755'}
+    - {src: 'config/systemd/system/dot-charge-telemetry.service', dest: '/etc/systemd/system/dot-charge-telemetry.service', mode: '0644'}
+    - {src: 'config/systemd/system/dot-charge-telemetry-backup.service', dest: '/etc/systemd/system/dot-charge-telemetry-backup.service', mode: '0644'}
+    - {src: 'config/systemd/system/dot-charge-telemetry-backup.timer', dest: '/etc/systemd/system/dot-charge-telemetry-backup.timer', mode: '0644'}
+    - {src: 'config/systemd/system-sleep/dot-charge-telemetry', dest: '/usr/lib/systemd/system-sleep/dot-charge-telemetry', mode: '0755'}
+  register: dot_charge_telemetry_files
+
+- name: Enable the battery telemetry collector
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-charge-telemetry.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if dot_charge_telemetry_files.changed else 'started' }}"
+  when: not ansible_check_mode
+
+- name: Import any retained local UPower battery history
+  become: true
+  ansible.builtin.command:
+    argv: [/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry, import-history]
+    creates: /var/lib/dot-charge/telemetry/history-imported
+  when: not ansible_check_mode
+
+- name: Enable the daily battery telemetry backup
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-charge-telemetry-backup.timer
+    enabled: true
+    state: started
   when: not ansible_check_mode

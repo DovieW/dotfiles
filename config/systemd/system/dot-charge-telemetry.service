@@ -1,0 +1,21 @@
+[Unit]
+Description=Record local IdeaPad battery telemetry
+Wants=upower.service
+After=upower.service dot-charge.service
+ConditionPathExists=/sys/class/power_supply/BAT0
+
+[Service]
+ExecStart=/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry watch
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=3s
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ReadWritePaths=/var/lib/dot-charge/telemetry
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

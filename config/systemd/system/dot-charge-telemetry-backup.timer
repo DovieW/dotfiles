@@ -1,0 +1,10 @@
+[Unit]
+Description=Archive battery telemetry once a day while awake
+
+[Timer]
+OnCalendar=daily
+AccuracySec=30min
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

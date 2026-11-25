@@ -1,0 +1,167 @@
+#!/usr/bin/python3 -I
+"""Collect and query local battery telemetry."""
+
+import argparse
+import csv
+import datetime as dt
+import json
+import os
+from pathlib import Path
+import sqlite3
+import sys
+import time
+
+# The installed, root-owned directory is trusted. Retain isolated Python mode.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from battery_store import connect, local_zone, records, utc
+
+RANGES = {'24h': 1, '7d': 7, '30d': 30, '90d': 90, 'lifetime': None}
+FIELDS = (
+    'timestamp_utc', 'source', 'kind', 'timezone', 'utc_offset_s', 'boot_id', 'monotonic_s', 'boottime_s',
+    'battery_model', 'battery_present', 'soc_pct', 'health_pct', 'full_wh', 'design_wh', 'stored_wh',
+    'battery_v', 'battery_temp_c', 'battery_temp_source', 'battery_power_w', 'battery_power_source',
+    'battery_current_a', 'battery_current_source', 'firmware_cycles', 'battery_resistance_ohm',
+    'ac_online', 'mains_online', 'adapter_class', 'usb_sources', 'power_transition', 'battery_status',
+    'capacity_level', 'genuinely_full', 'requested_pct', 'firmware_mode', 'start_threshold_pct',
+    'end_threshold_pct', 'cpu_total_ticks', 'cpu_busy_ticks', 'cpu_max_temp_c', 'gpu_load_pct', 'gpu_temp_c',
+    'gpu_runtime_status', 'power_profile', 'active_deadline', 'next_deadline', 'override', 'policy_next_ts', 'policy_reason',
+    'policy_error', 'period_s', 'windows', 'detail', 'trigger', 'history_unit', 'upower_rate_w',
+    'upower_to_full_s', 'upower_to_empty_s',
+)
+
+
+def parse_time(value):
+    try:
+        return dt.datetime.fromisoformat(value).timestamp()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('Use an ISO 8601 date or timestamp') from exc
+
+
+def export(rows, fmt):
+    if fmt == 'csv':
+        writer = csv.DictWriter(sys.stdout, fieldnames=FIELDS)
+        writer.writeheader()
+    else:
+        print('[')
+    for index, row in enumerate(rows):
+        data = {key: row.get(key) for key in FIELDS}
+        data['timestamp_utc'] = utc(row['timestamp'])
+        if fmt == 'csv':
+            writer.writerow({key: json.dumps(value, separators=(',', ':')) if isinstance(value, (dict, list))
+                             else value for key, value in data.items()})
+        else:
+            print(',' if index else '', end='')
+            print(json.dumps(data), end='')
+    if fmt == 'json':
+        print('\n]')
+
+
+def history(rows, limit):
+    print(f"Showing {min(len(rows), limit)} of {len(rows)} records. Times are UTC.")
+    for row in rows[-limit:]:
+        soc = f"{row['soc_pct']:g}%" if row.get('soc_pct') is not None else '—'
+        power = f"{row['battery_power_w']:+.2f} W" if row.get('battery_power_w') is not None else '—'
+        mode = row.get('firmware_mode') or '—'
+        adapter = row.get('adapter_class') or ('battery' if row.get('ac_online') is False else '—')
+        print(f"{utc(row['timestamp'])}  {row['source']:15} {row['kind']:19} {soc:>5}  "
+              f"{power:>10}  {mode:10}  {adapter}")
+
+
+def statistics(groups):
+    for name, data in groups.items():
+        coverage = data['soc_coverage_pct']
+        mean = data['mean_soc_pct_while_covered']
+        print(f"{name} · {data['from_utc']} to {data['to_utc']}")
+        print(f"  SOC coverage {coverage:.1f}% · {data['soc_unknown_seconds']/3600:.2f} h unknown")
+        if mean is not None:
+            print(f"  Average SOC during covered time {mean:.1f}%")
+            exposure = '  '.join(f'>{k}% {v/3600:.2f} h' for k, v in data['soc_above_seconds'].items())
+            print(f"  {exposure}  100% {data['soc_at_100_seconds']/3600:.2f} h")
+        if data['estimated_seconds'].get('battery_power'):
+            print(f"  Energy estimate {data['charged_wh']:.2f} Wh charged · {data['discharged_wh']:.2f} Wh discharged")
+            if data['estimated_seconds'].get('battery_power_ac_context'):
+                print(f"  {data['discharged_on_ac_wh']:.2f} Wh discharged on AC")
+            if data['efc_covered_discharge_wh']:
+                print(f"  {data['equivalent_full_cycles']:.3f} equivalent full cycles (discharged Wh / design Wh)")
+        capacity = data['capacity_and_firmware_cycles']
+        if capacity:
+            print(f"  Latest gauge reading {capacity['latest']}")
+        if data['deadline_outcomes']:
+            print(f"  Deadlines {dict(data['deadline_outcomes'])}")
+        if data['charging_sessions']:
+            print(f"  {len(data['charging_sessions'])} charging segments with two or more samples")
+    print('Time and energy totals are estimates over covered intervals. Use --json for all metrics and gaps.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='action', required=True)
+    for name in ('history', 'stats', 'export'):
+        command = commands.add_parser(name)
+        command.add_argument('--range', choices=RANGES, default='7d' if name == 'stats' else '24h')
+        command.add_argument('--since', type=parse_time, help='Start at an ISO date or timestamp')
+        command.add_argument('--before', type=parse_time, help='End at an ISO date or timestamp')
+        if name == 'history':
+            command.add_argument('--limit', type=int, default=30)
+        elif name == 'stats':
+            command.add_argument('--group', choices=('daily', 'weekly', 'monthly', 'lifetime'), default='lifetime')
+            command.add_argument('--json', action='store_true')
+        else:
+            command.add_argument('--format', choices=('json', 'csv'), required=True)
+    for name in ('watch', 'import-history', 'backup'):
+        commands.add_parser(name)
+    hook = commands.add_parser('sleep')
+    hook.add_argument('phase', choices=('suspend', 'resume'))
+    hook.add_argument('operation')
+    args = parser.parse_args()
+
+    if args.action in ('watch', 'backup', 'import-history', 'sleep'):
+        from battery_collect import backup, import_history, sleep_sample, watch
+
+        os.umask(0o027)
+        if args.action == 'sleep':
+            sleep_sample(args.phase, args.operation)
+        else:
+            {'watch': watch, 'import-history': import_history, 'backup': backup}[args.action]()
+        return
+
+    end = args.before if args.before is not None else time.time()
+    with connect() as db:
+        days = RANGES[args.range]
+        earliest = db.execute('SELECT MIN(timestamp) FROM records').fetchone()[0]
+        start = args.since if args.since is not None else end - days * 86400 if days else earliest
+        if start is None or start >= end:
+            raise ValueError('Choose a time range containing data')
+        rows = records(db, start - 86400 if args.action == 'stats' else start, end)
+        if args.action == 'stats':
+            last_policy = db.execute(
+                "SELECT timestamp FROM records WHERE kind='policy' AND timestamp < ? "
+                "ORDER BY timestamp DESC LIMIT 1", (start - 86400,)).fetchone()
+            if last_policy:
+                rows[:0] = [row for row in records(db, last_policy[0], last_policy[0]) if row['kind'] == 'policy']
+    if args.action == 'export':
+        export(rows, args.format)
+    elif args.action == 'history':
+        if args.limit < 1:
+            parser.error('--limit must be positive')
+        history(rows, args.limit)
+    else:
+        from battery_report import summarize
+
+        name, zone = local_zone()
+        groups = summarize(rows, start, end, args.group, zone)
+        if args.json:
+            print(json.dumps({'timezone': name, 'groups': groups}, indent=2, allow_nan=False))
+        else:
+            statistics(groups)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except BrokenPipeError:
+        # Allow history and export to be piped into head.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        sys.exit(f'dot-charge telemetry: {exc}')

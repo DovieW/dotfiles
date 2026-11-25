@@ -1,0 +1,15 @@
+[Unit]
+Description=Verify and archive local battery telemetry
+After=dot-charge-telemetry.service
+ConditionPathExists=/var/lib/dot-charge/telemetry/battery.sqlite3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry backup
+Nice=10
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/dot-charge/telemetry
+RestrictAddressFamilies=AF_UNIX

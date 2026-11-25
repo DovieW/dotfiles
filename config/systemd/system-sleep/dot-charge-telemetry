@@ -1,0 +1,10 @@
+#!/bin/sh
+case "$1" in
+    pre) phase=suspend ;;
+    post) phase=resume ;;
+    *) exit 0 ;;
+esac
+if [ -d /var/lib/dot-charge/telemetry ]; then
+    /usr/bin/timeout --kill-after=0.2s 1s \
+        /usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry sleep "$phase" "$2" || :
+fi
