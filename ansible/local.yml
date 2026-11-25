@@ -22,6 +22,11 @@
       tags: [always]
 
   tasks:
+    - name: Schedule charging on the managed IdeaPad
+      ansible.builtin.import_tasks: tasks/charge-schedule.yml
+      when: dot_device_manifest.charge_schedule is defined
+      tags: [config, power, charge-schedule]
+
     - name: Configure Connection Check
       ansible.builtin.import_tasks: tasks/connection-check.yml
       when: dot_profile_data.features.kde | default(false)

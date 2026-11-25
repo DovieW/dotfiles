@@ -1,0 +1,14 @@
+[Unit]
+Description=Schedule IdeaPad battery charging
+Wants=upower.service
+After=systemd-udev-trigger.service time-set.target upower.service
+
+[Service]
+ExecStart=/usr/local/bin/dot-charge watch
+Restart=on-failure
+RestartSec=30s
+StateDirectory=dot-charge
+StateDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

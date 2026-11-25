@@ -1,0 +1,4 @@
+#!/bin/sh
+if [ "$1" = post ]; then
+    exec /usr/local/bin/dot-charge reconcile
+fi

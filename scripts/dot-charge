@@ -1,0 +1,157 @@
+#!/usr/bin/python3 -I
+"""Schedule the IdeaPad's firmware charging modes."""
+
+import argparse
+from contextlib import contextmanager
+import datetime as dt
+import errno
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+CONFIG = Path('/etc/dotfiles/charge-schedule.json')
+STATE = Path('/var/lib/dot-charge')
+CHARGE_TYPES = Path('/sys/class/power_supply/BAT0/charge_types')
+BATTERY_PERCENT = Path('/sys/class/power_supply/BAT0/capacity')
+UNIT = 'dot-charge.service'
+CLOCK_REALTIME_ALARM = 8  # Linux UAPI: include/uapi/linux/time.h.
+
+
+def duration(value):
+    if not re.fullmatch(r'[1-9][0-9]{0,3}[hd]', value):
+        raise argparse.ArgumentTypeError('Use a positive duration such as 2h or 3d.')
+    return value
+
+
+def schedule(now, windows):
+    active = False
+    upcoming = []
+    for offset in range(8):
+        day = now.date() + dt.timedelta(days=offset)
+        for window in windows:
+            if day.weekday() not in window['days']:
+                continue
+            start = dt.datetime.combine(day, dt.time.fromisoformat(window['start']))
+            end = dt.datetime.combine(day, dt.time.fromisoformat(window['end']))
+            active |= start <= now < end
+            upcoming.extend(boundary for boundary in (start, end) if boundary > now)
+    return (100 if active else 80), min(upcoming).timestamp()
+
+
+def policy(now):
+    try:
+        override = json.loads((STATE / 'override.json').read_text())
+    except FileNotFoundError:
+        override = None
+    if override and now.timestamp() < override['until']:
+        return override['percent'], override['until'], 'override expires'
+    percent, deadline = schedule(now, json.loads(CONFIG.read_text())['full_charge_windows'])
+    return percent, deadline, 'schedule changes'
+
+
+@contextmanager
+def lock():
+    STATE.mkdir(mode=0o755, exist_ok=True)
+    with (STATE / 'lock').open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
+
+
+def charge_mode():
+    raw = CHARGE_TYPES.read_text()
+    match = re.search(r'\[([^]]+)\]', raw)
+    if not match or not {'Long_Life', 'Standard'} <= set(raw.replace('[', '').replace(']', '').split()):
+        raise ValueError('The IdeaPad firmware charging modes are unavailable.')
+    return match[1]
+
+
+def apply(percent):
+    if (charge_mode() == 'Long_Life') != (percent == 80):
+        CHARGE_TYPES.write_text('Long_Life\n' if percent == 80 else 'Standard\n')
+        if (charge_mode() == 'Long_Life') != (percent == 80):
+            raise ValueError('The firmware did not apply the requested charging mode.')
+        print(f'Applied charge target {percent}%', flush=True)
+
+
+def reconcile():
+    with lock():
+        percent, deadline, reason = policy(dt.datetime.now())
+        apply(percent)
+    return deadline, reason
+
+
+def watch():
+    fd = os.timerfd_create(CLOCK_REALTIME_ALARM)
+    try:
+        while True:
+            deadline, reason = reconcile()
+            os.timerfd_settime(fd, flags=os.TFD_TIMER_ABSTIME | os.TFD_TIMER_CANCEL_ON_SET, initial=deadline)
+            print(f'Next {reason} at {dt.datetime.fromtimestamp(deadline).astimezone().isoformat()}', flush=True)
+            try:
+                os.read(fd, 8)
+            except OSError as exc:
+                if exc.errno != errno.ECANCELED:
+                    raise
+    finally:
+        os.close(fd)
+
+
+def update_override(args):
+    with lock():
+        path = STATE / 'override.json'
+        if args.action == 'auto':
+            path.unlink(missing_ok=True)
+        else:
+            seconds = int(args.duration[:-1]) * (3600 if args.duration.endswith('h') else 86400)
+            override = dict(percent=args.percent, until=int(dt.datetime.now().timestamp()) + seconds)
+            temp = path.with_suffix('.tmp')
+            temp.write_text(json.dumps(override) + '\n')
+            temp.replace(path)
+        apply(policy(dt.datetime.now())[0])
+    subprocess.run(['/usr/bin/systemctl', 'restart', UNIT], check=True)
+
+
+def status():
+    percent, deadline, reason = policy(dt.datetime.now())
+    mode = 'Conservation (~80%)' if charge_mode() == 'Long_Life' else 'Full charge'
+    print(f'Battery {int(BATTERY_PERCENT.read_text())}% · {mode}')
+    print(f'Target {percent}% · {reason} at {dt.datetime.fromtimestamp(deadline).astimezone():%a %b %d %I:%M %p %Z}')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='action')
+    sub.add_parser('status', help='Show the current battery and charge policy')
+    hold = sub.add_parser('hold', help='Temporarily override the charge policy')
+    hold.add_argument('duration', type=duration, help='A duration such as 2h or 3d')
+    hold.add_argument('--percent', type=int, choices=(80, 100), default=80)
+    sub.add_parser('auto', help='Clear the override and resume the schedule')
+    sub.add_parser('watch', help=argparse.SUPPRESS)
+    sub.add_parser('reconcile', help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.action in (None, 'status'):
+        status()
+    elif args.action in ('hold', 'auto'):
+        if os.geteuid() != 0:
+            command = ['/usr/bin/sudo', '-n', '/usr/local/bin/dot-charge', args.action]
+            if args.action == 'hold':
+                command.extend([args.duration, '--percent', str(args.percent)])
+            os.execv(command[0], command)
+        update_override(args)
+        status()
+    elif args.action == 'watch':
+        watch()
+    else:
+        reconcile()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        sys.exit(f'dot-charge: {exc}')

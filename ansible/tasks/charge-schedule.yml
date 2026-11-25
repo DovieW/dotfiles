@@ -1,0 +1,52 @@
+---
+- name: Create the device policy directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/dotfiles
+    state: directory
+    mode: '0755'
+
+- name: Install the IdeaPad charge schedule
+  become: true
+  ansible.builtin.copy:
+    content: "{{ dot_device_manifest.charge_schedule | to_nice_json }}\n"
+    dest: /etc/dotfiles/charge-schedule.json
+    owner: root
+    group: root
+    mode: '0644'
+  register: dot_charge_policy
+
+- name: Install the charge scheduler and its resume hook
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: 'scripts/dot-charge', dest: '/usr/local/bin/dot-charge', mode: '0755'}
+    - {src: 'config/systemd/system/dot-charge.service', dest: '/etc/systemd/system/dot-charge.service', mode: '0644'}
+    - {src: 'config/systemd/system-sleep/dot-charge', dest: '/usr/lib/systemd/system-sleep/dot-charge', mode: '0755'}
+  register: dot_charge_files
+
+- name: Allow the local owner to set or clear a temporary charge override
+  become: true
+  ansible.builtin.copy:
+    content: |
+      {{ ansible_facts.user_id }} ALL=(root) NOPASSWD: /usr/local/bin/dot-charge auto
+      {{ ansible_facts.user_id }} ALL=(root) NOPASSWD: /usr/local/bin/dot-charge hold *
+    dest: /etc/sudoers.d/93-dot-charge
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Enable scheduled charging
+  become: true
+  ansible.builtin.systemd_service:
+    name: dot-charge.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if dot_charge_policy.changed or dot_charge_files.changed else 'started' }}"
+  when: not ansible_check_mode
