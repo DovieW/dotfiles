@@ -6,6 +6,7 @@ import argparse
 import collections
 import datetime as dt
 import gzip
+import gzip
 import json
 import os
 from pathlib import Path
@@ -471,6 +472,25 @@ def resource_timeline(text):
                 yield int(stamp.timestamp() * 1e6), 'resources', json.dumps(summary)
 
 
+def export_freeze(source, dest, start, end):
+    dest.mkdir()
+    for path in source.glob('samples*.jsonl'):
+        if path.stat().st_mtime < start:
+            continue
+        selected = []
+        with path.open() as stream:
+            for line in stream:
+                try:
+                    stamp = dt.datetime.fromisoformat(json.loads(line)['utc']).timestamp()
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if start <= stamp <= end:
+                    selected.append(line)
+        if selected:
+            with gzip.open(dest / (path.name + '.gz'), 'wt') as output:
+                output.writelines(selected)
+
+
 def export(args):
     target = Path(args.output).expanduser().resolve()
     target.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -494,10 +514,7 @@ def export(args):
     for label, source in [('freeze', Path('/var/lib/dot-freeze-recorder')), ('pcp', STATE / 'pcp')]:
         try:
             if label == 'freeze':
-                dest = target / label
-                dest.mkdir()
-                for p in source.glob('samples*.jsonl'):
-                    shutil.copyfile(p, dest / p.name)
+                export_freeze(source, target / label, start, end)
             else:
                 dest = target / label
                 dest.mkdir()

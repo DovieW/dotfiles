@@ -77,6 +77,38 @@
     group: root
     mode: '0644'
 
+- name: Set the paired host's crash-kernel reservation for the next boot
+  become: true
+  ansible.builtin.template:
+    src: "{{ dot_repo }}/config/grub/zz-dotfiles-crashkernel.cfg.j2"
+    dest: /etc/default/grub.d/zz-dotfiles-crashkernel.cfg
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /bin/sh -n %s
+  register: crash_grub_reservation
+
+- name: Check the generated boot entries for the crash-kernel reservation
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/grep
+      - -qE
+      - "^[[:space:]]*linux[[:space:]].* crashkernel={{ crash_local.crashkernel_mib }}M([[:space:]]|$)"
+      - /boot/grub/grub.cfg
+  register: crash_grub_entries
+  changed_when: false
+  failed_when: crash_grub_entries.rc not in [0, 1]
+  when: not ansible_check_mode
+
+- name: Generate GRUB entries for the next boot
+  become: true
+  ansible.builtin.command: /usr/sbin/update-grub
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - crash_grub_reservation.changed or crash_grub_entries.rc != 0
+
 - name: Enable hard-lockup dumps when the dump kernel is loaded
   become: true
   ansible.builtin.systemd_service:

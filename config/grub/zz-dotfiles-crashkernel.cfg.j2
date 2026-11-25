@@ -1,0 +1,2 @@
+# Keep Ubuntu's package setting and override its reservation on this host.
+GRUB_CMDLINE_LINUX_DEFAULT="$(printf '%s\n' "$GRUB_CMDLINE_LINUX_DEFAULT" | sed -E 's/(^|[[:space:]])crashkernel=[^[:space:]]+/\1/g') crashkernel={{ crash_local.crashkernel_mib }}M"

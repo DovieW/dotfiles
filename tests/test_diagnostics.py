@@ -1,4 +1,6 @@
 import contextlib
+import datetime as dt
+import gzip
 import io
 import json
 import os
@@ -31,6 +33,34 @@ class DiagnosticsTests(unittest.TestCase):
                     mock.patch('os.execv') as execv, self.assertRaises(SystemExit):
                 PEER['inbound']()
                 execv.assert_not_called()
+
+    def test_peer_records_disconnect_without_opening_a_snapshot_connection(self):
+        observe = PEER['observe']
+        heartbeat = {'event': 'heartbeat', 'boot_id': 'boot', 'suspended_s': 10, 'kwin': 'ok'}
+        emit, collect = mock.Mock(), mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)
+            (config / 'peer.json').write_text(json.dumps({'hostname': 'peer.example'}))
+            with mock.patch.dict(observe.__globals__, {
+                'CONFIG': config, 'watch_stream': lambda *_: (row for row in [heartbeat]),
+                'emit': emit, 'collect': collect,
+            }), mock.patch('time.sleep', side_effect=InterruptedError), self.assertRaises(InterruptedError):
+                observe()
+        collect.assert_not_called()
+        self.assertEqual([call.args[0] for call in emit.call_args_list],
+                         ['peer_connected', 'peer_unreachable'])
+
+    def test_freeze_export_copies_only_the_requested_window_in_compressed_form(self):
+        export = D['export_freeze']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dest = root / 'export'
+            dates = ['2026-11-24T17:59:59+00:00', '2026-11-24T18:00:00+00:00', '2026-11-24T18:00:31+00:00']
+            (root / 'samples.jsonl').write_text(''.join(json.dumps({'utc': date}) + '\n' for date in dates))
+            start = dt.datetime.fromisoformat(dates[1]).timestamp()
+            export(root, dest, start, start + 30)
+            with gzip.open(dest / 'samples.jsonl.gz', 'rt') as stream:
+                self.assertEqual([json.loads(line) for line in stream], [{'utc': dates[1]}])
 
     def test_resume_trace_distinguishes_queued_and_delivered_events(self):
         events = RESUME['trace_summary'](

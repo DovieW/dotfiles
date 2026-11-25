@@ -94,8 +94,9 @@ and flushes at 30-second intervals. Neither guarantees logs during a total locku
 EFI pstore, if already supported by firmware/kernel, is left intact; systemd
 archives records in `/var/lib/systemd/pstore/`. Kernel dumps go to the root-only
 `/var/lib/dot-kdump/` and keep the latest three. Do not share raw memory dumps.
-The standard Ubuntu kdump GRUB fragment owns the memory reservation; other boot
-flags and the laptop's manual-first sleep/hibernate policy remain unchanged.
+Paired hosts use a late GRUB drop-in sized above the estimates from
+`kdump-config show`. The IdeaPad reserves 1,536 MiB and Desktop reserves 768 MiB
+after their next normal boots. Other hosts use Ubuntu's package reservation.
 
 If the screen freezes but existing SSH still works, from a trusted Tailscale
 device connect with `ssh dovie@dovie-ideapad-linux`, then:
@@ -126,11 +127,11 @@ Verify the armed state with `cat /sys/kernel/kexec_crash_loaded` and
 `sysctl kernel.nmi_watchdog kernel.hardlockup_panic`.
 
 Each `dot-crash-peer.service` reads the other machine's Linux and KWin
-heartbeats over one SSH stream. Three consecutive KWin timeouts or loss of
-the stream can request a thread and CPU-stack snapshot. Evidence is stored on
-the observing machine in `/var/lib/dot-crash-peer`, with up to 20 private
-captures. A connection loss can be sleep or a network outage. The observer
-records a peer reboot or sleep interval when its next heartbeat confirms one.
+heartbeats every 15 seconds over one SSH stream. Three consecutive KWin
+timeouts on a working stream can request a thread and CPU-stack snapshot.
+The observer records gaps and uses the next heartbeat to identify any sleep
+or reboot. Evidence is stored on the observing machine in
+`/var/lib/dot-crash-peer`, with up to 20 private captures.
 If the desktop is frozen and SSH is still reachable, run
 `/usr/local/libexec/dot-crash-peer grab` on the IdeaPad. The same command on
 the desktop requests a capture from the IdeaPad.

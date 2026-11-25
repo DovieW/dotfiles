@@ -7,7 +7,7 @@ tracepoint:signal:signal_generate
     args.result, curtask->start_boottime, comm, str(args.comm, 16));
 }
 tracepoint:sched:sched_process_exit
-/pid == tid/
+/pid == tid && curtask->exit_code != 0/
 {
   printf("exit\t%llu\t%d\t%d\t%llu\t%s\n", nsecs(boot), pid,
     curtask->exit_code, curtask->start_boottime, comm);

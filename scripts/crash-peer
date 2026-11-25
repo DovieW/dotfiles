@@ -19,9 +19,9 @@ CONFIG = Path('/etc/dot-crash-peer')
 STATE = Path('/var/lib/dot-crash-peer')
 LIBEXEC = Path('/usr/local/libexec')
 BOOT = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-INTERVAL = 5
-HEARTBEAT_TIMEOUT = 20
-RECONNECT_DELAY = 15
+INTERVAL = 15
+HEARTBEAT_TIMEOUT = 45
+RECONNECT_DELAY = 30
 SNAPSHOT_COOLDOWN = 300
 
 
@@ -33,7 +33,7 @@ def serve():
     session_state = runpy.run_path(str(LIBEXEC / 'dot-diagnostic-resume'))['session_state']
     while True:
         try:
-            session = session_state()
+            session = session_state(include_lock_screen=False)
         except OSError:
             session = {'status': 'unavailable'}
         emit('heartbeat', boot_id=BOOT, uptime_s=int(time.monotonic()),
@@ -108,7 +108,7 @@ def ssh_command(peer, request):
             '-o', 'IdentityAgent=none', '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
             '-o', 'StrictHostKeyChecking=yes', '-o', 'HostKeyAlgorithms=ssh-ed25519',
             '-o', f'UserKnownHostsFile={CONFIG / "known_hosts"}', '-o', 'GlobalKnownHostsFile=/dev/null',
-            '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
+            '-o', 'ConnectTimeout=5', '-o', f'ServerAliveInterval={INTERVAL}', '-o', 'ServerAliveCountMax=2',
             f'{peer["user"]}@{peer["hostname"]}', request]
 
 
@@ -191,9 +191,6 @@ def observe():
         if not unreachable:
             unreachable = True
             emit('peer_unreachable', peer=peer['hostname'], last_heartbeat=previous)
-            if previous and time.monotonic() - last_capture >= SNAPSHOT_COOLDOWN:
-                last_capture = time.monotonic()
-                collect(peer, 'heartbeats_stopped')
         timeouts = 0
         time.sleep(RECONNECT_DELAY)
 

@@ -232,7 +232,7 @@ def command(args):
         return dict(status='timeout')
 
 
-def session_state():
+def session_state(include_lock_screen=True):
     seat = command(['/usr/bin/loginctl', 'show-seat', 'seat0', '-p', 'ActiveSession', '--value'])
     session = seat.get('reply', '')
     if not re.fullmatch(r'[a-zA-Z0-9]+', session):
@@ -251,11 +251,14 @@ def session_state():
     bus = launch + ['/usr/bin/env', '-i', f'XDG_RUNTIME_DIR={runtime}',
                     f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus',
                     '/usr/bin/busctl', '--user', '--auto-start=no', 'call']
-    return dict(
+    state = dict(
         locked_hint=props.get('LockedHint'),
         kwin=command(bus + ['org.kde.KWin', '/KWin', 'org.kde.KWin', 'activeOutputName']),
-        lock_screen=command(bus + ['org.freedesktop.ScreenSaver', '/ScreenSaver', 'org.freedesktop.ScreenSaver', 'GetActive']),
     )
+    if include_lock_screen:
+        state['lock_screen'] = command(bus + [
+            'org.freedesktop.ScreenSaver', '/ScreenSaver', 'org.freedesktop.ScreenSaver', 'GetActive'])
+    return state
 
 
 def trace_summary(lines):

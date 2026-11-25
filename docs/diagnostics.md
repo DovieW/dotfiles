@@ -19,7 +19,7 @@ microphone, records audio, deliberately crashes the host, or reboots it.
 | General journal | Event driven | Existing app/kernel/service messages; 8 GiB, maximum age 30 days |
 | Diagnostic journal | Event driven | Separate `diagnostics` namespace with 64 GiB on the IdeaPad and 1 GiB by default, a 60-day maximum age, and 30-second synchronization |
 | Signals | Event driven | SIGKILL, SIGTERM and common fatal signals; generation result, sender context and target TID/name |
-| Process exits | Event driven | Leader exit status, identity/start time; not proof all threads have finished |
+| Process exits | Event driven | Nonzero process-leader exit status and identity/start time |
 | Kernel OOM | Event driven | `oom:mark_victim`; userspace memory-manager decisions remain in their service journals |
 | Resources | 30 seconds | PCP numeric process/system metrics, pressure, disk/network counters, names and start identity |
 | Audio | Native/Pulse subscriptions | Allowlisted PipeWire objects and Pulse event metadata; independent state queries every two minutes |
@@ -83,8 +83,9 @@ narrower window after a log flood. Resource JSON is included separately; pressur
 memory and top-RSS summaries are also merged into the text timeline.
 Copying a currently active PCP archive is best effort; validate it with
 `pmlogcheck` before relying on it. Exporting never deletes original evidence.
-Saved thread/freeze records may extend beyond the requested interval and contain
-other process names. The caller owns retention of exported incident bundles.
+Freeze samples are limited to the requested interval and compressed in the
+bundle. Saved thread snapshots may extend beyond the interval. These records can
+contain process names. The caller owns retention of exported incident bundles.
 
 ### Display resume
 

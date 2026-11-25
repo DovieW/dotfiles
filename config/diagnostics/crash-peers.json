@@ -4,6 +4,7 @@
     "address": "100.116.115.108",
     "user": "dovie",
     "peer": "dovie-desktop-linux",
+    "crashkernel_mib": 1536,
     "host_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIqb1YiOL2yG4hE05ZC1Pc1Br/skmHWeb7VJ8Nbhhrnv",
     "client_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILMxjiNI8gWsIs5f0HQ2v5PnCIRXXTvhuaZq1eYWjsl0"
   },
@@ -12,6 +13,7 @@
     "address": "100.79.27.109",
     "user": "dovie",
     "peer": "dovie-ideapad-linux",
+    "crashkernel_mib": 768,
     "host_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOngtE+BRnQFCjeDOuGpMlonWzzs3nSqQvPmCOU++vyK",
     "client_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPoET49bZdjWzUdOcijK+wQuPRNjhTkLnUVTi3qVfuOa"
   }
