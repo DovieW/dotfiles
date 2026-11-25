@@ -68,3 +68,12 @@ touchpad:
       direction: down
       actions:
         - command: $HOME/.local/bin/dot-show-desktop show
+
+    # Consume diagonal swipes so KWin cannot switch desktops in the opposite direction.
+    - type: swipe
+      fingers: 4
+      direction: left_up_right_down
+
+    - type: swipe
+      fingers: 4
+      direction: left_down_right_up
