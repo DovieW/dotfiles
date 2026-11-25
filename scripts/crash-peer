@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import selectors
 import subprocess
@@ -23,33 +24,104 @@ INTERVAL = 15
 HEARTBEAT_TIMEOUT = 45
 RECONNECT_DELAY = 30
 SNAPSHOT_COOLDOWN = 300
+POST_RESUME = Path('/run/dot-diagnostics-post-resume')
+CAPTURE_NAME = re.compile(r'\d{8}T\d{6}\.\d{6}Z-[a-f0-9]{32}')
+MIRROR_LIMIT = 3500
+MIRROR_BUDGET = 1024 * 1024
 
 
 def emit(event, **fields):
     print(json.dumps(dict(event=event, **fields), separators=(',', ':')), flush=True)
 
 
-def serve():
+def home_network():
+    """Require the configured unmetered home connection on the default uplink."""
+    try:
+        profile = json.loads((CONFIG / 'peer.json').read_text()).get('mirror_connection_uuid')
+        if not profile:
+            return False
+        routes = subprocess.check_output(['/usr/bin/ip', '-j', '-4', 'route', 'show', 'default'],
+                                         text=True, timeout=2)
+        devices = {route.get('dev') for route in json.loads(routes)}
+        if len(devices) != 1 or not (device := next(iter(devices))):
+            return False
+        active = subprocess.check_output(
+            ['/usr/bin/nmcli', '-t', '-f', 'UUID,DEVICE', 'connection', 'show', '--active'],
+            text=True, timeout=2)
+        if f'{profile}:{device}' not in active.splitlines():
+            return False
+        metered = subprocess.check_output(['/usr/bin/nmcli', '-g', 'GENERAL.METERED', 'device', 'show', device],
+                                          text=True, timeout=2).strip()
+        return metered in ('no', 'no (guessed)')
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return False
+
+
+def mirror_file():
+    paths = sorted(POST_RESUME.glob('*.jsonl'), reverse=True)
+    if paths and time.time() - paths[0].stat().st_mtime < 30:
+        return paths[0]
+
+
+def mirror_rows(path, cursor):
+    position = cursor[1] if cursor[0] == path.name else 0
+    rows = []
+    with path.open('rb') as stream:
+        stream.seek(position)
+        for _ in range(120):
+            line = stream.readline(MIRROR_LIMIT + 1)
+            if not line.endswith(b'\n'):
+                break
+            position += len(line)
+            try:
+                row = json.loads(line)
+                if row.get('event') == 'post_resume' and row.get('run') == path.stem:
+                    rows.append(row)
+            except (ValueError, AttributeError):
+                continue
+    return (path.name, position), rows
+
+
+def serve(mirror=False):
     session_state = runpy.run_path(str(LIBEXEC / 'dot-diagnostic-resume'))['session_state']
+    next_heartbeat = 0
+    cursor = (None, 0)
     while True:
-        try:
-            session = session_state(include_lock_screen=False)
-        except OSError:
-            session = {'status': 'unavailable'}
-        emit('heartbeat', boot_id=BOOT, uptime_s=int(time.monotonic()),
-             suspended_s=int(time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()),
-             kwin=session.get('kwin', {}).get('status', session.get('status', 'unavailable')))
-        time.sleep(INTERVAL)
+        now = time.monotonic()
+        if now >= next_heartbeat:
+            try:
+                session = session_state(include_lock_screen=False)
+            except OSError:
+                session = {'status': 'unavailable'}
+            emit('heartbeat', boot_id=BOOT, uptime_s=int(time.monotonic()),
+                 suspended_s=int(time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()),
+                 kwin=session.get('kwin', {}).get('status', session.get('status', 'unavailable')))
+            next_heartbeat = time.monotonic() + INTERVAL
+        pending = None
+        if mirror:
+            with contextlib.suppress(OSError):
+                pending = mirror_file()
+        if pending and home_network():
+            try:
+                cursor, rows = mirror_rows(pending, cursor)
+            except OSError:
+                rows = []
+            for row in rows:
+                emit('post_resume', **{key: value for key, value in row.items() if key != 'event'})
+        delay = max(0, next_heartbeat - time.monotonic())
+        time.sleep(min(5, delay) if pending else delay)
 
 
 def inbound():
     request = os.environ.get('SSH_ORIGINAL_COMMAND')
     if request == 'watch':
         serve()
+    elif request == 'watch-home':
+        serve(mirror=True)
     elif request == 'snapshot':
         os.execv('/usr/bin/sudo', ['/usr/bin/sudo', '-n', str(LIBEXEC / 'dot-crash-peer'), 'snapshot'])
     else:
-        sys.exit('This key accepts only watch and snapshot.')
+        sys.exit('This key accepts only watch, watch-home, and snapshot.')
 
 
 def kernel_stacks():
@@ -139,8 +211,54 @@ def reconnect_event(previous, current):
     return 'peer_reachable_again'
 
 
+def store_mirror(row, received):
+    run = row.get('run')
+    seq = row.get('sequence')
+    if (not isinstance(run, str) or not CAPTURE_NAME.fullmatch(run)
+            or type(seq) is not int or not 0 <= seq <= 120 or seq <= received.get(run, -1)):
+        return
+    data = (json.dumps(row, separators=(',', ':')) + '\n').encode()
+    if len(data) > MIRROR_LIMIT:
+        return
+    directory = STATE / 'post-resume'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    path = directory / (run + '.jsonl')
+    if path.exists() and path.stat().st_size + len(data) > MIRROR_BUDGET:
+        return
+    # On observer restarts the watch starts at offset zero. Preserve one copy.
+    if run not in received and path.exists():
+        with path.open() as stream:
+            for line in stream:
+                try:
+                    received[run] = max(received.get(run, -1), json.loads(line)['sequence'])
+                except (ValueError, KeyError, TypeError):
+                    pass
+        if seq <= received.get(run, -1):
+            return
+    new = not path.exists()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'ab') as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    received[run] = seq
+    if new:
+        for old in sorted(directory.glob('*.jsonl'), reverse=True)[12:]:
+            old.unlink()
+            received.pop(old.stem, None)
+        fd = os.open(directory, os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        emit('post_resume_mirror_started', run=run)
+
+
 def watch_stream(peer):
-    child = subprocess.Popen(ssh_command(peer, 'watch'), stdout=subprocess.PIPE, bufsize=0)
+    mirror = home_network()
+    child = subprocess.Popen(ssh_command(peer, 'watch-home' if mirror else 'watch'),
+                             stdout=subprocess.PIPE, bufsize=0)
+    received = {}
     try:
         with selectors.DefaultSelector() as selector:
             selector.register(child.stdout, selectors.EVENT_READ)
@@ -148,9 +266,18 @@ def watch_stream(peer):
                 line = child.stdout.readline(4096)
                 if not line:
                     break
-                row = json.loads(line)
-                if row['event'] == 'heartbeat':
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    break
+                if row.get('event') == 'post_resume' and mirror:
+                    if not home_network():
+                        break
+                    store_mirror(row, received)
+                if row.get('event') == 'heartbeat':
                     yield row
+                    if mirror != home_network():
+                        break
     finally:
         if child.poll() is None:
             child.terminate()

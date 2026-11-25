@@ -1,5 +1,6 @@
 {
   "dovie-ideapad-linux": {
+    "mirror_connection_uuid": "5548bd05-5c93-4d40-9801-a54c30f697f6",
     "hostname": "dovie-ideapad-linux.barn-chameleon.ts.net",
     "address": "100.116.115.108",
     "user": "dovie",
@@ -9,6 +10,7 @@
     "client_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILMxjiNI8gWsIs5f0HQ2v5PnCIRXXTvhuaZq1eYWjsl0"
   },
   "dovie-desktop-linux": {
+    "mirror_connection_uuid": "3b433036-8ef7-4a25-8bdb-d80e603c5c03",
     "hostname": "dovie-desktop-linux.barn-chameleon.ts.net",
     "address": "100.79.27.109",
     "user": "dovie",

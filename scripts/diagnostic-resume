@@ -122,6 +122,13 @@ def arm_capture(phase):
 
 
 def arm():
+    # Leave the sleep target in charge of the transition and retire any prior
+    # stall capture without waiting for it in the suspend path.
+    try:
+        subprocess.run(['/usr/bin/systemctl', '--no-block', 'stop', 'dot-diagnostics-post-resume.service'],
+                       check=True, timeout=2)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f'Could not stop the previous post-resume capture: {exc}', flush=True)
     with lock():
         data = load_capture()
         if data and not data['started'] and not data['sleep']:
@@ -316,6 +323,12 @@ def capture():
         data['started'] = True
         save_capture(data)
     path = STATE / name
+    # The bounded follow-up runs independently of the short display trace.
+    try:
+        subprocess.run(['/usr/bin/systemctl', '--no-block', 'restart', 'dot-diagnostics-post-resume.service'],
+                       check=True, timeout=2)
+    except (OSError, subprocess.SubprocessError) as exc:
+        record(path, 'post_resume_start_failed', error=str(exc))
     started = time.monotonic()
     worker = None
     sleep_events = display_updates = kwin_replies = 0

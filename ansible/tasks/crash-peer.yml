@@ -33,7 +33,9 @@
     mode: '0644'
   loop:
     - name: peer.json
-      content: "{{ {'hostname': crash_peer.hostname, 'user': crash_peer.user} | to_json }}\n"
+      content: >-
+        {{ {'hostname': crash_peer.hostname, 'user': crash_peer.user, 'local_user': crash_local.user,
+            'mirror_connection_uuid': crash_local.mirror_connection_uuid | default('')} | to_json }}
     - name: known_hosts
       content: "{{ crash_peer.hostname }} {{ crash_peer.host_key }}\n"
   register: crash_peer_config

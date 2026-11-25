@@ -1,0 +1,25 @@
+[Unit]
+Description=Capture short-interval kernel and compositor evidence after an IdeaPad wake
+ConditionHost=dovie-ideapad-linux
+After=sys-kernel-tracing.mount
+Wants=sys-kernel-tracing.mount
+
+[Service]
+Type=exec
+UnsetEnvironment=LD_PRELOAD
+ExecStart=/usr/local/libexec/dot-diagnostic-post-resume
+RuntimeMaxSec=620s
+TimeoutStopSec=3s
+KillMode=control-group
+LogNamespace=diagnostics
+UMask=0077
+StateDirectory=dot-diagnostics
+StateDirectoryMode=0700
+RuntimeDirectory=dot-diagnostics-post-resume
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ProtectHome=tmpfs
+BindReadOnlyPaths=-/run/user
+ProtectSystem=strict
+ReadWritePaths=/sys/kernel/tracing -/proc/sysrq-trigger
+NoNewPrivileges=true

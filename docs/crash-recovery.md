@@ -132,6 +132,16 @@ timeouts on a working stream can request a thread and CPU-stack snapshot.
 The observer records gaps and uses the next heartbeat to identify any sleep
 or reboot. Evidence is stored on the observing machine in
 `/var/lib/dot-crash-peer`, with up to 20 private captures.
+
+The desktop can also retain compact IdeaPad post-resume samples as they are
+recorded. Both machines check that their configured home NetworkManager
+profile is on the default IPv4 uplink and reports unmetered. Outside that
+condition, the IdeaPad still saves the full evidence locally and the peer
+continues its regular heartbeat. The restricted SSH watch command carries
+small summaries with pseudonymous lock IDs. The full CPU-stack snapshots stay
+in the IdeaPad's local diagnostic archive. Mirrored runs are stored under
+`/var/lib/dot-crash-peer/post-resume/`, with twelve runs retained.
+
 If the desktop is frozen and SSH is still reachable, run
 `/usr/local/libexec/dot-crash-peer grab` on the IdeaPad. The same command on
 the desktop requests a capture from the IdeaPad.
@@ -145,7 +155,7 @@ The tracked `config/diagnostics/crash-peers.json` contains the paired hosts,
 pinned host keys, and enrolled observer public keys. The corresponding private
 key stays on its own machine under `~/.local/state/dotfiles/crash-peer/`.
 The managed SSH entry confines the peer key to its Tailscale address and to
-status streaming or the rate-limited snapshot. Re-enroll keys in the manifest
+status streaming, home-network summaries or the rate-limited snapshot. Re-enroll keys in the manifest
 after a reinstall or host key change. Apply the `diagnostics` tag on both hosts.
 To suspend this policy on a paired host, disable and stop
 `dot-crash-peer.service` and `dot-hardlockup-dump.service`. To revoke a peer,

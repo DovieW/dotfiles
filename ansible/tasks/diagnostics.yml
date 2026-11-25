@@ -67,6 +67,15 @@
     mode: '0755'
   register: dot_diag_resume_script
 
+- name: Install bounded post-resume stall recorder
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/scripts/diagnostic-post-resume"
+    dest: /usr/local/libexec/dot-diagnostic-post-resume
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Install wake-source recording for every system sleep
   become: true
   ansible.builtin.copy:
@@ -177,6 +186,7 @@
   loop:
     - dot-diagnostics-resume-arm.service
     - dot-diagnostics-resume.service
+    - dot-diagnostics-post-resume.service
     - dot-diagnostics-lid.service
   register: dot_diag_display_units
 

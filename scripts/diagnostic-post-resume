@@ -1,0 +1,445 @@
+#!/usr/bin/python3 -I
+"""Keep a bounded, durable record of stalls during the ten minutes after a wake."""
+
+import argparse
+import collections
+import contextlib
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import runpy
+import secrets
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+STATE = Path('/var/lib/dot-diagnostics/post-resume')
+RUNTIME = Path('/run/dot-diagnostics-post-resume')
+LIBEXEC = Path('/usr/local/libexec')
+PEER_CONFIG = Path('/etc/dot-crash-peer/peer.json')
+TRACEFS = Path('/sys/kernel/tracing')
+INSTANCE = 'dot-post-resume'
+GROUP = 'dot_post_resume'
+WINDOW_S = 600
+INTERVAL_S = 5
+SAMPLE_BUDGET = 1024 * 1024
+SAMPLE_LIMIT = 8 * 1024
+SNAPSHOT_BUDGET = 2 * 1024 * 1024
+RETAIN = 12
+MIRROR_LIMIT = 3500
+BOOT = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+LOCK_CALLS = {
+    'take_r': 'os_acquire_rwlock_read',
+    'take_w': 'os_acquire_rwlock_write',
+    'try_r': 'os_cond_acquire_rwlock_read',
+    'try_w': 'os_cond_acquire_rwlock_write',
+    'drop_r': 'os_release_rwlock_read',
+    'drop_w': 'os_release_rwlock_write',
+}
+TRACE_LINE = re.compile(
+    r'-(\d+)\s+\[\d+\]\s+\S+\s+(\d+\.\d+):\s+(\w+):[^\n]*'
+)
+TARGETS = ('kwin_wayland', 'systemd-udevd', 'thermald', 'nvidia')
+
+
+def text(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ''
+
+
+def probe_commands():
+    for name, symbol in LOCK_CALLS.items():
+        yield name, f'p:{GROUP}/{name} nvidia:{symbol} lock=$arg1:x64'
+        fetch = '' if name.startswith('drop_') else ' result=$retval:u32'
+        yield f'{name}_done', f'r128:{GROUP}/{name}_done nvidia:{symbol}{fetch}'
+    yield 'acpi', f'p:{GROUP}/acpi nvidia:rm_acpi_nvpcf_notify'
+    yield 'acpi_done', f'r128:{GROUP}/acpi_done nvidia:rm_acpi_nvpcf_notify'
+
+
+class LockEvents:
+    """Match Linux task IDs and lock objects within a window, invalidating on loss."""
+
+    def __init__(self):
+        self.key = secrets.token_bytes(16)
+        self.reset()
+
+    def reset(self):
+        self.acpi = set()
+        self.pending = {}
+        self.holders = {}
+        self.relevant = set()
+        self.events = collections.deque(maxlen=16)
+
+    def observe(self, line):
+        match = TRACE_LINE.search(line)
+        if not match:
+            return
+        tid, at, event = match.groups()
+        tid, at = int(tid), float(at)
+        if event == 'acpi':
+            self.acpi.add(tid)
+        elif event == 'acpi_done':
+            self.acpi.discard(tid)
+        elif event in LOCK_CALLS:
+            lock = re.search(r'\block=(0x[\da-fA-F]+)', line)
+            if lock is None or int(lock[1], 16) == 0:
+                return
+            token = hashlib.blake2s(lock[1].encode(), key=self.key, digest_size=6).hexdigest()
+            if tid in self.acpi and len(self.relevant) < 32:
+                self.relevant.add(token)
+            if len(self.pending) < 256:
+                self.pending[tid, event] = (at, token, tid in self.acpi)
+        elif event.endswith('_done') and (start := self.pending.pop((tid, event[:-5]), None)) is not None:
+            entered, token, acpi = start
+            call = event[:-5]
+            mode = call[-1]
+            owners = self.holders.get(token, {})
+            duration_ms = round(max(0, at - entered) * 1000, 1)
+            if call.startswith('drop_'):
+                acquired = owners.pop((tid, mode), None)
+                summary = {'event': 'released', 'held_ms': round((at - acquired) * 1000, 1)
+                           if acquired is not None and at >= acquired else None}
+                if not owners:
+                    self.holders.pop(token, None)
+            else:
+                if not re.search(r'\bresult=(?:0|0x0+)\b', line):
+                    return
+                if len(self.holders) < 128 and len(owners) < 64:
+                    owners[tid, mode] = at
+                    self.holders[token] = owners
+                summary = {'event': 'acquired', 'wait_ms': duration_ms}
+            if token in self.relevant:
+                self.events.append(dict(summary, lock=token, tid=tid, mode=mode,
+                                        acpi=acpi, monotonic_s=at))
+
+    def snapshot(self, now):
+        waiting = []
+        for (tid, call), (entered, token, acpi) in self.pending.items():
+            if acpi and call.startswith('take_') and now - entered >= 3:
+                owners = self.holders.get(token, {})
+                waiting.append({'tid': tid, 'lock': token, 'wait_s': round(now - entered, 2),
+                                'observed_holders': [{'tid': owner, 'mode': mode, 'held_s': round(now - at, 2)}
+                                                     for (owner, mode), at in list(owners.items())[:8]]})
+        result = {'waiting': waiting[:8], 'events': list(self.events)}
+        self.events.clear()
+        return result
+
+
+class Trace:
+    def __init__(self, root=TRACEFS):
+        self.root = root
+        self.instance = root / 'instances' / INSTANCE
+        self.created = False
+        self.probes = []
+        self.fd = None
+        self.guard = None
+        self.chunk = b''
+        self.last_loss = 0
+        self.events = LockEvents()
+
+    def command(self, value):
+        with (self.root / 'kprobe_events').open('a') as f:
+            f.write(value + '\n')
+
+    def open(self):
+        try:
+            # This also serializes the live probe check with the wake service.
+            RUNTIME.mkdir(mode=0o750, parents=True, exist_ok=True)
+            self.guard = (RUNTIME / 'trace.lock').open('a')
+            fcntl.flock(self.guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if self.instance.is_dir():
+                (self.instance / 'tracing_on').write_text('0')
+                with contextlib.suppress(FileNotFoundError):
+                    (self.instance / 'events' / GROUP / 'enable').write_text('0')
+                self.instance.rmdir()
+            self.instance.mkdir()
+            self.created = True
+            (self.instance / 'tracing_on').write_text('0')
+            # Clear only this collector's names from an interrupted older run.
+            own = self.root / 'events' / GROUP
+            for name, command in probe_commands():
+                if (own / name).is_dir():
+                    self.command(f'-:{GROUP}/{name}')
+                self.command(command)
+                self.probes.append(name)
+            (self.instance / 'trace_clock').write_text('mono')
+            (self.instance / 'buffer_size_kb').write_text('32')
+            (self.instance / 'events' / GROUP / 'enable').write_text('1')
+            self.fd = os.open(self.instance / 'trace_pipe', os.O_RDONLY | os.O_NONBLOCK)
+            self.last_loss = self.loss_count()
+            (self.instance / 'tracing_on').write_text('1')
+        except OSError:
+            self.close()
+            raise
+
+    def loss_count(self):
+        loss = 0
+        for path in (self.instance / 'per_cpu').glob('cpu*/stats'):
+            loss += sum(int(value) for value in re.findall(r'^(?:overrun|commit overrun|dropped events):\s*(\d+)',
+                                                            text(path), re.M))
+        profile = text(self.root / 'kprobe_profile')
+        names = {f'{GROUP}/{name}' for name in self.probes} | set(self.probes)
+        for line in profile.splitlines():
+            fields = line.split()
+            if len(fields) == 3 and fields[0] in names and fields[2].isdecimal():
+                loss += int(fields[2])
+        return loss
+
+    def drain(self):
+        data = bytearray(self.chunk)
+        while len(data) < 96 * 1024:
+            try:
+                block = os.read(self.fd, 8192)
+            except BlockingIOError:
+                break
+            if not block:
+                break
+            data.extend(block)
+        lines = bytes(data).split(b'\n')
+        self.chunk = lines.pop()[-8192:]
+        loss = self.loss_count()
+        capped = len(data) >= 96 * 1024
+        bad = capped or loss != self.last_loss or any(b'LOST ' in line for line in lines)
+        if bad:
+            self.events.reset()
+        else:
+            for line in lines:
+                self.events.observe(line.decode(errors='replace'))
+        self.last_loss = loss
+        return dict(self.events.snapshot(time.monotonic()), missed_total=loss,
+                    batch_unreliable=bad, read_limit_reached=capped)
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        if self.created:
+            with contextlib.suppress(OSError):
+                (self.instance / 'tracing_on').write_text('0')
+            with contextlib.suppress(OSError):
+                (self.instance / 'events' / GROUP / 'enable').write_text('0')
+            for name in reversed(self.probes):
+                with contextlib.suppress(OSError):
+                    self.command(f'-:{GROUP}/{name}')
+            self.probes.clear()
+            with contextlib.suppress(OSError):
+                self.instance.rmdir()
+            self.created = False
+        if self.guard is not None:
+            self.guard.close()
+            self.guard = None
+
+
+def blocked_tasks(proc=Path('/proc')):
+    results = []
+    for task in proc.glob('[0-9]*'):
+        comm = text(task / 'comm')
+        if not (comm.startswith(('kworker/', *TARGETS)) or 'acpi' in comm):
+            continue
+        status = text(task / 'status')
+        if not re.search(r'^State:\s+D\b', status, re.M):
+            continue
+        stack = re.findall(r'\]\s+([a-zA-Z0-9_.]+)', text(task / 'stack'))[:20]
+        results.append({'tid': int(task.name), 'comm': comm[:60],
+                        'wchan': text(task / 'wchan')[:64], 'stack': stack})
+        if len(results) == 32:
+            break
+    return results
+
+
+def nvidia_waiters(rows):
+    return {row['tid'] for row in rows if 'rm_acpi_nvpcf_notify' in row['stack']
+            and any(name.startswith('os_acquire_rwlock_') for name in row['stack'])}
+
+
+def bounded_snapshot(path):
+    with path.open('xb') as stream, subprocess.Popen(
+        [str(LIBEXEC / 'dot-crash-peer'), 'snapshot'], stdout=subprocess.PIPE,
+        start_new_session=True,
+    ) as child:
+        try:
+            # The existing snapshot has its own work bounds. Limit this archive too.
+            start = time.monotonic()
+            fd = child.stdout.fileno()
+            os.set_blocking(fd, False)
+            size = 0
+            while time.monotonic() - start < 15 and size < SNAPSHOT_BUDGET:
+                try:
+                    block = os.read(fd, min(65536, SNAPSHOT_BUDGET - size))
+                except BlockingIOError:
+                    time.sleep(0.05)
+                    continue
+                if not block:
+                    break
+                stream.write(block)
+                size += len(block)
+            stream.flush()
+            os.fsync(stream.fileno())
+        finally:
+            if child.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(child.pid, signal.SIGTERM)
+                try:
+                    child.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(child.pid, signal.SIGKILL)
+
+
+def bounded_sample(row, limit):
+    def encode(data):
+        return (json.dumps(data, separators=(',', ':')) + '\n').encode()
+
+    line = encode(row)
+    if len(line) <= limit:
+        return line
+    compact = dict(row, sample_truncated=True)
+    # Get the most recent state onto disk even during a large cascade of waits.
+    for key in ('blocked', 'lock_events', 'locks', 'waiting', 'pressure'):
+        compact.pop(key, None)
+        line = encode(compact)
+        if len(line) <= limit:
+            return line
+    raise ValueError('Post-resume sample metadata exceeded its byte limit')
+
+
+def append(path, row, mirror_gid=None):
+    line = bounded_sample(row, MIRROR_LIMIT if mirror_gid is not None else SAMPLE_LIMIT)
+    if path.exists() and path.stat().st_size + len(line) > SAMPLE_BUDGET:
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'ab') as stream:
+        if mirror_gid is not None:
+            os.fchown(stream.fileno(), -1, mirror_gid)
+            os.fchmod(stream.fileno(), 0o640)
+        stream.write(line)
+        stream.flush()
+        if mirror_gid is None:
+            os.fsync(stream.fileno())
+
+
+def prune():
+    for old in sorted(STATE.glob('*.jsonl'), reverse=True)[RETAIN - 1:]:
+        old.unlink()
+        old.with_suffix('.snapshot').unlink(missing_ok=True)
+
+
+def capture(seconds=WINDOW_S):
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    prune()
+    ident = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '-' + uuid.uuid4().hex
+    path = STATE / (ident + '.jsonl')
+    publish = RUNTIME / (ident + '.jsonl')
+    mirror_gid = None
+    try:
+        config = json.loads(PEER_CONFIG.read_text())
+        if config.get('mirror_connection_uuid'):
+            gid = pwd.getpwnam(config['local_user']).pw_gid
+            os.chown(RUNTIME, -1, gid)
+            mirror_gid = gid
+    except (OSError, ValueError, KeyError):
+        pass
+    for old in RUNTIME.glob('*.jsonl'):
+        if old.name != publish.name:
+            old.unlink()
+    session_state = runpy.run_path(str(LIBEXEC / 'dot-diagnostic-resume'))['session_state']
+    trace = Trace()
+    try:
+        trace.open()
+        trace_status = 'active'
+    except OSError as exc:
+        trace_status = f'unavailable: {exc.strerror or type(exc).__name__}'
+    print(f'Post-resume capture {ident}: lock trace {trace_status}', flush=True)
+    started = time.monotonic()
+    previous = set()
+    timeouts = 0
+    fired = False
+    seq = 0
+    child = None
+    bad_batches = 0
+    trace_available = trace.fd is not None
+    suspend_offset = time.clock_gettime(time.CLOCK_BOOTTIME) - started
+    try:
+        while (now := time.monotonic()) < started + seconds:
+            if time.clock_gettime(time.CLOCK_BOOTTIME) - now - suspend_offset > 1:
+                break
+            session = session_state(include_lock_screen=False)
+            kwin = session.get('kwin', {}).get('status', session.get('status', 'unavailable'))
+            timeouts = timeouts + 1 if kwin == 'timeout' else 0
+            blocked = blocked_tasks()
+            waits = nvidia_waiters(blocked)
+            evidence = trace.drain() if trace.fd is not None else {}
+            if evidence.get('batch_unreliable'):
+                bad_batches += 1
+            if bad_batches >= 3 and trace.fd is not None:
+                trace.close()
+                trace_status = 'stopped_after_buffer_loss'
+            persistent = bool(waits & previous or evidence.get('waiting'))
+            reason = ('nvidia_acpi_wait' if persistent else 'kwin_timeout' if timeouts >= 2 else None)
+            row = {'event': 'post_resume', 'run': ident, 'sequence': seq, 'boot_id': BOOT,
+                   'utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'elapsed_s': round(now - started, 2),
+                   'kwin': kwin, 'locked_hint': session.get('locked_hint'), 'lock_trace': trace_status,
+                   'nvidia_acpi_waiters': sorted(waits), 'snapshot_reason': reason if not fired else None}
+            append(path, dict(row, blocked=blocked, locks=evidence, trace_available=trace_available,
+                              pressure={key: text(Path('/proc/pressure') / key) for key in ('cpu', 'io', 'memory')}))
+            mirror_blocked = [dict(item, stack=item['stack'][:8]) for item in blocked if item['tid'] in waits][:4]
+            if mirror_gid is not None:
+                try:
+                    append(publish, dict(row, blocked=mirror_blocked,
+                                         waiting=evidence.get('waiting', [])[:2],
+                                         lock_events=evidence.get('events', [])[-3:],
+                                         trace_loss=evidence.get('batch_unreliable', False)), mirror_gid=mirror_gid)
+                except OSError:
+                    mirror_gid = None
+            if seq == 0:
+                fd = os.open(STATE, os.O_DIRECTORY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            if reason and not fired:
+                fired = True
+                # Run the snapshot without interrupting the regular samples.
+                child = subprocess.Popen([sys.executable, '-I', __file__, '--snapshot', str(path.with_suffix('.snapshot'))])
+            previous = waits
+            seq += 1
+            time.sleep(max(0, min(started + seconds, started + seq * INTERVAL_S) - time.monotonic()))
+    finally:
+        trace.close()
+        if child is not None:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                child.wait(timeout=1)
+        print(f'Post-resume capture {ident}: {seq} samples', flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check-trace', action='store_true')
+    parser.add_argument('--snapshot', type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.snapshot:
+        bounded_snapshot(args.snapshot)
+    elif args.check_trace:
+        trace = Trace()
+        try:
+            trace.open()
+            print(f'Enabled {len(trace.probes)} isolated NVIDIA lock probes')
+        finally:
+            trace.close()
+    else:
+        capture()
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    main()

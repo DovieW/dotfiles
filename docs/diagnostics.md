@@ -119,6 +119,33 @@ has `pre_sleep`, kernel sleep and display events, connector and session samples,
 `complete`. Compare to what appeared on the display. Inspect the capture status with
 `journalctl --namespace=diagnostics -u dot-diagnostics-resume-arm.service -u dot-diagnostics-resume.service`.
 
+### Stalls after resume
+
+On the IdeaPad, a successful dispatch of the display capture also starts
+`dot-diagnostics-post-resume.service`. For up to ten awake minutes it records
+KWin response, resource pressure and relevant kernel wait stacks every five
+seconds. The trace runs in its own tracefs instance. When the NVIDIA module
+accepts the probes, it pairs acquire entry and return, try-acquire, and release
+for its read/write lock wrappers. It tracks which locks intersect the NVIDIA
+ACPI callback. Lock IDs are pseudonyms scoped to a capture. Observed holders
+are limited to acquisitions seen during the trace. The collector clears inferred
+holders when the trace reports lost events, and repeated loss stops lock probes
+for the window. It continues sampling kernel wait stacks if probes are unavailable.
+
+A persistent NVIDIA/ACPI lock wait or consecutive KWin timeouts triggers one
+bounded local thread and CPU-stack snapshot, using the existing crash-peer
+snapshot entry point. It reuses the entry point's five-minute cooldown. The
+regular samples continue while the snapshot runs. The pre-sleep hook queues
+a stop for the prior capture. The service has no timer that can wake the laptop.
+
+Root-only local samples are in `/var/lib/dot-diagnostics/post-resume/`.
+Individual samples are flushed to disk. The collector retains twelve runs,
+with a cap of 1 MiB of samples and 2 MiB of snapshot data per run. The incident
+export includes matching captures. Check service output with
+`journalctl --namespace=diagnostics -u dot-diagnostics-post-resume.service`.
+The existing short display capture still records the connector and backlight
+during the initial wake.
+
 ### Wake source
 
 The systemd sleep hook records each sleep attempt before the kernel transition

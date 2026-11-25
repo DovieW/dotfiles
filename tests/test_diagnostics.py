@@ -17,6 +17,7 @@ D = runpy.run_path(str(ROOT / 'scripts/diagnostics'))
 RESUME = runpy.run_path(str(ROOT / 'scripts/diagnostic-resume'))
 WAKE = runpy.run_path(str(ROOT / 'scripts/diagnostic-wake'))
 PEER = runpy.run_path(str(ROOT / 'scripts/crash-peer'))
+POST = runpy.run_path(str(ROOT / 'scripts/diagnostic-post-resume'))
 
 
 class DiagnosticsTests(unittest.TestCase):
@@ -49,6 +50,100 @@ class DiagnosticsTests(unittest.TestCase):
         collect.assert_not_called()
         self.assertEqual([call.args[0] for call in emit.call_args_list],
                          ['peer_connected', 'peer_unreachable'])
+
+    def test_mirror_requires_the_unmetered_home_profile_on_the_default_link(self):
+        home_network = PEER['home_network']
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)
+            (config / 'peer.json').write_text(json.dumps({'mirror_connection_uuid': 'home'}))
+            with mock.patch.dict(home_network.__globals__, {'CONFIG': config}):
+                cases = [
+                    ('home:wifi', 'no (guessed)', True),
+                    ('hotspot:wifi\nhome:other', 'no', False),
+                    ('home:wifi', 'yes (guessed)', False),
+                    ('home:wifi', 'unknown', False),
+                ]
+                for active, metered, expected in cases:
+                    with self.subTest(active=active, metered=metered), mock.patch(
+                        'subprocess.check_output', side_effect=['[{"dev":"wifi"}]', active, metered],
+                    ):
+                        self.assertEqual(home_network(), expected)
+
+    def test_mirror_persists_each_sequence_once_across_restarts(self):
+        store = PEER['store_mirror']
+        run = '20261125T201233.000001Z-' + '0' * 32
+        row = {'event': 'post_resume', 'run': run, 'sequence': 0}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            with mock.patch.dict(store.__globals__, {'STATE': base, 'emit': mock.Mock()}):
+                store(row, {})
+                store(row, {})
+                store(dict(row, sequence=1), {})
+                store(dict(row, run='../outside'), {})
+            saved = list((base / 'post-resume').glob('*.jsonl'))
+            self.assertEqual(len(saved), 1)
+            self.assertEqual([json.loads(line)['sequence'] for line in saved[0].read_text().splitlines()], [0, 1])
+
+    def test_lock_trace_links_a_waiting_worker_to_an_observed_holder(self):
+        trace = POST['LockEvents']()
+        events = [(10, 1, 'take_w', 'lock=0xffff1234'), (10, 2, 'take_w_done', 'result=0'),
+                  (33, 3, 'acpi', ''), (33, 4, 'take_w', 'lock=0xffff1234')]
+        for tid, stamp, event, data in events:
+            trace.observe(f'worker-{tid} [001] ..... {stamp}.000000: {event}: (probe) {data}')
+        waiting = trace.snapshot(8)
+        self.assertEqual(waiting['waiting'][0]['tid'], 33)
+        self.assertEqual(waiting['waiting'][0]['observed_holders'], [{'tid': 10, 'mode': 'w', 'held_s': 6.0}])
+        self.assertNotIn('ffff1234', json.dumps(waiting))
+        trace.observe('worker-10 [001] ..... 9.000000: drop_w: (probe) lock=0xffff1234')
+        trace.observe('worker-10 [001] ..... 9.100000: drop_w_done: (probe)')
+        trace.observe('worker-33 [001] ..... 9.200000: take_w_done: (probe) result=0')
+        result = trace.snapshot(10)
+        self.assertEqual(result['waiting'], [])
+        self.assertEqual(result['events'][0]['held_ms'], 7100.0)
+        self.assertEqual(result['events'][1]['wait_ms'], 5200.0)
+        trace.reset()
+        self.assertEqual(trace.snapshot(11), {'events': [], 'waiting': []})
+
+    def test_nvidia_wait_classifier_requires_the_acpi_and_lock_frames(self):
+        rows = [
+            {'tid': 8, 'stack': ['rm_acpi_nvpcf_notify', 'os_acquire_rwlock_write']},
+            {'tid': 9, 'stack': ['os_acquire_rwlock_read']},
+            {'tid': 10, 'stack': ['rm_acpi_nvpcf_notify']},
+        ]
+        self.assertEqual(POST['nvidia_waiters'](rows), {8})
+
+    def test_post_resume_persists_samples_and_requests_one_early_snapshot(self):
+        capture = POST['capture']
+        now = [0.0]
+        waiter = {'tid': 8, 'comm': 'worker', 'wchan': 'rwsem',
+                  'stack': ['os_acquire_rwlock_write', 'rm_acpi_nvpcf_notify']}
+        no_trace = mock.Mock(fd=None)
+        no_trace.open.side_effect = PermissionError('lockdown')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / 'run'
+            runtime.mkdir()
+            with (
+                mock.patch.dict(capture.__globals__, {
+                    'STATE': root / 'state', 'RUNTIME': runtime, 'PEER_CONFIG': root / 'disabled',
+                    'Trace': lambda: no_trace, 'blocked_tasks': lambda: [waiter],
+                }),
+                mock.patch('time.monotonic', side_effect=lambda: now[0]),
+                mock.patch('time.clock_gettime', side_effect=lambda _: now[0]),
+                mock.patch('time.sleep', side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)),
+                mock.patch('runpy.run_path', return_value={
+                    'session_state': lambda **_: {'kwin': {'status': 'ok'}},
+                }),
+                mock.patch('subprocess.Popen') as popen,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                capture(16)
+            samples = [json.loads(line) for line in next((root / 'state').glob('*.jsonl')).read_text().splitlines()]
+            self.assertEqual([row['elapsed_s'] for row in samples], [0, 5, 10, 15])
+            self.assertEqual([row['snapshot_reason'] for row in samples], [None, 'nvidia_acpi_wait', None, None])
+            self.assertFalse(samples[-1]['trace_available'])
+            popen.assert_called_once()
+            no_trace.close.assert_called_once()
 
     def test_freeze_export_copies_only_the_requested_window_in_compressed_form(self):
         export = D['export_freeze']
@@ -161,7 +256,7 @@ class DiagnosticsTests(unittest.TestCase):
                     'STATE': root, 'RUNTIME': root, 'TRACE': root / 'missing-trace',
                     'DELAYS': (0,), 'display_state': release.wait,
                     'session_state': lambda: {'kwin': {'status': 'ok'}},
-                }), contextlib.redirect_stdout(io.StringIO()):
+                }), mock.patch('subprocess.run'), contextlib.redirect_stdout(io.StringIO()):
                     capture()
                 rows = [json.loads(line) for line in path.read_text().splitlines()]
                 self.assertEqual([row['phase'] for row in rows], ['kernel', 'session', 'display', 'complete'])
@@ -192,10 +287,15 @@ class DiagnosticsTests(unittest.TestCase):
             root = Path(directory)
             data = dict(name='test.jsonl', sleep=False, started=False)
             (root / 'capture').write_text(json.dumps(data))
-            with mock.patch.dict(arm.__globals__, {'RUNTIME': root, 'STATE': root}), \
-                    mock.patch.dict(arm.__globals__, {'arm_capture': mock.Mock()}) as env:
+            with (
+                mock.patch.dict(arm.__globals__, {'RUNTIME': root, 'STATE': root, 'arm_capture': mock.Mock()}) as env,
+                mock.patch('subprocess.run') as dispatch,
+            ):
                 arm()
                 env['arm_capture'].assert_not_called()
+                dispatch.assert_called_once_with([
+                    '/usr/bin/systemctl', '--no-block', 'stop', 'dot-diagnostics-post-resume.service',
+                ], check=True, timeout=2)
             self.assertTrue(json.loads((root / 'capture').read_text())['sleep'])
             self.assertEqual(json.loads((root / data['name']).read_text())['phase'], 'pre_sleep')
 

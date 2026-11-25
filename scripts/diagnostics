@@ -552,6 +552,21 @@ def export(args):
                 shutil.copyfile(path, dest / path.name)
         except OSError as exc:
             manifest['warnings'].append(f'resume capture {path.name}: {exc}')
+    for path in sorted((STATE / 'post-resume').glob('*.jsonl')):
+        match = re.fullmatch(r'(\d{8}T\d{6}\.\d{6}Z)-[a-f0-9]{32}\.jsonl', path.name)
+        if not match:
+            continue
+        opened = dt.datetime.strptime(match[1], '%Y%m%dT%H%M%S.%fZ').replace(tzinfo=dt.timezone.utc)
+        try:
+            if opened.timestamp() <= end and path.stat().st_mtime >= start:
+                dest = target / 'post-resume'
+                dest.mkdir(exist_ok=True)
+                shutil.copyfile(path, dest / path.name)
+                snapshot = path.with_suffix('.snapshot')
+                if snapshot.is_file():
+                    shutil.copyfile(snapshot, dest / snapshot.name)
+        except OSError as exc:
+            manifest['warnings'].append(f'post-resume capture {path.name}: {exc}')
     wake_lines = []
     for path in sorted((STATE / 'wakes').glob('*.jsonl')):
         try:
