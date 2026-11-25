@@ -106,7 +106,6 @@ KWIN_DISABLED_EFFECTS = (
     "maximize",
     "scale",
     "sheet",
-    "slide",
     "slideback",
     "slidingpopups",
     "squash",
@@ -114,7 +113,7 @@ KWIN_DISABLED_EFFECTS = (
     "windowaperture",
     "wobblywindows",
 )
-KWIN_ENABLED_EFFECTS = ("hidecursor",)
+KWIN_ENABLED_EFFECTS = ("hidecursor", "slide")
 KDE_FILES = (
     ".config/kdeglobals",
     ".config/kwinrc",
@@ -12504,8 +12503,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if kdeglobals_path.exists()
             else ""
         )
-        animations_disabled = (
-            kconfig_get(kdeglobals.encode("utf-8"), "KDE", "AnimationDurationFactor") == "0"
+        animation_policy_ok = (
+            kconfig_get(kdeglobals.encode("utf-8"), "KDE", "AnimationDurationFactor") == "0.08838834764831843"
+            and "slideEnabled=true" in kwin
             and all(
                 f"{effect}Enabled=false" in kwin
                 for effect in KWIN_DISABLED_EFFECTS
@@ -12514,9 +12514,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         animations_preserved = kde_preferences_match(".config/kdeglobals") and kde_preferences_match(".config/kwinrc")
         failures += not doctor_check(
             "KDE window animations",
-            animations_disabled or animations_preserved,
-            "disabled for movement, switching, opening, closing, and snapping"
-            if animations_disabled
+            animation_policy_ok or animations_preserved,
+            "Slide enabled with short transitions and other managed effects disabled"
+            if animation_policy_ok
             else "using reviewed local animation preferences" if animations_preserved
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )

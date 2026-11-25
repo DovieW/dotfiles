@@ -3403,7 +3403,7 @@ else:
         self.assertIn("ButtonsOnRight=IAX", kwin)
         self.assertIn("BorderlessMaximizedWindows=true", kwin)
         self.assertIn("KWIN_ENABLED_EFFECTS", cli)
-        self.assertIn('KWIN_ENABLED_EFFECTS = ("hidecursor",)', cli)
+        self.assertIn('KWIN_ENABLED_EFFECTS = ("hidecursor", "slide")', cli)
         disabled_effects = cli.split("KWIN_DISABLED_EFFECTS = (", 1)[1].split(")", 1)[0]
         self.assertNotIn('"hidecursor"', disabled_effects)
         self.assertIn('"window frames"', cli)
@@ -3418,7 +3418,8 @@ else:
         self.assertIn("[com.kolboo.app]", shortcuts)
         self.assertIn("toggle-0-f3=F3,F3,Start or stop voice dictation", shortcuts)
         self.assertIn("desktopchangeosdEnabled=false", kwin)
-        self.assertIn("AnimationDurationFactor=0", kdeglobals)
+        self.assertIn("AnimationDurationFactor=0.08838834764831843", kdeglobals)
+        self.assertIn("slideEnabled=true", kwin)
         for effect in (
             "blendchanges",
             "fade",
@@ -3430,7 +3431,6 @@ else:
             "maximize",
             "scale",
             "sheet",
-            "slide",
             "slideback",
             "slidingpopups",
             "squash",
@@ -3803,16 +3803,7 @@ else:
         self.assertIn("ListenFIFO=%t/dot-volume-swipe", socket)
         self.assertIn("StandardInput=socket", service)
         self.assertIn("plasma_shortcut: kwin,Walk Through Windows", gestures)
-        self.assertRegex(
-            gestures,
-            r"(?s)fingers: 4\n\s+direction: left.*?"
-            r"Switch One Desktop to the Left",
-        )
-        self.assertRegex(
-            gestures,
-            r"(?s)fingers: 4\n\s+direction: right.*?"
-            r"Switch One Desktop to the Right",
-        )
+        self.assertNotIn("Switch One Desktop to the", gestures)
         self.assertIn(
             "command: $HOME/.local/bin/dot-show-desktop show",
             gestures,

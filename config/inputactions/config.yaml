@@ -49,18 +49,7 @@ touchpad:
       actions:
         - plasma_shortcut: kwin,Walk Through Windows (Reverse)
 
-    # Four-finger horizontal swipes switch virtual desktops.
-    - type: swipe
-      fingers: 4
-      direction: left
-      actions:
-        - plasma_shortcut: kwin,Switch One Desktop to the Left
-
-    - type: swipe
-      fingers: 4
-      direction: right
-      actions:
-        - plasma_shortcut: kwin,Switch One Desktop to the Right
+    # KWin Slide handles four-finger horizontal swipes directly.
 
     # KWin 6.6 advertises showDesktop(bool) over DBus but ignores direct calls.
     # This state-aware adapter invokes KWin's working shortcut only when needed.
@@ -75,12 +64,3 @@ touchpad:
       direction: down
       actions:
         - command: $HOME/.local/bin/dot-show-desktop show
-
-    # Consume diagonal swipes so KWin cannot switch desktops in the opposite direction.
-    - type: swipe
-      fingers: 4
-      direction: left_up_right_down
-
-    - type: swipe
-      fingers: 4
-      direction: left_down_right_up
