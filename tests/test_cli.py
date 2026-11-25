@@ -3417,9 +3417,7 @@ else:
         self.assertIn("[Tiling][f9dc656f-0cd5-48cd-9c07-7a11c3635d64]", kwin)
         self.assertIn("[com.kolboo.app]", shortcuts)
         self.assertIn("toggle-0-f3=F3,F3,Start or stop voice dictation", shortcuts)
-        self.assertIn("desktopchangeosdEnabled=true", kwin)
-        self.assertIn("[Script-desktopchangeosd]", kwin)
-        self.assertIn("PopupHideDelay=200", kwin)
+        self.assertIn("desktopchangeosdEnabled=false", kwin)
         self.assertIn("AnimationDurationFactor=0", kdeglobals)
         for effect in (
             "blendchanges",

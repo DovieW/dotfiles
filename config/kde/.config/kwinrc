@@ -10,7 +10,7 @@ Rows=1
 
 [Plugins]
 blendchangesEnabled=false
-desktopchangeosdEnabled=true
+desktopchangeosdEnabled=false
 dot-dolphinEnabled=true
 dot-nemoEnabled=false
 dot-clipboardEnabled=true
@@ -60,9 +60,6 @@ Right=None
 Top=None
 TopLeft=None
 TopRight=None
-
-[Script-desktopchangeosd]
-PopupHideDelay=200
 
 [Windows]
 BorderlessMaximizedWindows=true

@@ -11863,22 +11863,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             if task_switcher_ok
             else "run dot apply --profile kubuntu-laptop --tags kde",
         )
-        desktop_osd_ok = all(
-            value in kwin
-            for value in (
-                "Name_1=General",
-                "Name_2=Money",
-                "desktopchangeosdEnabled=true",
-                "[Script-desktopchangeosd]",
-                "PopupHideDelay=200",
-            )
+        desktop_osd_ok = (
+            kconfig_get(kwin.encode("utf-8"), "Plugins", "desktopchangeosdEnabled")
+            == "false"
         )
         failures += not doctor_check(
             "virtual desktop name OSD",
             desktop_osd_ok,
-            "General/Money names shown for 200 ms after switching"
+            "desktop name popup disabled"
             if desktop_osd_ok
-            else "run dot apply --profile kubuntu-laptop --tags kde",
+            else f"run dot apply --profile {profile['name']} --tags kde",
         )
         lock_screen_path = Path.home() / ".config/kscreenlockerrc"
         lock_screen = (
