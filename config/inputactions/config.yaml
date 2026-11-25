@@ -7,19 +7,28 @@ emergency_combination: [backspace, enter, space]
 
 touchpad:
   gestures:
-    # Accept motion within 45 degrees of vertical and scale a full swipe to
-    # the volume range using the fine shortcuts.
+    # Accept motion within 45 degrees of vertical. Wait for each PipeWire
+    # change before sending the next one so fast swipes retain their travel.
     - type: swipe
       fingers: 3
       angle: 45-135
       bidirectional: true
       actions:
         - on: update
-          interval: 0.4
-          plasma_shortcut: kmix,increase_volume_small
+          interval: 1.5
+          wait: true
+          command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%+ --limit 1.0 && pactl set-sink-mute @DEFAULT_SINK@ 0
         - on: update
-          interval: -0.4
-          plasma_shortcut: kmix,decrease_volume_small
+          interval: -1.5
+          wait: true
+          command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%-
+        - on: end
+          command: >-
+            percent=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ |
+            awk '/^Volume:/ { printf "%.0f", $2 * 100 }') &&
+            [ -n "$percent" ] &&
+            busctl --user --expect-reply=no call org.kde.plasmashell
+            /org/kde/osdService org.kde.osdService volumeChanged i "$percent"
 
     # Windows switches applications with a three-finger horizontal swipe.
     - type: swipe

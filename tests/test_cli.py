@@ -3790,10 +3790,10 @@ else:
         self.assertRegex(
             gestures,
             r"fingers: 3\n\s+angle: 45-135\n\s+bidirectional: true\n"
-            r"\s+actions:\n\s+- on: update\n\s+interval: 0\.4\n"
-            r"\s+plasma_shortcut: kmix,increase_volume_small\n"
-            r"\s+- on: update\n\s+interval: -0\.4\n"
-            r"\s+plasma_shortcut: kmix,decrease_volume_small",
+            r"\s+actions:\n\s+- on: update\n\s+interval: 1\.5\n"
+            r"\s+wait: true\n\s+command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%\+[^\n]*\n"
+            r"\s+- on: update\n\s+interval: -1\.5\n"
+            r"\s+wait: true\n\s+command: wpctl set-volume @DEFAULT_AUDIO_SINK@ 4%-",
         )
         self.assertIn("plasma_shortcut: kwin,Walk Through Windows", gestures)
         self.assertRegex(

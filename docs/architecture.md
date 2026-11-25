@@ -493,9 +493,9 @@ windows. A state-aware adapter works around KWin 6.6 ignoring direct
 `showDesktop(bool)` DBus calls while avoiding the nondeterminism of blindly
 toggling KDE's Show Desktop action.
 
-The volume gesture invokes KDE's one-percentage-point volume shortcuts.
-Plasma's volume-change feedback is disabled in the tracked `plasmaparc`,
-preventing a sound on every step while retaining the visual volume display.
+The volume gesture serializes four-percentage-point updates to PipeWire.
+It shows Plasma's volume indicator when the swipe ends. Plasma's volume-change
+sound is disabled in the tracked `plasmaparc`.
 
 InputActions follows the latest stable tags of its control-tool and KWin-plugin
 repositories. Because the plugin links against KWin, the build state records

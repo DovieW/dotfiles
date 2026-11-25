@@ -471,8 +471,8 @@ dot gestures status
 
 `dot gestures reload` installs the tracked gesture file and its helper before
 reloading InputActions, so it is the quick no-sudo path after editing the
-repository. Three-finger vertical swipes adjust volume in one-percentage-point
-steps as the fingers move. Reversing during a swipe reverses the volume change.
+repository. Three-finger vertical swipes adjust volume as the fingers move,
+using serialized PipeWire updates. The volume indicator appears at the end.
 
 If the volume also sticks with keyboard keys and the sound slider, follow
 [the shared audio-state recovery](troubleshooting.md#volume-percentage-sticks-with-keys-slider-and-touchpad-gestures)
