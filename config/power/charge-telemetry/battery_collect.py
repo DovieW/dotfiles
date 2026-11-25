@@ -17,13 +17,16 @@ import sys
 import tempfile
 import time
 
-from battery_store import (BASE, CONTROLLER, DATABASE, SOCKET, append, clocks, connect,
+from battery_store import (BASE, CONTROLLER, DATABASE, SOCKET, VERSION, append, clocks, connect,
                            deadline_context, local_zone, number, read, sync_directory)
 
 POWER = Path('/sys/class/power_supply')
 UP_HISTORY = Path('/var/lib/upower')
 HWMON = Path('/sys/class/hwmon')
 DRM = Path('/sys/class/drm')
+TYPEC = Path('/sys/class/typec')
+RTC = Path('/sys/class/rtc')
+COLLECTOR_VERSION = 2
 PROFILE = 'org.freedesktop.UPower.PowerProfiles'
 PROFILE_PATH = '/org/freedesktop/UPower/PowerProfiles'
 PROPERTIES = 'org.freedesktop.DBus.Properties'
@@ -32,6 +35,8 @@ UP_STATES = {'charging': 'Charging', 'discharging': 'Discharging',
              'fully-charged': 'Full', 'pending-charge': 'Not charging',
              'pending-discharge': 'Not charging'}
 CONTROLLER_EVENTS = {'firmware_change', 'hold', 'auto', 'set-window'}
+ALARM_EVENTS = {'alarm_armed', 'alarm_fired', 'alarm_clock_cancelled'}
+ALARM_PREFIX = 'dot-charge alarm '
 
 
 def bus_value(bus, name, path, iface, key):
@@ -104,6 +109,33 @@ def battery_fields(battery):
     }
 
 
+def typec_metadata(supply, typec=TYPEC):
+    # UCSI names the supplies with the 1-based connector number. Check the
+    # controller ancestry as well so the global Type-C index cannot mislabel a port.
+    match = re.fullmatch(r'ucsi-source-psy-.+:(\d+)', supply.name)
+    if not match:
+        return {}
+    port = typec / f'port{int(match[1]) - 1}'
+    partner = port / f'{port.name}-partner'
+    if not partner.is_dir() or port.resolve().parent.parent != supply.resolve().parent.parent:
+        return {}
+    role = read(port / 'power_role') or ''
+    if role != 'sink' and '[sink]' not in role:
+        return {}
+    header = read(partner / 'identity/id_header') or ''
+    product = read(partner / 'identity/product') or ''
+    metadata = {
+        'typec_port': port.name,
+        'pd_revision': read(partner / 'usb_power_delivery_revision'),
+        'power_operation_mode': read(port / 'power_operation_mode'),
+    }
+    if re.fullmatch(r'0x[0-9a-fA-F]{8}', header) and int(header, 16) & 0xffff:
+        metadata['partner_vid'] = f'{int(header, 16) & 0xffff:04x}'
+    if re.fullmatch(r'0x[0-9a-fA-F]{8}', product) and int(product, 16) >> 16:
+        metadata['partner_pid'] = f'{int(product, 16) >> 16:04x}'
+    return metadata
+
+
 def adapter(root):
     mains = []
     usb = []
@@ -124,6 +156,7 @@ def adapter(root):
                 'source_limit_w': volts * amps if volts and amps else None,
                 'voltage_now_v': number(read(path / 'voltage_now'), 1e6),
                 'current_now_a': number(read(path / 'current_now'), 1e6),
+                **typec_metadata(path),
             })
     return {
         'ac_online': bool(usb) or any(mains) if usb or mains else None,
@@ -163,6 +196,8 @@ class Collector:
 
     def sample(self, bus=None):
         data = clocks()
+        data.update(collector_version=COLLECTOR_VERSION, schema_version=VERSION,
+                    controller_version=self.controller.get('CONTROLLER_VERSION'))
         battery = POWER / 'BAT0'
         # Read AC on both sides of the gauge snapshot to flag conflicting samples.
         before = adapter(POWER)
@@ -201,10 +236,17 @@ class Collector:
             return data, None
 
 
+def alarm_record(name, detail, timing):
+    return ('local', name, dict(timing, timestamp=detail['occurred_at'], detail=detail))
+
+
 def event(name, detail=None):
     try:
         with connect(writable=True) as db:
-            append(db, [('local', name, dict(clocks(), detail=detail))])
+            stamp = clocks()
+            record = alarm_record(name, detail, stamp) if name in ALARM_EVENTS else (
+                'local', name, dict(stamp, detail=detail))
+            append(db, [record])
     except (OSError, sqlite3.Error, ValueError) as exc:
         print(f'Battery telemetry event {name}: {exc}', file=sys.stderr)
 
@@ -213,6 +255,9 @@ def sleep_sample(phase, operation):
     # The frozen user session and the power path do not depend on D-Bus or this hook.
     try:
         data, _ = Collector().sample()
+        data['rtc_wakealarm'] = {rtc.name: number(read(rtc / 'wakealarm')) for rtc in RTC.glob('rtc[0-9]*')}
+        if phase == 'resume':
+            data['wake_irq'] = number(read(Path('/sys/power/pm_wakeup_irq')))
         with connect(writable=True) as db:
             append(db, [('local', phase, dict(data, detail=operation))])
     except (OSError, sqlite3.Error, ValueError) as exc:
@@ -220,7 +265,9 @@ def sleep_sample(phase, operation):
 
 
 def adapter_state(data):
-    ports = tuple((port['port'], port['type'], port['source_limit_w']) for port in data.get('usb_sources') or [])
+    ports = tuple((port['port'], port['type'], port['source_limit_w'], port.get('partner_vid'),
+                   port.get('partner_pid'), port.get('voltage_now_v'), port.get('current_now_a'))
+                  for port in data.get('usb_sources') or [])
     return data.get('ac_online'), data.get('mains_online'), data.get('adapter_class'), ports
 
 
@@ -319,7 +366,9 @@ def watch():
             try:
                 message = json.loads(receiver.recv(2048))
                 kind = message.pop('kind')
-                if kind in CONTROLLER_EVENTS:
+                if kind in ALARM_EVENTS:
+                    event(kind, message)
+                elif kind in CONTROLLER_EVENTS:
                     event(kind, message)
                     capture(True, kind)
             except BlockingIOError:
@@ -374,11 +423,39 @@ def watch():
             append(db, [('local', 'boot', now)])
     event('collector_start')
     capture(True, 'collector_start')
+    recover_scheduler_events()
     try:
         loop.run()
     finally:
         receiver.close()
         SOCKET.unlink(missing_ok=True)
+
+
+def recover_scheduler_events():
+    """Backfill recent timer evidence and preserve the earliest retained policy start."""
+    try:
+        recent = subprocess.run(
+            ['/usr/bin/journalctl', '-u', 'dot-charge.service', '--since=-7d', '--no-pager', '-o', 'json',
+             '--grep=^(dot-charge alarm |Started dot-charge.service )', '--output-fields=MESSAGE,_BOOT_ID'],
+            text=True, capture_output=True, timeout=3, check=True,
+        )
+        recovered = []
+        for line in recent.stdout.splitlines():
+            row = json.loads(line)
+            message = row.get('MESSAGE', '')
+            timing = {'boot_id': row.get('_BOOT_ID')}
+            if message.startswith(ALARM_PREFIX):
+                detail = json.loads(message.removeprefix(ALARM_PREFIX))
+                kind = detail.pop('kind')
+                if kind in ALARM_EVENTS:
+                    recovered.append(alarm_record(kind, detail, timing))
+            elif message.startswith('Started dot-charge.service '):
+                stamp = int(row['__REALTIME_TIMESTAMP']) / 1e6
+                recovered.append(('scheduler_journal', 'scheduler_started', dict(timing, timestamp=stamp)))
+        with connect(writable=True) as db:
+            append(db, recovered)
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as exc:
+        print(f'Battery telemetry scheduler journal: {exc}', file=sys.stderr)
 
 
 UP_FIELDS = {

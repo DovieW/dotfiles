@@ -3,10 +3,14 @@
 from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
 import datetime as dt
+import hashlib
+import json
 import math
 from statistics import median
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from battery_analysis import (WAKE_TOLERANCE_S, conservation_episodes, deadline_cause, describe_sleep, gap_bounds,
+                              gap_model, sleep_pairs, timing_summary, usb_signature, wake_evidence)
 from battery_store import utc, wall_time
 
 SOC_LEVELS = (80, 90, 95, 98)
@@ -14,6 +18,7 @@ TEMP_LEVELS = (30, 35, 40)
 CHARGE_LEVELS = (90, 95, 98, 100)
 BOUNDARIES = {'boot', 'suspend', 'resume', 'collector_stop', 'collector_start', 'power_source'}
 HEAVY_CPU_PCT = 70
+HIGH_VOLTAGE_V = (16.8, 17.0, 17.2)
 
 
 def compatible(left, right, cuts, allow_full_transition=False):
@@ -38,12 +43,15 @@ def compatible(left, right, cuts, allow_full_transition=False):
     if abs(boot_delta - awake_delta) > 0.05 or abs(boot_delta - (b - a)) > 2:
         return False
     signature = ('ac_online', 'adapter_class', 'mains_online', 'firmware_mode', 'requested_pct', 'override')
-    return all(left.get(key) == right.get(key) for key in signature) and adapter_key(left) == adapter_key(right)
+    return all(left.get(key) == right.get(key) for key in signature) and usb_signature(left) == usb_signature(right)
 
 
 def adapter_key(row):
     ports = [
         f"{port['port']}:{port.get('type')}:{port.get('source_limit_w')}"
+        + (f":{port['partner_vid']}:{port.get('partner_pid')}" if port.get('partner_vid') else '')
+        + (f":{port.get('current_now_a')}A" if port.get('type') == 'PD' and not port.get('source_limit_w')
+           and port.get('current_now_a') else '')
         for port in row.get('usb_sources', [])
     ]
     return '/'.join(ports) or row.get('adapter_class') or 'unknown'
@@ -95,6 +103,28 @@ def workload_percent(cpu, gpu=None):
     return max(value for value in (cpu, gpu) if value is not None) if cpu is not None or gpu is not None else None
 
 
+def voltage_exposure(group, voltage, ac, low, high, span):
+    group['estimated_seconds']['battery_voltage'] += (high - low) * span
+    if ac is not None:
+        group['estimated_seconds']['battery_voltage_ac_context'] += (high - low) * span
+    edges = set(HIGH_VOLTAGE_V)
+    edges.update(bin_index / 4 for bin_index in range(math.floor(min(voltage) * 4) + 1,
+                                                       math.ceil(max(voltage) * 4)))
+    cuts = {low, high}
+    if voltage[0] != voltage[1]:
+        cuts.update(ratio for edge in edges
+                    if low < (ratio := (edge - voltage[0]) / (voltage[1] - voltage[0])) < high)
+    points = sorted(cuts)
+    for first, last in zip(points, points[1:]):
+        value = lerp(voltage, (first + last) / 2)
+        seconds = (last - first) * span
+        group['battery_voltage_bucket_seconds'][f'{math.floor(value * 4) / 4:.2f}'] += seconds
+        if ac is True:
+            for threshold in HIGH_VOLTAGE_V:
+                if value > threshold:
+                    group['battery_voltage_above_on_ac_seconds'][str(threshold)] += seconds
+
+
 def add_interval(group, left, right, start, end):
     a, b = left['timestamp'], right['timestamp']
     span = b - a
@@ -109,6 +139,9 @@ def add_interval(group, left, right, start, end):
     if temp:
         estimates['battery_temp'] += end - start
     ac = left.get('ac_online')
+    voltage = pair(left, right, 'battery_v')
+    if voltage and 0 < min(voltage) <= max(voltage) < 100:
+        voltage_exposure(group, voltage, ac, low, high, span)
     cpu = workload_percent(cpu_load(left, right), right.get('gpu_load_pct'))
     if soc and ac is not None:
         estimates['soc_ac_context'] += end - start
@@ -156,6 +189,8 @@ def add_interval(group, left, right, start, end):
     estimates['battery_power'] += end - start
     if ac is not None:
         estimates['battery_power_ac_context'] += end - start
+    if ac is True:
+        group['ac_power_coverage_by_adapter_seconds'][adapter_key(left)] += end - start
     wh = (lerp(power, low) + lerp(power, high)) / 2 * (end - start) / 3600
     if wh >= 0:
         group['charged_wh'] += wh
@@ -209,6 +244,8 @@ def new_group(start, end):
         ('soc_above_seconds_on_battery', SOC_LEVELS), ('soc_above_seconds_heavy_workload', SOC_LEVELS),
         ('soc_below_seconds', (10, 20)), ('battery_temp_above_seconds', TEMP_LEVELS),
         ('soc_temperature_seconds', ()), ('discharged_on_ac_by_adapter_wh', ()),
+        ('battery_voltage_bucket_seconds', ()), ('ac_power_coverage_by_adapter_seconds', ()),
+        ('battery_voltage_above_on_ac_seconds', HIGH_VOLTAGE_V),
     ):
         result[field] = Counter({str(level): 0.0 for level in levels})
     return result
@@ -249,9 +286,13 @@ def capacity_summary(samples, energy, zone):
     if not samples:
         return None
     daily = defaultdict(list)
+    health = defaultdict(list)
     for row in samples:
         if row.get('full_wh') is not None:
-            daily[dt.datetime.fromtimestamp(row['timestamp'], zone).date()].append(row['full_wh'])
+            day = dt.datetime.fromtimestamp(row['timestamp'], zone).date()
+            daily[day].append(row['full_wh'])
+            if row.get('health_pct') is not None:
+                health[day].append(row['health_pct'])
     series = [(day, median(values)) for day, values in daily.items()]
     first, last = samples[0], samples[-1]
     cycle_values = [row['firmware_cycles'] for row in samples if row.get('firmware_cycles') is not None]
@@ -268,6 +309,7 @@ def capacity_summary(samples, energy, zone):
         'firmware_cycle_delta': cycle_values[-1] - cycle_values[0]
         if same_pack and cycle_values else None,
         'daily_median_capacity_wh': {day.isoformat(): cap for day, cap in series},
+        'daily_median_health_pct': {day.isoformat(): median(values) for day, values in health.items()},
         'capacity_trend_wh_per_month': slope([((day - series[0][0]).days / 30.4375, cap) for day, cap in series])
         if same_pack else None,
         'capacity_trend_wh_per_estimated_efc': slope(energy_points) if same_pack else None,
@@ -308,12 +350,26 @@ def charging_sessions(samples, cuts):
             session['samples'] += 1
             session['end_timestamp'] = row['timestamp']
             session['end_soc_pct'] = soc
+            if soc < 98:
+                session.pop('first_98_timestamp', None)
+                session.pop('last_below_98_timestamp', None)
+            if soc >= 98 and 'first_98_timestamp' not in session:
+                session['first_98_timestamp'] = row['timestamp']
+                if connected and previous.get('soc_pct', 100) < 98:
+                    session['last_below_98_timestamp'] = previous['timestamp']
             for level in CHARGE_LEVELS:
                 if level > session['start_soc_pct'] and (
                     row.get('genuinely_full') if level == 100 else soc >= level
                 ):
                     session['seconds_to_observation'].setdefault(str(level), row['timestamp'] - session['start_timestamp'])
             if terminal:
+                first_98 = session['first_98_timestamp']
+                earlier = session.get('last_below_98_timestamp')
+                session['tail_98_to_full'] = {
+                    'first_ge_98_to_first_full_s': row['timestamp'] - first_98,
+                    'lower_s': max(0, previous['timestamp'] - first_98) if earlier is not None else None,
+                    'upper_s': row['timestamp'] - earlier if earlier is not None else None,
+                }
                 result = finish()
                 if result is not None:
                     yield result
@@ -324,8 +380,10 @@ def charging_sessions(samples, cuts):
         yield result
 
 
-def deadline_results(rows, samples, cuts, end, zone):
+def deadline_results(rows, samples, cuts, end, zone, sleeps=()):
     policies = []
+    alarms = [row for row in rows if row['kind'] in ('alarm_armed', 'alarm_fired', 'alarm_clock_cancelled')
+              and isinstance((row.get('detail') or {}).get('alarm_at'), (int, float))]
     for row in rows:
         if row['kind'] != 'policy' or not row.get('windows'):
             continue
@@ -354,7 +412,16 @@ def deadline_results(rows, samples, cuts, end, zone):
                 eligible = samples[bisect_left(stamps, max(start, row['timestamp'])):bisect_right(stamps, ready)]
                 result = {'ready_timestamp': ready, 'ready_utc': utc(ready), 'source': 'local_schedule',
                           'outcome': 'unknown', 'headroom_s': None, 'attempt_samples': len(eligible)}
+                nearby = samples[bisect_left(stamps, start - WAKE_TOLERANCE_S):bisect_right(
+                    stamps, start + WAKE_TOLERANCE_S)]
+                evidence = wake_evidence(start, nearby, sleeps, alarms)
+                result['wake'] = evidence
+                first_full_after = next((sample for sample in samples[bisect_right(stamps, ready):bisect_right(
+                    stamps, wall_time(day, window['end'], policy_zone))] if sample.get('genuinely_full')), None)
+                result['first_full_after_deadline_utc'] = (
+                    utc(first_full_after['timestamp']) if first_full_after else None)
                 full = next((sample for sample in eligible if sample.get('genuinely_full')), None)
+                covered = False
                 # A cancelled or superseded window should not count as a policy miss.
                 if any((sample.get('override') or {}).get('percent') == 80 for sample in eligible):
                     result['outcome'] = 'override_observed'
@@ -366,9 +433,18 @@ def deadline_results(rows, samples, cuts, end, zone):
                     covered = (first['timestamp'] - start <= first['period_s']
                                and ready - last['timestamp'] <= last['period_s']
                                and all(compatible(a, b, cuts) for a, b in zip(eligible, eligible[1:])))
-                    if covered and all(sample.get('soc_pct') is not None and sample['soc_pct'] < 100
+                    if covered and all(sample.get('soc_pct') is not None and not sample.get('genuinely_full')
                                        for sample in eligible):
-                        result['outcome'] = 'missed_estimated'
+                        if all(sample['soc_pct'] < 100 for sample in eligible):
+                            result['outcome'] = 'missed_estimated'
+                result['limiting_evidence'] = deadline_cause(result['outcome'], evidence, eligible, covered, ready)
+                if eligible:
+                    last = eligible[-1]
+                    result['last_pre_deadline'] = {
+                        'utc': utc(last['timestamp']), **{
+                            key: last.get(key) for key in ('soc_pct', 'ac_online', 'genuinely_full',
+                                                          'battery_status', 'firmware_mode')
+                        }}
                 yield result
 
 
@@ -395,6 +471,8 @@ def summarize(rows, start, end, group_by, zone):
                 observations[key].append(row)
     coverage = defaultdict(list)
     daily_energy = defaultdict(lambda: Counter())
+    sleeps = list(sleep_pairs(rows, local))
+    models = [(sleep, gap_model(sleep)) for sleep in sleeps]
     for series in streams.values():
         for left, right in zip(series, series[1:]):
             first, last = max(start, left['timestamp']), min(end, right['timestamp'])
@@ -417,7 +495,8 @@ def summarize(rows, start, end, group_by, zone):
             if start <= session['start_timestamp'] < end:
                 key = next(groups_for(session['start_timestamp'], end, group_by, zone))[0]
                 groups[key]['charging_sessions'].append(session)
-    for deadline in deadline_results(rows, local, cuts, end, zone):
+    episodes = list(conservation_episodes(local, cuts, compatible, adapter_key))
+    for deadline in deadline_results(rows, local, cuts, end, zone, sleeps):
         if start <= deadline['ready_timestamp'] < end:
             key = next(groups_for(deadline['ready_timestamp'], end, group_by, zone))[0]
             groups[key]['charging_deadlines'].append(deadline)
@@ -431,6 +510,12 @@ def summarize(rows, start, end, group_by, zone):
         gaps = list(unknown_ranges(a, b, coverage[key]))
         group['soc_unknown_seconds'] = sum(last - first for first, last in gaps)
         group['soc_unknown_intervals'] = len(gaps)
+        bounds = gap_bounds(gaps, [(sleep, model) for sleep, model in models if a < sleep.end and b > sleep.start],
+                            SOC_LEVELS)
+        group['soc_missing_interval_bounds'] = bounds
+        group['suspend_reconstruction'] = [
+            describe_sleep(sleep, model) for sleep, model in models if a <= sleep.start < b]
+        group['conservation_episodes'] = [episode for episode in episodes if a <= episode['timestamp'] < b]
         group['largest_soc_gaps'] = [
             {'from_utc': utc(first), 'to_utc': utc(last), 'seconds': last - first}
             for first, last in sorted(gaps, key=lambda gap: gap[1] - gap[0], reverse=True)[:10]
@@ -439,15 +524,166 @@ def summarize(rows, start, end, group_by, zone):
         outcomes = group['deadline_outcomes'] = Counter(d['outcome'] for d in group['charging_deadlines'])
         denominator = outcomes['met'] + outcomes['missed_estimated']
         group['deadline_success_rate_pct'] = 100 * outcomes['met'] / denominator if denominator else None
+        group['deadline_wake_evidence_counts'] = Counter(d['wake']['state'] for d in group['charging_deadlines'])
+        group['deadline_limiting_evidence_counts'] = Counter(
+            d['limiting_evidence'] for d in group['charging_deadlines'] if d.get('limiting_evidence'))
         sessions = defaultdict(lambda: defaultdict(list))
+        tails = defaultdict(list)
         for session in group['charging_sessions']:
             bucket = int(session['start_soc_pct'] / 10) * 10
             load = session['mean_cpu_load_pct']
             workload = 'unknown' if load is None else ('heavy' if load >= HEAVY_CPU_PCT else 'under_70pct')
             for level, seconds in session['seconds_to_observation'].items():
                 sessions[f"{session['adapter']}/{bucket}/{workload}"][level].append(seconds)
+            tail = session.get('tail_98_to_full')
+            if tail and tail['upper_s'] is not None:
+                tails[session['adapter']].append(tail['first_ge_98_to_first_full_s'])
+        group['tail_98_to_full_by_adapter'] = {key: timing_summary(values) for key, values in tails.items()}
         group['charge_timing_by_adapter_start_soc_workload'] = {
             name: {level: {'n': len(times), 'median_s': median(times), 'max_s': max(times)}
                    for level, times in levels.items()} for name, levels in sessions.items()
         }
     return groups
+
+
+REPORT_VERSION = 1
+
+
+def compact(group):
+    result = dict(group)
+    for key in ('charging_sessions', 'charging_deadlines', 'suspend_reconstruction', 'conservation_episodes'):
+        items = result.pop(key)
+        result[f'{key}_count'] = len(items)
+        if key != 'charging_sessions':
+            result[f'recent_{key}'] = items[-12:]
+    capacity = result.get('capacity_and_firmware_cycles')
+    if capacity:
+        result['capacity_and_firmware_cycles'] = dict(capacity)
+        for key in ('daily_median_capacity_wh', 'daily_median_health_pct'):
+            values = capacity[key]
+            by_month = defaultdict(list)
+            for day, value in values.items():
+                by_month[day[:7]].append(value)
+            result['capacity_and_firmware_cycles'][key.replace('daily_', 'monthly_')] = {
+                month: median(items) for month, items in by_month.items()}
+            result['capacity_and_firmware_cycles'][key] = dict(list(values.items())[-90:])
+    elapsed = group['elapsed_seconds']
+    unknown = group['soc_unknown_seconds']
+    # The covered duration is an interpolation. These are envelopes for gaps
+    # added to that same estimate, as fractions of the entire elapsed period.
+    result['soc_exposure_full_period_pct_envelope'] = {
+        key: [round(100 * duration / elapsed, 4), round(100 * (duration + unknown) / elapsed, 4)]
+        for key, duration in group['soc_above_seconds'].items()
+    }
+    conditional = group['soc_missing_interval_bounds']['conditional_above_threshold_seconds']
+    result['soc_exposure_full_period_pct_conditional_envelope'] = {
+        key: [round(100 * (duration + conditional[key][f'{bound}_seconds']) / elapsed, 4)
+              for bound in ('lower', 'upper')]
+        for key, duration in group['soc_above_seconds'].items()
+    }
+    return result
+
+
+def optimization_report(rows, end, zone_name, zone, schema_version, baseline_before=None):
+    if not rows:
+        raise ValueError('No battery observations available')
+    if baseline_before is not None and baseline_before > end:
+        raise ValueError('The historical cutoff is in the future')
+    local = [row for row in rows if row['source'] == 'local' and row['kind'] == 'sample']
+    first_local = local[0]['timestamp'] if local else end
+    legacy = [row for row in rows if row['source'].startswith('upower_') and row['kind'] == 'sample']
+    starts = [row['timestamp'] for row in rows if row['kind'] == 'scheduler_started'
+              and row['timestamp'] < first_local]
+    cutoff = baseline_before if baseline_before is not None else min(starts, default=first_local)
+    baseline = None
+    if legacy and legacy[0]['timestamp'] < cutoff:
+        historical = [row for row in rows if row['timestamp'] < cutoff and row['source'] != 'local']
+        baseline_summary = summarize(historical, legacy[0]['timestamp'], cutoff, 'lifetime', zone)['lifetime']
+        baseline = {'cutoff_source': 'explicit' if baseline_before else
+                    ('earliest_retained_scheduler_start' if starts else 'first_local_sample'),
+                    'mode_before_cutoff_verified': False, 'metrics': compact(baseline_summary)}
+    first = legacy[0]['timestamp'] if legacy else first_local
+    lifetime = compact(summarize(rows, first, end, 'lifetime', zone)['lifetime'])
+    recent = {}
+    for name, days in (('24h', 1), ('7d', 7), ('30d', 30), ('90d', 90)):
+        start = max(first_local, end - days * 86400)
+        if start < end:
+            current = [row for row in rows if row['timestamp'] >= start - 86400]
+            policies = [row for row in rows if row['kind'] == 'policy' and row['timestamp'] < start - 86400]
+            if policies:
+                current[:0] = policies[-1:]
+            recent[name] = compact(summarize(current, start, end, 'lifetime', zone)['lifetime'])
+            recent[name]['nominal_window_seconds'] = days * 86400
+            recent[name]['truncated_at_first_live_sample'] = first_local > end - days * 86400
+
+    adapters = {}
+    for sample in local:
+        if sample.get('ac_online') is not True:
+            continue
+        signature = adapter_key(sample)
+        information = adapters.setdefault(signature, {
+            'observations': 0, 'negative_battery_power_observations': 0,
+            'type': sample.get('adapter_class'), 'usb_sources': [],
+        })
+        information['observations'] += 1
+        if (sample.get('battery_power_w') or 0) < 0:
+            information['negative_battery_power_observations'] += 1
+        if sample.get('usb_sources'):
+            information['usb_sources'] = [
+                {k: v for k, v in port.items() if v is not None and (v != 0 or isinstance(v, bool))}
+                for port in sample['usb_sources']
+            ]
+        ports = information['usb_sources']
+        watts = ports[0].get('source_limit_w') if len(ports) == 1 else None
+        if watts is not None:
+            information['probable_power_class'] = '100_W_USB_C_class' if 95 <= watts <= 105 else 'USB_C_limit_observed'
+        elif len(ports) == 1 and ports[0].get('type') == 'PD' and ports[0].get('current_now_a') == 5:
+            information['probable_power_class'] = 'USB_C_PD_5A_request_observed_watts_unknown'
+        elif information['type'] == 'mains_unidentified':
+            information['probable_power_class'] = 'non_USB_C_mains_candidate'
+        else:
+            information['probable_power_class'] = 'unclassified'
+
+    versions = defaultdict(Counter)
+    for row in local:
+        for key in ('collector_version', 'controller_version', 'schema_version'):
+            versions[key][str(row.get(key, 'unrecorded'))] += 1
+    changes = []
+    anomalies = Counter()
+    for row in rows:
+        kind = row['kind']
+        if row.get('policy_error'):
+            anomalies['policy_read_error'] += 1
+        if row.get('power_transition'):
+            anomalies['unstable_power_snapshot'] += 1
+        if kind in ('legacy_conflict', 'alarm_clock_cancelled'):
+            anomalies[kind] += 1
+        if kind in ('policy', 'firmware_change', 'hold', 'auto', 'set-window'):
+            fields = ('requested_pct', 'firmware_mode', 'policy_reason', 'override', 'windows',
+                      'trigger', 'detail', 'controller_version', 'collector_version')
+            changes.append({'utc': utc(row['timestamp']), 'kind': kind,
+                            **{key: row[key] for key in fields if key in row}})
+            if row.get('windows'):
+                schedule = json.dumps(row['windows'], sort_keys=True, separators=(',', ':')).encode()
+                changes[-1]['schedule_sha256'] = hashlib.sha256(schedule).hexdigest()
+    return {
+        'report_version': REPORT_VERSION, 'database_schema_version': schema_version,
+        'generated_utc': utc(end), 'timezone': zone_name, 'raw_samples_included': False,
+        'methodology': {
+            'coverage': 'Sample-supported estimates use adjacent compatible observations. Sleep models add zero coverage.',
+            'comparison': 'Compare full-period envelopes and sample-supported coverage. Overlapping envelopes or different contexts cannot establish a reduction.',
+            'gap_bounds': 'Raw unknown time permits zero to the full gap. Conditional envelopes assume no hidden AC or mode changes and monotone stored energy. A verified mode change at resume is allowed. A single stable USB-C source uses its reported fixed-profile limit as an additional conditional ceiling.',
+            'full_charge': 'Requires SOC 100 with Full status, or Full level while no longer charging.',
+            'deadlines': 'Observed full before the deadline is a success. A modeled gap cannot prove success. Wake timing and IRQ are correlations.',
+            'adapter_identity': 'Source-limit class and optional PD vendor/product identifiers are fingerprints, not verified charger labels.',
+            'voltage': '0.25 V pack-voltage bins. High-voltage cutoffs describe exposure and are not hardware safety limits.',
+            'unavailable': ['verified battery temperature', 'battery internal resistance', 'GPU load and temperature'],
+        },
+        'historical_baseline': baseline, 'lifetime': lifetime, 'recent_live_periods': recent,
+        'adapter_fingerprints': adapters,
+        'versions_by_local_sample_count': dict(versions),
+        'policy_changes': {'count': len(changes), 'latest': changes[-24:]},
+        'anomalies': {'record_counts': anomalies,
+                      'deadline_limiting_evidence_counts': lifetime['deadline_limiting_evidence_counts'],
+                      'negative_on_ac_wh': lifetime['discharged_on_ac_by_adapter_wh']},
+    }

@@ -16,6 +16,7 @@ MODULES = Path(__file__).resolve().parents[1] / 'config/power/charge-telemetry'
 sys.path.insert(0, str(MODULES))
 try:
     import battery_collect
+    import battery_analysis as analysis
     import battery_report as report
     import battery_store as store
 finally:
@@ -77,6 +78,87 @@ class AccountingTest(unittest.TestCase):
         self.assertEqual(first['seconds_to_observation']['100'], 180)
         rows[3]['kind'] = 'resume'
         self.assertNotIn('100', list(report.charging_sessions(rows, []))[0]['seconds_to_observation'])
+
+    def test_charge_tail_requires_a_bracketed_98_pct_crossing(self):
+        rows = [sample(0, 97), sample(60, 98), sample(120, 100),
+                sample(180, 100, genuinely_full=True, battery_status='Full')]
+        tail = list(report.charging_sessions(rows, []))[0]['tail_98_to_full']
+        self.assertEqual(tail, {'first_ge_98_to_first_full_s': 120, 'lower_s': 60, 'upper_s': 180})
+        tail = list(report.charging_sessions(rows[1:], []))[0]['tail_98_to_full']
+        self.assertIsNone(tail['upper_s'])
+
+    def test_voltage_buckets_and_voltage_exposure_on_ac(self):
+        rows = [sample(0, battery_v=16.75), sample(60, battery_v=17.25)]
+        data = report.summarize(rows, 0, 60, 'lifetime', dt.UTC)['lifetime']
+        self.assertEqual(data['battery_voltage_bucket_seconds'], {'16.75': 30, '17.00': 30})
+        self.assertAlmostEqual(data['battery_voltage_above_on_ac_seconds']['17.0'], 30)
+
+    def test_conditional_sleep_estimates_leave_coverage_unchanged(self):
+        port = {'port': 'usb', 'type': 'PD', 'source_limit_w': 100}
+        common = dict(usb_sources=[port], adapter_class='usb_c', firmware_mode='Standard',
+                      battery_model='test', full_wh=80)
+        pre = sample(0, 80, kind='suspend', stored_wh=64, **common)
+        post = sample(3600, 100, kind='resume', stored_wh=80, monotonic_s=3, **common)
+        data = report.summarize([pre, post], 0, 3600, 'lifetime', dt.UTC)['lifetime']
+        bounds = data['soc_missing_interval_bounds']
+        self.assertEqual(data['soc_coverage_pct'], 0)
+        self.assertEqual(data['soc_unknown_seconds'], 3600)
+        self.assertEqual(bounds['unconditional_above_threshold_seconds'], {'lower_seconds': 0, 'upper_seconds': 3600})
+        self.assertEqual(bounds['modeled_gap_seconds'], 3600)
+        expected = bounds['conditional_above_threshold_seconds']['90']
+        self.assertAlmostEqual(expected['lower_seconds'], 273.6)
+        self.assertAlmostEqual(expected['upper_seconds'], 3326.4)
+        conflict = dict(timestamp=1800, kind='power_source', source='local')
+        interrupted = report.summarize([pre, conflict, post], 0, 3600, 'lifetime', dt.UTC)['lifetime']
+        self.assertEqual(interrupted['soc_missing_interval_bounds']['modeled_gap_seconds'], 0)
+        self.assertEqual(interrupted['suspend_reconstruction'][0]['net_change_wh'], 16)
+
+    def test_wake_evidence_differentiates_near_and_late_resume(self):
+        pre = sample(0, kind='suspend')
+        armed = dict(timestamp=-60, kind='alarm_armed', boot_id='one', detail={'alarm_at': 300})
+        for stamp, expected in ((303, 'resume_near_armed_alarm'), (720, 'still_asleep_past_armed_alarm')):
+            post = sample(stamp, kind='resume', monotonic_s=3)
+            sleeps = list(analysis.sleep_pairs([pre, post], [pre, post]))
+            fired = dict(timestamp=stamp, kind='alarm_fired', boot_id='one', detail={'alarm_at': 300})
+            evidence = analysis.wake_evidence(300, [pre, post], sleeps, [armed, fired])
+            self.assertEqual(evidence['state'], expected)
+            self.assertEqual(evidence['resume_delay_s'], stamp - 300)
+
+    def test_confirmed_policy_change_at_resume_can_keep_conditional_bounds(self):
+        common = dict(battery_model='test', full_wh=80)
+        pre = sample(0, 80, kind='suspend', stored_wh=64, firmware_mode='Long_Life', **common)
+        post = sample(3600, 81, kind='resume', monotonic_s=3, stored_wh=64.8,
+                      firmware_mode='Standard', **common)
+        observed = next(analysis.sleep_pairs([pre, post], [pre, post]))
+        self.assertIsNone(analysis.gap_model(observed))
+        applied = dict(timestamp=3601, kind='firmware_change', boot_id='one',
+                       detail={'trigger': 'resume_reconcile', 'applied_at': 3599, 'percent': 100})
+        observed = next(analysis.sleep_pairs([pre, post, applied], [pre, post]))
+        self.assertTrue(observed.verified_mode_change_at_resume)
+        self.assertIsNotNone(analysis.gap_model(observed))
+
+    def test_conservation_episode_censors_interval_after_gap(self):
+        rows = [sample(0, 100, firmware_mode='Standard'),
+                sample(60, 100, firmware_mode='Long_Life', battery_power_w=0, genuinely_full=True),
+                sample(120, 99, firmware_mode='Long_Life', battery_power_w=0),
+                sample(1200, 80, firmware_mode='Long_Life', battery_power_w=0)]
+        episode = list(analysis.conservation_episodes(rows, [], report.compatible, report.adapter_key))[0]
+        self.assertEqual(episode['above_80_ac_power_covered_s'], 60)
+        self.assertEqual(episode['last_above_80_observed_s'], 60)
+        self.assertEqual(episode['end_reason'], 'gap_or_mode_change')
+        self.assertNotIn('at_or_below_80_observed_by_s', episode)
+
+    def test_report_envelope_preserves_missing_time_and_baseline(self):
+        legacy = [dict(sample(ts, 99), source='upower_charge') for ts in (0, 60)]
+        scheduler = dict(timestamp=120, kind='scheduler_started', source='scheduler_journal')
+        live = [sample(180, 80), sample(240, 80)]
+        result = report.optimization_report([*legacy, scheduler, *live], 360, 'UTC', dt.UTC, 1)
+        baseline = result['historical_baseline']['metrics']
+        self.assertEqual(baseline['soc_coverage_pct'], 50)
+        self.assertEqual(baseline['soc_exposure_full_period_pct_envelope']['98'], [50, 100])
+        self.assertEqual(result['recent_live_periods']['24h']['soc_exposure_full_period_pct_envelope']['98'],
+                         [0, 66.6667])
+        self.assertNotIn('charging_sessions', baseline)
 
     def test_hold_missed_and_unknown_deadlines(self):
         origin = dt.datetime(2026, 11, 23, tzinfo=dt.UTC).timestamp()
@@ -147,6 +229,25 @@ class SensorAndStorageTest(unittest.TestCase):
             data = battery_collect.adapter(power)
             self.assertEqual(data['adapter_class'], 'usb_c')
             self.assertEqual(data['usb_sources'][0]['source_limit_w'], 100)
+
+    def test_typec_reads_only_scoped_partner_model_metadata(self):
+        with tempfile.TemporaryDirectory() as root:
+            controller = Path(root) / 'USBC000:00'
+            supply = controller / 'power_supply/ucsi-source-psy-USBC000:001'
+            supply.mkdir(parents=True)
+            typec = controller / 'typec'
+            port = typec / 'port0'
+            partner = port / 'port0-partner'
+            identity = partner / 'identity'
+            identity.mkdir(parents=True)
+            (port / 'power_role').write_text('source [sink]')
+            (identity / 'id_header').write_text('0x80001234')
+            (identity / 'product').write_text('0xabcd0099')
+            detail = battery_collect.typec_metadata(supply, typec)
+            self.assertEqual(detail['partner_vid'], '1234')
+            self.assertEqual(detail['partner_pid'], 'abcd')
+            (port / 'power_role').write_text('[source] sink')
+            self.assertEqual(battery_collect.typec_metadata(supply, typec), {})
 
     def test_gpu_reads_only_runtime_metadata(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(battery_collect, 'read') as read:

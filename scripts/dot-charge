@@ -13,6 +13,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 
 
 CONFIG = Path('/etc/dotfiles/charge-schedule.json')
@@ -22,6 +23,7 @@ BATTERY_PERCENT = Path('/sys/class/power_supply/BAT0/capacity')
 UNIT = 'dot-charge.service'
 CLOCK_REALTIME_ALARM = 8  # Linux UAPI: include/uapi/linux/time.h.
 TELEMETRY = '/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry'
+CONTROLLER_VERSION = 2
 
 
 def notify(kind, **detail):
@@ -31,6 +33,14 @@ def notify(kind, **detail):
             client.sendto(json.dumps(dict(kind=kind, **detail)).encode(), str(STATE / 'telemetry/notify.sock'))
     except OSError:
         pass
+
+
+def alarm_event(kind, deadline, reason):
+    data = dict(alarm_at=deadline, reason=reason, occurred_at=time.time(),
+                boottime_s=time.clock_gettime(time.CLOCK_BOOTTIME), controller_version=CONTROLLER_VERSION)
+    # The journal also retains the evidence if the collector was absent or frozen.
+    print('dot-charge alarm ' + json.dumps(dict(kind=kind, **data), separators=(',', ':')), flush=True)
+    notify(kind, **data)
 
 
 def duration(value):
@@ -107,11 +117,11 @@ def apply(percent):
     return False
 
 
-def reconcile():
+def reconcile(trigger='resume_reconcile'):
     with lock():
         percent, deadline, reason = policy(dt.datetime.now())
         if apply(percent):
-            notify('firmware_change', percent=percent, reason=reason)
+            notify('firmware_change', percent=percent, reason=reason, trigger=trigger, applied_at=time.time())
     return deadline, reason
 
 
@@ -119,14 +129,17 @@ def watch():
     fd = os.timerfd_create(CLOCK_REALTIME_ALARM)
     try:
         while True:
-            deadline, reason = reconcile()
+            deadline, reason = reconcile('scheduler')
             os.timerfd_settime(fd, flags=os.TFD_TIMER_ABSTIME | os.TFD_TIMER_CANCEL_ON_SET, initial=deadline)
+            alarm_event('alarm_armed', deadline, reason)
             print(f'Next {reason} at {dt.datetime.fromtimestamp(deadline).astimezone().isoformat()}', flush=True)
             try:
                 os.read(fd, 8)
+                alarm_event('alarm_fired', deadline, reason)
             except OSError as exc:
                 if exc.errno != errno.ECANCELED:
                     raise
+                alarm_event('alarm_clock_cancelled', deadline, reason)
     finally:
         os.close(fd)
 
@@ -199,6 +212,8 @@ def main():
         'history': 'Show recent battery observations and events',
         'stats': 'Estimate battery exposure, throughput, and charging performance',
         'export': 'Export raw battery telemetry as CSV or JSON',
+        'report': 'Export a compact battery health and charging analysis as JSON',
+        'verify-backup': 'Verify a compressed battery database snapshot for recovery',
     }
     for name, help_text in reports.items():
         sub.add_parser(name, help=help_text, add_help=False)

@@ -4,11 +4,15 @@
 import argparse
 import csv
 import datetime as dt
+import gzip
+import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 
 # The installed, root-owned directory is trusted. Retain isolated Python mode.
@@ -28,6 +32,7 @@ FIELDS = (
     'gpu_runtime_status', 'power_profile', 'active_deadline', 'next_deadline', 'override', 'policy_next_ts', 'policy_reason',
     'policy_error', 'period_s', 'windows', 'detail', 'trigger', 'history_unit', 'upower_rate_w',
     'upower_to_full_s', 'upower_to_empty_s',
+    'collector_version', 'controller_version', 'schema_version', 'rtc_wakealarm', 'wake_irq',
 )
 
 
@@ -74,6 +79,9 @@ def statistics(groups):
         mean = data['mean_soc_pct_while_covered']
         print(f"{name} · {data['from_utc']} to {data['to_utc']}")
         print(f"  SOC coverage {coverage:.1f}% · {data['soc_unknown_seconds']/3600:.2f} h unknown")
+        modeled = data['soc_missing_interval_bounds']['modeled_gap_seconds']
+        if modeled:
+            print(f"  {modeled/3600:.2f} h of unknown time has conditional exposure bounds in --json")
         if mean is not None:
             print(f"  Average SOC during covered time {mean:.1f}%")
             exposure = '  '.join(f'>{k}% {v/3600:.2f} h' for k, v in data['soc_above_seconds'].items())
@@ -92,6 +100,24 @@ def statistics(groups):
         if data['charging_sessions']:
             print(f"  {len(data['charging_sessions'])} charging segments with two or more samples")
     print('Time and energy totals are estimates over covered intervals. Use --json for all metrics and gaps.')
+
+
+def verify_backup(path):
+    with path.open('rb') as source:
+        sha256 = hashlib.file_digest(source, 'sha256').hexdigest()
+        source.seek(0)
+        with tempfile.TemporaryDirectory(prefix='battery-restore-check-') as directory:
+            snapshot = Path(directory) / 'snapshot.sqlite3'
+            with gzip.GzipFile(fileobj=source) as compressed, snapshot.open('wb') as restored:
+                shutil.copyfileobj(compressed, restored)
+            with connect(snapshot) as db:
+                check = db.execute('PRAGMA integrity_check').fetchall()
+                if check != [('ok',)]:
+                    raise ValueError('Battery snapshot failed SQLite integrity_check')
+                version = db.execute('PRAGMA user_version').fetchone()[0]
+                count, newest = db.execute('SELECT COUNT(*),MAX(timestamp) FROM records').fetchone()
+    return {'integrity': 'ok', 'sha256': sha256, 'schema_version': version, 'records': count,
+            'newest_record_utc': utc(newest) if newest is not None else None}
 
 
 def main():
@@ -114,7 +140,26 @@ def main():
     hook = commands.add_parser('sleep')
     hook.add_argument('phase', choices=('suspend', 'resume'))
     hook.add_argument('operation')
+    report = commands.add_parser('report', help='Export a battery optimization report as JSON')
+    report.add_argument('--baseline-before', type=parse_time, help='Override the historical cutoff')
+    verify = commands.add_parser('verify-backup', help='Check a compressed SQLite snapshot without restoring it')
+    verify.add_argument('path', type=Path)
     args = parser.parse_args()
+
+    if args.action == 'verify-backup':
+        print(json.dumps(verify_backup(args.path), indent=2))
+        return
+    if args.action == 'report':
+        from battery_report import optimization_report
+
+        end = time.time()
+        with connect() as db:
+            schema = db.execute('PRAGMA user_version').fetchone()[0]
+            rows = records(db, 0, end)
+        name, zone = local_zone()
+        result = optimization_report(rows, end, name, zone, schema, args.baseline_before)
+        print(json.dumps(result, indent=2, allow_nan=False))
+        return
 
     if args.action in ('watch', 'backup', 'import-history', 'sleep'):
         from battery_collect import backup, import_history, sleep_sample, watch
@@ -163,5 +208,5 @@ if __name__ == '__main__':
     except BrokenPipeError:
         # Allow history and export to be piped into head.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-    except (OSError, ValueError, sqlite3.Error) as exc:
+    except (OSError, ValueError, EOFError, sqlite3.Error) as exc:
         sys.exit(f'dot-charge telemetry: {exc}')
