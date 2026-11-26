@@ -18,24 +18,35 @@ current_link="$app_root/current"
 current_app="$current_link/app"
 current_run="$current_app/AppRun"
 
-install_wrapper() {
-  local wrapper
-  install -d -m 0755 "$bin_dir"
-  wrapper="$(mktemp "$bin_dir/.copyq-wrapper.XXXXXX")"
+render_wrapper() {
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
     'export QT_QPA_PLATFORM=wayland' \
-    "export APPDIR=\"$current_app\"" \
-    "exec \"$current_run\" \"\$@\"" >"$wrapper"
+    "export APPDIR=\"$current_app\""
+  cat <<'LAUNCHER'
+# Start the bundled binary at its own path so QCA can find its OpenSSL plugin.
+# Keep AppRun for other layouts.
+if [[ -x "$APPDIR/usr/bin/copyq" && -f "$APPDIR/usr/plugins/crypto/libqca-ossl.so" &&
+      "$(readlink -- "$APPDIR/AppRun.wrapped")" == usr/bin/copyq ]]; then
+  exec "$APPDIR/usr/bin/copyq" "$@"
+fi
+LAUNCHER
+  printf '%s\n' "exec \"$current_run\" \"\$@\""
+}
+
+install_wrapper() {
+  local wrapper
+  install -d -m 0755 "$bin_dir"
+  wrapper="$(mktemp "$bin_dir/.copyq-wrapper.XXXXXX")"
+  render_wrapper >"$wrapper"
   chmod 0755 "$wrapper"
   mv -f -- "$wrapper" "$bin_dir/copyq"
 }
 
 wrapper_ready() {
   [[ -x "$bin_dir/copyq" && ! -L "$bin_dir/copyq" ]] &&
-    grep -Fqx -- "export APPDIR=\"$current_app\"" "$bin_dir/copyq" &&
-    grep -Fq -- "$current_run" "$bin_dir/copyq"
+    cmp -s -- "$bin_dir/copyq" <(render_wrapper)
 }
 
 activate_release() {
@@ -163,15 +174,19 @@ if [[ -x "$app_dir/AppRun" && -f "$image" ]] &&
    printf '%s  %s\n' "$expected" "$image" | sha512sum --check --status; then
   runtime_ready=true
 fi
-active_ready=false
+selected_runtime_ready=false
 if [[ "$runtime_ready" == true && "$installed" == "$release" ]] &&
-   [[ "$(readlink -f -- "$current_link" 2>/dev/null || true)" == "$(readlink -f -- "$release_dir")" ]] &&
-   wrapper_ready; then
-  active_ready=true
+   [[ "$(readlink -f -- "$current_link" 2>/dev/null || true)" == "$(readlink -f -- "$release_dir")" ]]; then
+  selected_runtime_ready=true
 fi
-if [[ "$active_ready" == true ]]; then
+if [[ "$selected_runtime_ready" == true ]]; then
   printf '%s\n' "$expected" >"$expected_file"
   chmod 0644 "$expected_file"
+  if ! wrapper_ready; then
+    install_wrapper
+    echo "CHANGED CopyQ launcher updated. Restart any running CopyQ before enabling encryption."
+    exit 0
+  fi
   echo "CopyQ $release is installed from the $channel."
   exit 0
 fi

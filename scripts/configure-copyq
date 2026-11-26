@@ -46,8 +46,7 @@ if [[ "$mode" == --ensure && ! -f "$archive_marker" ]]; then
 fi
 
 if [[ "$mode" == --check ]]; then
-  "$copyq_bin" eval "config('maxitems') == 1100 && config('clipboard_mime_size_limit') == '.*:100M' && config('disable_tray') && str(config('autostart')) == 'false' && tab().indexOf('Clipboard') >= 0 && tab().indexOf('Emoji') < 0" |
-    grep -qx true || { echo "CopyQ clipboard settings drifted." >&2; exit 1; }
+  "$copyq_bin" eval - --check <"$root/config/copyq/configure.js"
   "$copyq_bin" eval "commands().some(function(c){return c.name == 'Dotfiles Wayland paste' && c.isScript})" |
     grep -qx true || { echo "CopyQ Wayland paste command is missing." >&2; exit 1; }
   "$copyq_bin" eval "

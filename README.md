@@ -285,10 +285,11 @@ current list. The popup never launches Codex or changes its configuration.
 
 ### Clipboard and emoji that behave naturally
 
-CopyQ replaces Klipper for searchable clipboard history; it is deliberately
-kept to one job and one hidden tray-free tab. `Meta+V` opens the history and
-pastes the selected item directly. Text and screenshots are both retained in
-history. Flameshot captures are handed to the Wayland clipboard through a
+CopyQ replaces Klipper for searchable clipboard history. `Meta+V` opens the
+picker and Enter pastes the selected item. The picker remembers searches,
+shows single-line previews, and supports Vi navigation. Clipboard is the
+automatic history tab. Snippets, Prompts, and Notes are created once for
+items you want to organize yourself. Flameshot captures use a
 long-lived `wl-copy` owner so CopyQ can safely archive their PNG data.
 
 `Meta+.` opens [jockel09/emoji-picker](https://github.com/jockel09/emoji-picker),

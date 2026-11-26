@@ -123,8 +123,14 @@
       unix:path=/run/user/{{ ansible_facts.user_uid }}/bus
   when:
     - dot_copyq_install.changed
+    - not dot_copyq_install.stdout.startswith('CHANGED CopyQ launcher updated.')
     - dot_copyq_service_unit.stat.exists
     - lookup('env', 'WAYLAND_DISPLAY') | length > 0
+
+- name: Report pending CopyQ launcher activation
+  ansible.builtin.debug:
+    msg: "{{ dot_copyq_install.stdout }}"
+  when: dot_copyq_install.stdout.startswith('CHANGED CopyQ launcher updated.')
 
 - name: Apply managed CopyQ configuration
   ansible.builtin.command:

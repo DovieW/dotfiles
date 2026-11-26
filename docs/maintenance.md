@@ -407,6 +407,26 @@ Apply with `dot apply --profile <profile> --tags clipboard` on either machine.
 A path on one computer is not accessible to a chat hosted on the other: use
 Herdr's Ctrl-V image bridge for remote panes in either direction.
 
+CopyQ limits newly captured data per format: 512 KiB for URI lists, 2 MiB for
+HTML and RTF, 1 MiB for other text, 25 MiB for images, and 4 MiB for other
+formats. Existing history is retained. The clipboard profile creates Snippets,
+Prompts, and Notes once per CopyQ profile. Later applies respect edits to
+those tabs.
+
+**CopyQ history encryption** is enrolled separately on each Kubuntu machine.
+If setup reports a launcher update, close the picker and restart
+`dot-copyq.service` before enrolling. First use
+**File → Export** to save a password-protected export of every tab in a
+private location. Verify it restores into a separate CopyQ profile before
+changing the live history. Save the dedicated CopyQ password in Bitwarden for
+recovery and enter it directly in CopyQ's **Encrypt Tabs** prompt. Enable
+**Use external key store** so KWallet can supply the password at startup.
+Leave the periodic password prompt disabled. Confirm the existing tabs remain
+readable after a managed CopyQ restart while KDE Wallet is unlocked.
+
+Tab encryption covers stored clipboard items. Remembered searches and
+temporary PNG files live outside the encrypted tab data.
+
 The IdeaPad uses a pinned upstream CopyQ CI AppImage with the
 [Wayland clipboard crash fix](https://github.com/hluk/CopyQ/pull/3742).
 The installer selects stable releases again once the latest stable tag includes
