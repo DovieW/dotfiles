@@ -469,8 +469,15 @@ class Customization:
         target = peer["user"] + "@" + peer["hostname"]
         command = '"$HOME/.local/bin/dot-ai-customization" ' + shlex.join(args)
         try:
-            result = run(shlex.split(self.git_env["GIT_SSH_COMMAND"]) + [target, command],
-                         timeout=timeout, env=self.git_env)
+            # The approved peer record pins the full MagicDNS name even when
+            # the user's known_hosts entry only covers the interactive alias.
+            with tempfile.TemporaryDirectory(prefix="dot-ai-ssh-") as folder:
+                known_hosts = Path(folder) / "known_hosts"
+                known_hosts.write_text(peer["hostname"] + " " + peer["host_key"] + "\n")
+                options = ["-o", f"UserKnownHostsFile={known_hosts}", "-o", "GlobalKnownHostsFile=/dev/null",
+                           "-o", f'HostKeyAlias={peer["hostname"]}', "-o", "UpdateHostKeys=no"]
+                result = run(shlex.split(self.git_env["GIT_SSH_COMMAND"]) + options + [target, command],
+                             timeout=timeout, env=self.git_env)
             return json.loads(result.stdout) if result.returncode == 0 else {}
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return {}
