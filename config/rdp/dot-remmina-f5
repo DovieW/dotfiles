@@ -273,6 +273,19 @@ settings = {
     "microphone": "sys:pulse",
 }
 
+# F5 files with gateway credential source 5 use the token. For downloads
+# that explicitly disable CredSSP and omit desktop credentials, satisfy
+# Remmina's username check with a placeholder and use its empty-password mode.
+if (
+    fields.get("gatewaycredentialssource") == "5"
+    and fields.get("enablecredsspsupport") == "0"
+    and not any(
+        fields.get(key) for key in ("username", "domain", "password", "password 51")
+    )
+):
+    settings["username"] = "f5-session"
+    settings["allow_empty_pass"] = "1"
+
 profile.write_text(
     "[remmina]\n"
     + "".join(

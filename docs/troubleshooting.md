@@ -136,6 +136,11 @@ profile exists only in the per-user runtime directory, is readable only by the
 user, and is erased after Remmina has consumed it. Certificate validation
 remains enabled.
 
+When the F5 file specifies gateway token authentication, disables CredSSP,
+and supplies no desktop credentials, the generated profile uses a placeholder
+username and an empty password to suppress Remmina's local credentials prompt.
+The gateway still authenticates the session with the downloaded token.
+
 At each launch, the managed Remmina helper queries KScreen for the primary
 display's current physical canvas and Plasma scale. It has Windows render at
 that same desktop scale while selecting FreeRDP's closest supported 100%, 140%,

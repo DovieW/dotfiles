@@ -204,6 +204,8 @@
     'full address:s:remote.example.test' \
     'gatewayhostname:s:gateway.example.test' \
     'gatewayaccesstoken:s:one-time-token' \
+    'gatewaycredentialssource:i:5' \
+    'enablecredsspsupport:i:0' \
     'authentication level:i:0' >"$rdp_file"
 
   run env PATH="$fake_bin:$PATH" \
@@ -216,6 +218,9 @@
   grep -Fxq "server=remote.example.test" "$captured_profile"
   grep -Fxq "gateway_server=gateway.example.test" "$captured_profile"
   grep -Fxq "gatewayaccesstoken=one-time-token" "$captured_profile"
+  grep -Fxq "username=f5-session" "$captured_profile"
+  grep -Fxq "password=" "$captured_profile"
+  grep -Fxq "allow_empty_pass=1" "$captured_profile"
   grep -Fxq "resolution_mode=0" "$captured_profile"
   grep -Fxq "keyboard_grab=1" "$captured_profile"
   grep -Fxq "disableclipboard=0" "$captured_profile"
@@ -262,6 +267,8 @@
     "$BATS_TEST_DIRNAME/../config/rdp/dot-remmina-f5" "$rdp_file"
 
   [ "$status" -eq 0 ]
+  grep -Fxq "username=" "$captured_profile"
+  ! grep -q '^allow_empty_pass=' "$captured_profile"
   grep -Fxq "resolution_width=3840" "$captured_profile"
   grep -Fxq "resolution_height=2160" "$captured_profile"
   [ "$(cat "$captured_configure")" = $'--desktop-scale\n145\n--device-scale\n140' ]
