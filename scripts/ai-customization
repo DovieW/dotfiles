@@ -262,6 +262,13 @@ class Customization:
                 skill_sources[name] = "Dotfiles"
         return {
             "profile": self.profile, "manifest": manifest, "drift": drift,
+            "paths": {
+                "instructions": str((self.codex / "AGENTS.md").absolute()),
+                "config": str((self.codex / "config.toml").absolute()),
+                "skills": str(self.skills.absolute()),
+                "hooks": str((self.codex / "hooks.json").absolute()),
+                "manifest": str(ROOT / REL / PREFS),
+            },
             "actual_defaults": {k: raw.get(k) for k in sorted(DEFAULTS)},
             "skills": available_skills, "skill_sources": skill_sources,
             "plugin_installed": installed_plugins,
