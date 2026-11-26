@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --check|--ensure) ;;
+  *) echo "Usage: install-chrome-devtools [--check|--ensure]" >&2; exit 2 ;;
+esac
+
+version=1.14.0
+package_root="$HOME/.local/share/dotfiles/chrome-devtools"
+prefix="$package_root/$version"
+binary="$prefix/bin/chrome-devtools"
+launcher="$HOME/.local/bin/chrome-devtools"
+export PATH="$HOME/.vite-plus/bin:$PATH"
+
+target=""
+if [[ -L "$launcher" ]]; then
+  target="$(readlink "$launcher")"
+fi
+if [[ ( -e "$launcher" || -L "$launcher" ) && "$target" != "$package_root/"*/bin/chrome-devtools ]]; then
+  echo "A separate Chrome DevTools launcher already exists at $launcher." >&2
+  exit 1
+fi
+
+if [[ "$mode" == --ensure && ! -x "$binary" ]]; then
+  # Use npm from the selected Node runtime to avoid Vite+'s global shims.
+  node_bin="$(node -p 'process.execPath')"
+  "$node_bin" "$(dirname "$node_bin")/npm" install --global --prefix "$prefix" \
+    --engine-strict "chrome-devtools-mcp@$version"
+  echo "CHANGED Installed Chrome DevTools CLI $version."
+fi
+if [[ "$mode" == --ensure && "$target" != "$binary" ]]; then
+  mkdir -p -- "$(dirname "$launcher")"
+  ln -sfn -- "$binary" "$launcher"
+  target="$binary"
+  echo "CHANGED Linked Chrome DevTools CLI."
+fi
+
+if [[ "$target" != "$binary" || ! -x "$launcher" ]]; then
+  echo "Chrome DevTools CLI $version is missing. Apply the chrome-devtools tag." >&2
+  exit 1
+fi
+"$launcher" --version

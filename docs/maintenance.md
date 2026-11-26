@@ -438,6 +438,26 @@ published SHA-256 manifest. Apply Ghostty, the font, and its configuration with:
 dot apply --profile kubuntu-laptop --tags packages
 ```
 
+## Chrome DevTools CLI
+
+The Kubuntu laptop and desktop profiles install Google's `chrome-devtools`
+CLI from the `chrome-devtools-mcp` npm package. Apply just the CLI setup with
+`dot apply --profile kubuntu-laptop --tags chrome-devtools` on the IdeaPad or
+use `kubuntu-desktop` on the desktop. The full profiles also install Google
+Chrome Stable.
+
+```bash
+chrome-devtools new_page 'https://example.com'
+chrome-devtools list_pages --output-format=json
+chrome-devtools stop
+```
+
+By default the CLI launches the installed Chrome in a separate browser
+profile and keeps the browser available across commands. For a visible browser,
+run `chrome-devtools start --headless=false` before the first browser command.
+The setup does not register an MCP server or enable debugging in your usual
+Chrome profile.
+
 ## Agent-driven game development
 
 The Kubuntu workstation profiles install Blender from Ubuntu and the latest

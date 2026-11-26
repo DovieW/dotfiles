@@ -8,6 +8,7 @@
     "anarlog": true,
     "bluetooth_playback_only": true,
     "chatgpt_desktop": true,
+    "chrome_devtools_cli": true,
     "codexbar": true,
     "godot_engine": true,
     "davinci_resolve": true,

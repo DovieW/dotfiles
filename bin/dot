@@ -4152,6 +4152,11 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         ):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-codex"), mode], cwd=ROOT)
+        if features.get("chrome_devtools_cli") and (
+            not direct_tags or bool(direct_tags & {"all", "packages", "chrome-devtools"})
+        ) and not skipped.intersection({"all", "packages", "chrome-devtools"}):
+            mode = "--check" if args.check else "--ensure"
+            run([str(ROOT / "scripts/install-chrome-devtools"), mode], cwd=ROOT)
         if profile.get("features", {}).get("git") and (
             not direct_tags
             or "all" in direct_tags
@@ -10759,6 +10764,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     if part
                 ),
             )
+    if profile.get("features", {}).get("chrome_devtools_cli"):
+        chrome_devtools = run(
+            [str(ROOT / "scripts/install-chrome-devtools"), "--check"],
+            capture=True,
+            check=False,
+        )
+        failures += not doctor_check(
+            "Chrome DevTools CLI",
+            chrome_devtools.returncode == 0,
+            (chrome_devtools.stdout or chrome_devtools.stderr).strip(),
+        )
     npm_packages = packages.get("npm", [])
     if npm_packages:
         if not command_exists("npm"):
