@@ -555,6 +555,17 @@
       when: dot_profile_data.features.chrome_devtools_cli | default(false)
       tags: [packages, chrome-devtools]
 
+    - name: Set up AI Customization
+      ansible.builtin.command:
+        argv: >-
+          {{ [dot_repo + '/scripts/ai-customization']
+             + (['apply', '--check'] if ansible_check_mode else ['install'])
+             + ['--profile', dot_profile] }}
+      check_mode: false
+      changed_when: false
+      when: dot_profile_data.features.ai_customization | default(false)
+      tags: [ai-customization]
+
     - name: Install or upgrade managed npm CLI packages
       ansible.builtin.command:
         argv: [npm, install, --global, "{{ item }}@latest"]

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "shared": {
+    "instructions": "Identify the computer where commands will run before acting. In Herdr, Local means the computer running the client. A workspace on the other machine runs commands there. Use the full Tailscale MagicDNS name for automated connections.\n\nFor repeatable work, prefer an installed CLI with machine-readable output when it covers the task. Use the chrome-devtools-cli skill for scriptable Chrome DevTools work. Use MCP when it provides needed capabilities or authenticated access.\n\nThe dotfiles checkout is normally at ~/repos/dotfiles. Read its AGENTS.md before working there. Use dot ai status to inspect managed Codex settings. Edit a personal managed skill at its tracked source in config/ai-customization/skills, then validate and publish it through dotfiles. Keep private details and credentials in local files.",
+    "defaults": {
+      "model": "gpt-6.2-sol",
+      "model_reasoning_effort": "medium",
+      "service_tier": "ultrafast",
+      "default_permissions": ":danger-full-access",
+      "approval_policy": "never"
+    },
+    "skills": {
+      "chrome-devtools-cli": "automatic",
+      "dovie-android-control": "manual"
+    },
+    "mcp": {},
+    "plugins": {},
+    "plugin_mcp": {}
+  },
+  "hosts": {
+    "kubuntu-desktop": {
+      "instructions": "This is the Kubuntu desktop. The other Herdr machine is the IdeaPad laptop."
+    },
+    "kubuntu-laptop": {
+      "instructions": "This is the Kubuntu IdeaPad. The other Herdr machine is the desktop."
+    }
+  }
+}

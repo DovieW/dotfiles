@@ -1,0 +1,347 @@
+#!/usr/bin/python3
+"""KDE window for the dotfiles Codex settings."""
+import copy
+import json
+from pathlib import Path
+import sys
+
+from PyQt6.QtCore import QProcess, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import (
+    QApplication, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
+    QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+)
+
+BACKEND = Path(__file__).resolve().with_name("ai-customization")
+SCOPES = {"Both computers": "shared", "Desktop": "kubuntu-desktop", "IdeaPad": "kubuntu-laptop"}
+TABLES = {
+    "Skills": ("skills", ["automatic", "manual", "off"]),
+    "MCP Servers": ("mcp", [True, False]),
+    "Plugins": ("plugins", [True, False]),
+    "Plugin MCP Servers": ("plugin_mcp", [True, False]),
+}
+
+
+def label(value):
+    return {True: "On", False: "Off", "manual": "Manual only", "automatic": "Automatic",
+            "off": "Off", "unmanaged": "Unmanaged"}.get(value, str(value))
+
+
+class Window(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("AI Customization")
+        self.resize(960, 660)
+        self.data = None
+        self.draft = None
+        self.resolve = False
+        self.process = QProcess(self)
+        self.process.finished.connect(self.finished)
+        self.process.errorOccurred.connect(self.process_error)
+        self.scope = QComboBox()
+        self.scope.addItems(SCOPES)
+        self.scope.currentTextChanged.connect(self.render)
+        self.machine = QLabel()
+        self.tabs = QTabWidget()
+        self.instructions = QPlainTextEdit()
+        self.instructions.setPlaceholderText("Instructions for the selected scope")
+        self.instructions.textChanged.connect(self.edit)
+        self.tabs.addTab(self.instructions, "Instructions")
+        self.tables = {}
+        for title in ["Defaults", *TABLES]:
+            table = QTableWidget()
+            table.setAlternatingRowColors(True)
+            table.verticalHeader().hide()
+            self.tables[title] = table
+            self.tabs.addTab(table, title)
+        self.tables["Skills"].cellDoubleClicked.connect(self.edit_skill_source)
+        self.hooks = QLabel()
+        self.hooks.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.hooks.setMargin(16)
+        self.hooks.setWordWrap(True)
+        self.tabs.addTab(self.hooks, "Hooks")
+        self.info = QLabel("Loading Codex customization…")
+        self.info.setWordWrap(True)
+        self.apply = QPushButton("Apply & Sync")
+        self.apply.clicked.connect(self.publish)
+        self.reload = QPushButton("Reload")
+        self.reload.clicked.connect(self.read)
+        self.preview = QPushButton("Preview Instructions")
+        self.preview.clicked.connect(self.show_preview)
+        self.adopt = QPushButton("Adopt Local Edit")
+        self.adopt.clicked.connect(self.adopt_drift)
+        self.restore = QPushButton("Restore Synced Values")
+        self.restore.clicked.connect(self.restore_drift)
+        self.discard = QPushButton("Discard Pending Draft")
+        self.discard.clicked.connect(self.discard_pending)
+        self.discard.hide()
+        header = QHBoxLayout()
+        header.addWidget(QLabel("Edit scope"))
+        header.addWidget(self.scope)
+        header.addStretch()
+        header.addWidget(self.machine)
+        footer = QHBoxLayout()
+        for button in (self.preview, self.reload, self.adopt, self.restore, self.discard):
+            footer.addWidget(button)
+        footer.addStretch()
+        footer.addWidget(self.apply)
+        layout = QVBoxLayout(self)
+        layout.addLayout(header)
+        layout.addWidget(self.tabs)
+        layout.addWidget(self.info)
+        layout.addLayout(footer)
+        self.read()
+
+    @property
+    def target(self):
+        return SCOPES[self.scope.currentText()]
+
+    def section(self):
+        return self.draft["shared"] if self.target == "shared" else self.draft["hosts"][self.target]
+
+    def launch(self, action, data=None):
+        self.action = action
+        self.setEnabled(False)
+        self.process.start(str(BACKEND), [action, "--with-peer"] if action == "status" else [action])
+        if data is not None:
+            self.process.write(json.dumps(data).encode())
+        self.process.closeWriteChannel()
+
+    def process_error(self, _):
+        if self.process.state() == QProcess.ProcessState.NotRunning:
+            self.setEnabled(True)
+            self.info.setText("Could not run the customization backend.")
+
+    def read(self):
+        if self.data and self.draft != self.data["manifest"] and not self.resolve:
+            choice = QMessageBox.question(self, "Discard draft?", "Reload synced preferences and discard unsaved edits?")
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        self.launch("status")
+
+    def finished(self, code, _):
+        self.setEnabled(True)
+        out = bytes(self.process.readAllStandardOutput()).decode(errors="replace")
+        err = bytes(self.process.readAllStandardError()).decode(errors="replace").strip()
+        if code:
+            self.info.setText(err or "The operation failed.")
+            if self.action == "publish":
+                self.info.setText(self.info.text() + " Your draft is still available. Apply & Sync retries it.")
+            return
+        try:
+            value = json.loads(out)
+        except ValueError:
+            self.info.setText("The customization backend returned an invalid response.")
+            return
+        if self.action in ("publish", "discard-draft"):
+            self.data = None
+            self.info.setText("Refreshing workstation status…")
+            self.launch("status")
+            return
+        self.data = value
+        self.draft = copy.deepcopy(value["manifest"])
+        pending = value.get("pending")
+        self.resolve = False
+        if pending:
+            self.draft = pending["desired"]
+            self.resolve = pending.get("resolve", False)
+        self.render()
+
+    def render(self):
+        if self.draft is None:
+            return
+        local = self.data["profile"]
+        self.machine.setText("This computer  ·  " + ("Desktop" if local.endswith("desktop") else "IdeaPad"))
+        self.instructions.blockSignals(True)
+        self.instructions.setPlainText(self.section().get("instructions", ""))
+        self.instructions.blockSignals(False)
+        defaults = self.tables["Defaults"]
+        defaults.setColumnCount(4)
+        defaults.setHorizontalHeaderLabels(["Setting", "This computer", "Shared default", "Edit selected scope"])
+        values = self.data["actual_defaults"]
+        defaults.setRowCount(len(values))
+        for row, (key, actual) in enumerate(values.items()):
+            defaults.setItem(row, 0, self.cell(key))
+            defaults.setItem(row, 1, self.cell(actual or "—"))
+            shared = self.draft["shared"]["defaults"][key]
+            defaults.setItem(row, 2, self.cell(shared))
+            editor = QLineEdit(self.section().get("defaults", {}).get(key, ""))
+            if self.target != "shared":
+                editor.setPlaceholderText("Inherit " + shared)
+            editor.textEdited.connect(lambda text, k=key: self.set_default(k, text))
+            defaults.setCellWidget(row, 3, editor)
+        defaults.resizeColumnsToContents()
+        defaults.horizontalHeader().setStretchLastSection(True)
+        for title, (group, options) in TABLES.items():
+            self.fill(title, group, options)
+        hook_text = "\n".join(self.data["hooks"]) or "No user hooks registered."
+        self.hooks.setText("User hooks  ·  ~/.codex/hooks.json or [hooks] in config.toml\n\n" + hook_text)
+        drift = self.data["drift"]
+        self.adopt.setVisible(any(key != "override" for key in drift))
+        self.restore.setVisible(bool(drift) and "override" not in drift)
+        self.discard.setVisible(bool(self.data.get("pending")))
+        peer = self.data.get("peer", {}).get("state")
+        status = {
+            "applied": "Peer confirmed the synced revision.",
+            "pending": "Published. Peer confirmation is pending.",
+        }.get(peer, "Changes take effect in a fresh Codex session.")
+        if self.data.get("pending"):
+            status = "There is an unpublished draft. Review it and choose Apply & Sync."
+        if drift:
+            status = "Local changes need review  ·  " + ", ".join(drift)
+        self.info.setText(status)
+
+    @staticmethod
+    def cell(value):
+        item = QTableWidgetItem(str(value))
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        return item
+
+    def fill(self, title, group, options):
+        table = self.tables[title]
+        local = self.data[group]
+        remote = self.data.get("peer_inventory", {})
+        live = {self.data["profile"]: local, remote.get("profile"): remote.get(group, {})}
+        shared = self.draft["shared"].get(group, {})
+        hosts = self.draft["hosts"]
+        names = sorted(set(local) | set(remote.get(group, {})) | set(shared)
+                       | {name for p in hosts.values() for name in p.get(group, {})})
+        table.clear()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Name", "This computer", "Desktop policy", "IdeaPad policy", "Edit selected scope"])
+        table.setRowCount(len(names))
+        for row, name in enumerate(names):
+            item = self.cell(name)
+            if group == "skills":
+                item.setToolTip(self.data.get("skill_sources", {}).get(name, "Local skill"))
+            table.setItem(row, 0, item)
+            state = label(local[name]) if name in local else "—"
+            if group == "plugins" and name in local:
+                state += " · " + ("installed" if self.data["plugin_installed"].get(name) else "cache unavailable")
+            table.setItem(row, 1, self.cell(state))
+            for col, host in enumerate(("kubuntu-desktop", "kubuntu-laptop"), 2):
+                want = hosts[host].get(group, {}).get(name, shared.get(name))
+                self.show_policy(table, row, col, want, live.get(host, {}).get(name))
+            if name in {"node_repl", "_default"} or group == "skills" and local.get(name) == "unmanaged":
+                table.setItem(row, 4, self.cell("App-owned" if name == "node_repl" else "Unmanaged"))
+                continue
+            combo = QComboBox()
+            selections = [None, *options]
+            combo.addItems(["Keep local" if self.target == "shared" else "Inherit", *map(label, options)])
+            combo.setCurrentIndex(selections.index(self.section().get(group, {}).get(name)))
+            combo.currentIndexChanged.connect(
+                lambda index, g=group, n=name, modes=selections: self.set_option(g, n, modes[index]))
+            table.setCellWidget(row, 4, combo)
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+
+    def set_option(self, group, name, value):
+        section = self.section().setdefault(group, {})
+        if value is None:
+            section.pop(name, None)
+        else:
+            section[name] = value
+        if self.target == "shared":
+            for host in self.draft["hosts"].values():
+                host.get(group, {}).pop(name, None)
+        table = next(table for title, table in self.tables.items() if title in TABLES and TABLES[title][0] == group)
+        shared = self.draft["shared"].get(group, {})
+        remote = self.data.get("peer_inventory", {})
+        live = {self.data["profile"]: self.data[group], remote.get("profile"): remote.get(group, {})}
+        for row in range(table.rowCount()):
+            if table.item(row, 0).text() == name:
+                for col, host in enumerate(("kubuntu-desktop", "kubuntu-laptop"), 2):
+                    value = self.draft["hosts"][host].get(group, {}).get(name, shared.get(name))
+                    self.show_policy(table, row, col, value, live.get(host, {}).get(name))
+                break
+
+    def show_policy(self, table, row, column, desired, actual):
+        text = label(desired) if desired is not None else "Local"
+        if actual is not None:
+            text += " · " + label(actual)
+        table.setItem(row, column, self.cell(text))
+
+    def edit(self):
+        if self.draft is not None:
+            self.section()["instructions"] = self.instructions.toPlainText()
+
+    def set_default(self, key, value):
+        values = self.section().setdefault("defaults", {})
+        if not value.strip() and self.target != "shared":
+            values.pop(key, None)
+        else:
+            values[key] = value.strip()
+        if self.target == "shared":
+            for host in self.draft["hosts"].values():
+                host.get("defaults", {}).pop(key, None)
+
+    def edit_skill_source(self, row, _column):
+        selected = self.tables["Skills"].item(row, 0).text()
+        source = BACKEND.parents[1] / "config/ai-customization/skills" / selected / "SKILL.md"
+        if source.is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(source)))
+
+    def show_preview(self):
+        text = []
+        for host, section in self.draft["hosts"].items():
+            text.append(host + "\n\n" + self.draft["shared"].get("instructions", "") + "\n\n"
+                        + section.get("instructions", ""))
+        box = QMessageBox(self)
+        box.setWindowTitle("Generated Codex instructions")
+        box.setText("Preview of the shared text and host additions. Local-only notes are kept on each computer.")
+        box.setDetailedText("\n\n".join(text))
+        box.exec()
+
+    def adopt_drift(self):
+        drift = self.data["drift"]
+        host = self.draft["hosts"][self.data["profile"]]
+        if "instructions" in drift:
+            QMessageBox.information(self, "Local instructions",
+                                    "Copy the private portion of ~/.codex/AGENTS.md to ~/.codex/AGENTS.local.md. "
+                                    "Add any shareable text in the Instructions tab before restoring.")
+            return
+        for key, value in drift.items():
+            if key in self.data["actual_defaults"] and isinstance(value, str):
+                host.setdefault("defaults", {})[key] = value
+            else:
+                for group, prefix in (("mcp", "mcp_servers."), ("plugins", "plugins.")):
+                    if key.startswith(prefix) and key.endswith(".enabled") and isinstance(value, bool):
+                        name = key[len(prefix):-len(".enabled")]
+                        if ".mcp_servers." in name:
+                            host.setdefault("plugin_mcp", {})[name.replace(".mcp_servers.", "/", 1)] = value
+                        else:
+                            host.setdefault(group, {})[name] = value
+        self.resolve = True
+        self.render()
+        self.info.setText("Local settings are in the draft. Apply & Sync publishes them for this computer.")
+
+    def restore_drift(self):
+        if QMessageBox.question(self, "Restore synced values?",
+                                "Apply the displayed synced settings over the identified local changes?") == QMessageBox.StandardButton.Yes:
+            self.resolve = True
+            self.info.setText("Restore selected. Choose Apply & Sync to confirm.")
+
+    def discard_pending(self):
+        if QMessageBox.question(self, "Discard pending draft?",
+                                "Discard the unpublished draft and reload the synced preferences?") == QMessageBox.StandardButton.Yes:
+            self.launch("discard-draft")
+
+    def publish(self):
+        if self.draft is not None:
+            pending = self.data.get("pending")
+            self.launch("publish", {
+                "base": pending["base"] if pending else self.data["manifest"],
+                "desired": self.draft, "resolve": self.resolve,
+            })
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("AI Customization")
+    window = Window()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

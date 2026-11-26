@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AI Customization
+Comment=Manage and sync Codex instructions, skills and tools
+Exec=ai-customization
+Icon=preferences-system
+Terminal=false
+Categories=Settings;
+Keywords=Codex;AI;Skills;MCP;Plugins;Hooks;
+StartupNotify=true

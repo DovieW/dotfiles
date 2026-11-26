@@ -1,0 +1,568 @@
+#!/usr/bin/python3
+"""Reconcile the workstation's Codex customization and publish scoped changes."""
+import argparse
+from contextlib import contextmanager
+import copy
+import fcntl
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import tomllib
+
+ROOT = Path(__file__).resolve().parents[1]
+REL = "config/ai-customization"
+PREFS = "preferences.json"
+UPSTREAM = "refs/remotes/origin/master"
+HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
+GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp")
+DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissions", "approval_policy"}
+MODES = ("automatic", "manual", "off")
+IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
+ABSENT = object()
+
+
+class Error(Exception):
+    pass
+
+
+def encode(value):
+    return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+
+
+def load(path, default=None):
+    return json.loads(path.read_text()) if path.is_file() else default
+
+
+def atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:
+        temp = Path(stream.name)
+        stream.write(text)
+    try:
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def digest(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def need(condition, message):
+    if not condition:
+        raise Error(message)
+
+
+def validate(m):
+    need(isinstance(m, dict) and set(m) == {"schema_version", "shared", "hosts"}
+         and m["schema_version"] == 1, "Invalid customization manifest.")
+    need(isinstance(m["hosts"], dict) and set(m["hosts"]) == set(HOSTS.values()),
+         "Both workstation profiles must appear in the manifest.")
+    for section in [m["shared"], *m["hosts"].values()]:
+        need(isinstance(section, dict) and set(section) <= {"instructions", *GROUPS},
+             "Unknown customization section.")
+        need(isinstance(section.get("instructions", ""), str), "Instructions must be text.")
+        for group in GROUPS:
+            values = section.get(group, {})
+            need(isinstance(values, dict), "Invalid customization entries.")
+            for name, value in values.items():
+                good_name = IDENTIFIER.fullmatch(name) or (
+                    group == "plugin_mcp" and len(name.split("/")) == 2
+                    and all(IDENTIFIER.fullmatch(part) for part in name.split("/"))
+                )
+                need(good_name, "Invalid customization identifier.")
+                if group == "defaults":
+                    need(name in DEFAULTS and isinstance(value, str) and value,
+                         "Unsupported Codex default.")
+                elif group == "skills":
+                    need(name not in (".", "..") and value in MODES, "Invalid skill setting.")
+                else:
+                    need(type(value) is bool, "Tool settings must be on or off.")
+        need("node_repl" not in section.get("mcp", {}), "node_repl is managed by the Codex app.")
+    need(set(m["shared"].get("defaults", {})) == DEFAULTS, "Shared Codex defaults are incomplete.")
+    return m
+
+
+def effective(manifest, profile, private=""):
+    shared, host = manifest["shared"], manifest["hosts"][profile]
+    instructions = "\n\n".join(t.strip() for t in
+                                 (shared.get("instructions", ""), host.get("instructions", ""), private) if t.strip()) + "\n"
+    return {"instructions": instructions,
+            **{group: {**shared.get(group, {}), **host.get(group, {})} for group in GROUPS}}
+
+
+def merge(base, desired, latest):
+    """Keep independent edits and reject overlapping changes."""
+    if desired == base:
+        return latest
+    if latest == base or latest == desired:
+        return desired
+    if all(isinstance(x, dict) or x is ABSENT for x in (base, desired, latest)):
+        a, b, c = ({} if x is ABSENT else x for x in (base, desired, latest))
+        merged = {key: merge(a.get(key, ABSENT), b.get(key, ABSENT), c.get(key, ABSENT))
+                  for key in sorted(a.keys() | b.keys() | c.keys())}
+        return {key: value for key, value in merged.items() if value is not ABSENT}
+    raise Error("Another machine changed the same setting. Review the synced values before publishing.")
+
+
+def skill_policy(folder, mode):
+    path = folder / "agents/openai.yaml"
+    original = path.read_text() if path.is_file() else ""
+    flag = "false" if mode == "manual" else "true"
+    line = f"  allow_implicit_invocation: {flag}"
+    if re.search(r"(?m)^  allow_implicit_invocation:.*$", original):
+        return re.sub(r"(?m)^  allow_implicit_invocation:.*$", line, original)
+    if re.search(r"(?m)^policy:\s*$", original):
+        return re.sub(r"(?m)^policy:[ \t]*$", "policy:\n" + line, original)
+    return original.rstrip() + ("\n\n" if original.strip() else "") + "policy:\n" + line + "\n"
+
+
+def tool_values(settings):
+    for name, value in settings["defaults"].items():
+        yield (name,), value
+    for group, table in (("mcp", "mcp_servers"), ("plugins", "plugins")):
+        for name, value in settings[group].items():
+            yield (table, name, "enabled"), value
+    for key, value in settings["plugin_mcp"].items():
+        plugin, server = key.split("/")
+        yield ("plugins", plugin, "mcp_servers", server, "enabled"), value
+
+
+def setting(data, key, default=None):
+    for part in key:
+        if not isinstance(data, dict) or part not in data:
+            return default
+        data = data[part]
+    return data
+
+
+def run(args, cwd=ROOT, timeout=20, data=None, env=None):
+    return subprocess.run(args, cwd=cwd, input=data, text=data is not None,
+                          capture_output=True, timeout=timeout, env=env)
+
+
+class Customization:
+    def __init__(self, profile=None, home=None):
+        self.home = home or Path.home()
+        self.profile = profile or HOSTS.get(socket.gethostname())
+        need(self.profile in HOSTS.values(), "Select a supported Kubuntu workstation profile.")
+        self.codex = Path(os.environ.get("CODEX_HOME", self.home / ".codex"))
+        self.state = Path(os.environ.get("XDG_STATE_HOME", self.home / ".local/state")) / "dotfiles/ai-customization"
+        self.skills = self.home / ".agents/skills"
+        self.git_env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never",
+                            GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=yes")
+        brew = Path("/home/linuxbrew/.linuxbrew/bin")
+        if brew.is_dir():
+            self.git_env["PATH"] = str(brew) + os.pathsep + os.environ.get("PATH", os.defpath)
+        agent = self.home / ".bitwarden-ssh-agent.sock"
+        if agent.is_socket():
+            self.git_env["SSH_AUTH_SOCK"] = str(agent)
+
+    @contextmanager
+    def locked(self):
+        self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with (self.state / "lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    def git(self, *args, cwd=ROOT, fail=True, timeout=25):
+        result = run(["git", *args], cwd=cwd, env=self.git_env, timeout=timeout)
+        if fail:
+            need(result.returncode == 0, f"Git {args[0]} failed. Check connectivity or unlock the signing agent.")
+        return result
+
+    def manifest(self, ref=UPSTREAM):
+        result = self.git("show", f"{ref}:{REL}/{PREFS}", fail=False)
+        return validate(json.loads(result.stdout)) if result.returncode == 0 else validate(load(ROOT / REL / PREFS))
+
+    def config(self):
+        path = self.codex / "config.toml"
+        text = path.read_text() if path.exists() else ""
+        return text, tomllib.loads(text)
+
+    def instructions(self, manifest):
+        private = self.codex / "AGENTS.local.md"
+        return effective(manifest, self.profile, private.read_text() if private.is_file() else "")
+
+    def skill_source(self, name, source):
+        if name != "chrome-devtools-cli":
+            return source / "skills" / name
+        launcher = self.home / ".local/bin/chrome-devtools"
+        package = next((p for p in launcher.resolve().parents if p.name == "chrome-devtools-mcp"), None)
+        need(package is not None, "Install the managed Chrome DevTools CLI before applying its skill.")
+        return package / "skills" / name
+
+    def skill_target(self, name):
+        path = self.skills / name
+        return path.is_symlink() and (self.state / "skills") in path.resolve().parents
+
+    def status(self, manifest=None):
+        manifest = manifest or self.manifest()
+        _, raw = self.config()
+        expected = self.instructions(manifest)
+        previous = load(self.state / "applied.json", {})
+        guidance = self.codex / "AGENTS.md"
+        installed_text = guidance.read_text() if guidance.is_file() else ""
+        drift = {}
+        for key, wanted in tool_values(expected):
+            actual = setting(raw, key, True if key[0] != key[-1] else None)
+            baseline = previous.get("settings", {}).get(".".join(key), ABSENT)
+            if baseline is not ABSENT and actual not in (baseline, wanted):
+                drift[".".join(key)] = actual
+        if installed_text.strip() and installed_text != expected["instructions"] and (
+            digest(installed_text) != previous.get("instructions")
+        ):
+            drift["instructions"] = "Existing global instructions"
+        if (self.codex / "AGENTS.override.md").is_file():
+            if (self.codex / "AGENTS.override.md").read_text().strip():
+                drift["override"] = "AGENTS.override.md takes precedence"
+        hooks = load(self.codex / "hooks.json", {})
+        plugin_servers = {name: {server: value.get("enabled", True)
+                                 for server, value in item.get("mcp_servers", {}).items()}
+                          for name, item in raw.get("plugins", {}).items()}
+        # Inventory manifests from the local plugin cache without starting plugins.
+        installed_plugins = {}
+        for name in raw.get("plugins", {}):
+            plugin, _, market = name.partition("@")
+            folder = self.codex / "plugins/cache" / market / plugin
+            releases = [p for p in folder.glob("*") if p.is_dir()]
+            installed_plugins[name] = bool(releases)
+            for release in sorted(releases, key=lambda p: p.stat().st_mtime, reverse=True)[:1]:
+                declaration = load(release / ".mcp.json", {})
+                for server in declaration.get("mcpServers", declaration):
+                    plugin_servers.setdefault(name, {}).setdefault(server, True)
+        available_skills = {p.name: "unmanaged" for p in self.skills.glob("*") if (p / "SKILL.md").is_file()}
+        skill_sources = {}
+        for name in expected["skills"]:
+            if self.skill_target(name):
+                policy = self.skills / name / "agents/openai.yaml"
+                manual = policy.is_file() and bool(re.search(
+                    r"(?m)^  allow_implicit_invocation: false\s*$", policy.read_text()))
+                available_skills[name] = "manual" if manual else "automatic"
+            else:
+                available_skills.setdefault(name, "off")
+            if name == "chrome-devtools-cli":
+                launcher = (self.home / ".local/bin/chrome-devtools").resolve()
+                package = next((p for p in launcher.parents if p.name == "chrome-devtools-mcp"), None)
+                installed = load(package / "package.json", {}) if package else {}
+                skill_sources[name] = "Google Chrome DevTools " + installed.get("version", "")
+            else:
+                skill_sources[name] = "Dotfiles"
+        return {
+            "profile": self.profile, "manifest": manifest, "drift": drift,
+            "actual_defaults": {k: raw.get(k) for k in sorted(DEFAULTS)},
+            "skills": available_skills, "skill_sources": skill_sources,
+            "plugin_installed": installed_plugins,
+            "mcp": {k: v.get("enabled", True)
+                                               for k, v in raw.get("mcp_servers", {}).items()},
+            "plugins": {k: v.get("enabled", True) for k, v in raw.get("plugins", {}).items() if k != "_default"},
+            "plugin_mcp": {f"{p}/{s}": v for p, servers in plugin_servers.items() for s, v in servers.items()},
+            "hooks": sorted(set(hooks.get("hooks", {})) | (set(raw.get("hooks", {})) - {"state"})),
+            "applied": previous.get("revision"), "peer": load(self.state / "peer.json", {}),
+            "pending": load(self.state / "pending.json"),
+            "instructions_outdated": installed_text != expected["instructions"],
+        }
+
+    def write_config(self, original, changes):
+        if not changes:
+            return
+        codex = self.home / ".local/bin/codex"
+        need(codex.is_file(), "Codex CLI is unavailable.")
+        edits = [{"keyPath": ".".join(json.dumps(part) for part in key), "value": value,
+                  "mergeStrategy": "replace"} for key, value in changes]
+        with subprocess.Popen([str(codex), "app-server"], cwd="/", stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
+                              env=dict(os.environ, CODEX_HOME=str(self.codex))) as process:
+            buffer = b""
+            try:
+                requests = (
+                    {"id": 0, "method": "initialize", "params": {
+                        "clientInfo": {"name": "dotfiles-ai-customization", "version": "1"}}},
+                    {"method": "initialized"},
+                    {"id": 2, "method": "config/read", "params": {"includeLayers": True}},
+                    {"id": 1, "method": "config/batchWrite", "params": {
+                        "edits": edits}},
+                )
+                for request in requests:
+                    if request.get("id") == 1:
+                        need(self.config()[0] == original,
+                             "Codex settings changed during apply. Reload and retry.")
+                    process.stdin.write((json.dumps(request) + "\n").encode())
+                    if "id" not in request:
+                        continue
+                    deadline = time.monotonic() + 12
+                    while True:
+                        if b"\n" not in buffer:
+                            if not select.select([process.stdout], [], [], max(0, deadline-time.monotonic()))[0]:
+                                raise Error("Codex configuration write timed out.")
+                            chunk = os.read(process.stdout.fileno(), 8192)
+                            need(chunk, "Codex configuration writer stopped.")
+                            buffer += chunk
+                            continue
+                        line, buffer = buffer.split(b"\n", 1)
+                        event = json.loads(line)
+                        if event.get("id") == request["id"]:
+                            need("result" in event, "Codex declined the write. Reload the window and retry.")
+                            if request["id"] == 2:
+                                for layer in event["result"]["layers"] or []:
+                                    if layer["name"]["type"] == "user":
+                                        requests[-1]["params"]["expectedVersion"] = layer["version"]
+                                        break
+                            break
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+    def apply(self, manifest, source, revision, resolve=False, check=False):
+        expected = self.instructions(manifest)
+        previous = load(self.state / "applied.json", {})
+        status = self.status(manifest)
+        need("override" not in status["drift"], "Global AGENTS.override.md takes precedence. Review it first.")
+        need(resolve or not status["drift"], "Local settings differ. Review them in AI Customization.")
+        original, raw = self.config()
+        changes = []
+        for key, wanted in tool_values(expected):
+            if key[0] == "mcp_servers" and key[1] not in raw.get("mcp_servers", {}):
+                continue  # An enablement policy cannot provision a server or its authorization.
+            actual = setting(raw, key, True if key[0] != key[-1] else None)
+            if actual != wanted:
+                changes.append((key, wanted))
+        wanted_sources = {}
+        stale = set(previous.get("skills", [])) - expected["skills"].keys()
+        for name, mode in expected["skills"].items():
+            path = self.skills / name
+            need(not (path.exists() or path.is_symlink()) or self.skill_target(name),
+                 f"An unmanaged skill already occupies {name}.")
+            if mode != "off":
+                folder = self.skill_source(name, source)
+                need((folder / "SKILL.md").is_file(), f"Skill source is missing for {name}.")
+                wanted_sources[name] = (folder, skill_policy(folder, mode))
+        if check:
+            need(not changes and (self.codex / "AGENTS.md").is_file()
+                 and (self.codex / "AGENTS.md").read_text() == expected["instructions"]
+                 and all(self.skill_target(n) for n in wanted_sources)
+                 and all(not self.skill_target(n) for n in set(expected["skills"]) - wanted_sources.keys()),
+                 "Codex customization requires apply.")
+            return
+        self.write_config(original, changes)
+        guide = self.codex / "AGENTS.md"
+        if not guide.is_file() or guide.read_text() != expected["instructions"]:
+            atomic(guide, expected["instructions"])
+        for name in (set(expected["skills"]) - wanted_sources.keys()) | stale:
+            if self.skill_target(name):
+                (self.skills / name).unlink()
+        for name, (folder, policy) in wanted_sources.items():
+            self.install_skill(folder, name, policy)
+        available = self.config()[1]
+        atomic(self.state / "applied.json", encode({
+            "revision": revision, "instructions": digest(expected["instructions"]),
+            "chrome": status["skill_sources"].get("chrome-devtools-cli"),
+            "settings": {".".join(key): setting(available, key, True if key[0] != key[-1] else None)
+                         for key, _ in tool_values(expected)},
+            "skills": sorted(expected["skills"]),
+        }))
+
+    def install_skill(self, folder, name, policy):
+        paths = [p for p in sorted(folder.rglob("*")) if p.is_file()]
+        h = hashlib.sha256(policy.encode())
+        for path in paths:
+            need(path.resolve().is_relative_to(folder.resolve()), f"Unsafe source path for {name}.")
+            h.update(str(path.relative_to(folder)).encode() + b"\0" + path.read_bytes())
+        target = self.state / "skills" / name / h.hexdigest()
+        if not target.is_dir():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=target.parent) as stage:
+                install = Path(stage) / name
+                shutil.copytree(folder, install)
+                atomic(install / "agents/openai.yaml", policy)
+                install.rename(target)
+        link = self.skills / name
+        self.skills.mkdir(parents=True, exist_ok=True)
+        if not link.is_symlink() or link.resolve() != target:
+            with tempfile.TemporaryDirectory(dir=self.skills) as stage:
+                temporary = Path(stage) / "skill"
+                temporary.symlink_to(target, target_is_directory=True)
+                temporary.replace(link)
+
+    def sync(self, revision=None):
+        need(not (self.state / "pending.json").exists(),
+             "An unpublished local draft needs attention in AI Customization.")
+        self.git("fetch", "--quiet", "--no-tags", "origin", "master")
+        ref = self.git("rev-parse", UPSTREAM).stdout.decode().strip()
+        if revision:
+            need(re.fullmatch("[0-9a-f]{40,64}", revision) and
+                 self.git("merge-base", "--is-ancestor", revision, ref, fail=False).returncode == 0,
+                 "The requested revision was not found on the published branch.")
+        published = self.git("rev-parse", f"{ref}:{REL}").stdout.decode().strip()
+        previous = load(self.state / "applied.json", {})
+        status = self.status()
+        if (previous.get("revision") != published or status["drift"] or status["instructions_outdated"]
+                or previous.get("chrome") != status["skill_sources"].get("chrome-devtools-cli")):
+            archive = self.git("archive", ref, REL).stdout
+            with tempfile.TemporaryDirectory() as temp, tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+                tar.extractall(temp, filter="data")
+                source = Path(temp) / REL
+                self.apply(validate(load(source / PREFS)), source, published)
+        return {"revision": ref, "tree": published}
+
+    def publish(self, request):
+        base, desired = validate(request["base"]), validate(request["desired"])
+        resolve = request.get("resolve") is True
+        atomic(self.state / "pending.json", encode(request))
+        self.git("fetch", "--quiet", "--no-tags", "origin", "master")
+        latest = self.manifest()
+        candidate = validate(merge(base, desired, latest))
+        with tempfile.TemporaryDirectory(prefix="dot-ai-") as temp:
+            work = Path(temp) / "work"
+            self.git("worktree", "add", "--quiet", "--detach", str(work), UPSTREAM)
+            try:
+                source = work / REL
+                local_changed = self.instructions(candidate) != self.instructions(latest)
+                if candidate != latest:
+                    atomic(source / PREFS, encode(candidate))
+                    self.git("add", "--", f"{REL}/{PREFS}", cwd=work)
+                    self.git("diff", "--cached", "--check", cwd=work)
+                    scan = run(["gitleaks", "git", "--staged", "--redact", "--no-banner"],
+                               cwd=work, env=self.git_env, timeout=30)
+                    need(scan.returncode == 0, "The draft failed secret scanning.")
+                if local_changed or resolve:
+                    self.apply(candidate, source, "pending", resolve=resolve)
+                if candidate != latest:
+                    self.git("-c", "commit.gpgsign=true", "commit", "-m", "Update AI customization", cwd=work)
+                    self.git("push", "origin", "HEAD:refs/heads/master", cwd=work, timeout=45)
+                revision = self.git("rev-parse", "HEAD", cwd=work).stdout.decode().strip()
+                tree = self.git("rev-parse", f"HEAD:{REL}", cwd=work).stdout.decode().strip()
+                if local_changed or resolve:
+                    state = load(self.state / "applied.json", {})
+                    atomic(self.state / "applied.json", encode({**state, "revision": tree}))
+            finally:
+                self.git("worktree", "remove", "--force", str(work), fail=False)
+        (self.state / "pending.json").unlink(missing_ok=True)
+        return revision
+
+    def notify_peer(self, revision):
+        receipt = self.call_peer("sync", "--revision", revision, timeout=40)
+        status = {"revision": revision, "state": "applied" if receipt.get("tree") else "pending"}
+        atomic(self.state / "peer.json", encode(status))
+        return status
+
+    def call_peer(self, *args, timeout=8):
+        current = next(host for host, profile in HOSTS.items() if profile == self.profile)
+        peers = load(ROOT / "config/diagnostics/crash-peers.json")
+        peer = peers[peers[current]["peer"]]
+        target = peer["user"] + "@" + peer["hostname"]
+        command = '"$HOME/.local/bin/dot-ai-customization" ' + shlex.join(args)
+        try:
+            result = run(shlex.split(self.git_env["GIT_SSH_COMMAND"]) + [target, command],
+                         timeout=timeout, env=self.git_env)
+            return json.loads(result.stdout) if result.returncode == 0 else {}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return {}
+
+    def install(self):
+        bin_dir = self.home / ".local/bin"
+        systemd = self.home / ".config/systemd/user"
+        desktop = self.home / ".local/share/applications/io.github.doview.ai-customization.desktop"
+        files = {
+            bin_dir / "dot-ai-customization": ROOT / "scripts/ai-customization",
+            bin_dir / "ai-customization": ROOT / "scripts/ai-customization-window",
+            **{systemd / f"dot-ai-customization.{kind}":
+               ROOT / f"config/systemd/user/dot-ai-customization.{kind}" for kind in ("service", "timer")},
+        }
+        for path, src in files.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.is_symlink() and path.resolve() == src:
+                continue
+            need(not (path.exists() or path.is_symlink()), f"An unmanaged file already occupies {path.name}.")
+            path.symlink_to(src)
+        payload = (ROOT / "config/applications" / desktop.name).read_text().replace(
+            "Exec=ai-customization", f'Exec="{bin_dir / "ai-customization"}"')
+        if not desktop.is_file() or desktop.read_text() != payload:
+            atomic(desktop, payload)
+            desktop.chmod(0o644)
+        runtime = Path(f"/run/user/{os.getuid()}")
+        env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
+        if (runtime / "bus").is_socket():
+            for args in (["daemon-reload"], ["enable", "--now", "dot-ai-customization.timer"]):
+                result = run(["systemctl", "--user", *args], env=env)
+                need(result.returncode == 0, "Could not enable the user sync timer.")
+        else:
+            wants = systemd / "timers.target.wants/dot-ai-customization.timer"
+            wants.parent.mkdir(parents=True, exist_ok=True)
+            if not wants.is_symlink():
+                wants.symlink_to(systemd / wants.name)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="dot ai")
+    parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
+                                           "publish", "install", "discard-draft"))
+    parser.add_argument("--profile", choices=tuple(HOSTS.values()))
+    parser.add_argument("--revision")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--resolve", action="store_true")
+    parser.add_argument("--with-peer", action="store_true")
+    parser.add_argument("--json", action="store_true", help="Emit JSON (the default for status and sync).")
+    args = parser.parse_args()
+    try:
+        app = Customization(args.profile)
+        if args.action == "status":
+            result = app.status()
+            if args.with_peer:
+                result["peer_inventory"] = app.call_peer("inventory")
+            print(encode(result), end="")
+        elif args.action == "inventory":
+            result = app.status()
+            print(encode({key: result[key] for key in ("profile", "skills", "mcp", "plugins", "plugin_mcp")}), end="")
+        elif args.action == "preview":
+            draft = sys.stdin.read() if not sys.stdin.isatty() else ""
+            manifest = validate(json.loads(draft)) if draft.strip() else app.manifest()
+            print(encode({profile: effective(manifest, profile) for profile in HOSTS.values()}), end="")
+        elif args.action == "apply" and args.check:
+            app.apply(validate(load(ROOT / REL / PREFS)), ROOT / REL, None, check=True)
+        else:
+            published = None
+            with app.locked():
+                if args.action in ("apply", "install"):
+                    tree = app.git("rev-parse", f"HEAD:{REL}", fail=False).stdout.decode().strip()
+                    app.apply(validate(load(ROOT / REL / PREFS)), ROOT / REL, tree, resolve=args.resolve)
+                    if args.action == "install":
+                        app.install()
+                elif args.action == "sync":
+                    print(encode(app.sync(args.revision)), end="")
+                elif args.action == "publish":
+                    published = app.publish(json.load(sys.stdin))
+                elif args.action == "discard-draft":
+                    (app.state / "pending.json").unlink(missing_ok=True)
+                    print("{}")
+            if published:
+                print(encode(app.notify_peer(published)), end="")
+            elif args.action == "sync" and not args.revision:
+                peer = load(app.state / "peer.json", {})
+                if peer.get("state") == "pending":
+                    app.notify_peer(peer["revision"])
+        return 0
+    except (Error, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+        print(f"AI Customization: {error if isinstance(error, Error) else type(error).__name__}",
+              file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

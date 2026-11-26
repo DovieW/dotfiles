@@ -4157,6 +4157,11 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         ) and not skipped.intersection({"all", "packages", "chrome-devtools"}):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-chrome-devtools"), mode], cwd=ROOT)
+        if features.get("ai_customization") and (
+            not direct_tags or "ai-customization" in direct_tags
+        ) and not skipped.intersection({"all", "ai-customization"}):
+            actions = ["apply", "--check"] if args.check else ["install"]
+            run([str(ROOT / "scripts/ai-customization"), *actions, "--profile", args.profile], cwd=ROOT)
         if profile.get("features", {}).get("git") and (
             not direct_tags
             or "all" in direct_tags
@@ -13202,6 +13207,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dot")
     sub = parser.add_subparsers(dest="command")
+    ai = sub.add_parser("ai", help="manage workstation Codex customization")
+    ai.add_argument("arguments", nargs=argparse.REMAINDER)
+    ai.set_defaults(func=lambda args: run([
+        str(ROOT / "scripts/ai-customization"), *args.arguments
+    ], cwd=ROOT))
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--profile", required=True)
     bootstrap.add_argument("--device")
@@ -13577,6 +13587,9 @@ def update_dotfiles_before_run() -> bool:
 
 def main() -> int:
     try:
+        if sys.argv[1:2] == ["ai"]:
+            script = str(ROOT / "scripts/ai-customization")
+            os.execv(script, [script, *sys.argv[2:]])
         # Propagate this marker to nested Ansible/direct invocations and the
         # refreshed process, so one user command checks the repository once.
         if (

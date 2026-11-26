@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for published AI customization
+
+[Timer]
+OnStartupSec=90s
+OnUnitInactiveSec=2min
+
+[Install]
+WantedBy=timers.target

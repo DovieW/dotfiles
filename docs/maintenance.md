@@ -889,3 +889,33 @@ Kubuntu profiles enable the [local diagnostic recorder](diagnostics.md).
 Apply with `dot apply --profile kubuntu-laptop --tags diagnostics`; check with
 `dot-diagnostics health`. Use its incident exporter before changing a failing
 service. Keep private bundles local unless reviewed for sharing.
+
+## AI Customization
+
+Open **AI Customization** from KDE on the Desktop or IdeaPad. Choose Both
+computers or one workstation before editing. **Apply & Sync** applies local
+changes, publishes only the customization manifest in a signed Git commit,
+and checks whether the peer applied it. A user timer checks the published
+branch periodically. It needs a working network and Git authentication.
+An unpublished local draft pauses automatic reconciliation on that computer.
+
+Run `dot apply --profile kubuntu-desktop --tags ai-customization` or use
+`kubuntu-laptop` on the IdeaPad. Use `dot ai status` for JSON inventory,
+`dot ai preview` for the two managed instruction previews,
+`dot ai apply --check` to verify the checkout's local settings, and
+`dot ai sync` to reconcile the published revision. Start a fresh Codex session
+to use updated defaults, instructions, skill policy, or tool enablement.
+
+Edit shared and host settings in the window. For private personal instructions,
+edit `~/.codex/AGENTS.local.md` and reconcile. A nonempty
+`~/.codex/AGENTS.override.md` takes precedence in Codex and requires separate
+review. Keep credentials and personal device data out of the public manifest.
+The window inventories existing MCP and plugin entries and tracks only
+enablement you choose to manage. Install and authenticate providers through
+their normal tools. The Codex app manages its own `node_repl` registration.
+
+Edit custom skill sources under `config/ai-customization/skills/`, validate
+the skill, and commit and push the source through dotfiles. Avoid editing the
+generated copy under `~/.agents/skills`. Google's Chrome DevTools instructions
+are copied from the installed CLI package. Manual-only skills still appear for
+explicit invocation, such as `$dovie-android-control`.

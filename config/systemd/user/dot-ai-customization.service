@@ -1,0 +1,6 @@
+[Unit]
+Description=Apply published Codex customization
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dot-ai-customization sync

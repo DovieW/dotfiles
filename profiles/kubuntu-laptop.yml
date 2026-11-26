@@ -4,6 +4,7 @@
   "inherits": ["common-linux"],
   "account": "personal",
   "features": {
+    "ai_customization": true,
     "anydesk": false,
     "anarlog": true,
     "bluetooth_playback_only": true,
