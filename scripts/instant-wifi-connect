@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Connect to a saved Wi-Fi network or paired Bluetooth device on demand."""
 from contextlib import closing
+from dataclasses import dataclass
 import http.client
 import json
 import os
@@ -10,10 +11,10 @@ import sys
 from time import sleep
 
 import dbus
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QSettings, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QCheckBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -39,13 +40,18 @@ class PhoneHandoffError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class Connected:
+    message: str
+
+
 def connect_wifi(progress, name, uuid):
     active = subprocess.run(
         ["nmcli", "-t", "-f", "UUID", "connection", "show", "--active"],
         capture_output=True, text=True, timeout=10,
     )
     if uuid in active.stdout.splitlines():
-        return f"Already connected to {name}."
+        return Connected(f"Already connected to {name}.")
     progress(f"Scanning for {name}…")
     # A scan may be throttled or unavailable; connection activation can still succeed.
     subprocess.run(
@@ -58,7 +64,7 @@ def connect_wifi(progress, name, uuid):
         capture_output=True, text=True, timeout=40,
     )
     if result.returncode == 0:
-        return f"Connected to {name}."
+        return Connected(f"Connected to {name}.")
     return (
         f"Could not connect to {name}. Check that the hotspot is on, then retry."
         f"\n\n{result.stderr.strip()}"
@@ -125,7 +131,7 @@ def reset_idle_adapter(bus, path):
 def recover_bluetooth(progress, name, interface, properties, supports_stereo, reset_adapter):
     first_error = try_bluetooth_connection(interface.Connect, properties)
     if first_error is None:
-        return f"Connected to {name}."
+        return Connected(f"Connected to {name}.")
 
     progress(f"Clearing the failed connection to {name}…")
     try:
@@ -138,7 +144,7 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo, re
     progress(f"Retrying {name}…")
     retry_error = try_bluetooth_connection(interface.Connect, properties)
     if retry_error is None:
-        return f"Connected to {name} after retrying."
+        return Connected(f"Connected to {name} after retrying.")
 
     details = [f"First attempt: {first_error}", f"Retry: {retry_error}"]
     if retry_error in BUSY_ERRORS:
@@ -146,7 +152,7 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo, re
         sleep(2)
         retry_error = try_bluetooth_connection(interface.Connect, properties)
         if retry_error is None:
-            return f"Connected to {name} after retrying."
+            return Connected(f"Connected to {name} after retrying.")
         details.append(f"Delayed retry: {retry_error}")
 
     if retry_error in BUSY_ERRORS:
@@ -156,7 +162,7 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo, re
                 progress(f"Reconnecting to {name} after resetting the adapter…")
                 retry_error = try_bluetooth_connection(interface.Connect, properties)
                 if retry_error is None:
-                    return f"Connected to {name} after resetting the laptop Bluetooth adapter."
+                    return Connected(f"Connected to {name} after resetting the laptop Bluetooth adapter.")
                 details.append(f"After adapter reset: {retry_error}")
             else:
                 details.append("Adapter reset skipped because laptop Bluetooth was not idle.")
@@ -168,7 +174,7 @@ def recover_bluetooth(progress, name, interface, properties, supports_stereo, re
         try:
             interface.ConnectProfile(A2DP_SINK, timeout=18)
             if properties.Get(DEVICE, "Connected", timeout=5):
-                return f"Connected to {name} for stereo playback."
+                return Connected(f"Connected to {name} for stereo playback.")
             details.append("Stereo audio: The connection dropped.")
         except dbus.DBusException as error:
             details.append(f"Stereo audio: {error.get_dbus_message()}")
@@ -226,7 +232,7 @@ def connect_bluetooth(progress, name, path, *, phone_handoff=True):
             if not device.get("Paired"):
                 return f"{name} is no longer available as a paired device. Select Refresh."
             if device.get("Connected"):
-                return f"Already connected to {name}."
+                return Connected(f"Already connected to {name}.")
             adapter = objects.get(device["Adapter"], {}).get(ADAPTER, {})
             if not adapter.get("Powered"):
                 return "Turn on Bluetooth in System Settings, then try again."
@@ -338,6 +344,16 @@ class Window(QDialog):
         bluetooth.addWidget(self.restart)
         choices.addWidget(self.bluetooth, 1)
 
+        self.settings = QSettings("doview", "instant-connect")
+        self.auto_close = QCheckBox("Auto-close after connecting")
+        self.auto_close.setStyleSheet(
+            "QCheckBox { background-color: palette(alternate-base); "
+            "border-radius: 6px; padding: 8px 10px; spacing: 8px; }"
+        )
+        self.auto_close.setChecked(self.settings.value("autoClose", False, type=bool))
+        self.auto_close.toggled.connect(lambda checked: self.settings.setValue("autoClose", checked))
+        layout.addWidget(self.auto_close)
+
         self.status = QLabel()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
@@ -401,11 +417,19 @@ class Window(QDialog):
         self.status.setText(message)
         self.worker = Worker(operation, *args)
         self.worker.progress.connect(self.status.setText)
-        self.worker.result.connect(self.status.setText)
+        self.worker.result.connect(self.show_connection_result)
         self.worker.failed.connect(self.status.setText)
         self.worker.handoff_failed.connect(self.show_handoff_failure)
         self.worker.finished.connect(self.connection_finished)
         self.worker.start()
+
+    def show_connection_result(self, result):
+        if isinstance(result, Connected):
+            self.status.setText(result.message)
+            if self.auto_close.isChecked():
+                self.accept()
+        else:
+            self.status.setText(result)
 
     def show_handoff_failure(self, message):
         self.status.setText(message)

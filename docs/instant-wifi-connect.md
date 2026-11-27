@@ -3,6 +3,10 @@
 Search the Start menu for **Instant Connect**. Click a Wi-Fi network or paired
 Bluetooth device to connect immediately.
 
+Turn on **Auto-close after connecting** to close the window when the selected
+network or device is connected. Instant Connect remembers this setting and
+keeps the window open if a connection fails.
+
 - **Wi-Fi** scans and activates the selected saved NetworkManager profile. This
   can switch the active Wi-Fi connection. Add future choices to `NETWORKS` in
   the script using saved profile UUIDs from `nmcli connection show`.
