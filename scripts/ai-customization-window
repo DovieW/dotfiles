@@ -117,7 +117,7 @@ class TokenCount(QTableWidgetItem):
         self.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def __lt__(self, other):
-        return (self.tokens is None, self.tokens or 0) < (other.tokens is None, other.tokens or 0)
+        return (self.tokens is not None, self.tokens or 0) < (other.tokens is not None, other.tokens or 0)
 
 
 class Window(QWidget):
