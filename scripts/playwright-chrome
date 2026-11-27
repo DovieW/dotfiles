@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import quote
 import uuid
 import warnings
 
@@ -225,17 +226,19 @@ def attach(profile, session, env):
         if any(browser["name"] == session for browser in sessions):
             raise Error(f"Session {session} is already open. Reuse your session or choose a different name.")
         pid = check_browser(profile, env)
-        attach_env[TOKEN_ENV] = read_token(profile, env)
+        token = read_token(profile, env)
         if running_browser() != pid:
             raise Error("Chrome changed while checking attachment. Try again once the profile is open.")
         command = [launcher, "attach", "--extension=chrome", f"--session={session}",
                    "--no-tab-group", f"--config={config}"]
-        result = subprocess.run(command, env=attach_env, text=True, capture_output=True, timeout=45)
+        result = subprocess.run(
+            command, env={**attach_env, TOKEN_ENV: token}, text=True, capture_output=True, timeout=45
+        )
         if result.returncode:
             raise Error("Playwright could not attach in the background. Check the extension token and profile.")
         # Playwright can include URLs in output. Keep the token out of the terminal and agent logs.
         for output, dest in ((result.stdout, sys.stdout), (result.stderr, sys.stderr)):
-            dest.write(output.replace(attach_env[TOKEN_ENV], "[redacted]"))
+            dest.write(output.replace(token, "[redacted]").replace(quote(token, safe=""), "[redacted]"))
 
 
 def main():

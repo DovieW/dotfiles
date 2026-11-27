@@ -79,6 +79,7 @@ class CustomizationTest(unittest.TestCase):
             self.manifest["shared"]["plugins"]["demo@market.example"] = False
             self.manifest["shared"]["plugins"]["absent@market.example"] = False
             self.manifest["shared"]["skills"]["chrome-devtools-cli"] = "off"
+            self.manifest["shared"]["skills"]["playwright-cli"] = "off"
             app.apply(self.manifest, SOURCE, "first")
             app.apply(self.manifest, SOURCE, "first", check=True)
             text, parsed = app.config()
@@ -305,6 +306,7 @@ class CustomizationTest(unittest.TestCase):
             self.manifest["shared"]["mcp"]["fixture"] = False
             self.manifest["shared"]["plugin_mcp"]["sample@debug/example"] = "default"
             self.manifest["shared"]["skills"]["chrome-devtools-cli"] = "off"
+            self.manifest["shared"]["skills"]["playwright-cli"] = "off"
             app.manifest = lambda: self.manifest
 
             def edit(group, name, operation, value=None):
