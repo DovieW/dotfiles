@@ -463,8 +463,9 @@ dot apply --profile kubuntu-laptop --tags packages
 Both Kubuntu profiles install Microsoft's Playwright CLI with a locked npm
 package, its matching Chromium build for headless tests, and the official skill
 with its references. The Chrome Toolkit skill routes routine browser work to
-Playwright and deep Chrome diagnostics to Chrome DevTools CLI. All three skills
-are Automatic in AI Customization by default. To apply just this toolchain, use
+Playwright and deep Chrome diagnostics to Chrome DevTools CLI. Chrome Toolkit
+is the Automatic browser skill in AI Customization. It references both upstream
+guides directly from the installed CLI packages. To apply just this toolchain, use
 `dot apply --profile kubuntu-laptop --tags playwright-cli,chrome-devtools,ai-customization`
 on the IdeaPad or select `kubuntu-desktop` on the desktop.
 
@@ -1003,6 +1004,5 @@ its own `node_repl` registration. The Hooks tab adds handlers to
 
 Edit custom skill sources under `config/ai-customization/skills/`, validate
 the skill, and commit and push the source through dotfiles. Avoid editing the
-generated copy under `~/.agents/skills`. The official Chrome DevTools and
-Playwright skills are copied from their installed CLI packages. Manual-only skills still appear for
+generated copy under `~/.agents/skills`. Manual-only skills still appear for
 explicit invocation, such as `$dovie-android-control`.

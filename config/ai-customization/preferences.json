@@ -10,10 +10,8 @@
       "approval_policy": "never"
     },
     "skills": {
-      "chrome-devtools-cli": "automatic",
       "chrome-toolkit": "automatic",
-      "dovie-android-control": "manual",
-      "playwright-cli": "automatic"
+      "dovie-android-control": "manual"
     },
     "mcp": {},
     "plugins": {},

@@ -26,14 +26,29 @@ class CustomizationTest(unittest.TestCase):
         self.manifest = ai.validate(ai.load(SOURCE / ai.PREFS))
 
     def test_instructions_and_machine_scope(self):
-        self.manifest["hosts"][IDEAPAD]["skills"] = {"chrome-devtools-cli": "manual"}
+        self.manifest["hosts"][IDEAPAD]["skills"] = {"chrome-toolkit": "manual"}
         local = ai.effective(self.manifest, IDEAPAD, "Private note")
         peer = ai.effective(self.manifest, DESKTOP)
         self.assertIn("This is the Kubuntu IdeaPad", local["instructions"])
         self.assertTrue(local["instructions"].endswith("Private note\n"))
         self.assertNotIn("Private note", peer["instructions"])
-        self.assertEqual(local["skills"]["chrome-devtools-cli"], "manual")
-        self.assertEqual(peer["skills"]["chrome-devtools-cli"], "automatic")
+        self.assertEqual(local["skills"]["chrome-toolkit"], "manual")
+        self.assertEqual(peer["skills"]["chrome-toolkit"], "automatic")
+
+    def test_toolkit_policy_removes_previously_managed_browser_entries(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CODEX_HOME": str(Path(folder) / "codex"), "XDG_STATE_HOME": str(Path(folder) / "state")}
+        ):
+            app = ai.Customization(DESKTOP, Path(folder))
+            old_entries = ["chrome-devtools-cli", "playwright-cli"]
+            source = SOURCE / "skills/chrome-toolkit"
+            for name in old_entries:
+                app.install_skill(source, name, ai.skill_policy(source, "automatic"))
+            ai.atomic(app.state / "applied.json", ai.encode({"skills": old_entries}))
+            with patch.object(app, "write_config"):
+                app.apply(self.manifest, SOURCE, "toolkit")
+            self.assertTrue(app.skill_target("chrome-toolkit"))
+            self.assertTrue(set(old_entries).isdisjoint(app.status(self.manifest)["skills"]))
 
     def test_independent_edits_merge_and_overlapping_edits_stop(self):
         local = copy.deepcopy(self.manifest)
@@ -78,8 +93,6 @@ class CustomizationTest(unittest.TestCase):
             self.manifest["shared"]["mcp"]["test"] = False
             self.manifest["shared"]["plugins"]["demo@market.example"] = False
             self.manifest["shared"]["plugins"]["absent@market.example"] = False
-            self.manifest["shared"]["skills"]["chrome-devtools-cli"] = "off"
-            self.manifest["shared"]["skills"]["playwright-cli"] = "off"
             app.apply(self.manifest, SOURCE, "first")
             app.apply(self.manifest, SOURCE, "first", check=True)
             text, parsed = app.config()
@@ -305,8 +318,6 @@ class CustomizationTest(unittest.TestCase):
                 '[[hooks.SessionStart]]\n[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "inline"\n')
             self.manifest["shared"]["mcp"]["fixture"] = False
             self.manifest["shared"]["plugin_mcp"]["sample@debug/example"] = "default"
-            self.manifest["shared"]["skills"]["chrome-devtools-cli"] = "off"
-            self.manifest["shared"]["skills"]["playwright-cli"] = "off"
             app.manifest = lambda: self.manifest
 
             def edit(group, name, operation, value=None):
