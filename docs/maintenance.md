@@ -919,8 +919,9 @@ Deprecated and removed keys disappear from the main list. The **Legacy or
 unknown** filter can show values still stored in the local file.
 Reasoning effort and service tier follow the selected model. Choices for
 both computers require support on both. **Apply & Sync** saves managed
-policies. Other dropdown edits go directly to the selected computers'
-user config files. Use **Open local config.toml** for free-form values.
+policies and applies staged resets. Other dropdown edits go directly to the
+selected computers' user config files. Use **Open local config.toml** for
+free-form values.
 Desktop interface preferences are managed inside that app.
 
 Run `dot apply --profile kubuntu-desktop --tags ai-customization` or use
@@ -935,10 +936,16 @@ edit `~/.codex/AGENTS.local.md` and reconcile. A nonempty
 `~/.codex/AGENTS.override.md` takes precedence in Codex and requires separate
 review. Keep credentials and personal device data out of the public manifest.
 The Skills, MCP Servers, Plugins, Plugin MCP Servers, and Hooks tabs have
-Add and Remove controls. Edit scope determines which workstations receive
-the operation. The window reports each computer's result separately.
-MCP registrations, marketplace plugin installs, imported skills, and user
-hooks go directly to the selected workstations. Their definitions and
+Add and Remove controls. **Edit scope** determines which workstations
+receive the operation. **Remove** stages a change until you choose
+**Apply & Sync**. It clears matching dotfiles policies for the selected
+computers and removes the entries from their local configuration. Removing
+a plugin also clears its plugin MCP policies for that scope. A removal that
+could not finish stays pending and can be retried with **Apply & Sync**.
+The window reports failed removals by computer and entry.
+
+New MCP registrations, marketplace plugin installs, imported skills, and
+user hooks go directly to the selected workstations. Their definitions and
 commands are stored on those computers. Use the provider's normal login
 flow if it requires authentication.
 
@@ -946,8 +953,7 @@ An imported skill is copied from a folder containing `SKILL.md` into
 `~/.agents/skills`. Removing an imported or other local skill moves it to
 `~/.local/state/dotfiles/ai-customization/removed-skills`. Use Apply & Sync
 to add or remove the installed copy of a dotfiles skill through its scoped
-policy. For MCP servers and plugins, a previously synced enablement policy
-is still available if you reinstall the entry.
+policy.
 
 The Plugin MCP Servers tab can add or remove an enablement override with
 Apply & Sync. Removing an override restores the plugin's default. The

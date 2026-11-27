@@ -101,6 +101,8 @@ class Window(QWidget):
         self.draft = None
         self.resolve = False
         self.entry_feedback = None
+        self.removals = []
+        self.removal_feedback = None
         self.catalog = {}
         self.catalog_rows = []
         self.catalog_refresh_pending = False
@@ -151,7 +153,7 @@ class Window(QWidget):
         self.adopt.clicked.connect(self.adopt_drift)
         self.restore = QPushButton("Restore Synced Values")
         self.restore.clicked.connect(self.restore_drift)
-        self.discard = QPushButton("Discard Pending Draft")
+        self.discard = QPushButton("Discard Pending Changes")
         self.discard.clicked.connect(self.discard_pending)
         self.discard.hide()
         self.add_entry = QPushButton("Add…")
@@ -274,7 +276,7 @@ class Window(QWidget):
             self.info.setText("Could not run the customization backend.")
 
     def read(self):
-        if self.data and self.draft != self.data["manifest"] and not self.resolve:
+        if self.data and (self.removals or self.draft != self.data["manifest"] and not self.resolve):
             choice = QMessageBox.question(self, "Discard draft?", "Reload synced preferences and discard unsaved edits?")
             if choice != QMessageBox.StandardButton.Yes:
                 return
@@ -301,6 +303,12 @@ class Window(QWidget):
             self.launch("status")
             return
         if self.action in ("publish", "discard-draft"):
+            self.removals = []
+            if self.action == "publish" and value.get("removals"):
+                results = value["removals"]
+                problems = [f"{HOST_LABELS[item['profile']]} · {item['name']}: {item['error']}"
+                            for item in results if "error" in item]
+                self.removal_feedback = "  ·  ".join(problems) if problems else "Removals applied."
             self.data = None
             self.info.setText("Refreshing workstation status…")
             self.launch("status")
@@ -314,6 +322,8 @@ class Window(QWidget):
             if pending:
                 self.draft = pending["desired"]
                 self.resolve = pending.get("resolve", False)
+            if not self.entry_feedback:
+                self.removals = pending.get("removals", []) if pending else []
         self.data = value
         self.render()
         self.refresh_catalog()
@@ -321,8 +331,13 @@ class Window(QWidget):
             feedback = self.entry_feedback
             if self.draft != self.data["manifest"]:
                 feedback += "  ·  Unapplied policy edits"
+            if self.removals:
+                feedback += f"  ·  {len(self.removals)} removals staged"
             self.info.setText(feedback)
             self.entry_feedback = None
+        if self.removal_feedback:
+            self.info.setText(self.info.text() + "  ·  " + self.removal_feedback)
+            self.removal_feedback = None
 
     def render(self):
         if self.draft is None:
@@ -339,7 +354,7 @@ class Window(QWidget):
         drift = self.data["drift"]
         self.adopt.setVisible(any(key != "override" for key in drift))
         self.restore.setVisible(bool(drift) and "override" not in drift)
-        self.discard.setVisible(bool(self.data.get("pending")))
+        self.discard.setVisible(bool(self.removals or self.data.get("pending") or self.data.get("pending_removals")))
         peer = self.data.get("peer", {}).get("state")
         status = {
             "applied": "Peer confirmed the synced revision.",
@@ -349,6 +364,10 @@ class Window(QWidget):
             status = "There is an unpublished draft. Review it and choose Apply & Sync."
         if drift:
             status = "Local changes need review  ·  " + ", ".join(drift)
+        if self.removals:
+            status = f"Removals staged ({len(self.removals)}). Choose Apply & Sync to remove them."
+        if self.data.get("pending_removals"):
+            status += f"  ·  {self.data['pending_removals']} pending removals. Apply & Sync retries them."
         self.info.setText(status)
         self.update_file_indicator()
         self.update_entry_controls()
@@ -464,8 +483,7 @@ class Window(QWidget):
             combo.addItem(choice_label(value), value)
             if type(value) is type(selected) and value == selected:
                 index = combo.count() - 1
-        if not self.tool_policy(path):
-            combo.addItem("Use Codex default")
+        combo.addItem("Use Codex default")
         combo.setCurrentIndex(index)
 
         def choose(selected_index):
@@ -505,13 +523,9 @@ class Window(QWidget):
                     return
                 path[index] = item - 1
         policy = self.tool_policy(path)
-        if policy:
+        if policy and value is not None:
             group, tool = policy
-            if value is None and group != "plugin_mcp":
-                QMessageBox.information(self, "Managed setting",
-                                        "Release the synced policy in its tool tab before using the Codex default.")
-                return
-            self.stage_policy(group, tool, "default" if value is None else value)
+            self.stage_policy(group, tool, value)
             return
         display = name
         for original, concrete in zip(self.catalog["settings"][name]["path"], path):
@@ -520,7 +534,7 @@ class Window(QWidget):
             elif original == "[]":
                 display = display.replace("[]", f"[{concrete}]", 1)
         if value is None:
-            message = f"Use the Codex default for {display} on {self.scope.currentText()}?"
+            message = f"Stage a reset for {display} on {self.scope.currentText()}? Apply & Sync will apply it."
         else:
             summary = "[" + ", ".join(map(choice_label, value)) + "]" if isinstance(value, list) else choice_label(value)
             message = f"Set {display} to {summary} on {self.scope.currentText()}?"
@@ -529,8 +543,12 @@ class Window(QWidget):
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if box.exec() == QMessageBox.StandardButton.Yes:
-            self.launch("entry", {"scope": self.target, "operation": "remove" if value is None else "add",
-                                  "group": "config", "name": display, "value": {"path": path, "choice": value}})
+            request = {"scope": self.target, "operation": "remove" if value is None else "add",
+                       "group": "config", "name": display, "value": {"path": path, "choice": value}}
+            if value is None:
+                self.stage_removal(request)
+            else:
+                self.launch("entry", request)
 
     def default_editor(self, key):
         combo = QComboBox()
@@ -728,19 +746,16 @@ class Window(QWidget):
         self.render()
         self.info.setText("Change staged. Choose Apply & Sync to apply it to the selected computers.")
 
+    def stage_removal(self, request):
+        if request not in self.removals:
+            self.removals.append(request)
+        self.render()
+
     def remove_selected_entry(self):
         group, item = self.entry_selection()
         if item is None:
             return
         name = item.text()
-        if group == "skills" and name in self.managed_skills():
-            if self.confirm_entry("remove", group, name):
-                self.stage_policy(group, name, "off")
-            return
-        if group == "plugin_mcp":
-            if self.confirm_entry("remove", group, f"the enablement override for {name}"):
-                self.stage_policy(group, name, "default")
-            return
         identity = name
         if group == "hooks":
             identity = item.data(Qt.ItemDataRole.UserRole)
@@ -750,8 +765,11 @@ class Window(QWidget):
 
     def confirm_entry(self, operation, group, name):
         verb = operation.title()
+        message = f"{verb} {name} on {self.scope.currentText()}?"
+        if operation == "remove":
+            message = f"Stage removal of {name} on {self.scope.currentText()}? Apply & Sync will apply it."
         box = QMessageBox(QMessageBox.Icon.Question, f"{verb} {ENTRY_LABELS[group]}",
-                          f"{verb} {name} on {self.scope.currentText()}?",
+                          message,
                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
@@ -759,8 +777,12 @@ class Window(QWidget):
 
     def submit_entry(self, operation, group, name, value=None, description=None):
         if self.confirm_entry(operation, group, description or name):
-            self.launch("entry", {"scope": self.target, "operation": operation, "group": group,
-                                  "name": name, "value": value})
+            request = {"scope": self.target, "operation": operation, "group": group,
+                       "name": name, "value": value}
+            if operation == "remove":
+                self.stage_removal(request)
+            else:
+                self.launch("entry", request)
 
     def fill(self, title, group, options):
         table = self.tables[title]
@@ -787,6 +809,11 @@ class Window(QWidget):
             for col, host in enumerate(("kubuntu-desktop", "kubuntu-laptop"), 2):
                 want = hosts[host].get(group, {}).get(name, shared.get(name))
                 self.show_policy(table, row, col, want, live.get(host, {}).get(name))
+            staged = [HOST_LABELS[request["scope"]] for request in self.removals
+                      if request["group"] == group and request["name"] == name]
+            if staged:
+                table.setItem(row, 4, self.cell("Removal staged · " + ", ".join(staged)))
+                continue
             if name in {"node_repl", "_default"} or group == "skills" and local.get(name) == "unmanaged":
                 table.setItem(row, 4, self.cell("App-owned" if name == "node_repl" else "Unmanaged"))
                 continue
@@ -887,8 +914,8 @@ class Window(QWidget):
             self.info.setText("Restore selected. Choose Apply & Sync to confirm.")
 
     def discard_pending(self):
-        if QMessageBox.question(self, "Discard pending draft?",
-                                "Discard the unpublished draft and reload the synced preferences?") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Discard pending changes?",
+                                "Discard unpublished edits and cancel removals still pending?") == QMessageBox.StandardButton.Yes:
             self.launch("discard-draft")
 
     def publish(self):
@@ -910,7 +937,7 @@ class Window(QWidget):
                         return
             self.launch("publish", {
                 "base": base,
-                "desired": self.draft, "resolve": self.resolve,
+                "desired": self.draft, "resolve": self.resolve, "removals": self.removals,
             })
 
 

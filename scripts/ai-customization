@@ -35,7 +35,7 @@ DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissi
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
 ABSENT = object()
-ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks", "config"}
+ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks", "config", "plugin_mcp"}
 MAX_SKILL_BYTES = 5 * 1024 * 1024
 DESKTOP_CODEX = Path("/usr/lib/chatgpt/resources/codex")
 CODEX_SCHEMA = "https://raw.githubusercontent.com/openai/codex/rust-v{}/codex-rs/core/config.schema.json"
@@ -114,6 +114,42 @@ def effective(manifest, profile, private=""):
                                  (shared.get("instructions", ""), host.get("instructions", ""), private) if t.strip()) + "\n"
     return {"instructions": instructions,
             **{group: {**shared.get(group, {}), **host.get(group, {})} for group in GROUPS}}
+
+
+def removal_policies(settings, removal):
+    group, name = removal["group"], removal["name"]
+    if group == "config":
+        path = removal["value"]["path"]
+        if len(path) == 3 and path[-1] == "enabled" and path[0] in ("mcp_servers", "plugins"):
+            group, name = ("mcp" if path[0] == "mcp_servers" else "plugins"), path[1]
+            return [(group, name)] if name in settings.get(group, {}) else []
+        if len(path) == 5 and path[0] == "plugins" and path[2] == "mcp_servers" and path[-1] == "enabled":
+            group, name = "plugin_mcp", f"{path[1]}/{path[3]}"
+        else:
+            return []
+    matches = [(group, name)] if name in settings.get(group, {}) else []
+    if group == "plugins":
+        matches.extend(("plugin_mcp", key) for key in settings.get("plugin_mcp", {})
+                       if key.startswith(name + "/"))
+    return matches
+
+
+def removal_profiles(scope):
+    need(scope in ("shared", *HOSTS.values()), "Select Desktop, IdeaPad, or both.")
+    return tuple(HOSTS.values()) if scope == "shared" else (scope,)
+
+
+def remove_policies(manifest, removal):
+    profiles = removal_profiles(removal["scope"])
+    for profile in profiles:
+        for group, name in removal_policies(effective(manifest, profile), removal):
+            shared = manifest["shared"].get(group, {})
+            if name in shared:
+                value = shared.pop(name)
+                for other, section in manifest["hosts"].items():
+                    if other not in profiles:
+                        section.setdefault(group, {}).setdefault(name, value)
+            manifest["hosts"][profile].get(group, {}).pop(name, None)
 
 
 def merge(base, desired, latest):
@@ -365,9 +401,9 @@ class Customization:
             self.git_env["SSH_AUTH_SOCK"] = str(agent)
 
     @contextmanager
-    def locked(self):
+    def locked(self, filename="lock"):
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with (self.state / "lock").open("a") as lock:
+        with (self.state / filename).open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield
 
@@ -633,6 +669,7 @@ class Customization:
             "hook_entries": handlers,
             "applied": previous.get("revision"), "peer": load(self.state / "peer.json", {}),
             "pending": load(self.state / "pending.json"),
+            "pending_removals": len(load(self.state / "pending-removals.json", [])),
             "instructions_outdated": installed_text != expected["instructions"],
         }
 
@@ -697,7 +734,7 @@ class Customization:
             need(self.config()[0] == original, "Codex settings changed during apply. Reload and retry.")
             request("config/batchWrite", params)
 
-    def apply(self, manifest, source, revision, resolve=False, check=False):
+    def apply(self, manifest, source, revision, resolve=False, check=False, deferred_skills=()):
         expected = self.instructions(manifest)
         previous = load(self.state / "applied.json", {})
         status = self.status(manifest)
@@ -732,7 +769,7 @@ class Customization:
         guide = self.codex / "AGENTS.md"
         if not guide.is_file() or guide.read_text() != expected["instructions"]:
             atomic(guide, expected["instructions"])
-        for name in (set(expected["skills"]) - wanted_sources.keys()) | stale:
+        for name in ((set(expected["skills"]) - wanted_sources.keys()) | stale) - set(deferred_skills):
             if self.skill_target(name):
                 (self.skills / name).unlink()
         for name, (folder, policy) in wanted_sources.items():
@@ -770,6 +807,11 @@ class Customization:
 
     def edit_skill(self, name, files, remove):
         path = self.skills / name
+        if remove and self.skill_target(name):
+            need(name not in effective(self.manifest(), self.profile)["skills"],
+                 "The dotfiles installation policy still includes this skill.")
+            path.unlink()
+            return
         need(not self.skill_target(name), "Change the installation policy for this dotfiles skill.")
         if remove:
             if path.exists() or path.is_symlink():
@@ -814,18 +856,21 @@ class Customization:
         original, raw = self.config()
         if remove:
             for source, groups in (("hooks.json", hooks), ("config.toml", raw.get("hooks", {}))):
-                for identity, event, group, handler in hook_entries(source, groups):
-                    if identity == name:
-                        group["hooks"].remove(handler)
-                        if not group["hooks"]:
-                            groups[event].remove(group)
-                        if source == "config.toml":
-                            self.write_config(original, [(("hooks", event), groups[event] or None)])
-                        else:
-                            if not groups[event]:
-                                groups.pop(event)
-                            atomic(path, encode(document))
-                        return
+                matches = [(event, group, handler) for identity, event, group, handler in hook_entries(source, groups)
+                           if identity == name]
+                if not matches:
+                    continue
+                for event, group, handler in matches:
+                    group["hooks"].remove(handler)
+                    if not group["hooks"]:
+                        groups[event].remove(group)
+                if source == "config.toml":
+                    self.write_config(original, [(("hooks", event), groups[event] or None)])
+                else:
+                    if not groups[event]:
+                        groups.pop(event)
+                    atomic(path, encode(document))
+                return
             return
         need(re.fullmatch(r"[A-Z][A-Za-z0-9]+", name), "Enter a Codex hook event such as SessionStart.")
         handler = value["handler"]
@@ -856,6 +901,16 @@ class Customization:
             return
         if group == "hooks":
             self.edit_hook(name, value, remove)
+            return
+        if group == "plugin_mcp":
+            parts = name.split("/")
+            need(remove and len(parts) == 2 and all(IDENTIFIER.fullmatch(p) for p in parts),
+                 "Invalid plugin MCP removal.")
+            plugin, server = parts
+            key = ("plugins", plugin, "mcp_servers", server)
+            original, raw = self.config()
+            if setting(raw, key) is not None:
+                self.write_config(original, [(key, None)])
             return
         need(IDENTIFIER.fullmatch(name) and name not in (".", "..") and not name.startswith("-"),
              "Invalid entry name.")
@@ -929,6 +984,15 @@ class Customization:
     def entry_result(self, request):
         try:
             with self.locked():
+                if request.get("revision"):
+                    revision = request["revision"]
+                    need(request["operation"] == "remove" and re.fullmatch(r"[0-9a-f]{40,64}", revision),
+                         "Invalid published removal.")
+                    self.git("fetch", "--quiet", "--no-tags", "origin", "master")
+                    need(self.git("merge-base", "--is-ancestor", revision, UPSTREAM, fail=False).returncode == 0,
+                         "The removal revision was not found on the published branch.")
+                    need(not removal_policies(effective(self.manifest(), self.profile), request),
+                         "A synced policy now includes this entry. Review it before removing it.")
                 self.edit_entry(request)
             return {"ok": True}
         except Error as error:
@@ -939,12 +1003,8 @@ class Customization:
             return {"error": f"Could not change this entry ({type(error).__name__})."}
 
     def edit_scope(self, request):
-        scope = request["scope"]
-        need(scope in ("shared", *HOSTS.values()), "Select Desktop, IdeaPad, or both.")
         results = {}
-        for profile in HOSTS.values():
-            if scope not in ("shared", profile):
-                continue
+        for profile in removal_profiles(request["scope"]):
             if profile == self.profile:
                 results[profile] = self.entry_result(request)
             else:
@@ -976,10 +1036,19 @@ class Customization:
     def publish(self, request):
         base, desired = validate(request["base"]), validate(request["desired"])
         resolve = request.get("resolve") is True
+        removals = request.get("removals", [])
+        for removal in removals:
+            need(removal["group"] in ENTRY_GROUPS and removal["operation"] == "remove", "Invalid staged removal.")
+            removal_profiles(removal["scope"])
         atomic(self.state / "pending.json", encode(request))
         self.git("fetch", "--quiet", "--no-tags", "origin", "master")
         latest = self.manifest()
-        candidate = validate(merge(base, desired, latest))
+        candidate = copy.deepcopy(merge(base, desired, latest))
+        for removal in removals:
+            remove_policies(candidate, removal)
+        validate(candidate)
+        deferred_skills = {r["name"] for r in removals if r["group"] == "skills"
+                           and self.profile in removal_profiles(r["scope"])}
         with tempfile.TemporaryDirectory(prefix="dot-ai-") as temp:
             work = Path(temp) / "work"
             self.git("worktree", "add", "--quiet", "--detach", str(work), UPSTREAM)
@@ -994,7 +1063,7 @@ class Customization:
                                cwd=work, env=self.git_env, timeout=30)
                     need(scan.returncode == 0, "The draft failed secret scanning.")
                 if local_changed or resolve:
-                    self.apply(candidate, source, "pending", resolve=resolve)
+                    self.apply(candidate, source, "pending", resolve=resolve, deferred_skills=deferred_skills)
                 if candidate != latest:
                     self.git("-c", "commit.gpgsign=true", "commit", "-m", "Update AI customization", cwd=work)
                     self.git("push", "origin", "HEAD:refs/heads/master", cwd=work, timeout=45)
@@ -1005,8 +1074,33 @@ class Customization:
                     atomic(self.state / "applied.json", encode({**state, "revision": tree}))
             finally:
                 self.git("worktree", "remove", "--force", str(work), fail=False)
+        if removals:
+            path = self.state / "pending-removals.json"
+            pending = load(path, [])
+            pending.extend({"id": uuid4().hex, "request": {**removal, "scope": profile, "revision": revision}}
+                           for removal in removals for profile in removal_profiles(removal["scope"]))
+            atomic(path, encode(pending))
         (self.state / "pending.json").unlink(missing_ok=True)
         return revision
+
+    def finish_removals(self):
+        path = self.state / "pending-removals.json"
+        results = []
+        # Never hold the application lock across a request to the other computer.
+        with self.locked("removals.lock"):
+            for job in load(path, []):
+                request = job["request"]
+                profile = request["scope"]
+                result = self.edit_scope(request)[profile]
+                results.append({"profile": profile, "group": request["group"], "name": request["name"], **result})
+                if result.get("ok"):
+                    with self.locked():
+                        remaining = [item for item in load(path, []) if item["id"] != job["id"]]
+                        if remaining:
+                            atomic(path, encode(remaining))
+                        else:
+                            path.unlink(missing_ok=True)
+        return results
 
     def notify_peer(self, revision):
         receipt = self.call_peer("sync", "--revision", revision, timeout=40)
@@ -1099,6 +1193,9 @@ def main():
             print(encode(result), end="")
         elif args.action in ("entry", "entry-local"):
             request = json.load(sys.stdin)
+            if request["operation"] == "remove":
+                need(args.action == "entry-local" and request.get("revision"),
+                     "Reopen AI Customization and use Apply & Sync to remove entries.")
             if args.action == "entry-local":
                 need(request["scope"] in ("shared", app.profile), "The request targets a different computer.")
             result = app.edit_scope(request) if args.action == "entry" else app.entry_result(request)
@@ -1109,6 +1206,11 @@ def main():
             print(encode({profile: effective(manifest, profile) for profile in HOSTS.values()}), end="")
         elif args.action == "apply" and args.check:
             app.apply(validate(load(ROOT / REL / PREFS)), ROOT / REL, None, check=True)
+        elif args.action == "discard-draft":
+            with app.locked("removals.lock"), app.locked():
+                (app.state / "pending.json").unlink(missing_ok=True)
+                (app.state / "pending-removals.json").unlink(missing_ok=True)
+            print("{}")
         else:
             published = None
             with app.locked():
@@ -1121,11 +1223,9 @@ def main():
                     print(encode(app.sync(args.revision)), end="")
                 elif args.action == "publish":
                     published = app.publish(json.load(sys.stdin))
-                elif args.action == "discard-draft":
-                    (app.state / "pending.json").unlink(missing_ok=True)
-                    print("{}")
             if published:
-                print(encode(app.notify_peer(published)), end="")
+                results = app.finish_removals()
+                print(encode({**app.notify_peer(published), "removals": results}), end="")
             elif args.action == "sync" and not args.revision:
                 peer = load(app.state / "peer.json", {})
                 if peer.get("state") == "pending":

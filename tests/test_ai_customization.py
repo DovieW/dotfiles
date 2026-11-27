@@ -111,6 +111,74 @@ class CustomizationTest(unittest.TestCase):
             self.assertEqual(set(app.edit_scope({**request, "scope": IDEAPAD})), {IDEAPAD})
             local.assert_not_called()
 
+    def test_removing_scoped_plugin_preserves_other_hosts_and_clears_its_server_policies(self):
+        shared = self.manifest["shared"]
+        shared["plugins"] = {"example@store": True, "keep@store": False}
+        shared["plugin_mcp"] = {"example@store/tools": False, "keep@store/tools": True}
+        self.manifest["hosts"][IDEAPAD]["plugins"] = {"example@store": False}
+        removal = {"group": "plugins", "name": "example@store", "scope": DESKTOP}
+        ai.remove_policies(self.manifest, removal)
+        desktop = ai.effective(self.manifest, DESKTOP)
+        laptop = ai.effective(self.manifest, IDEAPAD)
+        self.assertEqual(desktop["plugins"], {"keep@store": False})
+        self.assertEqual(desktop["plugin_mcp"], {"keep@store/tools": True})
+        self.assertFalse(laptop["plugins"]["example@store"])
+        self.assertFalse(laptop["plugin_mcp"]["example@store/tools"])
+        ai.remove_policies(self.manifest, {**removal, "scope": "shared"})
+        self.assertNotIn("example@store", ai.effective(self.manifest, IDEAPAD)["plugins"])
+        self.assertNotIn("example@store/tools", ai.effective(self.manifest, IDEAPAD)["plugin_mcp"])
+
+    def test_pending_removals_retry_only_the_host_that_failed(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"XDG_STATE_HOME": str(Path(folder) / "state")}
+        ):
+            app = ai.Customization(DESKTOP, Path(folder))
+            jobs = app.state / "pending-removals.json"
+            request = {"group": "mcp", "name": "fixture", "operation": "remove", "revision": "a" * 40}
+            ai.atomic(jobs, ai.encode([{"id": profile, "request": {**request, "scope": profile}}
+                                       for profile in (DESKTOP, IDEAPAD)]))
+            with patch.object(app, "edit_scope", side_effect=[{DESKTOP: {"ok": True}},
+                                                            {IDEAPAD: {"error": "Offline"}}]) as execute:
+                report = app.finish_removals()
+            self.assertEqual([item["profile"] for item in report], [DESKTOP, IDEAPAD])
+            self.assertEqual(execute.call_count, 2)
+            self.assertEqual([job["id"] for job in ai.load(jobs)], [IDEAPAD])
+            with patch.object(app, "edit_scope", return_value={IDEAPAD: {"ok": True}}) as retry:
+                app.finish_removals()
+            retry.assert_called_once_with({**request, "scope": IDEAPAD})
+            self.assertFalse(jobs.exists())
+
+    def test_publish_queues_removals_after_pushing_policy(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"XDG_STATE_HOME": str(Path(folder) / "state")}
+        ):
+            app = ai.Customization(DESKTOP, Path(folder))
+            self.manifest["shared"]["mcp"] = {"fixture": True}
+            draft = {"base": self.manifest, "desired": self.manifest, "removals": [
+                {"group": "mcp", "name": "fixture", "operation": "remove", "scope": "shared"},
+            ]}
+            revision = "a" * 40
+            pending = app.state / "pending-removals.json"
+            pushed = []
+
+            def git(*args, **kwargs):
+                if args[:2] == ("worktree", "add"):
+                    (Path(args[-2]) / ai.REL).mkdir(parents=True)
+                if args[0] == "push":
+                    pushed.append(ai.load(kwargs["cwd"] / ai.REL / ai.PREFS))
+                    self.assertFalse(pending.exists())
+                return subprocess.CompletedProcess(args, 0, stdout=revision.encode())
+
+            with patch.object(app, "git", side_effect=git), \
+                    patch.object(app, "manifest", return_value=self.manifest), \
+                    patch.object(app, "apply"), patch.object(app, "edit_scope") as execute, \
+                    patch.object(ai, "run", return_value=subprocess.CompletedProcess([], 0)):
+                self.assertEqual(app.publish(draft), revision)
+                execute.assert_not_called()
+            self.assertEqual(pushed[0]["shared"]["mcp"], {})
+            self.assertEqual({job["request"]["scope"] for job in ai.load(pending)}, {DESKTOP, IDEAPAD})
+            self.assertTrue(all(job["request"]["revision"] == revision for job in ai.load(pending)))
+
     def test_config_catalog_merges_engine_schemas_and_local_values(self):
         common = {"type": "string", "description": "A setting known to both builds."}
         cli_schema = {"properties": {
@@ -232,7 +300,7 @@ class CustomizationTest(unittest.TestCase):
             app = ai.Customization(DESKTOP, home)
             app.codex.mkdir()
             (app.codex / "config.toml").write_text(
-                '# preserve\n[plugins."sample@debug".mcp_servers.example]\nenabled = false\n'
+                'model = "old" # preserve\n[plugins."sample@debug".mcp_servers.example]\nenabled = false\n'
                 '[[hooks.SessionStart]]\n[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "inline"\n')
             self.manifest["shared"]["mcp"]["fixture"] = False
             self.manifest["shared"]["plugin_mcp"]["sample@debug/example"] = "default"
@@ -256,6 +324,12 @@ class CustomizationTest(unittest.TestCase):
             self.assertEqual(list(app.status()["hook_entries"]), [entries["keep"]])
             app.apply(self.manifest, SOURCE, "test")
             self.assertIsNone(ai.setting(app.config()[1], ("plugins", "sample@debug", "mcp_servers", "example", "enabled")))
+            plugin_servers = ("plugins", "sample@debug", "mcp_servers")
+            app.write_config(app.config()[0], [((*plugin_servers, "keep"), {"enabled": False})])
+            edit("plugin_mcp", "sample@debug/example", "remove")
+            servers = ai.setting(app.config()[1], plugin_servers)
+            self.assertNotIn("example", servers)
+            self.assertFalse(servers["keep"]["enabled"])
             edit("mcp", "fixture", "remove")
             self.assertFalse(app.status()["drift"])
             self.assertIn("# preserve", app.config()[0])
