@@ -75,6 +75,7 @@ class CustomizationTest(unittest.TestCase):
             manifest.parent.mkdir(parents=True)
             manifest.write_text(ai.encode({"name": "demo", "skills": "./skills", "apps": "./.app.json",
                                            "interface": {"displayName": "Demo App"}}))
+            (release / ".mcp.json").write_text(ai.encode({"mcpServers": {"demo_server": {}}}))
             (release / ".app.json").write_text(ai.encode({"apps": {"demo": {"id": "app_demo"}}}))
             skill = release / "skills/example/SKILL.md"
             skill.parent.mkdir(parents=True)
@@ -91,6 +92,28 @@ class CustomizationTest(unittest.TestCase):
             self.assertEqual(rows["apps"]["app_demo"]["title"], "Demo App")
             self.assertFalse(rows["apps"]["app_demo"]["enabled"])
             self.assertFalse(rows["plugin_skills"]["example"]["enabled"])
+            status = app.status(self.manifest)
+            self.assertEqual(status["manifest"], self.manifest)
+            self.assertTrue(status["plugin_mcp"]["demo@market/demo_server"])
+
+    def test_integration_tool_policy_keeps_unrelated_filters(self):
+        config = {"mcp_servers": {"demo": {"disabled_tools": ["keep_off", "read"], "enabled_tools": ["old"]}}}
+        policies = {"mcp|demo|read": True, "mcp|demo|write": False, "apps|connector_demo|repo/list": False,
+                    "plugin_mcp|sample@market/server|ping": False}
+        self.manifest["shared"]["tool_states"] = policies
+        ai.validate(self.manifest)
+        changes = dict(ai.tool_changes(config, policies, {"sample@market/server"}))
+        self.assertEqual(changes[("mcp_servers", "demo", "disabled_tools")], ["keep_off", "write"])
+        self.assertEqual(changes[("mcp_servers", "demo", "enabled_tools")], ["old", "read"])
+        self.assertFalse(changes[("apps", "connector_demo", "tools", "repo/list", "enabled")])
+        self.assertEqual(changes[("plugins", "sample@market", "mcp_servers", "server", "disabled_tools")],
+                         ["ping"])
+
+    def test_app_catalog_identifier_migrates_existing_scope(self):
+        suffix = "a" * 32
+        self.manifest["shared"]["apps"] = {"asdk_app_" + suffix: False}
+        ai.validate(self.manifest)
+        self.assertEqual(self.manifest["shared"]["apps"], {"connector_" + suffix: False})
 
     def test_manual_skill_keeps_other_metadata(self):
         with tempfile.TemporaryDirectory() as folder:

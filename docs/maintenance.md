@@ -964,13 +964,17 @@ selected computers' user config files. Use **Open local config.toml** for
 free-form values.
 Desktop interface preferences are managed inside that app.
 
-The **Plugin Content** tab lists skills and apps found in the local Codex
-plugin caches on either workstation. Search by name, description, or plugin,
-or filter by type and this computer's on/off state. Use **Edit scope** and
-**Apply & Sync** to set an enablement policy for either computer or both.
-Skill policies match the skill name across plugin updates. App policies use the
-app ID and control availability in Codex. Connection and account authorization
-stay with the app provider. Start a fresh Codex session after applying changes.
+The **Skills** tab has local and plugin skill views. The **Apps** tab shows
+Codex app integrations. In the plugin skill and app views, search by name,
+description, or plugin, and filter by this computer's on/off state.
+**MCP Servers** groups configured servers and servers supplied by plugins.
+**Plugins** is for whole-plugin controls.
+
+Select an app or MCP server and choose **Tools…** to get the live tool list
+from Codex and stage individual tool switches. Saved tool policies are still
+shown if live discovery is unavailable. A shared edit uses the tool names
+reported by this computer. Use **Edit scope** and **Apply & Sync** to apply
+changes. Start a fresh Codex session after applying them.
 
 Run `dot apply --profile kubuntu-desktop --tags ai-customization` or use
 `kubuntu-laptop` on the IdeaPad. Use `dot ai status` for JSON inventory,
@@ -983,7 +987,7 @@ Edit shared and host settings in the window. For private personal instructions,
 edit `~/.codex/AGENTS.local.md` and reconcile. A nonempty
 `~/.codex/AGENTS.override.md` takes precedence in Codex and requires separate
 review. Keep credentials and personal device data out of the public manifest.
-The Skills, MCP Servers, Plugins, Plugin MCP Servers, and Hooks tabs have
+The local Skills, configured MCP Servers, Plugins, and Hooks views have
 Add and Remove controls. **Edit scope** determines which workstations
 receive the operation. **Remove** stages a change until you choose
 **Apply & Sync**. It clears matching dotfiles policies for the selected
@@ -1003,7 +1007,7 @@ An imported skill is copied from a folder containing `SKILL.md` into
 to add or remove the installed copy of a dotfiles skill through its scoped
 policy.
 
-The Plugin MCP Servers tab can add or remove an enablement override with
+The **From plugins** view under **MCP Servers** can add or remove an enablement override with
 Apply & Sync. Removing an override restores the plugin's default. The
 parent plugin supplies the server definition. The Codex app can recreate
 its own `node_repl` registration. The Hooks tab adds handlers to

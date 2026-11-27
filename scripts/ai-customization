@@ -34,10 +34,11 @@ PACKAGE_SKILL_LABELS = {
 PREFS = "preferences.json"
 UPSTREAM = "refs/remotes/origin/master"
 HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
-GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps")
+GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps", "tool_states")
 DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissions", "approval_policy"}
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
+TOOL_NAME = re.compile(r"[A-Za-z0-9_./:@-]{1,200}")
 ABSENT = object()
 ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks", "config", "plugin_mcp"}
 MAX_SKILL_BYTES = 5 * 1024 * 1024
@@ -54,6 +55,12 @@ class Error(Exception):
 
 def encode(value):
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+
+
+def connector_id(name):
+    if re.fullmatch(r"asdk_app_[0-9a-f]{32}", name):
+        return "connector_" + name.removeprefix("asdk_app_")
+    return name
 
 
 def load(path, default=None):
@@ -93,7 +100,10 @@ def validate(m):
             values = section.get(group, {})
             need(isinstance(values, dict), "Invalid customization entries.")
             for name, value in values.items():
-                if group == "plugin_mcp":
+                if group == "tool_states":
+                    target, separator, tool = name.rpartition("|")
+                    good_name = separator and tool_path(target) and TOOL_NAME.fullmatch(tool)
+                elif group == "plugin_mcp":
                     good_name = len(name.split("/")) == 2 and all(
                         IDENTIFIER.fullmatch(part) for part in name.split("/"))
                 else:
@@ -107,6 +117,9 @@ def validate(m):
                 else:
                     need(type(value) is bool or (group == "plugin_mcp" and value == "default"),
                          "Invalid tool enablement setting.")
+            if group == "apps" and group in section:
+                section[group] = {connector_id(name): value for name, value in values.items()
+                                  if connector_id(name) == name or connector_id(name) not in values}
         need("node_repl" not in section.get("mcp", {}), "node_repl is managed by the Codex app.")
     need(set(m["shared"].get("defaults", {})) == DEFAULTS, "Shared Codex defaults are incomplete.")
     return m
@@ -201,7 +214,9 @@ def setting(data, key, default=None):
     return data
 
 
-def tool_available(raw, key):
+def tool_available(raw, key, plugin_servers=()):
+    if len(key) >= 4 and key[0] == "plugins" and key[2] == "mcp_servers":
+        return key[1] in raw.get("plugins", {}) or f"{key[1]}/{key[3]}" in plugin_servers
     return key[0] not in ("mcp_servers", "plugins") or key[1] in raw.get(key[0], {})
 
 def tool_value(raw, key, wanted):
@@ -223,6 +238,45 @@ def skill_enabled(config, name, path):
         if entry.get("name") == name or entry.get("path") == str(path):
             return entry.get("enabled", True)
     return True
+
+
+def tool_path(target):
+    kind, _, name = target.partition("|")
+    parts = name.split("/")
+    if not all(IDENTIFIER.fullmatch(part) for part in parts):
+        return None
+    if kind == "apps" and len(parts) == 1:
+        return ("apps", connector_id(name))
+    if kind == "mcp" and len(parts) == 1:
+        return ("mcp_servers", name)
+    if kind == "plugin_mcp" and len(parts) == 2:
+        return ("plugins", parts[0], "mcp_servers", parts[1])
+    return None
+
+
+def tool_changes(raw, policies, plugin_servers=()):
+    servers = {}
+    for key, enabled in policies.items():
+        target, _, tool = key.rpartition("|")
+        path = tool_path(target)
+        if path[0] == "apps":
+            field = (*path, "tools", tool, "enabled")
+            if setting(raw, field) is not enabled:
+                yield field, enabled
+        elif tool_available(raw, path, plugin_servers):
+            servers.setdefault(path, {})[tool] = enabled
+    for path, tools in servers.items():
+        config = setting(raw, path, {})
+        allow = config.get("enabled_tools")
+        deny = config.get("disabled_tools", [])
+        updated_deny = [tool for tool in deny if tools.get(tool) is not True]
+        updated_deny.extend(tool for tool, enabled in tools.items() if not enabled and tool not in deny)
+        if updated_deny != deny:
+            yield (*path, "disabled_tools"), updated_deny
+        if allow is not None:
+            updated_allow = [*allow, *(tool for tool, enabled in tools.items() if enabled and tool not in allow)]
+            if updated_allow != allow:
+                yield (*path, "enabled_tools"), updated_allow
 
 
 
@@ -649,16 +703,25 @@ class Customization:
                                  for server, value in item.get("mcp_servers", {}).items()}
                           for name, item in raw.get("plugins", {}).items()}
         # Inventory manifests from the local plugin cache without starting plugins.
-        installed_plugins = {}
-        for name in raw.get("plugins", {}):
-            plugin, _, market = name.partition("@")
-            folder = self.codex / "plugins/cache" / market / plugin
-            releases = [p for p in folder.glob("*") if p.is_dir()]
-            installed_plugins[name] = bool(releases)
-            for release in sorted(releases, key=lambda p: p.stat().st_mtime, reverse=True)[:1]:
-                declaration = load(release / ".mcp.json", {})
+        installed_plugins = {name: False for name in raw.get("plugins", {})}
+        for folder in (self.codex / "plugins/cache").glob("*/*"):
+            name = f"{folder.name}@{folder.parent.name}"
+            try:
+                latest = max((p for p in folder.glob("*") if p.is_dir()),
+                             key=lambda path: path.stat().st_mtime_ns, default=None)
+                if latest is None:
+                    continue
+                installed_plugins[name] = True
+                plugin_manifest = load(latest / ".codex-plugin/plugin.json", {})
+                path = (latest / (plugin_manifest.get("mcpServers") or ".mcp.json")).resolve()
+                if not path.is_relative_to(latest.resolve()):
+                    continue
+                declaration = load(path, {})
                 for server in declaration.get("mcpServers", declaration):
-                    plugin_servers.setdefault(name, {}).setdefault(server, True)
+                    if IDENTIFIER.fullmatch(server):
+                        plugin_servers.setdefault(name, {}).setdefault(server, True)
+            except (AttributeError, OSError, TypeError, ValueError):
+                continue
         available_skills = {p.name: "unmanaged" for p in self.skills.glob("*") if (p / "SKILL.md").is_file()}
         skill_sources = {}
         for name in expected["skills"]:
@@ -747,6 +810,7 @@ class Customization:
                     for alias, app in load(path, {}).get("apps", {}).items():
                         name = app.get("id")
                         if isinstance(name, str) and IDENTIFIER.fullmatch(name):
+                            name = connector_id(name)
                             rows["apps"][name] = {
                                 "title": str(app.get("name") or (source if plugin.name == alias else alias)),
                                 "description": str(interface.get("shortDescription") or ""),
@@ -756,6 +820,40 @@ class Customization:
             except (OSError, ValueError, AttributeError, TypeError):
                 continue
         return rows
+
+    def integration_tools(self, target):
+        path = tool_path(target)
+        need(path is not None, "Invalid integration.")
+        _, raw = self.config()
+        config = setting(raw, path, {})
+        tools = {name: {} for name in config.get("tools", {})}
+        tools.update({name: {} for key in ("enabled_tools", "disabled_tools") for name in config.get(key, [])})
+        error = ""
+        try:
+            with self.codex_rpc(self.home / ".local/bin/codex", experimental=True) as request:
+                if path[0] == "apps":
+                    response = request("app/read", {"appIds": [path[-1]], "includeTools": True})
+                    discovered = [tool for app in response["apps"] for tool in (app.get("toolSummaries") or [])]
+                else:
+                    response = request("mcpServerStatus/list", {"serverName": path[-1], "detail": "toolsAndAuthOnly"})
+                    discovered = [tool for server in response["data"] for tool in server.get("tools", {}).values()]
+            tools.update({tool["name"]: tool for tool in discovered})
+            if not discovered:
+                error = "Codex reported no tools. Check the integration’s availability and sign-in."
+        except (Error, OSError, ValueError, KeyError):
+            error = "Could not load the live tool list. Configured tools are still shown."
+        for name in effective(self.manifest(), self.profile)["tool_states"]:
+            integration, _, tool = name.rpartition("|")
+            if integration == target:
+                tools.setdefault(tool, {})
+        allow = config.get("enabled_tools")
+        deny = config.get("disabled_tools", [])
+        return {"error": error, "tools": {
+            name: {"description": info.get("description") or "",
+                   "enabled": (info.get("isEnabled", setting(config, ("tools", name, "enabled"),
+                                                             config.get("default_tools_enabled", True)))
+                               if path[0] == "apps" else name not in deny and (allow is None or name in allow))}
+            for name, info in tools.items() if TOOL_NAME.fullmatch(name)}}
 
     @contextmanager
     def codex_rpc(self, codex, experimental=False, timeout=12):
@@ -827,7 +925,7 @@ class Customization:
         original, raw = self.config()
         changes = []
         for key, wanted in tool_values(expected):
-            if not tool_available(raw, key):
+            if not tool_available(raw, key, status["plugin_mcp"]):
                 continue  # Enablement policy cannot install entries.
             actual = tool_value(raw, key, wanted)
             if actual != wanted:
@@ -835,6 +933,7 @@ class Customization:
         overrides = skill_overrides(raw, expected["plugin_skills"])
         if overrides != setting(raw, ("skills", "config"), []):
             changes.append((("skills", "config"), overrides))
+        changes.extend(tool_changes(raw, expected["tool_states"], status["plugin_mcp"]))
         wanted_sources = {}
         stale = set(previous.get("skills", [])) - expected["skills"].keys()
         for name, mode in expected["skills"].items():
@@ -1259,12 +1358,13 @@ def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
-                                           "config-engines", "config-catalog"))
+                                           "config-engines", "config-catalog", "integration-tools"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--resolve", action="store_true")
     parser.add_argument("--with-peer", action="store_true")
+    parser.add_argument("--target")
     parser.add_argument("--json", action="store_true", help="Emit JSON (the default for status and sync).")
     args = parser.parse_args()
     try:
@@ -1272,13 +1372,25 @@ def main():
         if args.action == "status":
             result = app.status()
             if args.with_peer:
-                result["peer_inventory"] = app.call_peer("inventory")
+                peer = app.call_peer("inventory")
+                catalog = peer.get("plugin_content", {})
+                if "apps" in catalog:
+                    catalog["apps"] = {connector_id(name): item for name, item in catalog["apps"].items()}
+                result["peer_inventory"] = peer
                 result["plugin_content"] = app.plugin_content()
             print(encode(result), end="")
         elif args.action == "inventory":
             result = app.status()
             keys = ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")
             print(encode({**{key: result[key] for key in keys}, "plugin_content": app.plugin_content()}), end="")
+        elif args.action == "integration-tools":
+            need(args.target is not None, "Select an integration.")
+            if args.with_peer:
+                result = app.call_peer("integration-tools", "--target", args.target, timeout=18)
+                need(result, "Could not load tools from the other computer.")
+            else:
+                result = app.integration_tools(args.target)
+            print(encode(result), end="")
         elif args.action in ("config-engines", "config-catalog"):
             result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)
             print(encode(result), end="")
