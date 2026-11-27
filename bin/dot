@@ -4224,7 +4224,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     )
     kde_system_apply_selected = (
         profile.get("features", {}).get("kde", False)
-        and (not selected_tags or bool(selected_tags & {"kde", "power"}))
+        and (not selected_tags or bool(selected_tags & {"kde", "power", "instant-connect-key"}))
     )
     wallet_pam_removal_selected = (
         profile.get("features", {}).get("kde", False)

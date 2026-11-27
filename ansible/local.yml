@@ -32,6 +32,13 @@
       when: dot_profile_data.features.kde | default(false)
       tags: [config, connection-check]
 
+    - name: Configure the IdeaPad Instant Connect key
+      ansible.builtin.import_tasks: tasks/instant-connect-key.yml
+      when:
+        - dot_profile_data.features.kde | default(false)
+        - ansible_facts.product_name == '83JM'
+      tags: [instant-connect-key]
+
     - name: Configure WirePlumber audio policy
       ansible.builtin.import_tasks: tasks/audio.yml
       when: dot_profile_data.features.kde | default(false)

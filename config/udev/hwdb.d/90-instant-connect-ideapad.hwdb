@@ -1,0 +1,4 @@
+# Lenovo IdeaPad Pro 5 16IAH10 airplane key, reported over ACPI or WMI.
+evdev:name:Ideapad extra buttons:dmi:*:svnLENOVO:pn83JM:*
+ KEYBOARD_KEY_0d=f24
+ KEYBOARD_KEY_13f=f24

@@ -1,0 +1,47 @@
+---
+- name: Inspect the live IdeaPad key mapping
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - info
+      - --query=property
+      - --name=/dev/input/by-path/pci-0000:00:1f.0-platform-VPC2004:00-event
+  register: dot_instant_connect_live_key
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install the IdeaPad airplane key remap
+  become: true
+  ansible.builtin.copy:
+    src: "{{ dot_repo }}/config/udev/hwdb.d/90-instant-connect-ideapad.hwdb"
+    dest: /etc/udev/hwdb.d/90-instant-connect-ideapad.hwdb
+    mode: "0644"
+  register: dot_instant_connect_key
+
+- name: Activate the IdeaPad airplane key remap
+  become: true
+  when: >-
+    dot_instant_connect_key.changed or
+    (dot_instant_connect_live_key.rc == 0 and
+      (['KEYBOARD_KEY_0d=f24', 'KEYBOARD_KEY_13f=f24']
+       | difference(dot_instant_connect_live_key.stdout_lines) | length > 0))
+  block:
+    - name: Compile the IdeaPad airplane key remap
+      ansible.builtin.command:
+        argv: [systemd-hwdb, --strict, update]
+
+    - name: Reload udev's hardware database
+      ansible.builtin.command:
+        argv: [udevadm, control, --reload]
+
+    - name: Apply the remap to the IdeaPad extra buttons
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - trigger
+          - --action=change
+          - --subsystem-match=input
+          - --sysname-match=event*
+          - --parent-match=/sys/bus/platform/devices/VPC2004:00
+          - --settle

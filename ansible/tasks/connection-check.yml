@@ -78,10 +78,11 @@
 
 - name: Install Instant Connect launcher
   ansible.builtin.copy:
-    content: >-
+    content: |
       {{ lookup('ansible.builtin.file', dot_repo + '/config/applications/io.github.doview.instant-wifi-connect.desktop')
          | replace('Exec=instant-wifi-connect',
                    'Exec=' + ansible_facts['user_dir'] + '/.local/bin/instant-wifi-connect') }}
+      {% if ansible_facts.product_name == '83JM' %}X-KDE-Shortcuts=F24{% endif %}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.instant-wifi-connect.desktop"
     mode: "0644"
   register: dot_instant_connect_launcher
