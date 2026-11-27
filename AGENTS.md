@@ -38,6 +38,13 @@ password login. If Bitwarden spins or authentication hangs, first run
 the user to unlock `kdewallet` in KWalletManager; do not remove its password,
 delete wallet data, or store an unlock password in scripts.
 
+## AI Customization on the IdeaPad
+
+After deploying changes to AI Customization, reopen its running window in the
+IdeaPad's existing KDE session and verify that the new window loaded. Preserve
+any unsaved edits first. If the window needs the user's attention before it can
+be reopened, report what is blocking the restart.
+
 ## Tailscale names in configuration
 
 Always use the full Tailscale MagicDNS name (`<machine>.<tailnet>.ts.net`)
