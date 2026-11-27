@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+requirements="$repo/config/ai-customization/marketplace-uv.txt"
+root="$HOME/.local/share/dotfiles/marketplace-uv"
+version="$(sha256sum "$requirements" | cut -d' ' -f1)"
+release="$root/$version"
+if [[ -x "$release/bin/uvx" ]]; then
+  printf '%s\n' "$release/bin/uvx"
+  exit 0
+fi
+mkdir -p "$root"
+exec 9>"$root/install.lock"
+flock 9
+if [[ ! -x "$release/bin/uvx" ]]; then
+  stage="$(mktemp -d "$root/.install.XXXXXXXX")"
+  trap 'find "$stage" -depth -delete' EXIT
+  /usr/bin/python3 -m venv "$stage"
+  "$stage/bin/python" -m pip --isolated install --index-url https://pypi.org/simple \
+    --no-deps --only-binary=:all: --require-hashes -r "$requirements" >&2
+  "$stage/bin/uvx" --version >&2
+  mv -T "$stage" "$release"
+  trap - EXIT
+fi
+printf '%s\n' "$release/bin/uvx"

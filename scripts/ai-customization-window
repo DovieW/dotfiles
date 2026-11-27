@@ -130,6 +130,7 @@ class Window(QWidget):
         self.resolve = False
         self.entry_feedback = None
         self.removals = []
+        self.installs = []
         self.removal_feedback = None
         self.catalog = {}
         self.catalog_rows = []
@@ -502,7 +503,7 @@ class Window(QWidget):
             self.info.setText("Could not run the customization backend.")
 
     def read(self):
-        if self.data and (self.removals or self.draft != self.data["manifest"] and not self.resolve):
+        if self.data and (self.removals or self.installs or self.draft != self.data["manifest"] and not self.resolve):
             choice = QMessageBox.question(self, "Discard draft?", "Reload synced preferences and discard unsaved edits?")
             if choice != QMessageBox.StandardButton.Yes:
                 return
@@ -530,11 +531,16 @@ class Window(QWidget):
             return
         if self.action in ("publish", "discard-draft"):
             self.removals = []
+            self.installs = []
             if self.action == "publish" and value.get("removals"):
                 results = value["removals"]
                 problems = [f"{HOST_LABELS[item['profile']]} · {item['name']}: {item['error']}"
                             for item in results if "error" in item]
                 self.removal_feedback = "  ·  ".join(problems) if problems else "Removals applied."
+            if self.action == "publish" and value.get("installs"):
+                installs = [f"{HOST_LABELS[item['profile']]} · {item['name']}: {item.get('error') or 'Added'}"
+                            for item in value["installs"]]
+                self.removal_feedback = "  ·  ".join(filter(None, [self.removal_feedback, *installs]))
             self.data = None
             self.info.setText("Refreshing workstation status…")
             self.launch("status")
@@ -550,6 +556,7 @@ class Window(QWidget):
                 self.resolve = pending.get("resolve", False)
             if not self.entry_feedback:
                 self.removals = pending.get("removals", []) if pending else []
+                self.installs = pending.get("installs", []) if pending else []
         self.data = value
         self.render()
         self.refresh_catalog()
@@ -582,7 +589,8 @@ class Window(QWidget):
         drift = self.data["drift"]
         self.adopt.setVisible(any(key != "override" for key in drift))
         self.restore.setVisible(bool(drift) and "override" not in drift)
-        self.discard.setVisible(bool(self.removals or self.data.get("pending") or self.data.get("pending_removals")))
+        self.discard.setVisible(bool(self.removals or self.installs or self.data.get("pending")
+                                     or self.data.get("pending_removals") or self.data.get("pending_installs")))
         peer = self.data.get("peer", {}).get("state")
         status = {
             "applied": "Peer confirmed the synced revision.",
@@ -596,6 +604,10 @@ class Window(QWidget):
             status = f"Removals staged ({len(self.removals)}). Choose Apply & Sync to remove them."
         if self.data.get("pending_removals"):
             status += f"  ·  {self.data['pending_removals']} pending removals. Apply & Sync retries them."
+        if self.installs:
+            status += f"  ·  {len(self.installs)} staged installs."
+        if self.data.get("pending_installs"):
+            status += f"  ·  {self.data['pending_installs']} pending installs. Apply & Sync retries them."
         self.info.setText(status)
         self.update_file_indicator()
         self.update_entry_controls()
@@ -869,6 +881,10 @@ class Window(QWidget):
         self.add_entry.setEnabled(self.data is not None and group is not None)
         self.remove_entry.setEnabled(self.data is not None and item is not None)
         title = self.active_table()
+        if title in ("Apps", "Plugin Skills"):
+            self.add_entry.setVisible(True)
+            self.add_entry.setText("Browse Marketplace…")
+            self.add_entry.setEnabled(self.data is not None)
         has_tools = title in ("Apps", "MCP Servers", "Plugin MCP Servers")
         self.tools_button.setVisible(has_tools)
         table = self.tables.get(title)
@@ -1018,16 +1034,29 @@ class Window(QWidget):
 
     def add_selected_entry(self):
         group, item = self.entry_selection()
+        if self.active_table() in ("Apps", "Plugin Skills"):
+            self.open_marketplace("plugins" if self.active_table() == "Apps" else "skills")
+            return
         if group == "skills":
-            sources = ["Import a folder…", *sorted(self.managed_skills() | {
+            sources = ["Browse Marketplace…", "Import a folder…", *sorted(self.managed_skills() | {
                 path.parent.name for path in SKILL_SOURCE.glob("*/SKILL.md")
             })]
             source, accepted = QInputDialog.getItem(self, "Add skill", "Source", sources, editable=False)
             if accepted and source == sources[0]:
+                self.open_marketplace("skills")
+            elif accepted and source == sources[1]:
                 self.import_skill()
             elif accepted:
                 self.stage_policy(group, source, "automatic")
             return
+        if group in ("mcp", "plugins"):
+            sources = ["Browse Marketplace…", "Add manually…"]
+            source, accepted = QInputDialog.getItem(self, "Add integration", "Source", sources, editable=False)
+            if not accepted:
+                return
+            if source == sources[0]:
+                self.open_marketplace(group)
+                return
         if group == "plugin_mcp":
             names = sorted(set(self.data["plugin_mcp"]) | set(self.data.get("peer_inventory", {}).get("plugin_mcp", {})))
             if not names:
@@ -1063,6 +1092,40 @@ class Window(QWidget):
                     return
         if ok:
             self.submit_entry("add", group, name.strip(), value)
+
+    def open_marketplace(self, group):
+        from marketplace_window import MarketplaceWindow
+
+        peer = self.target not in ("shared", self.data["profile"])
+        dialog = MarketplaceWindow(self, group, ComboBox, BACKEND, peer)
+        dialog.exec()
+
+    def stage_marketplace(self, group, preview, choice, mode):
+        name = preview["name"]
+        if group == "skills":
+            scope = self.target
+            local = self.data["profile"]
+            peer = self.data.get("peer_inventory", {})
+            visible = {local: self.data["skills"], peer.get("profile"): peer.get("skills", {})}
+            profiles = set(self.draft["hosts"]) if scope == "shared" else {scope}
+            if ((SKILL_SOURCE / name).is_dir() or any(visible.get(host, {}).get(name) == "unmanaged"
+                                                     for host in profiles)):
+                return "A skill already uses this name."
+            pin = preview["pin"]
+            for host in profiles:
+                previous = self.draft["hosts"][host].get("skill_pins", {}).get(
+                    name, self.draft["shared"].get("skill_pins", {}).get(name))
+                if previous and previous["source"] != pin["source"]:
+                    return "A skill with this name is pinned to a different source."
+            self.set_option("skill_pins", name, pin)
+            self.set_option("skills", name, mode)
+        else:
+            request = {"group": group, "name": name, "operation": "add", "scope": self.target, "value": choice}
+            if request not in self.installs:
+                self.installs.append(request)
+        self.render()
+        self.info.setText(f"{name} staged. Choose Apply & Sync to install.")
+        return f"{name} staged for {self.scope.currentText()}."
 
     def stage_policy(self, group, name, mode):
         self.set_option(group, name, mode)
@@ -1159,7 +1222,7 @@ class Window(QWidget):
         if self.target == "shared":
             for host in self.draft["hosts"].values():
                 host.get(group, {}).pop(name, None)
-        if group in ("plugin_skills", "apps", "tool_states"):
+        if group in ("plugin_skills", "apps", "tool_states", "skill_pins"):
             return
         table = next(table for title, table in self.tables.items() if title in TABLES and TABLES[title][0] == group)
         shared = self.draft["shared"].get(group, {})
@@ -1240,7 +1303,7 @@ class Window(QWidget):
 
     def discard_pending(self):
         if QMessageBox.question(self, "Discard pending changes?",
-                                "Discard unpublished edits and cancel removals still pending?") == QMessageBox.StandardButton.Yes:
+                                "Discard unpublished edits and cancel pending installs and removals?") == QMessageBox.StandardButton.Yes:
             self.launch("discard-draft")
 
     def publish(self):
@@ -1263,6 +1326,7 @@ class Window(QWidget):
             self.launch("publish", {
                 "base": base,
                 "desired": self.draft, "resolve": self.resolve, "removals": self.removals,
+                "installs": self.installs,
             })
 
 

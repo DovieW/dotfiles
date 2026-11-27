@@ -1,0 +1,7 @@
+{
+  "name": "dotfiles-skills-sh",
+  "private": true,
+  "dependencies": {
+    "skills": "1.9.1"
+  }
+}

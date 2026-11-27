@@ -210,6 +210,37 @@ class CustomizationTest(unittest.TestCase):
             retry.assert_called_once_with({**request, "scope": IDEAPAD})
             self.assertFalse(jobs.exists())
 
+    def test_marketplace_install_queue_retries_only_failed_scope(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"XDG_STATE_HOME": folder}):
+            app = ai.Customization(DESKTOP, Path(folder))
+            queue = app.state / "pending-installs.json"
+            request = {"group": "mcp", "name": "sample", "operation": "add",
+                       "value": {"kind": "https", "url": "https://example.test/mcp"}, "scope": "shared"}
+            draft = {"base": self.manifest, "desired": self.manifest, "installs": [request]}
+            revision = "a" * 40
+            with patch.object(app, "git", return_value=subprocess.CompletedProcess([], 0, stdout=revision.encode())), \
+                    patch.object(app, "manifest", return_value=self.manifest), \
+                    patch.object(app, "edit_scope") as execute:
+                app.publish(draft)
+                execute.assert_not_called()
+            with patch.object(app, "edit_scope", side_effect=[{DESKTOP: {"ok": True}}, {IDEAPAD: {"error": "Offline"}}]):
+                self.assertEqual(len(app.finish_entries("installs")), 2)
+            self.assertEqual([job["request"]["scope"] for job in ai.load(queue)], [IDEAPAD])
+            with patch.object(app, "edit_scope", return_value={IDEAPAD: {"ok": True}}) as retry:
+                app.finish_entries("installs")
+            retry.assert_called_once_with({**request, "scope": IDEAPAD})
+            self.assertFalse(queue.exists())
+
+    def test_scoped_pinned_skill_removal_keeps_peer_pin(self):
+        pin = {"source": "owner/repo", "path": "skills/example/SKILL.md",
+               "revision": "a" * 40, "sha256": "b" * 64}
+        self.manifest["shared"]["skill_pins"] = {"example": pin}
+        self.manifest["shared"]["skills"]["example"] = "manual"
+        ai.validate(self.manifest)
+        ai.remove_policies(self.manifest, {"scope": DESKTOP, "group": "skills", "name": "example"})
+        self.assertNotIn("example", ai.effective(self.manifest, DESKTOP)["skill_pins"])
+        self.assertEqual(ai.effective(self.manifest, IDEAPAD)["skill_pins"]["example"], pin)
+
     def test_publish_queues_removals_after_pushing_policy(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(
             os.environ, {"XDG_STATE_HOME": str(Path(folder) / "state")}

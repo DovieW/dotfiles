@@ -1011,10 +1011,28 @@ a plugin also clears its plugin MCP policies for that scope. A removal that
 could not finish stays pending and can be retried with **Apply & Sync**.
 The window reports failed removals by computer and entry.
 
-New MCP registrations, marketplace plugin installs, imported skills, and
+Manual MCP registrations, plugin installs, folder imports, and
 user hooks go directly to the selected workstations. Their definitions and
 commands are stored on those computers. Use the provider's normal login
 flow if it requires authentication.
+
+Use **Add → Browse Marketplace** for skills.sh, the Official MCP Registry,
+and the marketplaces configured in Codex. Choose an item and **Preview**,
+use **Open in Chrome** for its listing, then **Stage install**. Apply & Sync
+installs on the selected computers and reports failures by computer. A
+skills.sh link can also be pasted directly in the browser.
+
+Marketplace skills default to manual invocation. Dotfiles records the
+source, commit, path, file checksum, invocation mode, and computer scope.
+Vercel's pinned CLI fetches the files into an isolated directory. The app
+keeps the reviewed files in a local cache and verifies the checksum when
+restoring on either host. Review a new preview to update a pinned skill.
+
+Registry previews prefer HTTPS, npm, then PyPI. Review the provider's URL,
+versioned launch arguments, and advertised credential requirements. Required
+values come from the selected computer's environment. When one is absent,
+registration is disabled until access is ready. Provider-specific templates
+and transports without an installer remain browsable through Chrome.
 
 An imported skill is copied from a folder containing `SKILL.md` into
 `~/.agents/skills`. Removing an imported or other local skill moves it to

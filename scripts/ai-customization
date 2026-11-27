@@ -34,7 +34,7 @@ PACKAGE_SKILL_LABELS = {
 PREFS = "preferences.json"
 UPSTREAM = "refs/remotes/origin/master"
 HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
-GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps", "tool_states")
+GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps", "tool_states", "skill_pins")
 DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissions", "approval_policy"}
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
@@ -114,6 +114,15 @@ def validate(m):
                          "Unsupported Codex default.")
                 elif group == "skills":
                     need(name not in (".", "..") and value in MODES, "Invalid skill setting.")
+                elif group == "skill_pins":
+                    need(isinstance(value, dict) and set(value) == {"source", "revision", "path", "sha256"}
+                         and all(isinstance(item, str) for item in value.values())
+                         and re.fullmatch(r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*", value["source"], re.ASCII)
+                         and re.fullmatch(r"[a-f0-9]{40}", value["revision"])
+                         and re.fullmatch(r"[a-f0-9]{64}", value["sha256"])
+                         and not Path(value["path"]).is_absolute()
+                         and ".." not in Path(value["path"]).parts
+                         and Path(value["path"]).name == "SKILL.md", "Invalid marketplace skill pin.")
                 else:
                     need(type(value) is bool or (group == "plugin_mcp" and value == "default"),
                          "Invalid tool enablement setting.")
@@ -145,6 +154,8 @@ def removal_policies(settings, removal):
         else:
             return []
     matches = [(group, name)] if name in settings.get(group, {}) else []
+    if group == "skills" and name in settings.get("skill_pins", {}):
+        matches.append(("skill_pins", name))
     if group == "plugins":
         matches.extend(("plugin_mcp", key) for key in settings.get("plugin_mcp", {})
                        if key.startswith(name + "/"))
@@ -669,6 +680,21 @@ class Customization:
         path = self.skills / name
         return path.is_symlink() and (self.state / "skills") in path.resolve().parents
 
+    def marketplace(self, request):
+        from marketplace import Catalog, CatalogError
+
+        try:
+            catalog = Catalog(self)
+            if request["action"] == "search":
+                return catalog.search(request["catalog"], request.get("query", "").strip(), request.get("cursor"))
+            if request["action"] == "preview":
+                return catalog.preview(request["catalog"], request["id"])
+            raise Error("Unknown marketplace operation.")
+        except CatalogError as error:
+            raise Error(str(error)) from error
+        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, IndexError) as error:
+            raise Error("The marketplace did not return usable data. Try again or open its listing in Chrome.") from error
+
     def status(self, manifest=None):
         manifest = manifest or self.manifest()
         _, raw = self.config()
@@ -736,6 +762,9 @@ class Customization:
                 package = self.skill_package(name)
                 installed = load(package / "package.json", {}) if package else {}
                 skill_sources[name] = f"{PACKAGE_SKILL_LABELS[name]} {installed.get('version', '')}".strip()
+            elif name in expected["skill_pins"]:
+                pin = expected["skill_pins"][name]
+                skill_sources[name] = f"{pin['source']} at {pin['revision'][:12]}"
             else:
                 skill_sources[name] = "Dotfiles"
         return {
@@ -759,6 +788,12 @@ class Customization:
             "applied": previous.get("revision"), "peer": load(self.state / "peer.json", {}),
             "pending": load(self.state / "pending.json"),
             "pending_removals": len(load(self.state / "pending-removals.json", [])),
+            "pending_installs": len(load(self.state / "pending-installs.json", [])),
+            "pinned_skills_outdated": any(
+                mode != "off" and name in expected["skill_pins"]
+                and not (self.skills / name / "SKILL.md").is_file()
+                for name, mode in expected["skills"].items()
+            ),
             "instructions_outdated": installed_text != expected["instructions"],
         }
 
@@ -994,7 +1029,17 @@ class Customization:
                 path = self.skills / name
                 need(not (path.exists() or path.is_symlink()) or self.skill_target(name),
                      f"An unmanaged skill already occupies {name}.")
-                folder = self.skill_source(name, source)
+                pin = expected["skill_pins"].get(name)
+                if pin:
+                    from marketplace import Catalog, CatalogError
+                    need(name not in PACKAGE_SKILL_LABELS and not (source / "skills" / name).is_dir(),
+                         f"A dotfiles skill already uses the name {name}.")
+                    try:
+                        folder = Catalog(self, source / "skills-sh").restore(name, pin, check=check)
+                    except CatalogError as error:
+                        raise Error(str(error)) from error
+                else:
+                    folder = self.skill_source(name, source)
                 need((folder / "SKILL.md").is_file(), f"Skill source is missing for {name}.")
                 wanted_sources[name] = (folder, skill_policy(folder, mode))
         if check:
@@ -1174,22 +1219,30 @@ class Customization:
             key = ("mcp_servers", name)
             existing = setting(raw, key)
             if not remove:
-                need(isinstance(value, str), "Enter an MCP server URL or command.")
-                url = urlsplit(value)
-                if url.scheme in ("http", "https"):
-                    need(url.hostname, "Enter a complete HTTP or HTTPS URL.")
-                    value = {"url": value}
+                if isinstance(value, dict):
+                    from marketplace import CatalogError, mcp_configuration
+                    need(name != "node_repl", "node_repl is managed by the Codex app.")
+                    try:
+                        value = mcp_configuration(self.home, value)
+                    except CatalogError as error:
+                        raise Error(str(error)) from error
                 else:
-                    args = shlex.split(value)
-                    need(args, "Enter an MCP server URL or command.")
-                    value = {"command": args[0], "args": args[1:]}
+                    need(isinstance(value, str), "Enter an MCP server URL or command.")
+                    url = urlsplit(value)
+                    if url.scheme in ("http", "https"):
+                        need(url.hostname, "Enter a complete HTTP or HTTPS URL.")
+                        value = {"url": value}
+                    else:
+                        args = shlex.split(value)
+                        need(args, "Enter an MCP server URL or command.")
+                        value = {"command": args[0], "args": args[1:]}
                 need(existing is None or all(existing.get(k, [] if k == "args" else None) == v
-                                             for k, v in value.items()),
+                                             for k, v in value.items() if k != "enabled"),
                      "An MCP server with this name already exists.")
                 if existing is not None:
                     return
                 policy = effective(self.manifest(), self.profile)["mcp"].get(name)
-                if policy is not None:
+                if policy is not None and value.get("enabled") is not False:
                     value["enabled"] = policy
             wanted = None if remove else value
             if existing != wanted:
@@ -1267,7 +1320,7 @@ class Customization:
         package_skills = {name: status["skill_sources"][name]
                           for name in PACKAGE_SKILL_LABELS if name in status["skill_sources"]}
         if (previous.get("revision") != published or status["drift"] or status["instructions_outdated"]
-                or previous.get("package_skills") != package_skills):
+                or status.get("pinned_skills_outdated") or previous.get("package_skills") != package_skills):
             archive = self.git("archive", ref, REL).stdout
             with tempfile.TemporaryDirectory() as temp, tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(temp, filter="data")
@@ -1279,6 +1332,11 @@ class Customization:
         base, desired = validate(request["base"]), validate(request["desired"])
         resolve = request.get("resolve") is True
         removals = request.get("removals", [])
+        installs = request.get("installs", [])
+        for install in installs:
+            need(install["group"] in ("mcp", "plugins") and install["operation"] == "add",
+                 "Invalid staged install.")
+            removal_profiles(install["scope"])
         for removal in removals:
             need(removal["group"] in ENTRY_GROUPS and removal["operation"] == "remove", "Invalid staged removal.")
             removal_profiles(removal["scope"])
@@ -1322,14 +1380,26 @@ class Customization:
             pending.extend({"id": uuid4().hex, "request": {**removal, "scope": profile, "revision": revision}}
                            for removal in removals for profile in removal_profiles(removal["scope"]))
             atomic(path, encode(pending))
+        if installs:
+            path = self.state / "pending-installs.json"
+            pending = load(path, [])
+            for install in installs:
+                for profile in removal_profiles(install["scope"]):
+                    scoped = {**install, "scope": profile}
+                    if not any(job["request"] == scoped for job in pending):
+                        pending.append({"id": uuid4().hex, "request": scoped})
+            atomic(path, encode(pending))
         (self.state / "pending.json").unlink(missing_ok=True)
         return revision
 
     def finish_removals(self):
-        path = self.state / "pending-removals.json"
+        return self.finish_entries("removals")
+
+    def finish_entries(self, kind):
+        path = self.state / f"pending-{kind}.json"
         results = []
         # Never hold the application lock across a request to the other computer.
-        with self.locked("removals.lock"):
+        with self.locked(f"{kind}.lock"):
             for job in load(path, []):
                 request = job["request"]
                 profile = request["scope"]
@@ -1345,7 +1415,7 @@ class Customization:
         return results
 
     def notify_peer(self, revision):
-        receipt = self.call_peer("sync", "--revision", revision, timeout=40)
+        receipt = self.call_peer("sync", "--revision", revision, timeout=115)
         status = {"revision": revision, "state": "applied" if receipt.get("tree") else "pending"}
         atomic(self.state / "peer.json", encode(status))
         return status
@@ -1413,7 +1483,8 @@ def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
-                                           "config-engines", "config-catalog", "integration-tools", "context-sizes"))
+                                           "config-engines", "config-catalog", "integration-tools", "context-sizes",
+                                           "marketplace"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -1448,6 +1519,14 @@ def main():
             else:
                 result = app.integration_tools(args.target)
             print(encode(result), end="")
+        elif args.action == "marketplace":
+            request = json.load(sys.stdin)
+            if request.pop("peer", False):
+                result = app.call_peer("marketplace", data=encode(request), timeout=100)
+                need(result, "The other computer could not load its marketplace.")
+            else:
+                result = app.marketplace(request)
+            print(encode(result), end="")
         elif args.action == "context-sizes":
             if args.with_peer:
                 forwarded = [arg for key, value in (("--project", args.project), ("--model", args.model))
@@ -1476,9 +1555,10 @@ def main():
         elif args.action == "apply" and args.check:
             app.apply(validate(load(ROOT / REL / PREFS)), ROOT / REL, None, check=True)
         elif args.action == "discard-draft":
-            with app.locked("removals.lock"), app.locked():
+            with app.locked("removals.lock"), app.locked("installs.lock"), app.locked():
                 (app.state / "pending.json").unlink(missing_ok=True)
                 (app.state / "pending-removals.json").unlink(missing_ok=True)
+                (app.state / "pending-installs.json").unlink(missing_ok=True)
             print("{}")
         else:
             published = None
@@ -1494,7 +1574,8 @@ def main():
                     published = app.publish(json.load(sys.stdin))
             if published:
                 results = app.finish_removals()
-                print(encode({**app.notify_peer(published), "removals": results}), end="")
+                installed = app.finish_entries("installs")
+                print(encode({**app.notify_peer(published), "removals": results, "installs": installed}), end="")
             elif args.action == "sync" and not args.revision:
                 peer = load(app.state / "peer.json", {})
                 if peer.get("state") == "pending":
