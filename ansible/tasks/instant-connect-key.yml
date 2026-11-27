@@ -35,13 +35,14 @@
       ansible.builtin.command:
         argv: [udevadm, control, --reload]
 
-    - name: Apply the remap to the IdeaPad extra buttons
+    - name: Reattach the IdeaPad extra buttons so Plasma reads the new key capabilities
       ansible.builtin.command:
         argv:
           - udevadm
           - trigger
-          - --action=change
+          - "--action={{ item }}"
           - --subsystem-match=input
           - --sysname-match=event*
           - --parent-match=/sys/bus/platform/devices/VPC2004:00
           - --settle
+      loop: [remove, add]
