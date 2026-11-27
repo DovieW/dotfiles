@@ -1,4 +1,5 @@
 """Discovery and review for the marketplaces exposed by AI Customization."""
+import fcntl
 import hashlib
 import json
 import os
@@ -214,10 +215,11 @@ class Catalog:
             return path / "node_modules/skills/bin/cli.mjs"
 
         target = root / version
-        with self.app.locked("skills-sh.lock"):
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "install.lock").open("a") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX)
             if executable(target).is_file():
                 return executable(target)
-            root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=root) as scratch:
                 package = Path(scratch) / "package"
                 package.mkdir()
