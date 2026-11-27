@@ -735,8 +735,10 @@ class Customization:
                     break
 
     def config_catalog(self, with_peer):
-        local = self.config_engines()
-        peer = self.call_peer("config-engines", timeout=40) if with_peer else {}
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            peer_request = worker.submit(self.call_peer, "config-engines", timeout=40) if with_peer else None
+            local = self.config_engines()
+            peer = peer_request.result() if peer_request else {}
         builds = {f'{workstation["profile"]}/{surface}': engine
                   for workstation in (local, peer)
                   for surface, engine in workstation.get("engines", {}).items()}
@@ -1002,6 +1004,17 @@ class Customization:
         return {"skills": skills, "mcp": {name: record["choice"]["description"] for name, record in receipts.items()
                     if name in status["mcp"] and record.get("choice", {}).get("description")},
                 "plugins": {name: info["description"] for name, info in catalog["plugins"].items()}}
+
+    def inventory(self, status):
+        catalog = self.plugin_content()
+        return {"plugin_content": catalog, "descriptions": self.integration_descriptions(status, catalog)}
+
+    def peer_inventory(self):
+        peer = self.call_peer("inventory")
+        catalog = peer.get("plugin_content", {})
+        if "apps" in catalog:
+            catalog["apps"] = {connector_id(name): item for name, item in catalog["apps"].items()}
+        return peer
 
     def context_sizes(self, project, selected_model):
         from context_sizes import estimate_context, inline_context, tokenizer
@@ -1745,20 +1758,16 @@ def main():
         if args.action == "status":
             result = app.status()
             if args.with_peer:
-                peer = app.call_peer("inventory")
-                catalog = peer.get("plugin_content", {})
-                if "apps" in catalog:
-                    catalog["apps"] = {connector_id(name): item for name, item in catalog["apps"].items()}
-                result["peer_inventory"] = peer
-                result["plugin_content"] = app.plugin_content()
-                result["descriptions"] = app.integration_descriptions(result, result["plugin_content"])
-            print(encode(result), end="")
+                result["peer_inventory"] = app.peer_inventory()
+            print(encode({**result, **app.inventory(result)}), end="")
         elif args.action == "inventory":
-            result = app.status()
-            keys = ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")
-            catalog = app.plugin_content()
-            print(encode({**{key: result[key] for key in keys}, "plugin_content": catalog,
-                          "descriptions": app.integration_descriptions(result, catalog)}), end="")
+            if args.with_peer:
+                result = app.peer_inventory()
+            else:
+                status = app.status()
+                keys = ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")
+                result = {**{key: status[key] for key in keys}, **app.inventory(status)}
+            print(encode(result), end="")
         elif args.action == "integration-tools":
             need(args.target is not None, "Select an integration.")
             if args.with_peer:

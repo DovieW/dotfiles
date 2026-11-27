@@ -979,8 +979,10 @@ The integration tabs show descriptions from their skill, app, plugin, or
 registry metadata. The Hooks tab describes the event using the Codex Hooks
 reference. Hover for the full description or click the cell to open it.
 
-Choose **Measure context…** and select a computer and project folder.
-Leave Model empty to use the effective Codex model. **Context size** shows
+Context measurement starts when you first open a tab that displays counts.
+Use **Measure context…** to refresh the estimates or choose another computer,
+project folder, or model. Leave Model empty to use the effective Codex model.
+**Context size** shows
 upfront and fully loaded token estimates in the integration tables. The
 Instructions tab shows the effective instruction count for that project.
 Click a count for the breakdown, tokenizer, and any separately counted skill

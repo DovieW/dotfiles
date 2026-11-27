@@ -8,7 +8,7 @@ from pathlib import Path
 import stat
 import sys
 
-from PyQt6.QtCore import QProcess, Qt, QUrl
+from PyQt6.QtCore import QProcess, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
@@ -152,6 +152,8 @@ class Window(QWidget):
         self.catalog = {}
         self.context_result = {}
         self.context_options = (False, str(BACKEND.parents[1]), "")
+        self.context_started = False
+        self.context_invalidated = False
         self.context_process = QProcess(self)
         self.context_process.finished.connect(self.context_finished)
         self.context_process.errorOccurred.connect(self.context_error)
@@ -160,6 +162,9 @@ class Window(QWidget):
         self.catalog_process = QProcess(self)
         self.catalog_process.finished.connect(self.finish_catalog)
         self.catalog_process.errorOccurred.connect(self.catalog_error)
+        self.peer_refresh_pending = False
+        self.peer_process = QProcess(self)
+        self.peer_process.finished.connect(self.finish_peer_inventory)
         self.process = QProcess(self)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
@@ -214,6 +219,7 @@ class Window(QWidget):
         self.files.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.tabs.currentChanged.connect(self.update_file_indicator)
         self.tabs.currentChanged.connect(self.update_entry_controls)
+        self.tabs.currentChanged.connect(self.maybe_measure_context)
         self.skill_tabs.currentChanged.connect(self.update_entry_controls)
         self.server_tabs.currentChanged.connect(self.update_entry_controls)
         self.skill_tabs.currentChanged.connect(self.update_file_indicator)
@@ -276,6 +282,8 @@ class Window(QWidget):
         return panel
 
     def measure_context(self):
+        if not self.data or self.context_process.state() != QProcess.ProcessState.NotRunning:
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("Measure context")
         dialog.resize(590, 190)
@@ -308,8 +316,23 @@ class Window(QWidget):
             return
         remote, project_path, model_name = host.currentIndex() == 1, project.text().strip(), model.text().strip()
         self.context_options = (remote, project_path, model_name)
+        self.start_context()
+
+    def maybe_measure_context(self):
+        title = self.active_table()
+        if (self.data and self.isEnabled() and not self.context_started
+                and self.context_process.state() == QProcess.ProcessState.NotRunning
+                and (title == "Instructions" or title in INTEGRATION_GROUPS and title != "Hooks")):
+            self.start_context()
+
+    def start_context(self):
+        remote, project_path, model_name = self.context_options
+        self.context_started = True
         self.context_button.setEnabled(False)
         self.context_button.setText("Measuring context…")
+        if not self.context_result:
+            self.instructions_context.setText("Measuring context…")
+            self.refresh_context_cells()
         args = ["context-sizes", "--project", project_path]
         if model_name:
             args.extend(["--model", model_name])
@@ -319,31 +342,51 @@ class Window(QWidget):
 
     def context_error(self, _error):
         if self.context_process.state() == QProcess.ProcessState.NotRunning:
-            self.context_button.setEnabled(True)
-            self.context_button.setText("Measure context…")
-            self.info.setText("Could not start the context measurement.")
+            if self.context_invalidated:
+                self.context_invalidated = False
+                self.context_button.setEnabled(True)
+                self.context_button.setText("Measure context…")
+                self.maybe_measure_context()
+                return
+            self.context_failure("Could not start the context measurement.")
+
+    def context_failure(self, message):
+        self.context_button.setEnabled(True)
+        self.context_button.setText("Measure context…")
+        self.info.setText(message)
+        if not self.context_result:
+            self.instructions_context.setText("Context size · Unavailable")
+            self.refresh_context_cells()
 
     def context_finished(self, code, _status):
         self.context_button.setEnabled(True)
         self.context_button.setText("Measure context…")
+        output = bytes(self.context_process.readAllStandardOutput())
+        error = bytes(self.context_process.readAllStandardError()).decode(errors="replace").strip()
+        if self.context_invalidated:
+            self.context_invalidated = False
+            self.maybe_measure_context()
+            return
         if code:
-            error = bytes(self.context_process.readAllStandardError()).decode(errors="replace").strip()
-            self.info.setText(error or "Context measurement failed.")
+            self.context_failure(error or "Context measurement failed.")
             return
         try:
-            self.context_result = json.loads(bytes(self.context_process.readAllStandardOutput()))
+            self.context_result = json.loads(output)
         except ValueError:
-            self.info.setText("Codex returned an invalid context measurement.")
+            self.context_failure("Codex returned an invalid context measurement.")
             return
+        self.refresh_context_cells()
+        self.instructions_context.setText(f"Context size · {self.token_text(self.instruction_count().get('upfront'))}")
+        self.instructions_context.setToolTip(self.context_details(self.instruction_count()))
+        self.context_button.setToolTip(self.context_label())
+        self.info.setText(f"Context estimates from {HOST_LABELS[self.context_result['profile']]} · {self.context_result['model']}")
+
+    def refresh_context_cells(self):
         for title in INTEGRATION_GROUPS:
             table = self.tables[title]
             for row in range(table.rowCount()):
                 self.set_context_cell(title, row)
             self.restore_context_order(table)
-        self.instructions_context.setText(f"Context size · {self.token_text(self.instruction_count().get('upfront'))}")
-        self.instructions_context.setToolTip(self.context_details(self.instruction_count()))
-        self.context_button.setToolTip(self.context_label())
-        self.info.setText(f"Context estimates from {HOST_LABELS[self.context_result['profile']]} · {self.context_result['model']}")
 
     def instruction_count(self):
         return next((row for row in self.context_result.get("rows", []) if row["kind"] == "Instructions"), {})
@@ -362,6 +405,8 @@ class Window(QWidget):
     def context_label(self):
         result = self.context_result
         if not result:
+            if self.context_started and not self.context_button.isEnabled():
+                return "Measuring the saved context for a fresh Codex session."
             return "Measure saved settings for a fresh Codex session."
         encoding = result["encoding"] + (" (fallback)" if result["fallback"] else "")
         return f"{HOST_LABELS[result['profile']]} · {result['model']} · {encoding}\n{result['project']}"
@@ -415,7 +460,8 @@ class Window(QWidget):
             key = name.data(Qt.ItemDataRole.UserRole) or name.text()
             record = self.context_result.get("tables", {}).get(INTEGRATION_GROUPS[title], {}).get(key) or {}
             detail = self.context_details(record)
-            item = TokenCount(record)
+            measuring = not self.context_result and not self.context_button.isEnabled() and self.context_started
+            item = TokenCount(record, "…" if measuring else None)
         item.setToolTip(f"<p>{escape(detail).replace(chr(10), '<br>')}</p>")
         item.setData(Qt.ItemDataRole.UserRole, detail)
         table.setItem(row, table.columnCount() - 1, item)
@@ -619,6 +665,30 @@ class Window(QWidget):
         if self.data is not None:
             self.fill_config()
 
+    def refresh_peer_inventory(self):
+        if self.peer_process.state() != QProcess.ProcessState.NotRunning:
+            self.peer_refresh_pending = True
+            return
+        self.peer_refresh_pending = False
+        self.peer_process.start(str(BACKEND), ["inventory", "--with-peer"])
+
+    def finish_peer_inventory(self, code, _):
+        output = bytes(self.peer_process.readAllStandardOutput())
+        self.peer_process.readAllStandardError()
+        if not self.data:
+            return
+        if self.peer_refresh_pending:
+            self.refresh_peer_inventory()
+            return
+        try:
+            peer = json.loads(output) if code == 0 else {}
+        except ValueError:
+            peer = {}
+        if peer != self.data.get("peer_inventory"):
+            self.data["peer_inventory"] = peer
+            self.fill_integrations()
+            self.update_entry_controls()
+
     @property
     def target(self):
         return SCOPES[self.scope.currentText()]
@@ -629,7 +699,14 @@ class Window(QWidget):
     def launch(self, action, data=None):
         self.action = action
         self.setEnabled(False)
-        self.process.start(str(BACKEND), [action, "--with-peer"] if action == "status" else [action])
+        if action == "status":
+            self.context_result = {}
+            self.context_started = False
+            self.context_invalidated = self.context_process.state() != QProcess.ProcessState.NotRunning
+            self.instructions_context.setText("Context size · —")
+            self.instructions_context.setToolTip(self.context_label())
+            self.context_button.setToolTip(self.context_label())
+        self.process.start(str(BACKEND), [action])
         if data is not None:
             self.process.write(json.dumps(data).encode())
         self.process.closeWriteChannel()
@@ -696,9 +773,12 @@ class Window(QWidget):
             if not self.entry_feedback:
                 self.removals = pending.get("removals", []) if pending else []
                 self.installs = pending.get("installs", []) if pending else []
+        value["peer_inventory"] = (self.data or {}).get("peer_inventory", {})
         self.data = value
         self.render()
+        self.refresh_peer_inventory()
         self.refresh_catalog()
+        QTimer.singleShot(0, self.maybe_measure_context)
         if self.entry_feedback:
             feedback = self.entry_feedback
             if self.draft != self.data["manifest"]:
@@ -721,11 +801,7 @@ class Window(QWidget):
         self.instructions.setPlainText(self.section().get("instructions", ""))
         self.instructions.blockSignals(False)
         self.fill_config()
-        for title, (group, options) in TABLES.items():
-            self.fill(title, group, options)
-        self.fill_content("Plugin Skills", "plugin_skills")
-        self.fill_content("Apps", "apps")
-        self.fill_hooks()
+        self.fill_integrations()
         drift = self.data["drift"]
         self.adopt.setVisible(any(key != "override" for key in drift))
         self.restore.setVisible(bool(drift) and "override" not in drift)
@@ -751,6 +827,13 @@ class Window(QWidget):
         self.info.setText(status)
         self.update_file_indicator()
         self.update_entry_controls()
+
+    def fill_integrations(self):
+        for title, (group, options) in TABLES.items():
+            self.fill(title, group, options)
+        self.fill_content("Plugin Skills", "plugin_skills")
+        self.fill_content("Apps", "apps")
+        self.fill_hooks()
 
     def fill_config(self):
         table = self.tables["Config"]
