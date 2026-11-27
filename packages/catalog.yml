@@ -32,6 +32,7 @@
     "herdr": {"provider": "brew"},
     "jq": {"provider": "brew"},
     "kdialog": {"provider": "apt"},
+    "ladybird": {"provider": "apt"},
     "libvirt-clients": {"provider": "apt"},
     "libvirt-daemon-system": {"provider": "apt"},
     "navi": {"provider": "brew"},

@@ -4201,6 +4201,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
             "krdp",
             "keyboard",
             "keyd",
+            "ladybird",
             "meshcentral",
             "memory",
             "recovery",

@@ -130,6 +130,14 @@
       when: dot_profile_data.features.element_desktop | default(false)
       tags: [packages, element, app-updates]
 
+    - name: Install Ladybird
+      ansible.builtin.include_tasks:
+        file: tasks/ladybird.yml
+        apply:
+          tags: [packages, ladybird, app-updates]
+      when: dot_profile_data.features.ladybird | default(false)
+      tags: [packages, ladybird, app-updates]
+
     - name: Install Anarlog desktop
       ansible.builtin.include_tasks:
         file: tasks/anarlog.yml
@@ -1195,7 +1203,7 @@
       when:
         - ansible_facts.system == "Linux"
         - not ansible_check_mode
-      tags: [system-updates, app-updates, packages, element, davinci-resolve]
+      tags: [system-updates, app-updates, packages, element, ladybird, davinci-resolve]
 
     - name: Report remaining update activation work
       ansible.builtin.debug:
@@ -1209,7 +1217,7 @@
       when:
         - dot_updated_process_audit is defined
         - dot_updated_process_audit.stdout | default('') | length > 0
-      tags: [system-updates, app-updates, packages, element, davinci-resolve]
+      tags: [system-updates, app-updates, packages, element, ladybird, davinci-resolve]
 
   handlers:
     - name: Restart KRdp after private-network configuration
