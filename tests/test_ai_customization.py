@@ -124,6 +124,29 @@ class CustomizationTest(unittest.TestCase):
             self.assertIn("  display_name: Example", ai.skill_policy(source, "manual"))
             self.assertIn("  allow_implicit_invocation: false", ai.skill_policy(source, "manual"))
 
+    def test_skill_link_is_generated_and_removed_for_the_selected_host(self):
+        parent, child = "chrome-toolkit", "dovie-android-control"
+        source = SOURCE / "skills" / parent / "SKILL.md"
+        original = source.read_text()
+        reference = f"~/.agents/skills/{child}/SKILL.md"
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "CODEX_HOME": str(Path(folder) / "codex"), "XDG_STATE_HOME": str(Path(folder) / "state"),
+        }):
+            app = ai.Customization(DESKTOP, Path(folder))
+            self.manifest["shared"]["skill_links"] = {f"{parent}/{child}": True}
+            ai.validate(self.manifest)
+            with patch.object(app, "write_config"):
+                app.apply(self.manifest, SOURCE, "linked")
+                installed = app.skills / parent / "SKILL.md"
+                self.assertIn(reference, installed.read_text())
+                self.assertIn("allow_implicit_invocation: false", (app.skills / child / "agents/openai.yaml").read_text())
+                ai.remove_policies(self.manifest, {"group": "skills", "name": child, "scope": DESKTOP})
+                app.apply(self.manifest, SOURCE, "removed")
+                self.assertEqual(installed.read_text(), original)
+            peer = ai.effective(self.manifest, IDEAPAD)
+            self.assertEqual(ai.skill_references(peer), {parent: [child]})
+            self.assertEqual(source.read_text(), original)
+
     @unittest.skipUnless((Path.home() / ".local/bin/codex").is_file(), "managed Codex is unavailable")
     def test_native_write_keeps_unmanaged_settings_and_detects_drift(self):
         real_codex = Path.home() / ".local/bin/codex"

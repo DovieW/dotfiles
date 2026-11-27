@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from PyQt6.QtCore import QProcess, Qt
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QCheckBox, QDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -26,6 +26,7 @@ class MarketplaceWindow(QDialog):
         self.backend = backend
         self.peer = peer
         self.stage_item = window.stage_marketplace
+        self.skill_link_parents = window.skill_link_parents
         self.results = []
         self.cursor = None
         self.loaded_query = ""
@@ -71,6 +72,12 @@ class MarketplaceWindow(QDialog):
         self.mode.addItem("Manual only", "manual")
         self.mode.addItem("Automatic", "automatic")
         self.mode.hide()
+        self.link_skill = QCheckBox("Link from another skill")
+        self.link_skill.setToolTip("Add a reference to this guide in an enabled custom dotfiles skill.")
+        self.link_skill.hide()
+        self.parent_skill = combo_type()
+        self.parent_skill.hide()
+        self.link_skill.toggled.connect(self.parent_skill.setVisible)
         self.browser = QPushButton("Open in Chrome")
         self.browser.clicked.connect(self.open_details)
         self.stage = QPushButton("Stage install")
@@ -89,6 +96,10 @@ class MarketplaceWindow(QDialog):
         right_layout.addWidget(self.details)
         right_layout.addWidget(self.methods)
         right_layout.addWidget(self.mode)
+        link_options = QHBoxLayout()
+        link_options.addWidget(self.link_skill)
+        link_options.addWidget(self.parent_skill, 1)
+        right_layout.addLayout(link_options)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
@@ -124,6 +135,9 @@ class MarketplaceWindow(QDialog):
         self.details.clear()
         self.methods.hide()
         self.mode.hide()
+        self.link_skill.setChecked(False)
+        self.link_skill.hide()
+        self.parent_skill.clear()
         self.stage.setEnabled(False)
 
     def search(self, append=False):
@@ -215,6 +229,11 @@ class MarketplaceWindow(QDialog):
             self.methods.setVisible(self.methods.count() > 0)
             self.mode.setVisible(self.catalog == "skills")
             self.mode.setCurrentIndex(0)
+            parents = self.skill_link_parents(result["name"]) if self.catalog == "skills" else []
+            self.link_skill.setChecked(False)
+            self.parent_skill.clear()
+            self.parent_skill.addItems(parents)
+            self.link_skill.setVisible(bool(parents))
             self.show_preview()
             self.status.setText("Review the details, then stage the install.")
 
@@ -264,7 +283,8 @@ class MarketplaceWindow(QDialog):
     def stage_selected(self):
         if not self.preview:
             return
-        message = self.stage_item(self.catalog, self.preview, self.methods.currentData(), self.mode.currentData())
+        parent = self.parent_skill.currentText() if self.link_skill.isChecked() else None
+        message = self.stage_item(self.catalog, self.preview, self.methods.currentData(), self.mode.currentData(), parent)
         self.status.setText(message)
 
     def done(self, result):

@@ -34,7 +34,8 @@ PACKAGE_SKILL_LABELS = {
 PREFS = "preferences.json"
 UPSTREAM = "refs/remotes/origin/master"
 HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
-GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps", "tool_states", "skill_pins")
+GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps", "tool_states",
+          "skill_pins", "skill_links")
 DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissions", "approval_policy"}
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
@@ -106,6 +107,10 @@ def validate(m):
                 elif group == "plugin_mcp":
                     good_name = len(name.split("/")) == 2 and all(
                         IDENTIFIER.fullmatch(part) for part in name.split("/"))
+                elif group == "skill_links":
+                    parent, separator, child = name.partition("/")
+                    good_name = separator and parent != child and all(
+                        part not in (".", "..") and IDENTIFIER.fullmatch(part) for part in (parent, child))
                 else:
                     good_name = IDENTIFIER.fullmatch(name)
                 need(good_name, "Invalid customization identifier.")
@@ -154,8 +159,10 @@ def removal_policies(settings, removal):
         else:
             return []
     matches = [(group, name)] if name in settings.get(group, {}) else []
-    if group == "skills" and name in settings.get("skill_pins", {}):
-        matches.append(("skill_pins", name))
+    if group == "skills":
+        if name in settings.get("skill_pins", {}):
+            matches.append(("skill_pins", name))
+        matches.extend(("skill_links", key) for key in settings.get("skill_links", {}) if name in key.split("/"))
     if group == "plugins":
         matches.extend(("plugin_mcp", key) for key in settings.get("plugin_mcp", {})
                        if key.startswith(name + "/"))
@@ -204,6 +211,16 @@ def skill_policy(folder, mode):
     if re.search(r"(?m)^policy:\s*$", original):
         return re.sub(r"(?m)^policy:[ \t]*$", "policy:\n" + line, original)
     return original.rstrip() + ("\n\n" if original.strip() else "") + "policy:\n" + line + "\n"
+
+
+def skill_references(settings):
+    active = {name for name, mode in settings["skills"].items() if mode != "off"}
+    references = {}
+    for key, enabled in sorted(settings["skill_links"].items()):
+        parent, child = key.split("/")
+        if enabled and parent in active and child in active:
+            references.setdefault(parent, []).append(child)
+    return references
 
 
 def tool_values(settings):
@@ -1023,6 +1040,9 @@ class Customization:
             changes.append((("skills", "config"), overrides))
         changes.extend(tool_changes(raw, expected["tool_states"], status["plugin_mcp"]))
         wanted_sources = {}
+        references = skill_references(expected)
+        need(all((source / "skills" / name / "SKILL.md").is_file() for name in references),
+             "Skill links must be added to a custom dotfiles skill.")
         stale = set(previous.get("skills", [])) - expected["skills"].keys()
         for name, mode in expected["skills"].items():
             if mode != "off":
@@ -1057,7 +1077,7 @@ class Customization:
             if self.skill_target(name):
                 (self.skills / name).unlink()
         for name, (folder, policy) in wanted_sources.items():
-            self.install_skill(folder, name, policy)
+            self.install_skill(folder, name, policy, references.get(name, ()))
         available = self.config()[1]
         atomic(self.state / "applied.json", encode({
             "revision": revision, "instructions": digest(expected["instructions"]),
@@ -1068,12 +1088,17 @@ class Customization:
             "skills": sorted(expected["skills"]),
         }))
 
-    def install_skill(self, folder, name, policy):
+    def install_skill(self, folder, name, policy, references=()):
         paths = [p for p in sorted(folder.rglob("*")) if p.is_file()]
         h = hashlib.sha256(policy.encode())
         for path in paths:
             need(path.resolve().is_relative_to(folder.resolve()), f"Unsafe source path for {name}.")
             h.update(str(path.relative_to(folder)).encode() + b"\0" + path.read_bytes())
+        if references:
+            guide = (folder / "SKILL.md").read_text().rstrip() + "\n\n## Related skills\n\n"
+            guide += "Read the relevant guide when you need its workflow.\n\n"
+            guide += "".join(f"- {child}: `~/.agents/skills/{child}/SKILL.md`\n" for child in references)
+            h.update(b"\0SKILL.md\0" + guide.encode())
         target = self.state / "skills" / name / h.hexdigest()
         if not target.is_dir():
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1081,6 +1106,8 @@ class Customization:
                 install = Path(stage) / name
                 shutil.copytree(folder, install)
                 atomic(install / "agents/openai.yaml", policy)
+                if references:
+                    atomic(install / "SKILL.md", guide)
                 install.rename(target)
         link = self.skills / name
         self.skills.mkdir(parents=True, exist_ok=True)

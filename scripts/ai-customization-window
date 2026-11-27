@@ -1038,16 +1038,18 @@ class Window(QWidget):
             self.open_marketplace("plugins" if self.active_table() == "Apps" else "skills")
             return
         if group == "skills":
-            sources = ["Browse Marketplace…", "Import a folder…", *sorted(self.managed_skills() | {
-                path.parent.name for path in SKILL_SOURCE.glob("*/SKILL.md")
-            })]
+            sources = ["Browse Marketplace…", "Import a folder…", "Enable a dotfiles skill…"]
             source, accepted = QInputDialog.getItem(self, "Add skill", "Source", sources, editable=False)
             if accepted and source == sources[0]:
                 self.open_marketplace("skills")
             elif accepted and source == sources[1]:
                 self.import_skill()
             elif accepted:
-                self.stage_policy(group, source, "automatic")
+                names = sorted(self.managed_skills() | {path.parent.name for path in SKILL_SOURCE.glob("*/SKILL.md")})
+                if names:
+                    name, selected = QInputDialog.getItem(self, "Enable skill", "Dotfiles skill", names, editable=False)
+                    if selected:
+                        self.stage_policy(group, name, "automatic")
             return
         if group in ("mcp", "plugins"):
             sources = ["Browse Marketplace…", "Add manually…"]
@@ -1100,7 +1102,15 @@ class Window(QWidget):
         dialog = MarketplaceWindow(self, group, ComboBox, BACKEND, peer)
         dialog.exec()
 
-    def stage_marketplace(self, group, preview, choice, mode):
+    def skill_link_parents(self, child):
+        profiles = self.draft["hosts"] if self.target == "shared" else (self.target,)
+        shared = self.draft["shared"].get("skills", {})
+        active = [shared | self.draft["hosts"][host].get("skills", {}) for host in profiles]
+        return sorted(path.parent.name for path in SKILL_SOURCE.glob("*/SKILL.md")
+                      if path.parent.name != child
+                      and all(modes.get(path.parent.name) in ("manual", "automatic") for modes in active))
+
+    def stage_marketplace(self, group, preview, choice, mode, parent=None):
         name = preview["name"]
         if group == "skills":
             scope = self.target
@@ -1117,14 +1127,20 @@ class Window(QWidget):
                     name, self.draft["shared"].get("skill_pins", {}).get(name))
                 if previous and previous["source"] != pin["source"]:
                     return "A skill with this name is pinned to a different source."
+            if parent and parent not in self.skill_link_parents(name):
+                return "Choose a custom skill enabled on every selected computer."
             self.set_option("skill_pins", name, pin)
             self.set_option("skills", name, mode)
+            if parent:
+                self.set_option("skill_links", f"{parent}/{name}", True)
         else:
             request = {"group": group, "name": name, "operation": "add", "scope": self.target, "value": choice}
             if request not in self.installs:
                 self.installs.append(request)
         self.render()
         self.info.setText(f"{name} staged. Choose Apply & Sync to install.")
+        if parent:
+            return f"{name} and its link from {parent} staged for {self.scope.currentText()}."
         return f"{name} staged for {self.scope.currentText()}."
 
     def stage_policy(self, group, name, mode):
@@ -1179,6 +1195,13 @@ class Window(QWidget):
         hosts = self.draft["hosts"]
         names = sorted(set(local) | set(remote.get(group, {})) | set(shared)
                        | {name for p in hosts.values() for name in p.get(group, {})})
+        links = []
+        if group == "skills":
+            scopes = hosts if self.target == "shared" else (self.target,)
+            shared_links = self.draft["shared"].get("skill_links", {})
+            keys = {key for host in scopes for key, enabled in
+                    (shared_links | hosts[host].get("skill_links", {})).items() if enabled}
+            links = [key.split("/") for key in sorted(keys)]
         table.clear()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["Name", "This computer", "Desktop policy", "IdeaPad policy", "Edit selected scope"])
@@ -1186,7 +1209,11 @@ class Window(QWidget):
         for row, name in enumerate(names):
             item = self.cell(name)
             if group == "skills":
-                item.setToolTip(self.data.get("skill_sources", {}).get(name, "Local skill"))
+                notes = [self.data.get("skill_sources", {}).get(name, "Local skill")]
+                notes.extend(f"Linked from {parent}" if name == child else f"Links to {child}"
+                             for parent, child in links
+                             if name in (parent, child))
+                item.setToolTip("\n".join(notes))
             table.setItem(row, 0, item)
             state = label(local[name]) if name in local else "—"
             if group == "plugins" and name in local:
@@ -1222,7 +1249,7 @@ class Window(QWidget):
         if self.target == "shared":
             for host in self.draft["hosts"].values():
                 host.get(group, {}).pop(name, None)
-        if group in ("plugin_skills", "apps", "tool_states", "skill_pins"):
+        if group in ("plugin_skills", "apps", "tool_states", "skill_pins", "skill_links"):
             return
         table = next(table for title, table in self.tables.items() if title in TABLES and TABLES[title][0] == group)
         shared = self.draft["shared"].get(group, {})

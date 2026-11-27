@@ -1027,6 +1027,11 @@ source, commit, path, file checksum, invocation mode, and computer scope.
 Vercel's pinned CLI fetches the files into an isolated directory. The app
 keeps the reviewed files in a local cache and verifies the checksum when
 restoring on either host. Review a new preview to update a pinned skill.
+Use **Link from another skill** in the preview to choose a custom dotfiles
+skill enabled for the selected computers. Apply & Sync adds a reference to
+the generated copy of that skill. The imported guide keeps its own files and
+invocation policy. Removing either skill clears the relationship for the
+selected computers.
 
 Registry previews prefer HTTPS, npm, then PyPI. Review the provider's URL,
 versioned launch arguments, and advertised credential requirements. Required
