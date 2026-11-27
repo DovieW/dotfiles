@@ -1978,6 +1978,8 @@ class DotCliTests(unittest.TestCase):
                 ("wsl-personal", "packages"),
                 ("kubuntu-laptop", "clipboard"),
                 ("kubuntu-desktop", "memory"),
+                ("kubuntu-laptop", "power"),
+                ("kubuntu-laptop", "instant-connect-key"),
             ):
                 with self.subTest(profile=profile, tag=tag):
                     result = subprocess.run(
@@ -4028,7 +4030,6 @@ else:
         self.assertIn("vt.global_cursor_default=0", quiet_resume)
         self.assertIn("dest: /etc/default/grub.d/99-dotfiles-quiet-resume.cfg", playbook)
         self.assertIn("argv: [update-grub]", playbook)
-        self.assertIn('selected_tags & {"kde", "power"}', cli)
         portable_apply = playbook.split("- name: Apply portable configuration", 1)[1].split(
             "- name: Configure native application window frames", 1
         )[0]

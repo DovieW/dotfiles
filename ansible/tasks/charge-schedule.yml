@@ -106,15 +106,33 @@
     group: root
     mode: "{{ item.mode }}"
   loop:
-    - {src: 'config/power/charge-telemetry/battery_store.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_store.py', mode: '0644'}
-    - {src: 'config/power/charge-telemetry/battery_collect.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_collect.py', mode: '0644'}
-    - {src: 'config/power/charge-telemetry/battery_analysis.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_analysis.py', mode: '0644'}
-    - {src: 'config/power/charge-telemetry/battery_report.py', dest: '/usr/local/libexec/dotfiles/charge-telemetry/battery_report.py', mode: '0644'}
-    - {src: 'config/power/charge-telemetry/dot-charge-telemetry', dest: '/usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry', mode: '0755'}
-    - {src: 'config/systemd/system/dot-charge-telemetry.service', dest: '/etc/systemd/system/dot-charge-telemetry.service', mode: '0644'}
-    - {src: 'config/systemd/system/dot-charge-telemetry-backup.service', dest: '/etc/systemd/system/dot-charge-telemetry-backup.service', mode: '0644'}
-    - {src: 'config/systemd/system/dot-charge-telemetry-backup.timer', dest: '/etc/systemd/system/dot-charge-telemetry-backup.timer', mode: '0644'}
-    - {src: 'config/systemd/system-sleep/dot-charge-telemetry', dest: '/usr/lib/systemd/system-sleep/dot-charge-telemetry', mode: '0755'}
+    - src: config/power/charge-telemetry/battery_store.py
+      dest: /usr/local/libexec/dotfiles/charge-telemetry/battery_store.py
+      mode: '0644'
+    - src: config/power/charge-telemetry/battery_collect.py
+      dest: /usr/local/libexec/dotfiles/charge-telemetry/battery_collect.py
+      mode: '0644'
+    - src: config/power/charge-telemetry/battery_analysis.py
+      dest: /usr/local/libexec/dotfiles/charge-telemetry/battery_analysis.py
+      mode: '0644'
+    - src: config/power/charge-telemetry/battery_report.py
+      dest: /usr/local/libexec/dotfiles/charge-telemetry/battery_report.py
+      mode: '0644'
+    - src: config/power/charge-telemetry/dot-charge-telemetry
+      dest: /usr/local/libexec/dotfiles/charge-telemetry/dot-charge-telemetry
+      mode: '0755'
+    - src: config/systemd/system/dot-charge-telemetry.service
+      dest: /etc/systemd/system/dot-charge-telemetry.service
+      mode: '0644'
+    - src: config/systemd/system/dot-charge-telemetry-backup.service
+      dest: /etc/systemd/system/dot-charge-telemetry-backup.service
+      mode: '0644'
+    - src: config/systemd/system/dot-charge-telemetry-backup.timer
+      dest: /etc/systemd/system/dot-charge-telemetry-backup.timer
+      mode: '0644'
+    - src: config/systemd/system-sleep/dot-charge-telemetry
+      dest: /usr/lib/systemd/system-sleep/dot-charge-telemetry
+      mode: '0755'
   register: dot_charge_telemetry_files
 
 - name: Enable the battery telemetry collector

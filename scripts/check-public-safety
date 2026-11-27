@@ -17,14 +17,15 @@ if find . -path ./.git -prune -o -type f \
   failed=1
 fi
 
+matches="$(mktemp)"
+trap 'rm -f -- "$matches"' EXIT
 if rg -n -I --hidden \
   -g '!.git/**' -g '!scripts/check-public-safety' -g '!tests/**' -g '!docs/**' -g '!*.example' \
   '(BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY|BW_SESSION[[:space:]]*=|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})' \
-  . >/tmp/dotfiles-public-safety.matches; then
-  sed 's/:.*/: [redacted match]/' /tmp/dotfiles-public-safety.matches >&2
+  . >"$matches"; then
+  sed 's/:.*/: [redacted match]/' "$matches" >&2
   failed=1
 fi
-rm -f /tmp/dotfiles-public-safety.matches
 
 if find . -path ./.git -prune -o -type f -printf '%P\n' \
   | grep -E '(^|/)(id_(rsa|ed25519|ecdsa)|[^/]*\.env|auth\.env)$' >/dev/null; then

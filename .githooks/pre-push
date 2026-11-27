@@ -1,4 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
-exec "$root/scripts/check-push-secrets" "$@"
+updates="$(cat)"
+[[ -n "$updates" ]] || exit 0
+"$root/scripts/check-push-secrets" "$@" <<< "$updates"
+
+sandbox="$(mktemp -d)"
+snapshot="$sandbox/checkout"
+cleanup() {
+  if [[ -f "$snapshot/.git" ]]; then
+    git -C "$root" worktree remove --force "$snapshot"
+  fi
+  rm -f -- "$sandbox/validation.log"
+  rmdir "$sandbox"
+}
+trap cleanup EXIT
+
+declare -A checked=()
+while read -r _ local_oid _ _; do
+  [[ "$local_oid" =~ ^0+$ ]] && continue
+  commit="$(git -C "$root" rev-parse --verify "$local_oid^{commit}")"
+  [[ -v "checked[$commit]" ]] && continue
+  git -C "$root" worktree add --quiet --detach "$snapshot" "$commit"
+  printf 'Validating outgoing commit %.12s before push...\n' "$commit" >&2
+  # Git can pass a non-blocking stderr to hooks. Ansible needs blocking descriptors.
+  if ! (cd "$snapshot" && ./tests/run pre-push) </dev/null >"$sandbox/validation.log" 2>&1; then
+    cat "$sandbox/validation.log"
+    echo "Push blocked: validation failed. Fix the failing checks above and commit the fix before retrying." >&2
+    exit 1
+  fi
+  cat "$sandbox/validation.log"
+  git -C "$root" worktree remove --force "$snapshot"
+  checked["$commit"]=1
+done <<< "$updates"

@@ -102,8 +102,10 @@
     - not ansible_check_mode
     - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
   vars:
-    dot_instant_connect_accel: [busctl, --user, call, org.kde.kglobalaccel, /kglobalaccel, org.kde.KGlobalAccel]
-    dot_instant_connect_action: ['4', io.github.doview.instant-wifi-connect.desktop, _launch, 'Instant Connect', 'Instant Connect']
+    dot_instant_connect_accel:
+      [busctl, --user, call, org.kde.kglobalaccel, /kglobalaccel, org.kde.KGlobalAccel]
+    dot_instant_connect_action:
+      ['4', io.github.doview.instant-wifi-connect.desktop, _launch, 'Instant Connect', 'Instant Connect']
   block:
     - name: Read the current Instant Connect shortcut
       ansible.builtin.command:
@@ -114,6 +116,9 @@
 
     - name: Migrate the previous F24 binding to Go
       ansible.builtin.command:
-        argv: "{{ dot_instant_connect_accel + ['setShortcut', 'asaiu'] + dot_instant_connect_action + ['1', '16777431', item] }}"
+        argv: >-
+          {{ dot_instant_connect_accel + ['setShortcut', 'asaiu']
+             + dot_instant_connect_action + ['1', '16777431', item] }}
+      changed_when: true
       loop: ['4', '8']
       when: dot_instant_connect_old_shortcut.stdout | trim == 'ai 1 16777287'

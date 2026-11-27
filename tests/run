@@ -4,6 +4,12 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+validation_env="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/validation"
+if [[ "${CI:-}" != true && -x "$validation_env/bin/python3" ]]; then
+  export PATH="$validation_env/bin:$PATH"
+  export ANSIBLE_COLLECTIONS_PATH="$validation_env/collections"
+fi
+
 if [[ $# -ne 1 ]]; then
   if [[ $# -eq 0 ]]; then
     set -- profiles python qml shellcheck bats ansible ansible-lint yaml nvim formatting safety
@@ -32,6 +38,19 @@ skip_or_fail() {
 }
 
 case "$1" in
+  setup)
+    python3 -m venv "$validation_env"
+    "$validation_env/bin/python3" -m pip install -r .github/requirements-validation.txt
+    ANSIBLE_COLLECTIONS_PATH="$validation_env/collections" "$validation_env/bin/ansible-galaxy" collection install \
+      -r .github/requirements-collections.yml -p "$validation_env/collections"
+    ;;
+  pre-push)
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      echo "PyYAML is required. Run ./tests/run setup to install the pinned validation tools." >&2
+      exit 1
+    fi
+    CI=true "$0" profiles python shellcheck bats ansible ansible-lint yaml formatting safety
+    ;;
   profiles)
     python3 tests/validate_profiles.py
     ;;
@@ -75,7 +94,7 @@ case "$1" in
     ;;
   ansible-lint)
     if command -v ansible-lint >/dev/null 2>&1; then
-      ansible-lint ansible/local.yml
+      ansible-lint --offline ansible/local.yml
     else
       skip_or_fail ansible-lint "Ansible lint"
     fi

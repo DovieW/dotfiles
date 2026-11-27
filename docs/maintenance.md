@@ -759,16 +759,34 @@ pushed commit before treating the repair as verified.
 
 The second apply must report zero configuration changes.
 
-## Secret protection before push
+## Validation before push
 
 `dot apply --profile PROFILE --tags git` enables this repository's tracked
 `.githooks/pre-push` hook. It preserves existing custom hook setups by stopping
-with an explanation instead of replacing them. Linux profiles install Gitleaks
-through Homebrew. For an existing checkout, install `gitleaks`, then run:
+with an explanation instead of replacing them. For an existing checkout with
+no custom hooks, set up local validation and enable the hook from the repository
+root:
 
 ```bash
+./tests/run setup
 git config --local core.hooksPath "$PWD/.githooks"
 ```
+
+Setup installs the CI-pinned Python tools and Ansible collections in
+`${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/validation`. Run it again if the
+requirements change. The Linux profiles provide the other tools, including
+Gitleaks, ripgrep, ShellCheck, Bats, and StyLua.
+
+The hook scans outgoing history for secrets, then runs
+`./tests/run pre-push` from a temporary checkout of each distinct outgoing
+commit tip. Staged, unstaged, and untracked files in the working checkout
+stay out of the checks. This runs the profile and Python tests, shell checks,
+Ansible and YAML lint, Neovim formatting, and the public-safety scan using the
+same commands as CI. GitHub Actions still runs the full workflow, including
+the Neovim smoke test and Windows tests. Use `./tests/run pre-push` directly
+to check working changes before committing.
+
+### Secret protection
 
 Each push scans every outgoing commit, including commits that added a credential
 and later removed it, new branches, annotated tags, and all refs in a multi-ref

@@ -21,19 +21,23 @@
 
 - name: Activate the IdeaPad airplane key remap
   become: true
-  when: >-
-    dot_instant_connect_key.changed or
-    (dot_instant_connect_live_key.rc == 0 and
-      (['KEYBOARD_KEY_0d=connect', 'KEYBOARD_KEY_13f=connect']
-       | difference(dot_instant_connect_live_key.stdout_lines) | length > 0))
+  when:
+    - not ansible_check_mode
+    - >-
+      dot_instant_connect_key.changed or
+      (dot_instant_connect_live_key.rc == 0 and
+        (['KEYBOARD_KEY_0d=connect', 'KEYBOARD_KEY_13f=connect']
+         | difference(dot_instant_connect_live_key.stdout_lines) | length > 0))
   block:
     - name: Compile the IdeaPad airplane key remap
       ansible.builtin.command:
         argv: [systemd-hwdb, --strict, update]
+      changed_when: true
 
     - name: Reload udev's hardware database
       ansible.builtin.command:
         argv: [udevadm, control, --reload]
+      changed_when: true
 
     - name: Reattach the IdeaPad extra buttons so Plasma reads the new key capabilities
       ansible.builtin.command:
@@ -45,4 +49,5 @@
           - --sysname-match=event*
           - --parent-match=/sys/bus/platform/devices/VPC2004:00
           - --settle
+      changed_when: true
       loop: [remove, add]

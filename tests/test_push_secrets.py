@@ -1,4 +1,4 @@
-"""Exercise the actual pre-push hook against a disposable local bare remote."""
+"""Exercise the pre-push gates against a disposable local bare remote."""
 import contextlib
 import io
 import os
@@ -32,6 +32,13 @@ class PushSecretIntegrationTests(unittest.TestCase):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, target)
+        runner = self.repo / "tests/run"
+        runner.parent.mkdir()
+        runner.write_text(
+            '#!/bin/sh\n'
+            'test -f /dev/stderr && test "$1" = pre-push && test ! -e reject-validation\n'
+        )
+        runner.chmod(0o755)
         self.commit("initial")
         self.git("remote", "add", "origin", str(self.remote))
         self.git("push", "-q", "origin", "main")
@@ -67,6 +74,24 @@ class PushSecretIntegrationTests(unittest.TestCase):
         self.leak()
         self.assert_blocked(self.git("push", "origin", "main", check=False))
         self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main").stdout.split()[0], before)
+
+    def test_validation_checks_the_outgoing_commit_instead_of_working_files(self):
+        before = self.git("rev-parse", "origin/main").stdout.strip()
+        marker = self.repo / "reject-validation"
+        marker.touch()
+        self.commit("fixture with failing validation")
+        marker.unlink()
+        result = self.git("push", "origin", "main", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Push blocked: validation failed", result.stderr)
+        self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main").stdout.split()[0], before)
+        self.assertEqual(len(self.git("worktree", "list").stdout.splitlines()), 1)
+
+        self.commit("fix validation fixture")
+        marker.touch()
+        self.assertEqual(self.git("push", "origin", "main").returncode, 0)
+        self.assertTrue(marker.exists())
+        self.assertEqual(len(self.git("worktree", "list").stdout.splitlines()), 1)
 
     def test_deleted_secret_in_an_earlier_commit_still_blocks(self):
         self.leak()
