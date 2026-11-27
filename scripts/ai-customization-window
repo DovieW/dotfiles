@@ -2,6 +2,7 @@
 """KDE window for the dotfiles Codex settings."""
 import base64
 import copy
+from html import escape
 import json
 from pathlib import Path
 import stat
@@ -31,6 +32,14 @@ ENTRY_GROUPS = {title: group for title, (group, _) in TABLES.items()} | {"Hooks"
 ENTRY_LABELS = {"skills": "skill", "mcp": "MCP server", "plugins": "plugin",
                 "plugin_mcp": "plugin MCP override", "hooks": "hook"}
 SKILL_SOURCE = BACKEND.parents[1] / "config/ai-customization/skills"
+CONFIG_DESCRIPTION = 1
+CONFIG_EDITOR = 5
+NO_CONFIG_DESCRIPTION = "Codex has no published description for this setting."
+
+
+def config_description(note):
+    text = note["text"]
+    return f"About {note['related']}\n{text}" if "related" in note else text
 
 
 def label(value):
@@ -415,6 +424,16 @@ class Window(QWidget):
 
     def config_panel(self, table):
         panel = QWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["Setting", "Description", "This computer", "Known to", "Shared policy",
+                                         "Edit selected scope"])
+        table.setWordWrap(False)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        table.cellClicked.connect(self.open_config_description)
+        header = table.horizontalHeader()
+        for column, width in ((0, 185), (2, 130), (3, 115), (4, 105), (5, 154)):
+            header.resizeSection(column, width)
+        header.setSectionResizeMode(CONFIG_DESCRIPTION, QHeaderView.ResizeMode.Stretch)
         self.config_search = QLineEdit()
         self.config_search.setPlaceholderText("Search settings")
         self.config_search.textChanged.connect(self.filter_config)
@@ -442,6 +461,35 @@ class Window(QWidget):
     def open_user_config(self):
         if self.data is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.data["paths"]["config"]))
+
+    def open_config_description(self, row, column):
+        if column != CONFIG_DESCRIPTION:
+            return
+        table = self.tables["Config"]
+        key = table.item(row, 0).text()
+        notes = self.catalog.get("settings", {}).get(key, {}).get("documentation", [])
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Codex setting")
+        dialog.resize(660, 370)
+        title = QLabel()
+        title.setTextFormat(Qt.TextFormat.PlainText)
+        title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        title.setText(key)
+        title.setWordWrap(True)
+        body = QPlainTextEdit()
+        body.setReadOnly(True)
+        body.setPlainText("\n\n".join(f"{note['source']}\n{config_description(note)}" for note in notes)
+                          or NO_CONFIG_DESCRIPTION)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        if notes:
+            source = buttons.addButton("Open documentation", QDialogButtonBox.ButtonRole.ActionRole)
+            source.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(notes[0]["url"])))
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(title)
+        layout.addWidget(body, 1)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def filter_config(self):
         table = self.tables["Config"]
@@ -629,8 +677,6 @@ class Window(QWidget):
         names = [*managed, *sorted(settings.keys() - managed.keys())]
         profiles = set(self.draft["hosts"]) if self.target == "shared" else {self.target}
         table.clearContents()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["Setting", "This computer", "Known to", "Shared policy", "Edit selected scope"])
         table.setRowCount(len(names))
         self.catalog_rows = []
         for row, key in enumerate(names):
@@ -639,7 +685,8 @@ class Window(QWidget):
             support = setting.get("support", {})
             surfaces = {identity.split("/", 1)[1] for identity in support}
             stages = {item["stage"] for item in support.values() if "stage" in item}
-            description = metadata.get("description", "")
+            notes = setting.get("documentation", [])
+            description = config_description(notes[0]) if notes else ""
             details = [key, description]
             for field, label_text in (("type", "Type"), ("enum", "Values"), ("default", "Schema default")):
                 if field in metadata:
@@ -653,28 +700,28 @@ class Window(QWidget):
             item = self.cell(key)
             item.setToolTip("\n".join(line for line in details if line))
             table.setItem(row, 0, item)
+            item = self.cell(" ".join(description.split()) if description else "—")
+            tooltip = escape(description or NO_CONFIG_DESCRIPTION).replace("\n", "<br>")
+            item.setToolTip(f"<p>{tooltip}</p>")
+            table.setItem(row, CONFIG_DESCRIPTION, item)
             actual = managed.get(key) if key in managed else setting.get("value")
             item = self.cell(actual if actual is not None else "Not set")
             item.setToolTip(item.text())
-            table.setItem(row, 1, item)
-            table.setItem(row, 2, self.cell(" · ".join(surface for surface in ("CLI", "Desktop app") if surface in surfaces)
-                                            or "—"))
+            table.setItem(row, 2, item)
+            item = self.cell(" · ".join(surface for surface in ("CLI", "Desktop app") if surface in surfaces) or "—")
+            item.setToolTip(item.text())
+            table.setItem(row, 3, item)
             choices = config_choices(setting, profiles)
             if key in managed:
                 shared = self.draft["shared"]["defaults"][key]
-                table.setItem(row, 3, self.cell(shared))
-                table.setCellWidget(row, 4, self.default_editor(key))
+                table.setItem(row, 4, self.cell(shared))
+                table.setCellWidget(row, CONFIG_EDITOR, self.default_editor(key))
             elif choices:
-                table.setCellWidget(row, 4, self.config_option_editor(key, setting, choices))
-            text = " ".join((key, description, str(actual or ""), *stages, *surfaces)).casefold()
+                table.setCellWidget(row, CONFIG_EDITOR, self.config_option_editor(key, setting, choices))
+            text = " ".join((key, *(note["text"] for note in notes), str(actual or ""), *stages, *surfaces)).casefold()
             self.catalog_rows.append((text, actual is not None, key in managed,
                                       bool(stages & {"experimental", "under development"}), surfaces,
                                       choices is not None or key in managed))
-        for column, width in ((0, 270), (1, 160), (2, 130), (3, 130), (4, 145)):
-            header = table.horizontalHeader()
-            if header.sectionSize(column) == header.defaultSectionSize():
-                header.resizeSection(column, width)
-        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         if self.catalog:
             local = self.data["profile"]
             local_builds = []
@@ -826,7 +873,7 @@ class Window(QWidget):
             table = self.tables["Config"]
             names = list(self.data["actual_defaults"])
             for dependent in ("model_reasoning_effort", "service_tier"):
-                table.setCellWidget(names.index(dependent), 4, self.default_editor(dependent))
+                table.setCellWidget(names.index(dependent), CONFIG_EDITOR, self.default_editor(dependent))
 
     def update_file_indicator(self):
         if self.data is None:

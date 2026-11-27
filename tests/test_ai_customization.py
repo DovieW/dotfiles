@@ -360,12 +360,14 @@ class CustomizationTest(unittest.TestCase):
             "cli_only": {"type": "boolean"},
             "approval_policy": {"oneOf": [{"enum": ["on-request"]}, {"const": "never"},
                                             {"type": "object"}, {"enum": ["on-request"]}]},
-            "mcp_servers": {"additionalProperties": {"$ref": "#/definitions/Server"}},
+            "mcp_servers": {"description": "Configure MCP servers.",
+                            "additionalProperties": {"$ref": "#/definitions/Server"}},
         }, "definitions": {"Server": {"properties": {
             "url": {"type": "string"},
             "args": {"items": {"properties": {"name": {"type": "string"}}}},
         }}}}
-        desktop_schema = {"properties": {"common": common, "app_only": {"type": "boolean"}}}
+        desktop_schema = {"properties": {"common": {**common, "description": "The desktop description."},
+                                         "app_only": {"type": "boolean"}}}
         local = {"profile": DESKTOP, "engines": {
             "CLI": {"version": "2.0.0", "features": {"future": {"stage": "experimental", "enabled": False}}},
         }}
@@ -376,9 +378,11 @@ class CustomizationTest(unittest.TestCase):
         raw = {"common": "enabled", "unknown": True, "mcp_servers": {
             "test.example": {"url": "https://private.example/path", "args": [{"name": "private-arg"}]},
         }}
+        reference = ai.reference_fields({"mcp_servers.<id>.url": "URL of the server."})
         with patch.object(app, "config", return_value=("", raw)), \
                 patch.object(app, "config_engines", return_value=local), \
                 patch.object(app, "call_peer", return_value=peer) as probe, \
+                patch.object(app, "config_help_sources", return_value=(reference, {"2.0.0": {"future": "A beta feature."}})), \
                 patch.object(app, "config_schema", side_effect=[cli_schema, desktop_schema]) as schema:
             catalog = app.config_catalog(with_peer=True)
         probe.assert_called_once_with("config-engines", timeout=40)
@@ -386,15 +390,21 @@ class CustomizationTest(unittest.TestCase):
         cli, desktop = f"{DESKTOP}/CLI", f"{IDEAPAD}/Desktop app"
         fields = catalog["settings"]
         self.assertEqual(set(fields["common"]["support"]), {cli, desktop})
+        self.assertEqual([note["text"] for note in fields["common"]["documentation"]],
+                         [common["description"], "The desktop description."])
         self.assertNotIn("value", fields["cli_only"])
         self.assertEqual(set(fields["app_only"]["support"]), {desktop})
         self.assertEqual(fields["features.future"]["support"][cli]["stage"], "experimental")
+        self.assertEqual(fields["features.future"]["documentation"][0]["text"], "A beta feature.")
         self.assertEqual(catalog["builds"][cli]["approval_policies"], ["on-request", "never"])
         self.assertEqual(fields["unknown"]["value"], "true")
+        self.assertEqual(fields["unknown"]["documentation"], [])
         self.assertIn("mcp_servers.<name>.args[].name", fields)
         concrete = fields['mcp_servers."test.example".url']
         self.assertEqual(set(concrete["support"]), {cli})
         self.assertEqual(concrete["value"], "Set · value hidden")
+        self.assertEqual(concrete["documentation"][0]["text"], "URL of the server.")
+        self.assertEqual(fields["mcp_servers.<name>.args[].name"]["documentation"][0]["related"], "mcp_servers")
         self.assertNotIn("private.", json.dumps(catalog))
 
     def test_config_catalog_follows_installed_schema_and_hides_retired_keys(self):
@@ -414,6 +424,7 @@ class CustomizationTest(unittest.TestCase):
         with patch.object(app, "config_engines", side_effect=[installed("1.0.0", "stable"),
                                                               installed("2.0.0", "removed")]), \
                 patch.object(app, "config_schema", side_effect=[old, new]), \
+                patch.object(app, "config_help_sources", return_value=({}, {})), \
                 patch.object(app, "config", return_value=("", {"old_key": False})):
             first = app.config_catalog(with_peer=False)["settings"]
             second = app.config_catalog(with_peer=False)["settings"]
@@ -427,6 +438,46 @@ class CustomizationTest(unittest.TestCase):
         self.assertNotIn("retired", second)
         self.assertEqual(second["old_key"]["support"], {})
         self.assertEqual(second["old_key"]["value"], "false")
+
+    def test_config_help_decodes_reference_and_feature_descriptions(self):
+        page = r'''
+## `config.toml`
+<ConfigTable options={[
+  {
+    key: "tools.<id>.enabled",
+    description:
+      "Enable the tool for this profile. Enter \"true\" to include it.",
+  },
+]}/>
+## `requirements.toml`
+<ConfigTable options={[
+  {
+    key: "tools.<id>.enabled",
+    description: "Enforce the policy.",
+  },
+]}/>
+'''
+        fields = ai.reference_fields(ai.reference_descriptions(page))
+        self.assertEqual(fields[("tools", "<name>", "enabled")]["text"],
+                         'Enable the tool for this profile. Enter "true" to include it.')
+        registry = '''
+pub enum Feature {
+    /// Show a status line.
+    /// It supports custom labels.
+    StatusLine,
+    Undocumented,
+}
+FeatureSpec {
+    id: Feature::StatusLine,
+    key: "status_line",
+},
+FeatureSpec {
+    id: Feature::Undocumented,
+    key: "undocumented",
+},
+'''
+        self.assertEqual(ai.feature_descriptions(registry),
+                         {"status_line": "Show a status line.\nIt supports custom labels."})
 
     def test_skill_import_and_recoverable_remove(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(

@@ -22,9 +22,15 @@ import tarfile
 import tempfile
 import time
 import tomllib
+from urllib.error import HTTPError
 from urllib.request import urlopen
 from urllib.parse import urlsplit
 from uuid import uuid4
+
+from codex_config_help import (
+    FEATURE_SOURCE, REFERENCE_URL, SCHEMA_SOURCE, SOURCE_RAW, SOURCE_WEB, feature_descriptions,
+    reference_descriptions, reference_fields,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 REL = "config/ai-customization"
@@ -623,6 +629,43 @@ class Customization:
             pass
         return data
 
+    def config_help_cache(self, name, url, parse, refresh_after=None):
+        cache = self.state / "config-help" / f"{name}.json"
+        cached = {}
+        try:
+            cached = load(cache, {}) or {}
+            if not isinstance(cached, dict) or not all(isinstance(value, str) for value in cached.values()):
+                cached = {}
+            if cached and (refresh_after is None or time.time() - cache.stat().st_mtime < refresh_after):
+                return cached
+        except (OSError, ValueError):
+            pass
+        try:
+            with urlopen(url, timeout=4) as response:
+                data = parse(response.read(1024 * 1024).decode())
+        except HTTPError as error:
+            error.close()
+            return cached
+        except (OSError, ValueError):
+            return cached
+        if not data:
+            return cached
+        try:
+            atomic(cache, encode(data))
+        except OSError:
+            pass
+        return data
+
+    def config_help_sources(self, builds):
+        versions = {engine["version"] for engine in builds.values() if engine["features"]}
+        with ThreadPoolExecutor(max_workers=5) as workers:
+            reference = workers.submit(self.config_help_cache, "reference", REFERENCE_URL + ".md",
+                                       reference_descriptions, 24 * 60 * 60)
+            features = {version: workers.submit(self.config_help_cache, f"features-{version}",
+                        SOURCE_RAW.format(version, FEATURE_SOURCE), feature_descriptions)
+                        for version in versions if CODEX_VERSION.fullmatch(version)}
+        return reference_fields(reference.result()), {version: notes.result() for version, notes in features.items()}
+
     def config_rows(self, builds):
         schemas = {}
         rows = {}
@@ -640,11 +683,48 @@ class Customization:
                 row = rows.setdefault(path, {"support": {}, "options": {}, "metadata": fields.get(path, {})})
                 if not row["metadata"]:
                     row["metadata"] = fields.get(path, {})
+                description = fields.get(path, {}).get("description")
+                if description:
+                    row.setdefault("documentation", []).append({
+                        "text": description, "source": f"Codex {version} schema",
+                        "url": SOURCE_WEB.format(version, SCHEMA_SOURCE), "version": version})
                 row["support"][identity] = feature
                 spec = choice_spec(fields, path, feature)
                 if spec:
                     row["options"][identity] = spec
         return rows
+
+    def document_config_rows(self, rows, builds):
+        reference, features = self.config_help_sources(builds)
+        for path, row in rows.items():
+            docs = list(row.get("documentation", []))
+            feature_path = path[2:] if path[0] == "profiles" else path
+            if len(feature_path) == 2 and feature_path[0] == "features":
+                for identity in row.get("support", {}):
+                    version = builds[identity]["version"]
+                    note = features.get(version, {}).get(feature_path[1])
+                    if note and not any(entry.get("version") == version for entry in docs):
+                        docs.append({"text": note, "source": f"Codex {version} feature registry",
+                                     "url": SOURCE_WEB.format(version, FEATURE_SOURCE), "version": version})
+            note = field_for_path(reference, path)
+            if note:
+                docs.append(note)
+            unique = {}
+            for entry in docs:
+                unique.setdefault(entry["text"], entry)
+            row["documentation"] = list(unique.values())
+        for path, row in rows.items():
+            if row["documentation"]:
+                continue
+            for length in range(len(path) - 1, 0, -1):
+                parent = path[:length]
+                if parent[-1] in ("features", "<name>", "[]"):
+                    continue
+                notes = rows.get(parent, {}).get("documentation", [])
+                relevant = [note for note in notes if not note.get("related")]
+                if relevant:
+                    row["documentation"] = [{**note, "related": field_path(parent)} for note in relevant]
+                    break
 
     def config_catalog(self, with_peer):
         local = self.config_engines()
@@ -668,6 +748,7 @@ class Customization:
                     rows[path]["choice"] = value
                     break
 
+        self.document_config_rows(rows, builds)
         return {
             "builds": {identity: {key: data.get(key) for key in
                                  ("version", "schema", "package", "models", "permissions", "approval_policies")}

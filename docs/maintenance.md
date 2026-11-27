@@ -949,6 +949,11 @@ installed versions of Codex on both workstations and their current options.
 The tab caches each matching official schema and shows the ChatGPT Desktop
 package version, with its bundled Codex engine version in the tooltip. If a
 schema is unavailable, configured values and reported feature flags still appear.
+The **Description** column uses the matching release's schema and feature
+registry plus the public Codex Configuration Reference. Hover for the full
+description or click the cell to read the source excerpts. Descriptions
+for a surrounding setting are labeled with that setting's name. Search also
+matches description text.
 
 On a computer where they use the same Codex home, the CLI and the desktop
 app share the user `config.toml`. Project layers, CLI profiles, and choices
