@@ -1,32 +1,40 @@
 #!/usr/bin/python3
 """KDE window for the dotfiles Codex settings."""
+import base64
 import copy
 import json
 from pathlib import Path
+import stat
 import sys
 
 from PyQt6.QtCore import QProcess, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-    QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMessageBox,
+    QPlainTextEdit, QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 APP_ID = "io.github.doview.ai-customization"
 BACKEND = Path(__file__).resolve().with_name("ai-customization")
 ICON = BACKEND.parents[1] / "config/applications" / f"{APP_ID}.png"
 SCOPES = {"Both computers": "shared", "Desktop": "kubuntu-desktop", "IdeaPad": "kubuntu-laptop"}
+HOST_LABELS = {value: key for key, value in SCOPES.items()}
 TABLES = {
     "Skills": ("skills", ["automatic", "manual", "off"]),
     "MCP Servers": ("mcp", [True, False]),
     "Plugins": ("plugins", [True, False]),
-    "Plugin MCP Servers": ("plugin_mcp", [True, False]),
+    "Plugin MCP Servers": ("plugin_mcp", [True, False, "default"]),
 }
+ENTRY_GROUPS = {title: group for title, (group, _) in TABLES.items()} | {"Hooks": "hooks"}
+ENTRY_LABELS = {"skills": "skill", "mcp": "MCP server", "plugins": "plugin",
+                "plugin_mcp": "plugin MCP override", "hooks": "hook"}
+SKILL_SOURCE = BACKEND.parents[1] / "config/ai-customization/skills"
 
 
 def label(value):
     return {True: "On", False: "Off", "manual": "Manual only", "automatic": "Automatic",
-            "off": "Off", "unmanaged": "Unmanaged"}.get(value, str(value))
+            "off": "Off", "unmanaged": "Unmanaged", "default": "Plugin default"}.get(value, str(value))
 
 
 class Window(QWidget):
@@ -37,6 +45,7 @@ class Window(QWidget):
         self.data = None
         self.draft = None
         self.resolve = False
+        self.entry_feedback = None
         self.process = QProcess(self)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
@@ -50,18 +59,16 @@ class Window(QWidget):
         self.instructions.textChanged.connect(self.edit)
         self.tabs.addTab(self.instructions, "Instructions")
         self.tables = {}
-        for title in ["Defaults", *TABLES]:
+        for title in ["Defaults", *TABLES, "Hooks"]:
             table = QTableWidget()
             table.setAlternatingRowColors(True)
+            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             table.verticalHeader().hide()
             self.tables[title] = table
             self.tabs.addTab(table, title)
+            table.itemSelectionChanged.connect(self.update_entry_controls)
         self.tables["Skills"].cellDoubleClicked.connect(self.edit_skill_source)
-        self.hooks = QLabel()
-        self.hooks.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.hooks.setMargin(16)
-        self.hooks.setWordWrap(True)
-        self.tabs.addTab(self.hooks, "Hooks")
         self.info = QLabel("Loading Codex customization…")
         self.info.setWordWrap(True)
         self.files = QLabel()
@@ -69,6 +76,7 @@ class Window(QWidget):
         self.files.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.files.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.tabs.currentChanged.connect(self.update_file_indicator)
+        self.tabs.currentChanged.connect(self.update_entry_controls)
         self.apply = QPushButton("Apply && Sync")
         self.apply.clicked.connect(self.publish)
         self.reload = QPushButton("Reload")
@@ -82,13 +90,18 @@ class Window(QWidget):
         self.discard = QPushButton("Discard Pending Draft")
         self.discard.clicked.connect(self.discard_pending)
         self.discard.hide()
+        self.add_entry = QPushButton("Add…")
+        self.add_entry.clicked.connect(self.add_selected_entry)
+        self.remove_entry = QPushButton("Remove…")
+        self.remove_entry.clicked.connect(self.remove_selected_entry)
         header = QHBoxLayout()
         header.addWidget(QLabel("Edit scope"))
         header.addWidget(self.scope)
         header.addStretch()
         header.addWidget(self.machine)
         footer = QHBoxLayout()
-        for button in (self.preview, self.reload, self.adopt, self.restore, self.discard):
+        for button in (self.preview, self.reload, self.adopt, self.restore, self.discard,
+                       self.add_entry, self.remove_entry):
             footer.addWidget(button)
         footer.addStretch()
         footer.addWidget(self.apply)
@@ -100,6 +113,7 @@ class Window(QWidget):
         layout.addWidget(self.tabs)
         layout.addLayout(status)
         layout.addLayout(footer)
+        self.update_entry_controls()
         self.read()
 
     @property
@@ -143,19 +157,34 @@ class Window(QWidget):
         except ValueError:
             self.info.setText("The customization backend returned an invalid response.")
             return
+        if self.action == "entry":
+            self.entry_feedback = "  ·  ".join(
+                f"{HOST_LABELS[host]}: {result.get('error') or 'Done'}" for host, result in value.items()
+            )
+            self.launch("status")
+            return
         if self.action in ("publish", "discard-draft"):
             self.data = None
             self.info.setText("Refreshing workstation status…")
             self.launch("status")
             return
+        if self.entry_feedback and self.draft != self.data["manifest"]:
+            value["manifest"] = self.data["manifest"]
+        else:
+            self.draft = copy.deepcopy(value["manifest"])
+            pending = value.get("pending")
+            self.resolve = False
+            if pending:
+                self.draft = pending["desired"]
+                self.resolve = pending.get("resolve", False)
         self.data = value
-        self.draft = copy.deepcopy(value["manifest"])
-        pending = value.get("pending")
-        self.resolve = False
-        if pending:
-            self.draft = pending["desired"]
-            self.resolve = pending.get("resolve", False)
         self.render()
+        if self.entry_feedback:
+            feedback = self.entry_feedback
+            if self.draft != self.data["manifest"]:
+                feedback += "  ·  Unapplied policy edits"
+            self.info.setText(feedback)
+            self.entry_feedback = None
 
     def render(self):
         if self.draft is None:
@@ -184,8 +213,7 @@ class Window(QWidget):
         defaults.horizontalHeader().setStretchLastSection(True)
         for title, (group, options) in TABLES.items():
             self.fill(title, group, options)
-        hook_text = "\n".join(self.data["hooks"]) or "No user hooks registered."
-        self.hooks.setText("Registered Codex user hooks\n\n" + hook_text)
+        self.fill_hooks()
         drift = self.data["drift"]
         self.adopt.setVisible(any(key != "override" for key in drift))
         self.restore.setVisible(bool(drift) and "override" not in drift)
@@ -201,6 +229,7 @@ class Window(QWidget):
             status = "Local changes need review  ·  " + ", ".join(drift)
         self.info.setText(status)
         self.update_file_indicator()
+        self.update_entry_controls()
 
     def update_file_indicator(self):
         if self.data is None:
@@ -208,7 +237,7 @@ class Window(QWidget):
         paths = self.data["paths"]
         tab = self.tabs.tabText(self.tabs.currentIndex())
         if tab == "Hooks":
-            prefix, keys = "Reads", ("hooks", "config")
+            prefix, keys = "Local files", ("hooks", "config")
         elif tab == "Instructions":
             prefix, keys = "Local file", ("instructions",)
         elif tab == "Skills":
@@ -222,9 +251,7 @@ class Window(QWidget):
                  for path in selected]
         self.files.setText(prefix + "  ·  " + "  ·  ".join(names))
         details = "\n".join(map(str, selected))
-        if tab == "Hooks":
-            details += "\nHook settings are read-only in this window."
-        else:
+        if tab != "Hooks":
             details += "\nApply & Sync tracks edited preferences in " + paths["manifest"]
         self.files.setToolTip(details)
 
@@ -233,6 +260,175 @@ class Window(QWidget):
         item = QTableWidgetItem(str(value))
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         return item
+
+    def entry_selection(self):
+        title = self.tabs.tabText(self.tabs.currentIndex())
+        group = ENTRY_GROUPS.get(title)
+        table = self.tables[title] if group else None
+        item = table.item(table.currentRow(), 0) if table is not None else None
+        return group, item
+
+    def update_entry_controls(self):
+        if not hasattr(self, "add_entry"):
+            return
+        group, item = self.entry_selection()
+        for button in (self.add_entry, self.remove_entry):
+            button.setVisible(group is not None)
+        self.add_entry.setText("Add Override…" if group == "plugin_mcp" else "Add…")
+        self.remove_entry.setText("Remove Override…" if group == "plugin_mcp" else "Remove…")
+        self.add_entry.setEnabled(self.data is not None and group is not None)
+        self.remove_entry.setEnabled(self.data is not None and item is not None)
+
+    def fill_hooks(self):
+        table = self.tables["Hooks"]
+        local = self.data.get("hook_entries", {})
+        peer = self.data.get("peer_inventory", {})
+        remote = peer.get("hook_entries", {})
+        table.clear()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Event", "Handler", "File", "Installed on"])
+        entries = sorted((local | remote).items(), key=lambda item: item[1]["event"])
+        table.setRowCount(len(entries))
+        for row, (identity, hook) in enumerate(entries):
+            item = self.cell(hook["event"])
+            item.setData(Qt.ItemDataRole.UserRole, identity)
+            table.setItem(row, 0, item)
+            handler = f'{hook["matcher"]} · {hook["description"]}' if hook["matcher"] else hook["description"]
+            item = self.cell(handler)
+            item.setToolTip(handler)
+            table.setItem(row, 1, item)
+            table.setItem(row, 2, self.cell(hook["source"]))
+            hosts = [HOST_LABELS[host] for host, entries in (
+                (self.data["profile"], local), (peer.get("profile"), remote)) if identity in entries]
+            table.setItem(row, 3, self.cell(", ".join(hosts)))
+        for column in (0, 2, 3):
+            table.resizeColumnToContents(column)
+        table.horizontalHeader().setSectionResizeMode(1, table.horizontalHeader().ResizeMode.Stretch)
+
+    def managed_skills(self):
+        return set().union(*(section.get("skills", {}) for section in
+                             (self.draft["shared"], *self.draft["hosts"].values())))
+
+    def import_skill(self):
+        selected = QFileDialog.getExistingDirectory(self, "Choose a folder containing SKILL.md")
+        if not selected:
+            return
+        folder = Path(selected).resolve()
+        if not (folder / "SKILL.md").is_file():
+            QMessageBox.warning(self, "Skill import", "The folder needs a SKILL.md file.")
+            return
+        if folder.name in self.managed_skills():
+            QMessageBox.warning(self, "Skill import", "That name belongs to a dotfiles skill. Enable it from the Skills tab.")
+            return
+        files = {}
+        total = 0
+        try:
+            for file in folder.rglob("*"):
+                relative = file.relative_to(folder)
+                if ".git" in relative.parts or file.is_symlink() or not file.is_file():
+                    continue
+                if not file.resolve().is_relative_to(folder):
+                    raise ValueError("The skill contains a file outside the selected folder.")
+                info = file.stat()
+                total += info.st_size
+                if total > 5 * 1024 * 1024:
+                    raise ValueError("The skill exceeds the 5 MiB import limit.")
+                files[str(relative)] = {"content": base64.b64encode(file.read_bytes()).decode("ascii"),
+                                        "executable": bool(info.st_mode & stat.S_IXUSR)}
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Skill import", str(error))
+            return
+        if "SKILL.md" not in files:
+            QMessageBox.warning(self, "Skill import", "SKILL.md must be a file within the selected folder.")
+            return
+        self.submit_entry("add", "skills", folder.name, files)
+
+    def add_selected_entry(self):
+        group, item = self.entry_selection()
+        if group == "skills":
+            sources = ["Import a folder…", *sorted(self.managed_skills() | {
+                path.parent.name for path in SKILL_SOURCE.glob("*/SKILL.md")
+            })]
+            source, accepted = QInputDialog.getItem(self, "Add skill", "Source", sources, editable=False)
+            if accepted and source == sources[0]:
+                self.import_skill()
+            elif accepted:
+                self.stage_policy(group, source, "automatic")
+            return
+        if group == "plugin_mcp":
+            names = sorted(set(self.data["plugin_mcp"]) | set(self.data.get("peer_inventory", {}).get("plugin_mcp", {})))
+            if not names:
+                QMessageBox.information(self, "Add override", "Install a plugin that provides an MCP server first.")
+                return
+            name, ok = QInputDialog.getItem(self, "Add override", "Plugin MCP server", names,
+                                            names.index(item.text()) if item and item.text() in names else 0,
+                                            editable=False)
+            if ok:
+                value, accepted = QInputDialog.getItem(self, "Add override", "Enablement", ["On", "Off"], editable=False)
+                if accepted:
+                    self.stage_policy(group, name, value == "On")
+            return
+        title = f"Add {ENTRY_LABELS[group]}"
+        prompt = {"mcp": "Server name", "plugins": "Plugin name (plugin@marketplace)", "hooks": "Codex hook event"}
+        name, ok = QInputDialog.getText(self, title, prompt[group], text="SessionStart" if group == "hooks" else "")
+        if not ok or not name.strip():
+            return
+        value = None
+        if group == "mcp":
+            value, ok = QInputDialog.getText(self, title, "HTTP URL or command with arguments")
+        elif group == "hooks":
+            matcher, ok = QInputDialog.getText(self, title, "Matcher (optional)")
+            if not ok:
+                return
+            handler, ok = QInputDialog.getMultiLineText(
+                self, title, "Handler JSON", '{\n  "type": "command",\n  "command": ""\n}')
+            if ok:
+                try:
+                    value = {"matcher": matcher.strip(), "handler": json.loads(handler)}
+                except ValueError:
+                    QMessageBox.warning(self, title, "Enter valid JSON for the hook handler.")
+                    return
+        if ok:
+            self.submit_entry("add", group, name.strip(), value)
+
+    def stage_policy(self, group, name, mode):
+        self.set_option(group, name, mode)
+        self.render()
+        self.info.setText("Change staged. Choose Apply & Sync to apply it to the selected computers.")
+
+    def remove_selected_entry(self):
+        group, item = self.entry_selection()
+        if item is None:
+            return
+        name = item.text()
+        if group == "skills" and name in self.managed_skills():
+            if self.confirm_entry("remove", group, name):
+                self.stage_policy(group, name, "off")
+            return
+        if group == "plugin_mcp":
+            if self.confirm_entry("remove", group, f"the enablement override for {name}"):
+                self.stage_policy(group, name, "default")
+            return
+        identity = name
+        if group == "hooks":
+            identity = item.data(Qt.ItemDataRole.UserRole)
+            handler = self.tables["Hooks"].item(item.row(), 1)
+            name = f"{name} ({handler.text()})"
+        self.submit_entry("remove", group, identity, description=name)
+
+    def confirm_entry(self, operation, group, name):
+        verb = operation.title()
+        box = QMessageBox(QMessageBox.Icon.Question, f"{verb} {ENTRY_LABELS[group]}",
+                          f"{verb} {name} on {self.scope.currentText()}?",
+                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def submit_entry(self, operation, group, name, value=None, description=None):
+        if self.confirm_entry(operation, group, description or name):
+            self.launch("entry", {"scope": self.target, "operation": operation, "group": group,
+                                  "name": name, "value": value})
 
     def fill(self, title, group, options):
         table = self.tables[title]
@@ -314,7 +510,7 @@ class Window(QWidget):
 
     def edit_skill_source(self, row, _column):
         selected = self.tables["Skills"].item(row, 0).text()
-        source = BACKEND.parents[1] / "config/ai-customization/skills" / selected / "SKILL.md"
+        source = SKILL_SOURCE / selected / "SKILL.md"
         if source.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(source)))
 

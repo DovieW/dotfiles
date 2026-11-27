@@ -910,9 +910,27 @@ Edit shared and host settings in the window. For private personal instructions,
 edit `~/.codex/AGENTS.local.md` and reconcile. A nonempty
 `~/.codex/AGENTS.override.md` takes precedence in Codex and requires separate
 review. Keep credentials and personal device data out of the public manifest.
-The window inventories existing MCP and plugin entries and tracks only
-enablement you choose to manage. Install and authenticate providers through
-their normal tools. The Codex app manages its own `node_repl` registration.
+The Skills, MCP Servers, Plugins, Plugin MCP Servers, and Hooks tabs have
+Add and Remove controls. Edit scope determines which workstations receive
+the operation. The window reports each computer's result separately.
+MCP registrations, marketplace plugin installs, imported skills, and user
+hooks go directly to the selected workstations. Their definitions and
+commands are stored on those computers. Use the provider's normal login
+flow if it requires authentication.
+
+An imported skill is copied from a folder containing `SKILL.md` into
+`~/.agents/skills`. Removing an imported or other local skill moves it to
+`~/.local/state/dotfiles/ai-customization/removed-skills`. Use Apply & Sync
+to add or remove the installed copy of a dotfiles skill through its scoped
+policy. For MCP servers and plugins, a previously synced enablement policy
+is still available if you reinstall the entry.
+
+The Plugin MCP Servers tab can add or remove an enablement override with
+Apply & Sync. Removing an override restores the plugin's default. The
+parent plugin supplies the server definition. The Codex app can recreate
+its own `node_repl` registration. The Hooks tab adds handlers to
+`~/.codex/hooks.json` and can remove user handlers from that file or
+`~/.codex/config.toml`.
 
 Edit custom skill sources under `config/ai-customization/skills/`, validate
 the skill, and commit and push the source through dotfiles. Avoid editing the

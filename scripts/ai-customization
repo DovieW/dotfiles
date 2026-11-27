@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Reconcile the workstation's Codex customization and publish scoped changes."""
 import argparse
+import base64
 from contextlib import contextmanager
 import copy
 import fcntl
@@ -20,6 +21,8 @@ import tarfile
 import tempfile
 import time
 import tomllib
+from urllib.parse import urlsplit
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 REL = "config/ai-customization"
@@ -31,6 +34,8 @@ DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissi
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
 ABSENT = object()
+ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks"}
+MAX_SKILL_BYTES = 5 * 1024 * 1024
 
 
 class Error(Exception):
@@ -78,10 +83,11 @@ def validate(m):
             values = section.get(group, {})
             need(isinstance(values, dict), "Invalid customization entries.")
             for name, value in values.items():
-                good_name = IDENTIFIER.fullmatch(name) or (
-                    group == "plugin_mcp" and len(name.split("/")) == 2
-                    and all(IDENTIFIER.fullmatch(part) for part in name.split("/"))
-                )
+                if group == "plugin_mcp":
+                    good_name = len(name.split("/")) == 2 and all(
+                        IDENTIFIER.fullmatch(part) for part in name.split("/"))
+                else:
+                    good_name = IDENTIFIER.fullmatch(name)
                 need(good_name, "Invalid customization identifier.")
                 if group == "defaults":
                     need(name in DEFAULTS and isinstance(value, str) and value,
@@ -89,7 +95,8 @@ def validate(m):
                 elif group == "skills":
                     need(name not in (".", "..") and value in MODES, "Invalid skill setting.")
                 else:
-                    need(type(value) is bool, "Tool settings must be on or off.")
+                    need(type(value) is bool or (group == "plugin_mcp" and value == "default"),
+                         "Invalid tool enablement setting.")
         need("node_repl" not in section.get("mcp", {}), "node_repl is managed by the Codex app.")
     need(set(m["shared"].get("defaults", {})) == DEFAULTS, "Shared Codex defaults are incomplete.")
     return m
@@ -137,7 +144,7 @@ def tool_values(settings):
             yield (table, name, "enabled"), value
     for key, value in settings["plugin_mcp"].items():
         plugin, server = key.split("/")
-        yield ("plugins", plugin, "mcp_servers", server, "enabled"), value
+        yield ("plugins", plugin, "mcp_servers", server, "enabled"), None if value == "default" else value
 
 
 def setting(data, key, default=None):
@@ -146,6 +153,29 @@ def setting(data, key, default=None):
             return default
         data = data[part]
     return data
+
+
+def tool_available(raw, key):
+    return key[0] not in ("mcp_servers", "plugins") or key[1] in raw.get(key[0], {})
+
+def tool_value(raw, key, wanted):
+    return setting(raw, key, None if wanted is None or len(key) == 1 else True)
+
+
+
+def hook_entries(source, hooks):
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            matcher = group.get("matcher", "")
+            for handler in group.get("hooks", []):
+                if not isinstance(handler, dict):
+                    continue
+                identity = digest(json.dumps([source, event, matcher, handler], sort_keys=True))
+                yield identity, event, group, handler
 
 
 def run(args, cwd=ROOT, timeout=20, data=None, env=None):
@@ -217,7 +247,9 @@ class Customization:
         installed_text = guidance.read_text() if guidance.is_file() else ""
         drift = {}
         for key, wanted in tool_values(expected):
-            actual = setting(raw, key, True if key[0] != key[-1] else None)
+            if not tool_available(raw, key):
+                continue
+            actual = tool_value(raw, key, wanted)
             baseline = previous.get("settings", {}).get(".".join(key), ABSENT)
             if baseline is not ABSENT and actual not in (baseline, wanted):
                 drift[".".join(key)] = actual
@@ -229,6 +261,13 @@ class Customization:
             if (self.codex / "AGENTS.override.md").read_text().strip():
                 drift["override"] = "AGENTS.override.md takes precedence"
         hooks = load(self.codex / "hooks.json", {})
+        handlers = {}
+        for source, groups in (("hooks.json", hooks.get("hooks", {})), ("config.toml", raw.get("hooks", {}))):
+            for identity, event, group, handler in hook_entries(source, groups):
+                command = handler.get("command") or handler.get("tool") or handler.get("type", "Hook")
+                description = " ".join(str(command).split())
+                handlers[identity] = {"event": event, "matcher": group.get("matcher", ""),
+                                      "description": description[:120], "source": source}
         plugin_servers = {name: {server: value.get("enabled", True)
                                  for server, value in item.get("mcp_servers", {}).items()}
                           for name, item in raw.get("plugins", {}).items()}
@@ -277,6 +316,7 @@ class Customization:
             "plugins": {k: v.get("enabled", True) for k, v in raw.get("plugins", {}).items() if k != "_default"},
             "plugin_mcp": {f"{p}/{s}": v for p, servers in plugin_servers.items() for s, v in servers.items()},
             "hooks": sorted(set(hooks.get("hooks", {})) | (set(raw.get("hooks", {})) - {"state"})),
+            "hook_entries": handlers,
             "applied": previous.get("revision"), "peer": load(self.state / "peer.json", {}),
             "pending": load(self.state / "pending.json"),
             "instructions_outdated": installed_text != expected["instructions"],
@@ -345,18 +385,18 @@ class Customization:
         original, raw = self.config()
         changes = []
         for key, wanted in tool_values(expected):
-            if key[0] == "mcp_servers" and key[1] not in raw.get("mcp_servers", {}):
-                continue  # An enablement policy cannot provision a server or its authorization.
-            actual = setting(raw, key, True if key[0] != key[-1] else None)
+            if not tool_available(raw, key):
+                continue  # Enablement policy cannot install entries.
+            actual = tool_value(raw, key, wanted)
             if actual != wanted:
                 changes.append((key, wanted))
         wanted_sources = {}
         stale = set(previous.get("skills", [])) - expected["skills"].keys()
         for name, mode in expected["skills"].items():
-            path = self.skills / name
-            need(not (path.exists() or path.is_symlink()) or self.skill_target(name),
-                 f"An unmanaged skill already occupies {name}.")
             if mode != "off":
+                path = self.skills / name
+                need(not (path.exists() or path.is_symlink()) or self.skill_target(name),
+                     f"An unmanaged skill already occupies {name}.")
                 folder = self.skill_source(name, source)
                 need((folder / "SKILL.md").is_file(), f"Skill source is missing for {name}.")
                 wanted_sources[name] = (folder, skill_policy(folder, mode))
@@ -380,8 +420,8 @@ class Customization:
         atomic(self.state / "applied.json", encode({
             "revision": revision, "instructions": digest(expected["instructions"]),
             "chrome": status["skill_sources"].get("chrome-devtools-cli"),
-            "settings": {".".join(key): setting(available, key, True if key[0] != key[-1] else None)
-                         for key, _ in tool_values(expected)},
+            "settings": {".".join(key): tool_value(available, key, wanted)
+                         for key, wanted in tool_values(expected) if tool_available(available, key)},
             "skills": sorted(expected["skills"]),
         }))
 
@@ -406,6 +446,161 @@ class Customization:
                 temporary = Path(stage) / "skill"
                 temporary.symlink_to(target, target_is_directory=True)
                 temporary.replace(link)
+
+    def edit_skill(self, name, files, remove):
+        path = self.skills / name
+        need(not self.skill_target(name), "Change the installation policy for this dotfiles skill.")
+        if remove:
+            if path.exists() or path.is_symlink():
+                backup = self.state / "removed-skills"
+                backup.mkdir(exist_ok=True, mode=0o700)
+                shutil.move(path, backup / f"{name}-{uuid4().hex}")
+            return
+        need(isinstance(files, dict) and "SKILL.md" in files, "Select a folder containing SKILL.md.")
+        decoded = {}
+        total = 0
+        for relative, record in files.items():
+            file = Path(relative)
+            need(file.parts and not file.is_absolute() and all(p not in ("..", ".git") for p in file.parts),
+                 "The skill contains an unsafe file path.")
+            content = base64.b64decode(record["content"], validate=True)
+            total += len(content)
+            need(total <= MAX_SKILL_BYTES, "The skill exceeds the 5 MiB import limit.")
+            decoded[file] = (content, record["executable"] is True)
+        if path.exists() or path.is_symlink():
+            need(path.is_dir() and not path.is_symlink()
+                 and {p.relative_to(path) for p in path.rglob("*") if not p.is_dir()} == set(decoded)
+                 and all((path / file).is_file() and not (path / file).is_symlink()
+                         and (path / file).read_bytes() == content
+                         and bool((path / file).stat().st_mode & 0o100) == executable
+                         for file, (content, executable) in decoded.items()),
+                 "A skill with this name already exists.")
+            return
+        self.skills.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=self.skills) as folder:
+            staged = Path(folder) / name
+            for file, (content, executable) in decoded.items():
+                dest = staged / file
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(content)
+                dest.chmod(0o700 if executable else 0o600)
+            staged.rename(path)
+
+    def edit_hook(self, name, value, remove):
+        path = self.codex / "hooks.json"
+        document = load(path, {})
+        hooks = document.setdefault("hooks", {})
+        original, raw = self.config()
+        if remove:
+            for source, groups in (("hooks.json", hooks), ("config.toml", raw.get("hooks", {}))):
+                for identity, event, group, handler in hook_entries(source, groups):
+                    if identity == name:
+                        group["hooks"].remove(handler)
+                        if not group["hooks"]:
+                            groups[event].remove(group)
+                        if source == "config.toml":
+                            self.write_config(original, [(("hooks", event), groups[event] or None)])
+                        else:
+                            if not groups[event]:
+                                groups.pop(event)
+                            atomic(path, encode(document))
+                        return
+            return
+        need(re.fullmatch(r"[A-Z][A-Za-z0-9]+", name), "Enter a Codex hook event such as SessionStart.")
+        handler = value["handler"]
+        need(isinstance(handler, dict), "Enter a JSON object for the hook handler.")
+        kind = handler.get("type")
+        need((kind == "command" and isinstance(handler.get("command"), str) and handler["command"].strip())
+             or (kind == "mcp_tool" and all(isinstance(handler.get(k), str) and handler[k].strip()
+                                          for k in ("server", "tool"))),
+             "A hook needs a command or an MCP server and tool.")
+        matcher = value.get("matcher", "")
+        need(isinstance(matcher, str), "Enter a hook matcher as text.")
+        if any(event == name and group.get("matcher", "") == matcher and item == handler
+               for _, event, group, item in hook_entries("hooks.json", hooks)):
+            return
+        group = {"hooks": [handler]}
+        if matcher:
+            group["matcher"] = matcher
+        hooks.setdefault(name, []).append(group)
+        atomic(path, encode(document))
+
+    def edit_entry(self, request):
+        group, name, operation = (request[key] for key in ("group", "name", "operation"))
+        need(group in ENTRY_GROUPS and operation in ("add", "remove"), "Unknown entry action.")
+        remove = operation == "remove"
+        value = request.get("value")
+        if group == "hooks":
+            self.edit_hook(name, value, remove)
+            return
+        need(IDENTIFIER.fullmatch(name) and name not in (".", "..") and not name.startswith("-"),
+             "Invalid entry name.")
+        if group == "skills":
+            self.edit_skill(name, value, remove)
+        elif group == "plugins":
+            need(re.fullmatch(r"[\w.-]+@[\w.-]+", name, re.ASCII), "Use a plugin name in plugin@marketplace form.")
+            codex = self.home / ".local/bin/codex"
+            result = run([str(codex), "plugin", operation, "--json", name], cwd="/", timeout=75,
+                         env=dict(os.environ, CODEX_HOME=str(self.codex)))
+            need(result.returncode == 0, "Codex could not change the plugin. Check its marketplace and access.")
+            if not remove:
+                original, raw = self.config()
+                changes = [
+                    (key, wanted) for key, wanted in tool_values(effective(self.manifest(), self.profile))
+                    if key[:2] == ("plugins", name) and tool_value(raw, key, wanted) != wanted
+                ]
+                self.write_config(original, changes)
+        else:
+            original, raw = self.config()
+            key = ("mcp_servers", name)
+            existing = setting(raw, key)
+            if not remove:
+                need(isinstance(value, str), "Enter an MCP server URL or command.")
+                url = urlsplit(value)
+                if url.scheme in ("http", "https"):
+                    need(url.hostname, "Enter a complete HTTP or HTTPS URL.")
+                    value = {"url": value}
+                else:
+                    args = shlex.split(value)
+                    need(args, "Enter an MCP server URL or command.")
+                    value = {"command": args[0], "args": args[1:]}
+                need(existing is None or all(existing.get(k, [] if k == "args" else None) == v
+                                             for k, v in value.items()),
+                     "An MCP server with this name already exists.")
+                if existing is not None:
+                    return
+                policy = effective(self.manifest(), self.profile)["mcp"].get(name)
+                if policy is not None:
+                    value["enabled"] = policy
+            wanted = None if remove else value
+            if existing != wanted:
+                self.write_config(original, [(key, wanted)])
+
+    def entry_result(self, request):
+        try:
+            with self.locked():
+                self.edit_entry(request)
+            return {"ok": True}
+        except Error as error:
+            return {"error": str(error)}
+        except subprocess.TimeoutExpired:
+            return {"error": "The operation timed out. Reload before retrying."}
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            return {"error": f"Could not change this entry ({type(error).__name__})."}
+
+    def edit_scope(self, request):
+        scope = request["scope"]
+        need(scope in ("shared", *HOSTS.values()), "Select Desktop, IdeaPad, or both.")
+        results = {}
+        for profile in HOSTS.values():
+            if scope not in ("shared", profile):
+                continue
+            if profile == self.profile:
+                results[profile] = self.entry_result(request)
+            else:
+                response = self.call_peer("entry-local", data=encode(request), timeout=95)
+                results[profile] = response or {"error": "Could not reach the other computer or its app needs an update."}
+        return results
 
     def sync(self, revision=None):
         need(not (self.state / "pending.json").exists(),
@@ -469,7 +664,7 @@ class Customization:
         atomic(self.state / "peer.json", encode(status))
         return status
 
-    def call_peer(self, *args, timeout=8):
+    def call_peer(self, *args, timeout=8, data=None):
         current = next(host for host, profile in HOSTS.items() if profile == self.profile)
         peers = load(ROOT / "config/diagnostics/crash-peers.json")
         peer = peers[peers[current]["peer"]]
@@ -484,7 +679,7 @@ class Customization:
                 options = ["-o", f"UserKnownHostsFile={known_hosts}", "-o", "GlobalKnownHostsFile=/dev/null",
                            "-o", f'HostKeyAlias={peer["hostname"]}', "-o", "UpdateHostKeys=no"]
                 result = run(shlex.split(self.git_env["GIT_SSH_COMMAND"]) + options + [target, command],
-                             timeout=timeout, env=self.git_env)
+                             timeout=timeout, env=self.git_env, data=data)
             return json.loads(result.stdout) if result.returncode == 0 else {}
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return {}
@@ -529,7 +724,7 @@ class Customization:
 def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
-                                           "publish", "install", "discard-draft"))
+                                           "publish", "install", "discard-draft", "entry", "entry-local"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -546,7 +741,14 @@ def main():
             print(encode(result), end="")
         elif args.action == "inventory":
             result = app.status()
-            print(encode({key: result[key] for key in ("profile", "skills", "mcp", "plugins", "plugin_mcp")}), end="")
+            print(encode({key: result[key] for key in
+                          ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")}), end="")
+        elif args.action in ("entry", "entry-local"):
+            request = json.load(sys.stdin)
+            if args.action == "entry-local":
+                need(request["scope"] in ("shared", app.profile), "The request targets a different computer.")
+            result = app.edit_scope(request) if args.action == "entry" else app.entry_result(request)
+            print(encode(result), end="")
         elif args.action == "preview":
             draft = sys.stdin.read() if not sys.stdin.isatty() else ""
             manifest = validate(json.loads(draft)) if draft.strip() else app.manifest()
