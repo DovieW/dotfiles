@@ -28,6 +28,8 @@ On the IdeaPad Pro 5 16IAH10 (83JM), the airplane icon key opens Instant Connect
 Apply both the launcher and hardware remap with
 `bin/dot apply --profile kubuntu-laptop --tags connection-check,instant-connect-key`.
 The airplane key appears as Go in Plasma's shortcuts. Plain F8 keeps its normal behavior.
+See [Remapping laptop hardware keys on Plasma](hardware-keys.md) for the
+diagnostic steps and the reason the extra-button device is reattached.
 
 ## Optional phone handoff
 

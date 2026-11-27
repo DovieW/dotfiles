@@ -522,6 +522,9 @@ and disable-while-typing would not engage. The local libinput quirk database
 therefore classifies that virtual keyboard as internal only on the Lenovo 83JM.
 The normal libinput disable-while-typing timeout remains unchanged.
 
+See [Remapping laptop hardware keys on Plasma](hardware-keys.md) for the
+firmware-to-Plasma troubleshooting steps and the IdeaPad airplane key example.
+
 Native Linux graphical applications receive
 `SSH_AUTH_SOCK=${HOME}/.bitwarden-ssh-agent.sock` through systemd's
 `environment.d` mechanism. This makes Obsidian and other desktop Git clients
