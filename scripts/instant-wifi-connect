@@ -14,7 +14,7 @@ import dbus
 from PyQt6.QtCore import QSettings, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QCheckBox, QDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -303,7 +303,7 @@ class Window(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Instant Connect")
-        self.resize(560, 380)
+        self.resize(620, 390)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -312,6 +312,7 @@ class Window(QDialog):
         layout.addLayout(choices, 1)
         self.wifi = QGroupBox("Wi-Fi")
         wifi = QVBoxLayout(self.wifi)
+        wifi.setContentsMargins(12, 14, 12, 12)
         wifi.setSpacing(8)
         for name, uuid in NETWORKS:
             wifi.addWidget(self.target_button(connect_wifi, name, uuid))
@@ -320,6 +321,7 @@ class Window(QDialog):
 
         self.bluetooth = QGroupBox("Bluetooth")
         bluetooth = QVBoxLayout(self.bluetooth)
+        bluetooth.setContentsMargins(12, 14, 12, 12)
         bluetooth.setSpacing(8)
         self.bluetooth_status = QLabel()
         self.bluetooth_status.setWordWrap(True)
@@ -335,14 +337,25 @@ class Window(QDialog):
         self.device_buttons.addStretch()
         scroll.setWidget(self.devices)
         bluetooth.addWidget(scroll, 1)
+        bluetooth_divider = QFrame()
+        bluetooth_divider.setFrameShape(QFrame.Shape.HLine)
+        bluetooth.addWidget(bluetooth_divider)
+        bluetooth_controls = QHBoxLayout()
+        bluetooth_controls.setSpacing(8)
         self.refresh = QPushButton("Refresh devices")
         self.refresh.setIcon(QIcon.fromTheme("view-refresh"))
         self.refresh.clicked.connect(self.load_bluetooth)
-        bluetooth.addWidget(self.refresh)
+        bluetooth_controls.addWidget(self.refresh)
         self.restart = QPushButton("Restart Bluetooth")
         self.restart.clicked.connect(self.restart_bluetooth_service)
-        bluetooth.addWidget(self.restart)
+        bluetooth_controls.addWidget(self.restart)
+        bluetooth.addLayout(bluetooth_controls)
         choices.addWidget(self.bluetooth, 1)
+        for section in (self.wifi, self.bluetooth):
+            section.setStyleSheet("QGroupBox { font-weight: bold; }")
+        footer_divider = QFrame()
+        footer_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(footer_divider)
 
         self.settings = QSettings("doview", "instant-connect")
         self.auto_close = QCheckBox("Auto-close after connecting")
@@ -354,17 +367,24 @@ class Window(QDialog):
         self.auto_close.toggled.connect(lambda checked: self.settings.setValue("autoClose", checked))
         layout.addWidget(self.auto_close)
 
+        self.feedback = QFrame()
+        self.feedback.setObjectName("connectionFeedback")
+        self.feedback.setStyleSheet(
+            "#connectionFeedback { background-color: palette(alternate-base); "
+            "border: 1px solid palette(mid); border-radius: 6px; }"
+        )
+        feedback_layout = QVBoxLayout(self.feedback)
+        feedback_layout.setContentsMargins(12, 9, 12, 9)
         self.status = QLabel()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
-        self.status.setMargin(10)
-        self.status.setStyleSheet("background-color: palette(alternate-base); border-radius: 6px;")
-        self.status.setText("Click a network or device to connect.")
-        layout.addWidget(self.status)
+        feedback_layout.addWidget(self.status)
         self.retry_without_phone = QPushButton("Try laptop connection anyway")
         self.retry_without_phone.hide()
         self.retry_without_phone.clicked.connect(self.retry_bluetooth)
-        layout.addWidget(self.retry_without_phone)
+        feedback_layout.addWidget(self.retry_without_phone)
+        self.feedback.hide()
+        layout.addWidget(self.feedback)
         self.bluetooth_target = None
         self.worker = None
         self.device_worker = None
@@ -374,6 +394,7 @@ class Window(QDialog):
         button = QPushButton(name.replace("&", "&&"))
         button.setMinimumHeight(38)
         button.setAutoDefault(False)
+        button.setStyleSheet("QPushButton { text-align: left; padding: 6px 12px; }")
         button.clicked.connect(lambda: self.start_connection(operation, name, identifier))
         return button
 
@@ -415,6 +436,7 @@ class Window(QDialog):
         self.wifi.setEnabled(False)
         self.bluetooth.setEnabled(False)
         self.status.setText(message)
+        self.feedback.show()
         self.worker = Worker(operation, *args)
         self.worker.progress.connect(self.status.setText)
         self.worker.result.connect(self.show_connection_result)
