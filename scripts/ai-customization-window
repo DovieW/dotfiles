@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 
 APP_ID = "io.github.doview.ai-customization"
 BACKEND = Path(__file__).resolve().with_name("ai-customization")
+ICON = BACKEND.parents[1] / "config/applications" / f"{APP_ID}.png"
 SCOPES = {"Both computers": "shared", "Desktop": "kubuntu-desktop", "IdeaPad": "kubuntu-laptop"}
 TABLES = {
     "Skills": ("skills", ["automatic", "manual", "off"]),
@@ -376,7 +377,7 @@ def main():
     app.setApplicationName(APP_ID)
     app.setApplicationDisplayName("AI Customization")
     app.setDesktopFileName(APP_ID)
-    app.setWindowIcon(QIcon.fromTheme("preferences-system"))
+    app.setWindowIcon(QIcon.fromTheme(APP_ID, QIcon(str(ICON))))
     window = Window()
     window.show()
     return app.exec()

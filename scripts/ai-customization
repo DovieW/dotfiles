@@ -492,10 +492,13 @@ class Customization:
     def install(self):
         bin_dir = self.home / ".local/bin"
         systemd = self.home / ".config/systemd/user"
-        desktop = self.home / ".local/share/applications/io.github.doview.ai-customization.desktop"
+        share = self.home / ".local/share"
+        desktop = share / "applications/io.github.doview.ai-customization.desktop"
+        icon_name = f"{desktop.stem}.png"
         files = {
             bin_dir / "dot-ai-customization": ROOT / "scripts/ai-customization",
             bin_dir / "ai-customization": ROOT / "scripts/ai-customization-window",
+            share / "icons/hicolor/512x512/apps" / icon_name: ROOT / "config/applications" / icon_name,
             **{systemd / f"dot-ai-customization.{kind}":
                ROOT / f"config/systemd/user/dot-ai-customization.{kind}" for kind in ("service", "timer")},
         }
