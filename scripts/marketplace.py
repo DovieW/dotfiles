@@ -166,11 +166,7 @@ class Catalog:
         if catalog == "skills":
             owner, repo, name = skill_link(identifier)
             source = f"{owner}/{repo}"
-            output = self.run(["git", "ls-remote", f"https://github.com/{source}.git", "HEAD"],
-                              Path("/"), public_env(self.app.home), 12, "Could not resolve the skill repository.")
-            revision = output.split(maxsplit=1)[0] if output else ""
-            if not REF.fullmatch(revision):
-                raise CatalogError("The source did not report a Git commit.")
+            revision = self.skill_revision(source)
             pin, files, overview = self.fetch_skill(name, source, revision)
             scripts = [file for file in files if file.startswith("scripts/") or Path(file).suffix in (".sh", ".py", ".js")]
             return {"name": name, "title": name, "source": source, "description": overview,
@@ -179,7 +175,7 @@ class Catalog:
                                 *([f"Bundled scripts: {', '.join(scripts)}"] if scripts else []), *files]}
         if catalog == "mcp":
             name, version = identifier
-            server = json_request(f"{REGISTRY}/v0.1/servers/{quote(name, safe='')}/versions/{quote(version, safe='')}", {})["server"]
+            server = mcp_record(name, version)
             description = server.get("description", "")
             return {"name": re.sub(r"[^A-Za-z0-9_.-]", "-", name.rsplit("/", 1)[-1]),
                     "title": server.get("title") or name, "source": name,
@@ -187,9 +183,7 @@ class Catalog:
                     "details": [f"Registry version {version}"], "choices": mcp_choices(server)}
         if catalog != "plugins":
             raise CatalogError("Unknown marketplace.")
-        with self.app.codex_rpc(self.app.home / ".local/bin/codex", experimental=True) as request:
-            detail = request("plugin/read", {key: value for key, value in identifier.items() if value is not None})
-        plugin = detail["plugin"]
+        plugin = self.plugin_detail(identifier)
         summary = plugin["summary"]
         interface = summary.get("interface") or {}
         name = summary["id"]
@@ -202,10 +196,24 @@ class Catalog:
             if names:
                 parts.append(f"{label}: " + ", ".join(str(item) for item in names if item))
         return {"name": name, "title": interface.get("displayName") or summary["name"],
-                "source": str(detail.get("marketplaceName") or name.split("@", 1)[-1]),
+                "source": str(plugin.get("marketplaceName") or name.split("@", 1)[-1]),
                 "description": interface.get("longDescription") or interface.get("shortDescription") or "",
                 "url": plugin_link(interface, plugin.get("shareUrl")), "details": parts,
                 "installed": summary.get("installed", False)}
+
+    def skill_revision(self, source):
+        if len(source.split("/")) != 2 or not all(PART.fullmatch(part) for part in source.split("/")):
+            raise CatalogError("Invalid skill repository.")
+        output = self.run(["git", "ls-remote", f"https://github.com/{source}.git", "HEAD"],
+                          Path("/"), public_env(self.app.home), 12, "Could not resolve the skill repository.")
+        revision = output.split(maxsplit=1)[0] if output else ""
+        if not REF.fullmatch(revision):
+            raise CatalogError("The source did not report a Git commit.")
+        return revision
+
+    def plugin_detail(self, identifier):
+        with self.app.codex_rpc(self.app.home / ".local/bin/codex", experimental=True) as request:
+            return request("plugin/read", {key: value for key, value in identifier.items() if value is not None})["plugin"]
 
     def skills_cli(self, node):
         lock = self.install_package / "package-lock.json"
@@ -299,6 +307,13 @@ def mcp_link(server):
     return link if https_url(link) else REGISTRY + "/?" + urlencode({"q": server["name"]})
 
 
+def mcp_record(name, version):
+    server = json_request(f"{REGISTRY}/v0.1/servers/{quote(name, safe='')}/versions/{quote(version, safe='')}", {})["server"]
+    if server.get("name") != name or version != "latest" and server.get("version") != version:
+        raise CatalogError("The registry returned a different server release.")
+    return server
+
+
 def fixed_arguments(arguments):
     args = []
     for arg in arguments:
@@ -361,7 +376,8 @@ def mcp_choices(server):
             choices.append({"label": f"{ecosystem} · {identifier} {version}", "kind": ecosystem,
                             "package": identifier, "version": version, "arguments": args,
                             "env_vars": sorted(set(requirements))})
-    return choices
+    registry = {"name": server["name"], "version": server["version"]} if "version" in server else None
+    return [{**choice, "registry": registry} for choice in choices] if registry else choices
 
 
 def mcp_configuration(home, choice):

@@ -1022,6 +1022,19 @@ use **Open in Chrome** for its listing, then **Stage install**. Apply & Sync
 installs on the selected computers and reports failures by computer. A
 skills.sh link can also be pasted directly in the browser.
 
+**Check for updates** uses the current edit scope. It compares installed
+skills.sh pins, MCP Registry registrations with a recorded source, and
+plugins with a version reported by Codex. Select an item to review the skill
+file diff, registry configuration diff, or plugin metadata and component
+changes. The checkbox remembers your choice for that item and target computer
+in this copy of the window. Choose **Stage selected updates**, then **Apply &
+Sync** to apply them. Start a fresh Codex session for the updated integrations.
+
+For Git plugin marketplaces, refresh the catalog with Codex before checking.
+App-owned plugins without a source version follow the app's update path.
+Custom skills, folder imports, and CLI-provided guides follow their own
+dotfiles, folder, or package updates.
+
 Marketplace skills default to manual invocation. Dotfiles records the
 source, commit, path, file checksum, invocation mode, and computer scope.
 Vercel's pinned CLI fetches the files into an isolated directory. The app

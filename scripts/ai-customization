@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Reconcile the workstation's Codex customization and publish scoped changes."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import base64
 from contextlib import contextmanager
 import copy
@@ -712,6 +713,23 @@ class Customization:
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, IndexError) as error:
             raise Error("The marketplace did not return usable data. Try again or open its listing in Chrome.") from error
 
+    def marketplace_updates(self, scope):
+        from marketplace_updates import check_updates
+
+        profiles = removal_profiles(scope)
+
+        def check(profile):
+            if profile == self.profile:
+                return check_updates(self, self.instructions(self.manifest()), self.config()[1], Error)
+            result = self.call_peer("marketplace-updates", "--target", profile, timeout=115)
+            return result or {"items": [], "current": 0, "warnings": ["The other computer could not complete its check."]}
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(check, profiles))
+        return {"items": [row for result in results for row in result["items"]],
+                "current": sum(result["current"] for result in results),
+                "warnings": [message for result in results for message in result["warnings"]]}
+
     def status(self, manifest=None):
         manifest = manifest or self.manifest()
         _, raw = self.config()
@@ -961,10 +979,10 @@ class Customization:
             for name, info in tools.items() if TOOL_NAME.fullmatch(name)}}
 
     @contextmanager
-    def codex_rpc(self, codex, experimental=False, timeout=12, cwd="/"):
+    def codex_rpc(self, codex, experimental=False, timeout=12, cwd="/", codex_home=None):
         with subprocess.Popen([str(codex), "app-server"], cwd=cwd, stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
-                              env=dict(os.environ, CODEX_HOME=str(self.codex))) as process:
+                              env=dict(os.environ, CODEX_HOME=str(codex_home or self.codex))) as process:
             buffer = b""
             next_id = 0
 
@@ -1205,7 +1223,8 @@ class Customization:
 
     def edit_entry(self, request):
         group, name, operation = (request[key] for key in ("group", "name", "operation"))
-        need(group in ENTRY_GROUPS and operation in ("add", "remove"), "Unknown entry action.")
+        need(group in ENTRY_GROUPS and (operation in ("add", "remove")
+             or operation == "update" and group in ("mcp", "plugins")), "Unknown entry action.")
         remove = operation == "remove"
         value = request.get("value")
         if group == "config":
@@ -1230,6 +1249,9 @@ class Customization:
             self.edit_skill(name, value, remove)
         elif group == "plugins":
             need(re.fullmatch(r"[\w.-]+@[\w.-]+", name, re.ASCII), "Use a plugin name in plugin@marketplace form.")
+            if operation == "update":
+                self.update_plugin(name, value)
+                return
             codex = self.home / ".local/bin/codex"
             result = run([str(codex), "plugin", operation, "--json", name], cwd="/", timeout=75,
                          env=dict(os.environ, CODEX_HOME=str(self.codex)))
@@ -1245,6 +1267,9 @@ class Customization:
             original, raw = self.config()
             key = ("mcp_servers", name)
             existing = setting(raw, key)
+            if operation == "update" or (operation == "add" and isinstance(value, dict) and "registry" in value):
+                self.change_registry_mcp(name, value, operation == "update", original, existing)
+                return
             if not remove:
                 if isinstance(value, dict):
                     from marketplace import CatalogError, mcp_configuration
@@ -1274,6 +1299,80 @@ class Customization:
             wanted = None if remove else value
             if existing != wanted:
                 self.write_config(original, [(key, wanted)])
+            if remove:
+                from marketplace_updates import MCP_RECEIPTS
+                path = self.state / MCP_RECEIPTS
+                receipts = load(path, {})
+                if name in receipts:
+                    receipts.pop(name)
+                    atomic(path, encode(receipts))
+
+    def change_registry_mcp(self, name, value, update, original, existing):
+        from marketplace import CatalogError, mcp_configuration
+        from marketplace_updates import MCP_RECEIPTS, mcp_receipt, transport, updated_mcp
+
+        need(name != "node_repl", "node_repl is managed by the Codex app.")
+        path = self.state / MCP_RECEIPTS
+        receipts = load(path, {})
+        current = receipts.get(name)
+        choice = value["next"] if update else value
+        if update:
+            need(existing is not None and current and current["choice"] in (value["previous"], choice),
+                 "The MCP registration changed after review. Check for updates again.")
+        try:
+            generated = mcp_configuration(self.home, choice)
+            receipt = mcp_receipt(choice, generated)
+            need(receipt, "The MCP Registry source is missing.")
+            if update:
+                need(transport(existing) in (current["transport"], receipt["transport"]),
+                     "The local MCP transport changed after review. Check for updates again.")
+                wanted = updated_mcp(existing, generated, value["previous"], choice)
+            else:
+                need(existing is None or all(existing.get(key, [] if key == "args" else None) == item
+                                             for key, item in generated.items() if key != "enabled"),
+                     "An MCP server with this name already exists.")
+                wanted = existing if existing is not None else generated
+                if existing is None:
+                    policy = effective(self.manifest(), self.profile)["mcp"].get(name)
+                    if policy is not None and wanted.get("enabled") is not False:
+                        wanted["enabled"] = policy
+        except CatalogError as error:
+            raise Error(str(error)) from error
+        if wanted != existing:
+            self.write_config(original, [(('mcp_servers', name), wanted)])
+        if current != receipt:
+            receipts[name] = receipt
+            atomic(path, encode(receipts))
+
+    def update_plugin(self, name, release):
+        from marketplace import Catalog, PLUGIN_ID
+        from marketplace_updates import installed_plugin, latest_plugin, local_plugins
+
+        need(PLUGIN_ID.fullmatch(name), "Invalid plugin name.")
+        _, installed, remote = installed_plugin(self, name)
+        current = installed.get("version")
+        if current == release["next"]:
+            return
+        need(current == release["previous"] and remote == release["remote"],
+             "The installed plugin changed after review. Check for updates again.")
+        catalog = Catalog(self)
+        local = None if remote else local_plugins(catalog).get(name)
+        latest, _, _ = latest_plugin(catalog, name, local, remote)
+        need(latest == release["next"], "The marketplace version changed after review. Check for updates again.")
+        previous = setting(self.config()[1], ("plugins", name), {})
+        codex = self.home / ".local/bin/codex"
+        try:
+            result = run([str(codex), "plugin", "add", "--json", name], cwd="/", timeout=75,
+                         env=dict(os.environ, CODEX_HOME=str(self.codex)))
+        finally:
+            # The native installer enables a plugin. Restore an existing override immediately.
+            original, raw = self.config()
+            current_setting = setting(raw, ("plugins", name), {})
+            if previous.get("enabled") != current_setting.get("enabled"):
+                self.write_config(original, [(('plugins', name, 'enabled'), previous.get("enabled"))])
+        need(result.returncode == 0, "Codex could not update this plugin. Check its marketplace and access.")
+        need(json.loads(result.stdout).get("version") == latest,
+             "Codex installed a different version than the preview. Check the installed version.")
 
     def edit_config_choice(self, parts, value):
         need(isinstance(parts, list) and parts and all(
@@ -1361,7 +1460,7 @@ class Customization:
         removals = request.get("removals", [])
         installs = request.get("installs", [])
         for install in installs:
-            need(install["group"] in ("mcp", "plugins") and install["operation"] == "add",
+            need(install["group"] in ("mcp", "plugins") and install["operation"] in ("add", "update"),
                  "Invalid staged install.")
             removal_profiles(install["scope"])
         for removal in removals:
@@ -1413,6 +1512,11 @@ class Customization:
             for install in installs:
                 for profile in removal_profiles(install["scope"]):
                     scoped = {**install, "scope": profile}
+                    if install["operation"] == "update":
+                        pending = [job for job in pending if not (
+                            job["request"]["operation"] == "update"
+                            and all(job["request"][key] == scoped[key] for key in ("name", "group", "scope"))
+                            and job["request"] != scoped)]
                     if not any(job["request"] == scoped for job in pending):
                         pending.append({"id": uuid4().hex, "request": scoped})
             atomic(path, encode(pending))
@@ -1431,7 +1535,8 @@ class Customization:
                 request = job["request"]
                 profile = request["scope"]
                 result = self.edit_scope(request)[profile]
-                results.append({"profile": profile, "group": request["group"], "name": request["name"], **result})
+                results.append({"profile": profile, "group": request["group"], "name": request["name"],
+                                "operation": request["operation"], **result})
                 if result.get("ok"):
                     with self.locked():
                         remaining = [item for item in load(path, []) if item["id"] != job["id"]]
@@ -1511,7 +1616,7 @@ def main():
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
                                            "config-engines", "config-catalog", "integration-tools", "context-sizes",
-                                           "marketplace"))
+                                           "marketplace", "marketplace-updates"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -1554,6 +1659,8 @@ def main():
             else:
                 result = app.marketplace(request)
             print(encode(result), end="")
+        elif args.action == "marketplace-updates":
+            print(encode(app.marketplace_updates(args.target or app.profile)), end="")
         elif args.action == "context-sizes":
             if args.with_peer:
                 forwarded = [arg for key, value in (("--project", args.project), ("--model", args.model))
@@ -1571,6 +1678,8 @@ def main():
             if request["operation"] == "remove":
                 need(args.action == "entry-local" and request.get("revision"),
                      "Reopen AI Customization and use Apply & Sync to remove entries.")
+            if request["operation"] == "update":
+                need(args.action == "entry-local", "Use Apply & Sync to update entries.")
             if args.action == "entry-local":
                 need(request["scope"] in ("shared", app.profile), "The request targets a different computer.")
             result = app.edit_scope(request) if args.action == "entry" else app.entry_result(request)

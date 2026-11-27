@@ -7,11 +7,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 loader = importlib.machinery.SourceFileLoader("ai_customization", str(ROOT / "scripts/ai-customization"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 ai = importlib.util.module_from_spec(spec)
@@ -123,6 +125,62 @@ class CustomizationTest(unittest.TestCase):
             policy.write_text("interface:\n  display_name: Example\npolicy:\n  products: [CODEX]\n")
             self.assertIn("  display_name: Example", ai.skill_policy(source, "manual"))
             self.assertIn("  allow_implicit_invocation: false", ai.skill_policy(source, "manual"))
+
+    @unittest.skipUnless((Path.home() / ".local/bin/codex").is_file(), "managed Codex is unavailable")
+    def test_reviewed_mcp_and_plugin_updates_preserve_local_settings(self):
+        from marketplace_updates import MCP_RECEIPTS, check_plugin, installed_plugin, local_plugins
+        from marketplace import Catalog
+
+        codex = (Path.home() / ".local/bin/codex").resolve()
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "CODEX_HOME": str(Path(folder) / "codex"), "XDG_STATE_HOME": str(Path(folder) / "state"),
+        }):
+            home = Path(folder)
+            launcher = home / ".local/bin/codex"
+            launcher.parent.mkdir(parents=True)
+            launcher.symlink_to(codex)
+            app = ai.Customization(DESKTOP, home)
+            app.codex.mkdir()
+            app.manifest = lambda: self.manifest
+            origin = "https://example.test"
+            old = {"kind": "https", "url": origin + "/v1", "registry": {"name": "example.test/demo", "version": "1.0.0"}}
+            new = {"kind": "https", "url": origin + "/v2", "registry": {"name": "example.test/demo", "version": "2.0.0"}}
+            server = ("mcp_servers", "fixture")
+            request = {"group": "mcp", "name": "fixture", "operation": "add", "value": old}
+            self.assertEqual(app.entry_result(request), {"ok": True})
+            app.write_config(app.config()[0], [((*server, "disabled_tools"), ["unwanted"]), ((*server, "enabled"), False)])
+            update = {**request, "operation": "update", "value": {"previous": old, "next": new}}
+            self.assertEqual(app.entry_result(update), {"ok": True})
+            self.assertEqual(app.entry_result(update), {"ok": True})
+            updated = ai.setting(app.config()[1], server)
+            self.assertEqual(updated, {"url": origin + "/v2", "enabled": False, "disabled_tools": ["unwanted"]})
+            self.assertEqual(ai.load(app.state / MCP_RECEIPTS)["fixture"]["choice"], new)
+            app.write_config(app.config()[0], [((*server, "url"), origin + "/private-setting")])
+            self.assertIn("changed after review", app.entry_result(update)["error"])
+
+            market = home / "market"
+            manifest = market / ".agents/plugins/marketplace.json"
+            plugin = market / "plugins/fixture/.codex-plugin/plugin.json"
+            ai.atomic(manifest, ai.encode({"name": "fixture-market", "plugins": [
+                {"name": "fixture", "source": {"source": "local", "path": "./plugins/fixture"}}]}))
+            ai.atomic(plugin, ai.encode({"name": "fixture", "version": "1.0.0", "description": "Old fixture"}))
+            subprocess.run([str(codex), "plugin", "marketplace", "add", "./market", "--json"],
+                           cwd=home, check=True, capture_output=True, timeout=20)
+            name = "fixture@fixture-market"
+            request = {"group": "plugins", "name": name, "operation": "add"}
+            self.assertEqual(app.entry_result(request), {"ok": True})
+            app.write_config(app.config()[0], [(("plugins", name, "enabled"), False),
+                                               (("plugins", name, "mcp_servers", "keep"), {"enabled": False})])
+            ai.atomic(plugin, ai.encode({"name": "fixture", "version": "1.1.0", "description": "New fixture"}))
+            catalog = Catalog(app)
+            available = check_plugin(catalog, name, local_plugins(catalog)[name])
+            self.assertIn("New fixture", available["preview"])
+            self.assertEqual(installed_plugin(app, name)[1]["version"], "1.0.0")
+            request.update(operation="update", value=available["value"])
+            self.assertEqual(app.entry_result(request), {"ok": True})
+            self.assertEqual(app.entry_result(request), {"ok": True})
+            self.assertIsNone(check_plugin(catalog, name, local_plugins(catalog)[name]))
+            self.assertEqual(app.config()[1]["plugins"][name], {"enabled": False, "mcp_servers": {"keep": {"enabled": False}}})
 
     def test_skill_link_is_generated_and_removed_for_the_selected_host(self):
         parent, child = "chrome-toolkit", "dovie-android-control"

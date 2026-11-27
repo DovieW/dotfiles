@@ -197,6 +197,9 @@ class Window(QWidget):
         self.apply.clicked.connect(self.publish)
         self.reload = QPushButton("Reload")
         self.reload.clicked.connect(self.read)
+        self.check_updates = QPushButton("Check for updates…")
+        self.check_updates.setEnabled(False)
+        self.check_updates.clicked.connect(self.open_updates)
         self.preview = QPushButton("Preview Instructions")
         self.preview.clicked.connect(self.show_preview)
         self.adopt = QPushButton("Adopt Local Edit")
@@ -217,6 +220,7 @@ class Window(QWidget):
         header.addWidget(self.scope)
         header.addStretch()
         header.addWidget(self.machine)
+        header.addWidget(self.check_updates)
         footer = QHBoxLayout()
         for button in (self.preview, self.reload, self.adopt, self.restore, self.discard,
                        self.add_entry, self.remove_entry, self.tools_button):
@@ -538,8 +542,10 @@ class Window(QWidget):
                             for item in results if "error" in item]
                 self.removal_feedback = "  ·  ".join(problems) if problems else "Removals applied."
             if self.action == "publish" and value.get("installs"):
-                installs = [f"{HOST_LABELS[item['profile']]} · {item['name']}: {item.get('error') or 'Added'}"
-                            for item in value["installs"]]
+                installs = []
+                for item in value["installs"]:
+                    outcome = item.get("error") or ("Updated" if item.get("operation") == "update" else "Added")
+                    installs.append(f"{HOST_LABELS[item['profile']]} · {item['name']}: {outcome}")
                 self.removal_feedback = "  ·  ".join(filter(None, [self.removal_feedback, *installs]))
             self.data = None
             self.info.setText("Refreshing workstation status…")
@@ -576,6 +582,7 @@ class Window(QWidget):
         if self.draft is None:
             return
         local = self.data["profile"]
+        self.check_updates.setEnabled(True)
         self.machine.setText("This computer  ·  " + ("Desktop" if local.endswith("desktop") else "IdeaPad"))
         self.instructions.blockSignals(True)
         self.instructions.setPlainText(self.section().get("instructions", ""))
@@ -605,9 +612,9 @@ class Window(QWidget):
         if self.data.get("pending_removals"):
             status += f"  ·  {self.data['pending_removals']} pending removals. Apply & Sync retries them."
         if self.installs:
-            status += f"  ·  {len(self.installs)} staged installs."
+            status += f"  ·  {len(self.installs)} staged installs or updates."
         if self.data.get("pending_installs"):
-            status += f"  ·  {self.data['pending_installs']} pending installs. Apply & Sync retries them."
+            status += f"  ·  {self.data['pending_installs']} pending installs or updates. Apply & Sync retries them."
         self.info.setText(status)
         self.update_file_indicator()
         self.update_entry_controls()
@@ -1101,6 +1108,45 @@ class Window(QWidget):
         peer = self.target not in ("shared", self.data["profile"])
         dialog = MarketplaceWindow(self, group, ComboBox, BACKEND, peer)
         dialog.exec()
+
+    def open_updates(self):
+        from marketplace_updates_window import UpdatesWindow
+
+        UpdatesWindow(self, BACKEND, HOST_LABELS).exec()
+
+    def stage_updates(self, rows):
+        draft = copy.deepcopy(self.draft)
+        installs = list(self.installs)
+        skill_updates = {}
+        for row in rows:
+            group, name, host, value = (row[key] for key in ("group", "name", "profile", "value"))
+            if any(item["group"] == group and item["name"] == name and item["scope"] in ("shared", host)
+                   for item in self.removals):
+                return f"{name} is staged for removal on {HOST_LABELS[host]}."
+            if group == "skills":
+                inherited = draft["shared"].get("skill_pins", {})
+                pins = draft["hosts"][host].get("skill_pins", {})
+                if pins.get(name, inherited.get(name)) not in (value["previous"], value["next"]):
+                    return f"The source for {name} changed in your draft. Reload before staging its update."
+                skill_updates.setdefault(name, {})[host] = value["next"]
+            else:
+                request = {"group": group, "name": name, "scope": host, "operation": "update", "value": value}
+                installs = [item for item in installs if not (
+                    item["operation"] == "update" and all(item[key] == request[key] for key in ("group", "name", "scope"))
+                )]
+                installs.append(request)
+        for name, by_host in skill_updates.items():
+            first = next(iter(by_host.values()))
+            if (by_host.keys() == draft["hosts"].keys() and all(pin == first for pin in by_host.values())
+                    and all(name not in section.get("skill_pins", {}) for section in draft["hosts"].values())):
+                draft["shared"].setdefault("skill_pins", {})[name] = first
+            else:
+                for host, pin in by_host.items():
+                    draft["hosts"][host].setdefault("skill_pins", {})[name] = pin
+        self.draft = draft
+        self.installs = installs
+        self.render()
+        self.info.setText(f"{len(rows)} updates staged. Choose Apply & Sync to apply them.")
 
     def skill_link_parents(self, child):
         profiles = self.draft["hosts"] if self.target == "shared" else (self.target,)

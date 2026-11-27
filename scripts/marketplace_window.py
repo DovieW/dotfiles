@@ -10,12 +10,22 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
+from marketplace import https_url
+
 
 SOURCES = {
     "skills": ("Skills · skills.sh", "https://skills.sh/"),
     "mcp": ("MCP · Official Registry", "https://registry.modelcontextprotocol.io/"),
     "plugins": ("Plugins · Codex", "https://chatgpt.com/plugins"),
 }
+
+
+def open_chrome(url):
+    if not https_url(url):
+        return False
+    launcher = Path.home() / ".local/bin/google-chrome-stable"
+    chrome = str(launcher) if launcher.is_file() else "/usr/bin/google-chrome-stable"
+    return QProcess.startDetached(chrome, [url])[0]
 
 
 class MarketplaceWindow(QDialog):
@@ -274,10 +284,7 @@ class MarketplaceWindow(QDialog):
         parsed = urlsplit(url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None:
             return
-        # An explicit click opens the listing in the computer's Chrome session.
-        launcher = Path.home() / ".local/bin/google-chrome-stable"
-        chrome = str(launcher) if launcher.is_file() else "/usr/bin/google-chrome-stable"
-        if not QProcess.startDetached(chrome, [url])[0]:
+        if not open_chrome(url):
             self.status.setText("Could not open Chrome.")
 
     def stage_selected(self):
