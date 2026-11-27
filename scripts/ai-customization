@@ -21,6 +21,7 @@ import tarfile
 import tempfile
 import time
 import tomllib
+from urllib.request import urlopen
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -36,6 +37,10 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
 ABSENT = object()
 ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks"}
 MAX_SKILL_BYTES = 5 * 1024 * 1024
+DESKTOP_CODEX = Path("/usr/lib/chatgpt/resources/codex")
+CODEX_SCHEMA = "https://raw.githubusercontent.com/openai/codex/rust-v{}/codex-rs/core/config.schema.json"
+CODEX_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.]+)?")
+PRIVATE_KEY = re.compile(r"secret|token|password|cookie|credentials|api.key|headers", re.I)
 
 
 class Error(Exception):
@@ -178,6 +183,71 @@ def hook_entries(source, hooks):
                 yield identity, event, group, handler
 
 
+def schema_fields(schema):
+    """Collect named keys, including fields in dynamic tables and list items."""
+    fields = {}
+
+    def walk(node, path, seen):
+        if not isinstance(node, dict):
+            return
+        metadata = fields.setdefault(path, {}) if path else {}
+        for key in ("description", "default", "type", "enum"):
+            if key in node and node[key] is not None:
+                metadata.setdefault(key, node[key])
+        ref = node.get("$ref", "")
+        if ref.startswith("#/") and ref not in seen:
+            lookup = [part.replace("~1", "/").replace("~0", "~") for part in ref[2:].split("/")]
+            walk(setting(schema, lookup), path, seen | {ref})
+        for key in ("anyOf", "oneOf", "allOf"):
+            for variant in node.get(key, []):
+                walk(variant, path, seen)
+        for name, child in node.get("properties", {}).items():
+            walk(child, (*path, name), seen)
+        if isinstance(node.get("additionalProperties"), dict):
+            walk(node["additionalProperties"], (*path, "<name>"), seen)
+        if isinstance(node.get("items"), dict):
+            walk(node["items"], (*path, "[]"), seen)
+
+    walk(schema, (), set())
+    return fields
+
+
+def user_fields(raw, path=()):
+    if path:
+        yield path, raw
+    if isinstance(raw, dict):
+        for name, value in raw.items():
+            yield from user_fields(value, (*path, name))
+    elif isinstance(raw, list):
+        for index, value in enumerate(raw):
+            if isinstance(value, (list, dict)):
+                yield from user_fields(value, (*path, f"[{index}]"))
+
+
+def config_value(path, value):
+    if isinstance(value, dict):
+        return f"Table · {len(value)} entries"
+    if isinstance(value, list):
+        return f"List · {len(value)} items"
+    if isinstance(value, str) and (
+        path[0] in {"mcp_servers", "model_providers", "hooks"} or
+        any(PRIVATE_KEY.search(part) or part in {"env", "env_vars", "url", "base_url"} for part in path)
+    ):
+        return "Set · value hidden"
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, (bool, str, int, float)) else str(value)
+
+
+def field_path(path):
+    name = ""
+    for part in path:
+        if part.startswith("["):
+            name += part
+        else:
+            label = part if part == "<name>" or re.fullmatch(r"[A-Za-z0-9_-]+", part) else json.dumps(part)
+            name += ("." if name else "") + label
+    return name
+
+
 def run(args, cwd=ROOT, timeout=20, data=None, env=None):
     return subprocess.run(args, cwd=cwd, input=data, text=data is not None,
                           capture_output=True, timeout=timeout, env=env)
@@ -221,6 +291,93 @@ class Customization:
         path = self.codex / "config.toml"
         text = path.read_text() if path.exists() else ""
         return text, tomllib.loads(text)
+
+    def config_engines(self):
+        engines = {}
+        for surface, executable in (("CLI", self.home / ".local/bin/codex"), ("Desktop app", DESKTOP_CODEX)):
+            if not executable.is_file():
+                continue
+            try:
+                result = run([str(executable), "--version"], cwd="/", timeout=3)
+                parts = result.stdout.decode().strip().split()
+                version = parts[-1] if result.returncode == 0 and parts else ""
+                if not CODEX_VERSION.fullmatch(version):
+                    continue
+                engines[surface] = {"version": version, "features": {}}
+                # Read the engine's stages and defaults without loading the user's config.
+                with tempfile.TemporaryDirectory(prefix="dot-codex-features-") as temp:
+                    result = run([str(executable), "features", "list"], cwd="/", timeout=4,
+                                 env=dict(os.environ, CODEX_HOME=temp))
+                for line in result.stdout.decode(errors="replace").splitlines() if result.returncode == 0 else []:
+                    parts = line.split()
+                    if len(parts) > 2 and parts[-1] in ("true", "false") and re.fullmatch(r"\w+", parts[0]):
+                        engines[surface]["features"][parts[0]] = {
+                            "stage": " ".join(parts[1:-1]), "enabled": parts[-1] == "true"}
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        return {"profile": self.profile, "engines": engines}
+
+    def config_schema(self, version):
+        need(CODEX_VERSION.fullmatch(version), "Invalid Codex version.")
+        cache = self.state / "config-schemas" / f"{version}.json"
+        try:
+            data = load(cache)
+            if data and isinstance(data.get("properties"), dict):
+                return data
+        except (OSError, ValueError, AttributeError):
+            pass
+        try:
+            with urlopen(CODEX_SCHEMA.format(version), timeout=5) as response:
+                data = json.loads(response.read(2 * 1024 * 1024))
+            if not isinstance(data.get("properties"), dict):
+                return None
+        except (OSError, ValueError, AttributeError):
+            return None
+        try:
+            atomic(cache, encode(data))
+        except OSError:
+            pass
+        return data
+
+    def config_catalog(self, with_peer):
+        local = self.config_engines()
+        peer = self.call_peer("config-engines") if with_peer else {}
+        builds = {}
+        for workstation in (local, peer):
+            for surface, engine in workstation.get("engines", {}).items():
+                builds[f'{workstation["profile"]}/{surface}'] = engine
+        schemas = {}
+        rows = {}
+        for identity, engine in builds.items():
+            version = engine["version"]
+            if version not in schemas:
+                schema = self.config_schema(version)
+                schemas[version] = schema_fields(schema) if schema else None
+            fields = schemas[version] or {}
+            engine["schema"] = schemas[version] is not None
+            for path in fields.keys() | {("features", flag) for flag in engine["features"]}:
+                row = rows.setdefault(path, {"support": {}, "metadata": fields.get(path, {})})
+                if not row["metadata"]:
+                    row["metadata"] = fields.get(path, {})
+                feature = engine["features"].get(path[1], {}) if len(path) == 2 and path[0] == "features" else {}
+                row["support"][identity] = feature
+
+        templates = [(key, row) for key, row in rows.items() if "<name>" in key or "[]" in key]
+        _, user = self.config()
+        for path, value in user_fields(user):
+            if path not in rows:
+                template = next((row for key, row in templates if len(key) == len(path) and all(
+                    expected == actual or expected == "<name>" or expected == "[]" and actual.startswith("[")
+                    for expected, actual in zip(key, path))), {})
+                rows[path] = {"support": template.get("support", {}), "metadata": template.get("metadata", {})}
+            rows[path]["value"] = config_value(path, value)
+
+        return {
+            "builds": {identity: {"version": data["version"], "schema": data["schema"]}
+                       for identity, data in builds.items()},
+            "peer_available": bool(peer),
+            "settings": {field_path(path): info for path, info in rows.items()},
+        }
 
     def instructions(self, manifest):
         private = self.codex / "AGENTS.local.md"
@@ -724,7 +881,8 @@ class Customization:
 def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
-                                           "publish", "install", "discard-draft", "entry", "entry-local"))
+                                           "publish", "install", "discard-draft", "entry", "entry-local",
+                                           "config-engines", "config-catalog"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -743,6 +901,9 @@ def main():
             result = app.status()
             print(encode({key: result[key] for key in
                           ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")}), end="")
+        elif args.action in ("config-engines", "config-catalog"):
+            result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)
+            print(encode(result), end="")
         elif args.action in ("entry", "entry-local"):
             request = json.load(sys.stdin)
             if args.action == "entry-local":

@@ -111,6 +111,47 @@ class CustomizationTest(unittest.TestCase):
             self.assertEqual(set(app.edit_scope({**request, "scope": IDEAPAD})), {IDEAPAD})
             local.assert_not_called()
 
+    def test_config_catalog_merges_engine_schemas_and_local_values(self):
+        common = {"type": "string", "description": "A setting known to both builds."}
+        cli_schema = {"properties": {
+            "common": common,
+            "cli_only": {"type": "boolean"},
+            "mcp_servers": {"additionalProperties": {"$ref": "#/definitions/Server"}},
+        }, "definitions": {"Server": {"properties": {
+            "url": {"type": "string"},
+            "args": {"items": {"properties": {"name": {"type": "string"}}}},
+        }}}}
+        desktop_schema = {"properties": {"common": common, "app_only": {"type": "boolean"}}}
+        local = {"profile": DESKTOP, "engines": {
+            "CLI": {"version": "2.0.0", "features": {"future": {"stage": "experimental", "enabled": False}}},
+        }}
+        peer = {"profile": IDEAPAD, "engines": {
+            "Desktop app": {"version": "1.0.0-alpha.1", "features": {}},
+        }}
+        app = ai.Customization(DESKTOP)
+        raw = {"common": "enabled", "unknown": True, "mcp_servers": {
+            "test.example": {"url": "https://private.example/path", "args": [{"name": "private-arg"}]},
+        }}
+        with patch.object(app, "config", return_value=("", raw)), \
+                patch.object(app, "config_engines", return_value=local), \
+                patch.object(app, "call_peer", return_value=peer) as probe, \
+                patch.object(app, "config_schema", side_effect=[cli_schema, desktop_schema]) as schema:
+            catalog = app.config_catalog(with_peer=True)
+        probe.assert_called_once_with("config-engines")
+        self.assertEqual([call.args[0] for call in schema.call_args_list], ["2.0.0", "1.0.0-alpha.1"])
+        cli, desktop = f"{DESKTOP}/CLI", f"{IDEAPAD}/Desktop app"
+        fields = catalog["settings"]
+        self.assertEqual(set(fields["common"]["support"]), {cli, desktop})
+        self.assertNotIn("value", fields["cli_only"])
+        self.assertEqual(set(fields["app_only"]["support"]), {desktop})
+        self.assertEqual(fields["features.future"]["support"][cli]["stage"], "experimental")
+        self.assertEqual(fields["unknown"]["value"], "true")
+        self.assertIn("mcp_servers.<name>.args[].name", fields)
+        concrete = fields['mcp_servers."test.example".url']
+        self.assertEqual(set(concrete["support"]), {cli})
+        self.assertEqual(concrete["value"], "Set · value hidden")
+        self.assertNotIn("private.", json.dumps(catalog))
+
     def test_skill_import_and_recoverable_remove(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(
             os.environ, {"XDG_STATE_HOME": str(Path(folder) / "state")}

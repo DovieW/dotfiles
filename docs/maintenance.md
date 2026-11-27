@@ -899,6 +899,23 @@ and checks whether the peer applied it. A user timer checks the published
 branch periodically. It needs a working network and Git authentication.
 An unpublished local draft pauses automatic reconciliation on that computer.
 
+The **Config** tab shows the current computer's user `config.toml` alongside
+settings from the exact installed CLI and desktop app engine schemas. It
+includes unset keys, feature stages, and settings recognized by only one
+engine. Hover over a setting to see the matching builds and schema details.
+In setting paths, `<name>` stands for a user-named table entry and `[]` for
+a list item. Reopen the window or choose **Reload** after updating Codex.
+The tab reads the installed versions again and caches each matching official
+schema. If a schema is unavailable, configured values and the engine's
+reported feature flags still appear.
+
+On a computer where they use the same Codex home, the CLI and the desktop
+app share the user `config.toml`. Project layers, CLI profiles, and choices
+for a particular conversation can affect the settings Codex actually uses.
+The five managed defaults remain editable through **Apply & Sync**. Use
+**Open local config.toml** for the other user settings. The catalog covers engine
+configuration. Desktop interface preferences are managed inside that app.
+
 Run `dot apply --profile kubuntu-desktop --tags ai-customization` or use
 `kubuntu-laptop` on the IdeaPad. Use `dot ai status` for JSON inventory,
 `dot ai preview` for the two managed instruction previews,
