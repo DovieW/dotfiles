@@ -483,6 +483,40 @@ FeatureSpec {
         self.assertEqual(ai.feature_descriptions(registry),
                          {"status_line": "Show a status line.\nIt supports custom labels."})
 
+    def test_window_cache_keeps_catalog_metadata_and_separates_contexts(self):
+        from ai_customization_cache import WindowCache
+
+        with tempfile.TemporaryDirectory() as temp:
+            cache = WindowCache(Path(temp))
+            catalog = {"peer_available": True,
+                       "builds": {"server/CLI": {"version": "2.0.0", "schema": True, "models": {"account": {}}}},
+                       "settings": {"test": {"value": "private-config-value", "choice": "private-choice",
+                                             "documentation": [{"text": "Public docs"}]}}}
+            cache.save_catalog(catalog)
+            restored = cache.catalog()
+            self.assertEqual(restored["settings"]["test"]["documentation"], [{"text": "Public docs"}])
+            self.assertEqual(restored["settings"]["test"]["value"], "Previously set")
+            self.assertNotIn("private-", repr(restored))
+            self.assertNotIn("models", restored["builds"]["server/CLI"])
+
+            result = {"profile": DESKTOP, "project": "/projects/one", "model": "example-model", "measured_at": 1200,
+                      "encoding": "example", "fallback": False, "notes": ["diagnostics"],
+                      "rows": [{"kind": "Instructions", "upfront": 100, "detail": "private project information"}],
+                      "tables": {"apps": {"demo": {"upfront": 120, "full": 300, "detail": "private tool names"}}}}
+            cache.save_context("/projects/one", "", result)
+            cached = cache.context(DESKTOP, "/projects/one", "")
+            self.assertEqual(cached, cache.context(DESKTOP, "/projects/one", "example-model"))
+            self.assertEqual(cached["measured_at"], 1200)
+            self.assertEqual(cached["tables"]["apps"]["demo"], {"upfront": 120, "full": 300})
+            self.assertNotIn("private", repr(cached))
+            for profile, project, model in ((IDEAPAD, "/projects/one", ""), (DESKTOP, "/projects/two", ""),
+                                             (DESKTOP, "/projects/one", "another-model")):
+                self.assertEqual(cache.context(profile, project, model), {})
+            path = Path(temp) / "config-catalog.json"
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            path.write_text("{incomplete")
+            self.assertEqual(cache.catalog(), {})
+
     def test_skill_import_and_recoverable_remove(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(
             os.environ, {"XDG_STATE_HOME": str(Path(folder) / "state")}

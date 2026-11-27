@@ -2,11 +2,13 @@
 """KDE window for the dotfiles Codex settings."""
 import base64
 import copy
+from datetime import datetime
 from html import escape
 import json
 from pathlib import Path
 import stat
 import sys
+import time
 
 from PyQt6.QtCore import QProcess, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QWheelEvent
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from ai_customization_cache import WindowCache
 from codex_config_help import HOOK_DESCRIPTIONS, HOOKS_URL
 
 APP_ID = "io.github.doview.ai-customization"
@@ -149,9 +152,16 @@ class Window(QWidget):
         self.removals = []
         self.installs = []
         self.removal_feedback = None
-        self.catalog = {}
+        self.cache = WindowCache()
+        self.catalog = self.cache.catalog()
+        self.catalog_verified = False
+        self.catalog_problem = ""
+        self.catalog_generation = 0
+        self.catalog_running_generation = 0
         self.context_result = {}
-        self.context_options = (False, str(BACKEND.parents[1]), "")
+        selection = self.cache.read("context-selection")
+        self.context_options = (selection.get("remote") is True, str(selection.get("project") or BACKEND.parents[1]),
+                                str(selection.get("model") or ""))
         self.context_started = False
         self.context_invalidated = False
         self.context_process = QProcess(self)
@@ -213,6 +223,8 @@ class Window(QWidget):
         self.tables["Skills"].cellDoubleClicked.connect(self.edit_skill_source)
         self.info = QLabel("Loading Codex customization…")
         self.info.setWordWrap(True)
+        self.context_stamp = QLabel()
+        self.context_stamp.setTextFormat(Qt.TextFormat.PlainText)
         self.files = QLabel()
         self.files.setTextFormat(Qt.TextFormat.PlainText)
         self.files.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -262,6 +274,7 @@ class Window(QWidget):
         footer.addWidget(self.apply)
         status = QHBoxLayout()
         status.addWidget(self.info, 1)
+        status.addWidget(self.context_stamp)
         status.addWidget(self.files, 1)
         layout = QVBoxLayout(self)
         layout.addLayout(header)
@@ -314,15 +327,29 @@ class Window(QWidget):
         layout.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        remote, project_path, model_name = host.currentIndex() == 1, project.text().strip(), model.text().strip()
-        self.context_options = (remote, project_path, model_name)
+        remote = host.currentIndex() == 1
+        folder = Path(project.text().strip() or BACKEND.parents[1]).expanduser()
+        folder = (Path.home() if remote else Path.cwd()) / folder
+        selection = (remote, str(folder), model.text().strip())
+        if selection != self.context_options:
+            self.context_options = selection
+            self.load_context_cache()
+            self.refresh_context_cells()
         self.start_context()
 
+    def context_profile(self):
+        local = self.data["profile"]
+        return next(host for host in self.draft["hosts"] if host != local) if self.context_options[0] else local
+
+    def load_context_cache(self):
+        _, project, model = self.context_options
+        self.context_result = self.cache.context(self.context_profile(), project, model)
+        self.update_context_summary()
+
     def maybe_measure_context(self):
-        title = self.active_table()
         if (self.data and self.isEnabled() and not self.context_started
                 and self.context_process.state() == QProcess.ProcessState.NotRunning
-                and (title == "Instructions" or title in INTEGRATION_GROUPS and title != "Hooks")):
+                and self.context_tab_selected()):
             self.start_context()
 
     def start_context(self):
@@ -371,15 +398,43 @@ class Window(QWidget):
             self.context_failure(error or "Context measurement failed.")
             return
         try:
-            self.context_result = json.loads(output)
+            result = json.loads(output)
+            if (not isinstance(result, dict) or result.get("profile") != self.context_profile()
+                    or not {"project", "model", "encoding", "fallback", "tables", "rows", "notes"} <= result.keys()):
+                raise ValueError("Unexpected context data")
         except ValueError:
             self.context_failure("Codex returned an invalid context measurement.")
             return
+        result["measured_at"] = int(time.time())
+        self.context_result = result
         self.refresh_context_cells()
-        self.instructions_context.setText(f"Context size · {self.token_text(self.instruction_count().get('upfront'))}")
+        self.update_context_summary()
+        self.info.setText(f"Context estimates from {HOST_LABELS[self.context_result['profile']]} · {self.context_result['model']}")
+        remote, project, model = self.context_options
+        self.cache.save_context(project, model, result)
+        self.cache.write("context-selection", {"remote": remote, "project": project, "model": model})
+
+    def update_context_summary(self):
+        count = self.token_text(self.instruction_count().get("upfront")) if self.context_result else "—"
+        self.instructions_context.setText(f"Context size · {count}")
         self.instructions_context.setToolTip(self.context_details(self.instruction_count()))
         self.context_button.setToolTip(self.context_label())
-        self.info.setText(f"Context estimates from {HOST_LABELS[self.context_result['profile']]} · {self.context_result['model']}")
+        stamp = self.context_time()
+        host = HOST_LABELS[self.context_result["profile"]] if stamp else ""
+        self.context_stamp.setText(f"Last measured {stamp} · {host}" if stamp else "")
+        self.context_stamp.setToolTip(self.context_label())
+        self.context_stamp.setVisible(bool(stamp) and self.context_tab_selected())
+
+    def context_tab_selected(self):
+        title = self.active_table()
+        return title == "Instructions" or title in INTEGRATION_GROUPS and title != "Hooks"
+
+    def context_time(self):
+        stamp = self.context_result.get("measured_at")
+        try:
+            return datetime.fromtimestamp(stamp).strftime("%b %d, %H:%M") if stamp else ""
+        except (OSError, ValueError, OverflowError):
+            return ""
 
     def refresh_context_cells(self):
         for title in INTEGRATION_GROUPS:
@@ -409,7 +464,8 @@ class Window(QWidget):
                 return "Measuring the saved context for a fresh Codex session."
             return "Measure saved settings for a fresh Codex session."
         encoding = result["encoding"] + (" (fallback)" if result["fallback"] else "")
-        return f"{HOST_LABELS[result['profile']]} · {result['model']} · {encoding}\n{result['project']}"
+        return (f"{HOST_LABELS[result['profile']]} · {result['model']} · {encoding}\n{result['project']}"
+                f"\nLast measured {self.context_time()}")
 
     def context_details(self, record):
         if not self.context_result:
@@ -421,6 +477,8 @@ class Window(QWidget):
             parts.append(f"References · {self.token_text(record['references'])}")
         if record.get("detail"):
             parts.append(record["detail"])
+        if self.context_result.get("cached"):
+            parts.append("Saved estimate. Refresh for the detailed breakdown.")
         parts.extend(self.context_result["notes"])
         return "\n\n".join(parts)
 
@@ -639,13 +697,22 @@ class Window(QWidget):
 
     def catalog_error(self, _):
         if self.catalog_process.state() == QProcess.ProcessState.NotRunning:
-            self.config_versions.setText("Could not load the installed Codex setting catalog.")
+            if self.catalog_refresh_pending:
+                self.refresh_catalog()
+            elif self.catalog_running_generation == self.catalog_generation:
+                self.catalog_failure()
+
+    def catalog_failure(self):
+        self.catalog_problem = ("Cached Config catalog · Live verification unavailable" if self.catalog
+                                else "Could not load the installed Codex setting catalog.")
+        self.config_versions.setText(self.catalog_problem)
 
     def refresh_catalog(self):
         if self.catalog_process.state() != QProcess.ProcessState.NotRunning:
             self.catalog_refresh_pending = True
             return
         self.catalog_refresh_pending = False
+        self.catalog_running_generation = self.catalog_generation
         self.catalog_process.start(str(BACKEND), ["config-catalog", "--with-peer"])
 
     def finish_catalog(self, code, _):
@@ -654,16 +721,25 @@ class Window(QWidget):
         if self.catalog_refresh_pending:
             self.refresh_catalog()
             return
+        if self.catalog_running_generation != self.catalog_generation:
+            return
         if code:
-            self.config_versions.setText("Could not load the installed Codex setting catalog.")
+            self.catalog_failure()
             return
         try:
-            self.catalog = json.loads(output)
+            catalog = json.loads(output)
+            if (not isinstance(catalog, dict) or not catalog.get("builds")
+                    or not isinstance(catalog.get("settings"), dict) or not isinstance(catalog.get("peer_available"), bool)):
+                raise ValueError("Codex builds unavailable")
         except ValueError:
-            self.config_versions.setText("Could not read the installed Codex setting catalog.")
+            self.catalog_failure()
             return
+        self.catalog = catalog
+        self.catalog_verified = True
         if self.data is not None:
             self.fill_config()
+        if catalog["peer_available"] or not self.cache.catalog().get("peer_available"):
+            QTimer.singleShot(0, lambda: self.cache.save_catalog(catalog))
 
     def refresh_peer_inventory(self):
         if self.peer_process.state() != QProcess.ProcessState.NotRunning:
@@ -700,12 +776,11 @@ class Window(QWidget):
         self.action = action
         self.setEnabled(False)
         if action == "status":
-            self.context_result = {}
+            self.catalog_verified = False
+            self.catalog_problem = ""
+            self.catalog_generation += 1
             self.context_started = False
             self.context_invalidated = self.context_process.state() != QProcess.ProcessState.NotRunning
-            self.instructions_context.setText("Context size · —")
-            self.instructions_context.setToolTip(self.context_label())
-            self.context_button.setToolTip(self.context_label())
         self.process.start(str(BACKEND), [action])
         if data is not None:
             self.process.write(json.dumps(data).encode())
@@ -775,6 +850,7 @@ class Window(QWidget):
                 self.installs = pending.get("installs", []) if pending else []
         value["peer_inventory"] = (self.data or {}).get("peer_inventory", {})
         self.data = value
+        self.load_context_cache()
         self.render()
         self.refresh_peer_inventory()
         self.refresh_catalog()
@@ -884,13 +960,17 @@ class Window(QWidget):
                 shared = self.draft["shared"]["defaults"][key]
                 table.setItem(row, 4, self.cell(shared))
                 table.setCellWidget(row, CONFIG_EDITOR, self.default_editor(key))
-            elif choices:
+            elif choices and self.catalog_verified:
                 table.setCellWidget(row, CONFIG_EDITOR, self.config_option_editor(key, setting, choices))
             text = " ".join((key, *(note["text"] for note in notes), str(actual or ""), *stages, *surfaces)).casefold()
             self.catalog_rows.append((text, actual is not None, key in managed,
                                       bool(stages & {"experimental", "under development"}), surfaces,
                                       choices is not None or key in managed))
-        if self.catalog:
+        if not self.catalog_verified:
+            self.config_versions.setText(self.catalog_problem or (
+                "Cached Config catalog · Checking current choices…" if self.catalog else "Loading installed Codex versions…"))
+            self.config_versions.setToolTip("Config edits use choices verified against the installed Codex versions.")
+        elif self.catalog:
             local = self.data["profile"]
             local_builds = []
             for identity, info in builds.items():
@@ -972,6 +1052,8 @@ class Window(QWidget):
         return None
 
     def change_config_option(self, name, path, value):
+        if not self.catalog_verified:
+            return
         path = list(path)
         for index, part in enumerate(path):
             if part == "<name>":
@@ -1029,12 +1111,14 @@ class Window(QWidget):
             combo.model().item(index).setEnabled(False)
             combo.setToolTip("The saved value is outside the choices reported for this scope.")
         combo.setCurrentIndex(index)
-        combo.setEnabled(bool(choices) or self.target != "shared" and bool(current))
+        combo.setEnabled(self.catalog_verified and (bool(choices) or self.target != "shared" and bool(current)))
+        if not self.catalog_verified:
+            combo.setToolTip("Config edits use choices verified against the installed Codex versions.")
         combo.currentIndexChanged.connect(lambda index: self.choose_default(key, combo.itemData(index)))
         return combo
 
     def choose_default(self, key, value):
-        if value is None:
+        if not self.catalog_verified or value is None:
             return
         self.set_default(key, value)
         if key == "model":
@@ -1100,6 +1184,7 @@ class Window(QWidget):
         self.remove_entry.setEnabled(self.data is not None and item is not None)
         title = self.active_table()
         self.context_button.setVisible(title in INTEGRATION_GROUPS or title == "Instructions")
+        self.context_stamp.setVisible(bool(self.context_stamp.text()) and self.context_tab_selected())
         if title in ("Apps", "Plugin Skills"):
             self.add_entry.setVisible(True)
             self.add_entry.setText("Browse Marketplace…")
@@ -1608,6 +1693,9 @@ class Window(QWidget):
             for profile in self.draft["hosts"]:
                 previous = host_defaults(base, profile)
                 chosen = host_defaults(self.draft, profile)
+                if previous != chosen and not self.catalog_verified:
+                    self.info.setText("Reload to verify current Codex choices before applying Config edits.")
+                    return
                 for key in ("model_reasoning_effort", "service_tier"):
                     if previous["model"] == chosen["model"] and previous[key] == chosen[key]:
                         continue

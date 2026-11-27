@@ -949,6 +949,9 @@ installed versions of Codex on both workstations and their current options.
 The tab caches each matching official schema and shows the ChatGPT Desktop
 package version, with its bundled Codex engine version in the tooltip. If a
 schema is unavailable, configured values and reported feature flags still appear.
+The window opens with its last setting catalog while Codex versions and
+available choices are checked in the background. Config editors use the live
+choices once that check completes.
 The **Description** column uses the matching release's schema and feature
 registry plus the public Codex Configuration Reference. Hover for the full
 description or click the cell to read the source excerpts. Descriptions
@@ -980,6 +983,8 @@ registry metadata. The Hooks tab describes the event using the Codex Hooks
 reference. Hover for the full description or click the cell to open it.
 
 Context measurement starts when you first open a tab that displays counts.
+The last estimates for the selected computer, project, and model appear
+with a **Last measured** timestamp while the measurement runs.
 Use **Measure context…** to refresh the estimates or choose another computer,
 project folder, or model. Leave Model empty to use the effective Codex model.
 **Context size** shows
