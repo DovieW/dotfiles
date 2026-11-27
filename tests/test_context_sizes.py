@@ -9,6 +9,30 @@ context = run_path(str(ROOT / "scripts/context_sizes.py"))
 
 
 class ContextSizesTest(unittest.TestCase):
+    def test_context_report_counts_each_rendered_component_once(self):
+        instructions = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nprivate project text\n</INSTRUCTIONS>"
+        skills = "<skills_instructions>\nprivate skill descriptions\n</skills_instructions>"
+        deferred = "<tools>\n- mcp__codex_apps__demo: private app description\n</tools>"
+        tool = {"type": "function", "name": "mcp__demo__run", "description": "private tool description"}
+        prompt = [{"type": "additional_tools", "tools": [tool]},
+                  {"role": "developer", "content": [{"text": text} for text in (instructions, skills, deferred)]},
+                  {"role": "user", "content": [{"type": "input_image"}]}]
+        rows = [{"kind": "Skill", "upfront": 12, "full": 40, "references": 15},
+                {"kind": "App", "upfront": None, "full": 30},
+                {"kind": "MCP server", "upfront": 5, "full": 35}]
+        window = {"tokens": 1000, "source": "Codex model catalog"}
+        report = context["context_report"](prompt, rows, len, window)
+        self.assertEqual(report["startup"], sum(map(len, (instructions, skills, deferred, context["compact"](tool)))))
+        groups = {group["name"]: group["tokens"] for group in report["groups"]}
+        self.assertEqual(groups["Skill catalog"], len(skills))
+        self.assertEqual(groups["Inline MCP and app tools"], len(context["compact"](tool)))
+        self.assertEqual(report["non_text_parts"], 1)
+        self.assertEqual(report["references"], 15)
+        self.assertEqual(report["window"], window)
+        known = {row["name"]: (row["tokens"], row["known"], row["total"]) for row in report["on_demand"]}
+        self.assertEqual(known, {"Skill": (28, 1, 1), "App": (None, 0, 1), "MCP server": (30, 1, 1)})
+        self.assertNotIn("private", repr(report))
+
     def test_rendered_entries_and_deferred_tool_catalog_count_separately(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

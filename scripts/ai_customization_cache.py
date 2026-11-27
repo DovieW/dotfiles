@@ -82,10 +82,14 @@ class WindowCache:
             return {key: row[key] for key in fields if key in row} if row is not None else None
 
         payload = {key: result[key] for key in ("profile", "project", "model", "encoding", "fallback", "measured_at")}
-        payload["rows"] = [{"kind": "Instructions", **numbers(row)} for row in result["rows"]
-                           if row["kind"] == "Instructions"]
+        payload["rows"] = [{"kind": row["kind"], "name": row.get("name", row["kind"]), **numbers(row)}
+                           for row in result["rows"]]
         payload["tables"] = {group: {name: numbers(row) for name, row in entries.items()}
                              for group, entries in result["tables"].items()}
+        if "report" in result:
+            report = result["report"]
+            payload["report"] = {**report, "groups": [{"name": group["name"], "tokens": group["tokens"]}
+                                                      for group in report["groups"]]}
         payload["notes"] = []
         payload["cached"] = True
         self.write(self.context_key(result["profile"], project, result["model"]), payload)

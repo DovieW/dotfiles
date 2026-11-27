@@ -993,6 +993,15 @@ Instructions tab shows the effective instruction count for that project.
 Click a count for the breakdown, tokenizer, and any separately counted skill
 references. Click the context column header to sort by upfront size.
 
+The **Context** tab shows the rendered startup total and, when available,
+its share of the configured or reported model context window. **Overview**
+breaks the total into instructions, catalogs, tool definitions, and other
+rendered inputs. It also shows estimated additional context from loading
+known items and a separate reference-file subtotal. **Items** lets you
+search, filter, sort, and inspect the individual estimates. Plugin rows
+summarize their contents. They are excluded from the additional subtotal
+to avoid counting their bundled items twice.
+
 The estimates use saved settings for a locally rendered fresh session.
 Plugin estimates combine measured skills, apps, and MCP servers. A **≥**
 marks a partial estimate when a component count is unavailable. Hooks show

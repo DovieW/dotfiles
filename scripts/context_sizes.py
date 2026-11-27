@@ -35,6 +35,17 @@ def compact(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def rendered_text_group(text):
+    if text.startswith("# AGENTS.md instructions") and "\n<INSTRUCTIONS>\n" in text:
+        return "Instructions"
+    for marker, group in (("<skills_instructions>", "Skill catalog"), ("<tools>", "Deferred tool catalog"),
+                          ("<permissions instructions>", "Permissions"), ("<environment_context>", "Environment"),
+                          ("<collaboration_mode>", "Collaboration mode")):
+        if text.startswith(marker):
+            return group
+    return "Other rendered messages"
+
+
 def startup_inputs(prompt):
     """Keep the visible startup text and any inline definitions that Codex emitted."""
     instructions = []
@@ -50,9 +61,10 @@ def startup_inputs(prompt):
                     inline.setdefault(name, []).append(compact(definition))
         for content in item.get("content", []):
             text = content.get("text", "")
-            if text.startswith("# AGENTS.md instructions") and "\n<INSTRUCTIONS>\n" in text:
+            group = rendered_text_group(text)
+            if group == "Instructions":
                 instructions.append(text)
-            if text.startswith("<skills_instructions>"):
+            if group == "Skill catalog":
                 roots = dict(re.findall(r"(?m)^- `(r\d+)` = `([^\n]+)`$", text))
                 for line in text.partition("### Available skills")[2].splitlines():
                     entry = re.match(r"^- (.+?) \(file: ([^()]+)\)$", line)
@@ -64,12 +76,50 @@ def startup_inputs(prompt):
                         if absolute.is_absolute():
                             skill_entries[absolute.resolve()] = (name, line + "\n")
                 skill_catalog_size.append(text)
-            if text.startswith("<tools>"):
+            if group == "Deferred tool catalog":
                 for line in text.splitlines():
                     match = re.match(r"^- (mcp__[^: ]+):", line)
                     if match:
                         summaries.setdefault(match[1], []).append(line + "\n")
     return instructions, skill_entries, skill_catalog_size, summaries, inline
+
+
+def context_report(prompt, rows, count, window=None):
+    groups = {}
+    skipped = 0
+    for item in prompt:
+        if item.get("type") == "additional_tools":
+            for tool in item.get("tools", []):
+                name = tool.get("name") or tool.get("type") or "Tool definition"
+                group = "Inline MCP and app tools" if name.startswith("mcp__") else "Inline Codex tools"
+                groups.setdefault(group, []).append({"name": name, "tokens": count(compact(tool))})
+        for content in item.get("content", []):
+            text = content.get("text")
+            if not isinstance(text, str):
+                skipped += 1
+                continue
+            group = rendered_text_group(text)
+            parts = groups.setdefault(group, [])
+            role = (item.get("role") or "Unknown").capitalize()
+            if group == "Other rendered messages":
+                name = f"{role} message {len(parts) + 1}"
+            else:
+                name = f"{group} block {len(parts) + 1}"
+            parts.append({"name": name, "tokens": count(text)})
+    startup = [{"name": name, "tokens": sum(part["tokens"] for part in parts), "parts": parts}
+               for name, parts in groups.items()]
+    startup.sort(key=lambda group: -group["tokens"])
+
+    on_demand = []
+    for kind in ("Skill", "App", "MCP server"):
+        items = [row for row in rows if row["kind"] == kind]
+        known = [max(0, row["full"] - row["upfront"]) for row in items
+                 if row["upfront"] is not None and row["full"] is not None]
+        on_demand.append({"name": kind, "tokens": sum(known) if known else None,
+                          "known": len(known), "total": len(items)})
+    return {"startup": sum(group["tokens"] for group in startup) if startup else None,
+            "groups": startup, "on_demand": on_demand, "window": window, "non_text_parts": skipped,
+            "references": sum(row["references"] for row in rows if row.get("references") is not None)}
 
 
 def instruction_details(text, codex, cwd, config, count):

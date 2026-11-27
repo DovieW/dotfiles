@@ -543,20 +543,22 @@ class Customization:
     def config_binaries(self):
         return {"CLI": self.home / ".local/bin/codex", "Desktop app": DESKTOP_CODEX}
 
+    def model_catalog(self, executable, cwd="/"):
+        try:
+            result = run([str(executable), "debug", "models"], cwd=cwd, timeout=8,
+                         env=dict(os.environ, CODEX_HOME=str(self.codex)))
+            models = json.loads(result.stdout)["models"] if result.returncode == 0 else []
+            return [item for item in models if isinstance(item, dict)] if isinstance(models, list) else []
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+            return []
+
     def model_choices(self, executable):
         try:
-            result = run([str(executable), "debug", "models"], cwd="/", timeout=8,
-                         env=dict(os.environ, CODEX_HOME=str(self.codex)))
-            if result.returncode != 0:
-                return {}
-            return {
-                model["slug"]: {
-                    "reasoning": [level["effort"] for level in model.get("supported_reasoning_levels", [])],
-                    "tiers": ["default", *(tier["id"] for tier in model.get("service_tiers", []))],
-                }
-                for model in json.loads(result.stdout)["models"] if model.get("visibility") == "list"
-            }
-        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+            return {model["slug"]: {
+                "reasoning": [level["effort"] for level in model.get("supported_reasoning_levels", [])],
+                "tiers": ["default", *(tier["id"] for tier in model.get("service_tiers", []))],
+            } for model in self.model_catalog(executable) if model.get("visibility") == "list"}
+        except (AttributeError, KeyError, TypeError):
             return {}
 
     def config_constraints(self, executable):
@@ -1017,7 +1019,7 @@ class Customization:
         return peer
 
     def context_sizes(self, project, selected_model):
-        from context_sizes import estimate_context, inline_context, tokenizer
+        from context_sizes import context_report, estimate_context, inline_context, tokenizer
 
         cwd = Path(project or ROOT).expanduser().resolve()
         need(cwd.is_dir(), "This project directory does not exist on the selected computer.")
@@ -1066,9 +1068,17 @@ class Customization:
             prompt, skills, catalog["plugin_skills"], catalog["apps"], servers,
             status, native, count, self.codex, cwd, local_skills,
         )
+        window = native.get("model_context_window")
+        source = "Configured window"
+        if type(window) is not int or window <= 0:
+            models = self.model_catalog(codex, cwd)
+            model_record = next((item for item in models if item.get("slug") == model), {})
+            window = model_record.get("context_window")
+            source = "Codex model catalog"
+        window = {"tokens": window, "source": source} if type(window) is int and window > 0 else None
         return {"profile": self.profile, "model": model, "encoding": encoding.name, "fallback": fallback,
                 "project": str(cwd), "rows": rows, "tables": inline_context(rows, local_skills, catalog, status, native),
-                "skill_upfront": skill_upfront, "notes": notes}
+                "skill_upfront": skill_upfront, "report": context_report(prompt, rows, count, window), "notes": notes}
 
     def integration_tools(self, target):
         path = tool_path(target)

@@ -502,12 +502,18 @@ FeatureSpec {
             result = {"profile": DESKTOP, "project": "/projects/one", "model": "example-model", "measured_at": 1200,
                       "encoding": "example", "fallback": False, "notes": ["diagnostics"],
                       "rows": [{"kind": "Instructions", "upfront": 100, "detail": "private project information"}],
+                      "report": {"startup": 130, "groups": [
+                          {"name": "Inline Codex tools", "tokens": 30, "parts": [{"name": "private tool", "tokens": 30}]},
+                          {"name": "Instructions", "tokens": 100},
+                      ]},
                       "tables": {"apps": {"demo": {"upfront": 120, "full": 300, "detail": "private tool names"}}}}
             cache.save_context("/projects/one", "", result)
             cached = cache.context(DESKTOP, "/projects/one", "")
             self.assertEqual(cached, cache.context(DESKTOP, "/projects/one", "example-model"))
             self.assertEqual(cached["measured_at"], 1200)
             self.assertEqual(cached["tables"]["apps"]["demo"], {"upfront": 120, "full": 300})
+            self.assertEqual(cached["report"]["startup"], 130)
+            self.assertEqual(cached["report"]["groups"][0], {"name": "Inline Codex tools", "tokens": 30})
             self.assertNotIn("private", repr(cached))
             for profile, project, model in ((IDEAPAD, "/projects/one", ""), (DESKTOP, "/projects/two", ""),
                                              (DESKTOP, "/projects/one", "another-model")):
