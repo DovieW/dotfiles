@@ -970,6 +970,21 @@ description, or plugin, and filter by this computer's on/off state.
 **MCP Servers** groups configured servers and servers supplied by plugins.
 **Plugins** is for whole-plugin controls.
 
+In **Context size**, choose a computer and project folder, then click
+**Measure**. Leave the model field empty to use the effective Codex model.
+The estimates use saved configuration and a locally rendered fresh session.
+Sort by **Upfront** to compare the initial instructions, skill entries, and
+tool definitions or deferred summaries. **Fully loaded** includes complete
+skill files and discoverable tool definitions. Skill reference text is counted
+separately. Double-click a row for the breakdown and unavailable-data notes.
+Codex can compact schemas when exposing tools. Tool calls, results, and chat
+history vary with use and fall outside these context estimates.
+
+The tokenizer and vocabulary are installed by AI Customization setup.
+Measurement is local to the selected computer and returns counts and labels.
+The footer identifies the tokenizer, including fallback use for models
+without a published mapping. No model request is needed to count tokens.
+
 Select an app or MCP server and choose **Tools…** to get the live tool list
 from Codex and stage individual tool switches. Saved tool policies are still
 shown if live discovery is unavailable. A shared edit uses the tool names

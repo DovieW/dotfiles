@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+requirements="$repo/config/ai-customization/tokenizer-requirements.txt"
+root="${XDG_DATA_HOME:-$HOME/.local/share}/dotfiles/context-tokenizer"
+export TIKTOKEN_CACHE_DIR="$root/vocabulary"
+python=/usr/bin/python3
+runtime="$("$python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+version="$(sha256sum "$requirements" | cut -d' ' -f1)"
+release="$root/$runtime-$version"
+
+if [[ -x "$release/bin/python" ]] && cmp -s "$requirements" "$release/installed.txt"; then
+  exit 0
+fi
+mkdir -p "$root"
+exec 9>"$root/install.lock"
+flock 9
+if [[ -x "$release/bin/python" ]] && cmp -s "$requirements" "$release/installed.txt"; then
+  exit 0
+fi
+stage="$(mktemp -d "$root/.install.XXXXXXXX")"
+trap 'find "$stage" -depth -delete' EXIT
+"$python" -m venv --system-site-packages "$stage"
+"$stage/bin/python" -m pip --isolated install --index-url https://pypi.org/simple \
+  --no-deps --only-binary=:all: --require-hashes -r "$requirements"
+"$stage/bin/python" - <<'PY'
+import tiktoken
+
+for name in tiktoken.list_encoding_names():
+    tiktoken.get_encoding(name)
+PY
+cp "$requirements" "$stage/installed.txt"
+mv -T "$stage" "$release"
+trap - EXIT

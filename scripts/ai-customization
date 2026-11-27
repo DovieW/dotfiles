@@ -762,7 +762,7 @@ class Customization:
             "instructions_outdated": installed_text != expected["instructions"],
         }
 
-    def plugin_content(self):
+    def plugin_content(self, include_paths=False):
         import yaml
 
         _, raw = self.config()
@@ -800,6 +800,8 @@ class Customization:
                                     "title": str(title), "description": str(meta.get("description", "")),
                                     "source": str(source), "enabled": parent_enabled and skill_enabled(raw, name, skill),
                                 }
+                                if include_paths:
+                                    rows["plugin_skills"][name]["path"] = str(skill)
                             except (OSError, UnicodeError, AttributeError, yaml.YAMLError):
                                 continue
                 apps_path = manifest.get("apps")
@@ -820,6 +822,57 @@ class Customization:
             except (OSError, ValueError, AttributeError, TypeError):
                 continue
         return rows
+
+    def context_sizes(self, project, selected_model):
+        from context_sizes import estimate_context, tokenizer
+
+        cwd = Path(project or ROOT).expanduser().resolve()
+        need(cwd.is_dir(), "This project directory does not exist on the selected computer.")
+        codex = self.home / ".local/bin/codex"
+        need(codex.is_file(), "Codex CLI is unavailable.")
+        with self.codex_rpc(codex, experimental=True, cwd=cwd) as request:
+            native = request("config/read", {"cwd": str(cwd)})["config"]
+        defaults = self.instructions(self.manifest())["defaults"]
+        model = selected_model or native.get("model") or defaults["model"]
+        need(IDENTIFIER.fullmatch(model), "Invalid model name.")
+        try:
+            encoding, fallback = tokenizer(ROOT / REL / "tokenizer-requirements.txt", self.home, model)
+        except (ImportError, ValueError):
+            raise Error("The local tokenizer is unavailable. Run the AI Customization setup on this computer.") from None
+        result = run([str(codex), "debug", "prompt-input", "--disable", "hooks", "--disable", "plugin_hooks",
+                      "-c", f"model={json.dumps(model)}"], cwd=cwd, timeout=35,
+                     env=dict(os.environ, CODEX_HOME=str(self.codex)))
+        need(result.returncode == 0, "Codex could not render the startup context for this project.")
+        prompt = json.loads(result.stdout)
+        notes = []
+        skills, servers = [], []
+        with self.codex_rpc(codex, experimental=True, cwd=cwd) as request:
+            try:
+                skills = [item for scope in request("skills/list", {"cwds": [str(cwd)]})["data"]
+                          for item in scope.get("skills", [])]
+            except (Error, KeyError):
+                notes.append("Native skill inventory unavailable. Cached and rendered skills are shown.")
+            try:
+                cursor = None
+                while True:
+                    response = request("mcpServerStatus/list", {"detail": "toolsAndAuthOnly", "cursor": cursor})
+                    servers.extend(response["data"])
+                    cursor = response.get("nextCursor")
+                    if not cursor:
+                        break
+            except (Error, KeyError):
+                notes.append("The tool catalog is incomplete. Missing counts are shown as unavailable.")
+        catalog = self.plugin_content(include_paths=True)
+
+        def count(text):
+            return len(encoding.encode_ordinary(text))
+
+        rows, skill_upfront = estimate_context(
+            prompt, skills, catalog["plugin_skills"], catalog["apps"], servers,
+            self.status(), native, count, self.codex, cwd,
+        )
+        return {"profile": self.profile, "model": model, "encoding": encoding.name, "fallback": fallback,
+                "project": str(cwd), "rows": rows, "skill_upfront": skill_upfront, "notes": notes}
 
     def integration_tools(self, target):
         path = tool_path(target)
@@ -856,8 +909,8 @@ class Customization:
             for name, info in tools.items() if TOOL_NAME.fullmatch(name)}}
 
     @contextmanager
-    def codex_rpc(self, codex, experimental=False, timeout=12):
-        with subprocess.Popen([str(codex), "app-server"], cwd="/", stdin=subprocess.PIPE,
+    def codex_rpc(self, codex, experimental=False, timeout=12, cwd="/"):
+        with subprocess.Popen([str(codex), "app-server"], cwd=cwd, stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                               env=dict(os.environ, CODEX_HOME=str(self.codex))) as process:
             buffer = b""
@@ -1318,6 +1371,8 @@ class Customization:
             return {}
 
     def install(self):
+        tokenizer_install = run([str(ROOT / "scripts/install-context-tokenizer")], timeout=120)
+        need(tokenizer_install.returncode == 0, "Could not install the local context tokenizer.")
         bin_dir = self.home / ".local/bin"
         systemd = self.home / ".config/systemd/user"
         share = self.home / ".local/share"
@@ -1358,13 +1413,15 @@ def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
-                                           "config-engines", "config-catalog", "integration-tools"))
+                                           "config-engines", "config-catalog", "integration-tools", "context-sizes"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--resolve", action="store_true")
     parser.add_argument("--with-peer", action="store_true")
     parser.add_argument("--target")
+    parser.add_argument("--project")
+    parser.add_argument("--model")
     parser.add_argument("--json", action="store_true", help="Emit JSON (the default for status and sync).")
     args = parser.parse_args()
     try:
@@ -1390,6 +1447,15 @@ def main():
                 need(result, "Could not load tools from the other computer.")
             else:
                 result = app.integration_tools(args.target)
+            print(encode(result), end="")
+        elif args.action == "context-sizes":
+            if args.with_peer:
+                forwarded = [arg for key, value in (("--project", args.project), ("--model", args.model))
+                             if value for arg in (key, value)]
+                result = app.call_peer("context-sizes", *forwarded, timeout=100)
+                need(result, "Could not measure context on the other computer. Verify its project directory and tokenizer.")
+            else:
+                result = app.context_sizes(args.project, args.model)
             print(encode(result), end="")
         elif args.action in ("config-engines", "config-catalog"):
             result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)

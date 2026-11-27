@@ -7,7 +7,7 @@ from pathlib import Path
 import stat
 import sys
 
-from PyQt6.QtCore import QProcess, Qt, QUrl
+from PyQt6.QtCore import QProcess, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
@@ -109,6 +109,17 @@ class ComboBox(QComboBox):
         event.setAccepted(wheel.isAccepted())
 
 
+class TokenCount(QTableWidgetItem):
+    def __init__(self, tokens):
+        super().__init__("Unavailable" if tokens is None else f"{tokens:,}")
+        self.tokens = tokens
+        self.setFlags(self.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+    def __lt__(self, other):
+        return (self.tokens is None, self.tokens or 0) < (other.tokens is None, other.tokens or 0)
+
+
 class Window(QWidget):
     def __init__(self):
         super().__init__()
@@ -168,6 +179,7 @@ class Window(QWidget):
                 self.tabs.addTab(table, title)
             table.itemSelectionChanged.connect(self.update_entry_controls)
         self.tables["Skills"].cellDoubleClicked.connect(self.edit_skill_source)
+        self.tabs.addTab(self.context_panel(), "Context size")
         self.info = QLabel("Loading Codex customization…")
         self.info.setWordWrap(True)
         self.files = QLabel()
@@ -220,6 +232,125 @@ class Window(QWidget):
         layout.addLayout(footer)
         self.update_entry_controls()
         self.read()
+
+    def context_panel(self):
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        self.context_host = ComboBox()
+        self.context_host.addItems(["This computer", "Other computer"])
+        self.context_project = QLineEdit(str(BACKEND.parents[1]))
+        self.context_project.setPlaceholderText("Project folder")
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self.choose_context_project)
+        self.context_model = QLineEdit()
+        self.context_model.setPlaceholderText("Configured model")
+        self.context_button = QPushButton("Measure")
+        self.context_button.clicked.connect(self.measure_context)
+        controls = QHBoxLayout()
+        for widget in (self.context_host, self.context_project, browse, self.context_model, self.context_button):
+            controls.addWidget(widget, 1 if widget is self.context_project else 0)
+        layout.addLayout(controls)
+        filters = QHBoxLayout()
+        self.context_filter = ComboBox()
+        self.context_filter.addItems(["All items", "Instructions", "Skill", "MCP server", "App"])
+        self.context_search = QLineEdit()
+        self.context_search.setPlaceholderText("Search by name")
+        filters.addWidget(self.context_search, 1)
+        filters.addWidget(self.context_filter)
+        layout.addLayout(filters)
+        self.context_table = QTableWidget(0, 5)
+        self.context_table.setHorizontalHeaderLabels(["Item", "Type", "Upfront", "Fully loaded", "References"])
+        self.context_table.verticalHeader().hide()
+        self.context_table.setAlternatingRowColors(True)
+        self.context_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.context_table.setSortingEnabled(True)
+        self.context_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.context_table.horizontalHeader().sortIndicatorChanged.connect(
+            lambda: QTimer.singleShot(0, self.filter_context))
+        self.context_table.sortItems(2, Qt.SortOrder.DescendingOrder)
+        self.context_table.cellDoubleClicked.connect(self.show_context_details)
+        self.context_search.textChanged.connect(self.filter_context)
+        self.context_filter.currentIndexChanged.connect(self.filter_context)
+        layout.addWidget(self.context_table)
+        self.context_note = QLabel("Measure saved settings for a fresh Codex session.")
+        self.context_note.setTextFormat(Qt.TextFormat.PlainText)
+        self.context_note.setWordWrap(True)
+        layout.addWidget(self.context_note)
+        self.context_process = QProcess(self)
+        self.context_process.finished.connect(self.context_finished)
+        self.context_process.errorOccurred.connect(self.context_error)
+        return panel
+
+    def choose_context_project(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose a Codex working directory", self.context_project.text())
+        if path:
+            self.context_project.setText(path)
+
+    def measure_context(self):
+        self.context_button.setEnabled(False)
+        self.context_note.setText("Rendering Codex startup context and reading tool catalogs…")
+        args = ["context-sizes", "--project", self.context_project.text().strip()]
+        model = self.context_model.text().strip()
+        if model:
+            args.extend(["--model", model])
+        if self.context_host.currentIndex() == 1:
+            args.append("--with-peer")
+        self.context_process.start(str(BACKEND), args)
+
+    def context_error(self, _error):
+        if self.context_process.state() == QProcess.ProcessState.NotRunning:
+            self.context_button.setEnabled(True)
+            self.context_note.setText("Could not start the context measurement.")
+
+    def context_finished(self, code, _status):
+        self.context_button.setEnabled(True)
+        if code:
+            error = bytes(self.context_process.readAllStandardError()).decode(errors="replace").strip()
+            self.context_note.setText(error or "Context measurement failed.")
+            return
+        try:
+            result = json.loads(bytes(self.context_process.readAllStandardOutput()))
+        except ValueError:
+            self.context_note.setText("Codex returned an invalid context measurement.")
+            return
+        table = self.context_table
+        table.setSortingEnabled(False)
+        table.setRowCount(len(result["rows"]))
+        for row, data in enumerate(result["rows"]):
+            item = self.cell(data["name"])
+            item.setToolTip(data["detail"])
+            table.setItem(row, 0, item)
+            table.setItem(row, 1, self.cell(data["kind"]))
+            for column, key in enumerate(("upfront", "full", "references"), 2):
+                count = TokenCount(data[key])
+                if key == "references" and data[key] is None:
+                    count.setText("—")
+                table.setItem(row, column, count)
+        table.setSortingEnabled(True)
+        self.filter_context()
+        encoding = result["encoding"] + (" (fallback)" if result["fallback"] else "")
+        label = f"Estimated tokens  ·  {HOST_LABELS[result['profile']]}  ·  {result['model']}  ·  {encoding}"
+        if result["skill_upfront"] is not None:
+            label += f"  ·  Skill catalog with overhead: {result['skill_upfront']:,} tokens"
+        self.context_note.setText("\n".join([label, result["project"], *result["notes"]]))
+
+    def filter_context(self):
+        needle = self.context_search.text().strip().casefold()
+        kind = self.context_filter.currentText()
+        for row in range(self.context_table.rowCount()):
+            item = self.context_table.item(row, 0)
+            category = self.context_table.item(row, 1).text()
+            self.context_table.setRowHidden(row, needle not in item.text().casefold()
+                                           or (kind != "All items" and kind != category))
+
+    def show_context_details(self, row, _column):
+        item = self.context_table.item(row, 0)
+        if item and item.toolTip():
+            box = QMessageBox(self)
+            box.setWindowTitle(item.text())
+            box.setText("Context estimate breakdown")
+            box.setDetailedText(item.toolTip())
+            box.exec()
 
     def content_panel(self, title, table):
         search = QLineEdit()
@@ -683,6 +814,10 @@ class Window(QWidget):
             return
         paths = self.data["paths"]
         tab = self.active_table()
+        if tab == "Context size":
+            self.files.clear()
+            self.files.setToolTip("")
+            return
         if tab == "Hooks":
             prefix, keys = "Local files", ("hooks", "config")
         elif tab == "Instructions":
