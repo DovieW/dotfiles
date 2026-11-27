@@ -121,7 +121,7 @@ class Window(QWidget):
         self.instructions.setPlaceholderText("Instructions for the selected scope")
         self.instructions.textChanged.connect(self.edit)
         self.tables = {}
-        for title in ["Config", *TABLES, "Hooks"]:
+        for title in ["Config", *TABLES, "Plugin Content", "Hooks"]:
             table = QTableWidget()
             table.setAlternatingRowColors(True)
             table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -131,6 +131,8 @@ class Window(QWidget):
             if title == "Config":
                 self.tabs.addTab(self.config_panel(table), title)
                 self.tabs.addTab(self.instructions, "Instructions")
+            elif title == "Plugin Content":
+                self.tabs.addTab(self.plugin_content_panel(table), title)
             else:
                 self.tabs.addTab(table, title)
             table.itemSelectionChanged.connect(self.update_entry_controls)
@@ -181,6 +183,72 @@ class Window(QWidget):
         layout.addLayout(footer)
         self.update_entry_controls()
         self.read()
+
+    def plugin_content_panel(self, table):
+        self.plugin_search = QLineEdit()
+        self.plugin_search.setPlaceholderText("Search plugin skills and apps")
+        self.plugin_type = QComboBox()
+        self.plugin_type.addItems(["All types", "Skills", "Apps"])
+        self.plugin_state = QComboBox()
+        self.plugin_state.addItems(["All states", "Enabled here", "Disabled here"])
+        self.plugin_search.textChanged.connect(self.filter_plugin_content)
+        self.plugin_type.currentIndexChanged.connect(self.filter_plugin_content)
+        self.plugin_state.currentIndexChanged.connect(self.filter_plugin_content)
+        filters = QHBoxLayout()
+        filters.addWidget(self.plugin_search, 1)
+        filters.addWidget(self.plugin_type)
+        filters.addWidget(self.plugin_state)
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.addLayout(filters)
+        layout.addWidget(table)
+        return panel
+
+    def fill_plugin_content(self):
+        table = self.tables["Plugin Content"]
+        table.clear()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["Name", "Type", "Plugin", "This computer", "Other computer", "Edit selected scope"])
+        local = self.data.get("plugin_content", {})
+        peer = self.data.get("peer_inventory", {}).get("plugin_content", {})
+        rows = []
+        for group in ("plugin_skills", "apps"):
+            local_rows, peer_rows = local.get(group, {}), peer.get(group, {})
+            for name, info in (peer_rows | local_rows).items():
+                rows.append((info["title"].casefold(), group, name, info,
+                             local_rows.get(name), peer_rows.get(name)))
+        table.setRowCount(len(rows))
+        for row, (_, group, name, info, here, there) in enumerate(sorted(rows)):
+            title = self.cell(info["title"])
+            title.setToolTip(f"{name}\n{info['description']}")
+            title.setData(Qt.ItemDataRole.UserRole, group)
+            table.setItem(row, 0, title)
+            table.setItem(row, 1, self.cell("Skill" if group == "plugin_skills" else "App"))
+            table.setItem(row, 2, self.cell(info["source"]))
+            table.setItem(row, 3, self.cell(label(here["enabled"]) if here else "—"))
+            table.setItem(row, 4, self.cell(label(there["enabled"]) if there else "—"))
+            combo = QComboBox()
+            choices = [None, True, False]
+            combo.addItems(["Keep local" if self.target == "shared" else "Inherit", "On", "Off"])
+            combo.setCurrentIndex(choices.index(self.section().get(group, {}).get(name)))
+            combo.currentIndexChanged.connect(
+                lambda index, g=group, n=name: self.set_option(g, n, choices[index]))
+            table.setCellWidget(row, 5, combo)
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        self.filter_plugin_content()
+
+    def filter_plugin_content(self):
+        table = self.tables["Plugin Content"]
+        needle = self.plugin_search.text().strip().casefold()
+        kind = (None, "plugin_skills", "apps")[self.plugin_type.currentIndex()]
+        state = (None, "On", "Off")[self.plugin_state.currentIndex()]
+        for row in range(table.rowCount()):
+            name = table.item(row, 0)
+            searchable = " ".join((name.text(), name.toolTip(), table.item(row, 2).text())).casefold()
+            table.setRowHidden(row, (bool(needle) and needle not in searchable)
+                               or (kind is not None and name.data(Qt.ItemDataRole.UserRole) != kind)
+                               or (state is not None and table.item(row, 3).text() != state))
 
     def config_panel(self, table):
         panel = QWidget()
@@ -350,6 +418,7 @@ class Window(QWidget):
         self.fill_config()
         for title, (group, options) in TABLES.items():
             self.fill(title, group, options)
+        self.fill_plugin_content()
         self.fill_hooks()
         drift = self.data["drift"]
         self.adopt.setVisible(any(key != "override" for key in drift))
@@ -836,6 +905,8 @@ class Window(QWidget):
         if self.target == "shared":
             for host in self.draft["hosts"].values():
                 host.get(group, {}).pop(name, None)
+        if group in ("plugin_skills", "apps"):
+            return
         table = next(table for title, table in self.tables.items() if title in TABLES and TABLES[title][0] == group)
         shared = self.draft["shared"].get(group, {})
         remote = self.data.get("peer_inventory", {})

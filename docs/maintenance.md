@@ -964,6 +964,14 @@ selected computers' user config files. Use **Open local config.toml** for
 free-form values.
 Desktop interface preferences are managed inside that app.
 
+The **Plugin Content** tab lists skills and apps found in the local Codex
+plugin caches on either workstation. Search by name, description, or plugin,
+or filter by type and this computer's on/off state. Use **Edit scope** and
+**Apply & Sync** to set an enablement policy for either computer or both.
+Skill policies match the skill name across plugin updates. App policies use the
+app ID and control availability in Codex. Connection and account authorization
+stay with the app provider. Start a fresh Codex session after applying changes.
+
 Run `dot apply --profile kubuntu-desktop --tags ai-customization` or use
 `kubuntu-laptop` on the IdeaPad. Use `dot ai status` for JSON inventory,
 `dot ai preview` for the two managed instruction previews,

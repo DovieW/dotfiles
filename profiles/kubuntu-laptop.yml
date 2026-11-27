@@ -95,6 +95,7 @@
       "python3-gi",
       "python3-gi-cairo",
       "python3-pyqt6",
+      "python3-yaml",
       "qemu-system-x86",
       "qemu-utils",
       "remmina",

@@ -34,7 +34,7 @@ PACKAGE_SKILL_LABELS = {
 PREFS = "preferences.json"
 UPSTREAM = "refs/remotes/origin/master"
 HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
-GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp")
+GROUPS = ("defaults", "skills", "mcp", "plugins", "plugin_mcp", "plugin_skills", "apps")
 DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissions", "approval_policy"}
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
@@ -185,7 +185,7 @@ def skill_policy(folder, mode):
 def tool_values(settings):
     for name, value in settings["defaults"].items():
         yield (name,), value
-    for group, table in (("mcp", "mcp_servers"), ("plugins", "plugins")):
+    for group, table in (("mcp", "mcp_servers"), ("plugins", "plugins"), ("apps", "apps")):
         for name, value in settings[group].items():
             yield (table, name, "enabled"), value
     for key, value in settings["plugin_mcp"].items():
@@ -206,6 +206,23 @@ def tool_available(raw, key):
 
 def tool_value(raw, key, wanted):
     return setting(raw, key, None if wanted is None or len(key) == 1 else True)
+
+
+def skill_overrides(config, policies):
+    current = config.get("skills", {}).get("config", [])
+    if not policies:
+        return current
+    overrides = [{"name": name, "enabled": enabled} for name, enabled in sorted(policies.items())]
+    if current[-len(overrides):] == overrides:
+        return current
+    return [entry for entry in current if entry.get("name") not in policies] + overrides
+
+
+def skill_enabled(config, name, path):
+    for entry in reversed(config.get("skills", {}).get("config", [])):
+        if entry.get("name") == name or entry.get("path") == str(path):
+            return entry.get("enabled", True)
+    return True
 
 
 
@@ -682,6 +699,64 @@ class Customization:
             "instructions_outdated": installed_text != expected["instructions"],
         }
 
+    def plugin_content(self):
+        import yaml
+
+        _, raw = self.config()
+        rows = {"plugin_skills": {}, "apps": {}}
+        for plugin in sorted((self.codex / "plugins/cache").glob("*/*")):
+            try:
+                newest = max(plugin.glob("*/.codex-plugin/plugin.json"),
+                             key=lambda path: path.stat().st_mtime_ns, default=None)
+                if newest is None:
+                    continue
+                manifest = load(newest, {})
+                if not isinstance(manifest, dict):
+                    continue
+                release = newest.parents[1].resolve()
+                identity = f"{plugin.name}@{plugin.parent.name}"
+                interface = manifest.get("interface") or {}
+                source = interface.get("displayName") or manifest.get("name") or plugin.name
+                parent_enabled = setting(raw, ("plugins", identity, "enabled"), True)
+                skills_path = manifest.get("skills")
+                if isinstance(skills_path, str):
+                    directory = (release / skills_path).resolve()
+                    if directory.is_relative_to(release):
+                        for skill in sorted(directory.glob("*/SKILL.md")):
+                            try:
+                                with skill.open() as stream:
+                                    header = stream.read(16384).split("\n---", 1)[0].removeprefix("---\n")
+                                meta = yaml.safe_load(header)
+                                name = meta.get("name")
+                                if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
+                                    continue
+                                ui = skill.parent / "agents/openai.yaml"
+                                display = yaml.safe_load(ui.read_text()) if ui.is_file() else {}
+                                title = setting(display, ("interface", "display_name")) or name
+                                rows["plugin_skills"][name] = {
+                                    "title": str(title), "description": str(meta.get("description", "")),
+                                    "source": str(source), "enabled": parent_enabled and skill_enabled(raw, name, skill),
+                                }
+                            except (OSError, UnicodeError, AttributeError, yaml.YAMLError):
+                                continue
+                apps_path = manifest.get("apps")
+                if isinstance(apps_path, str):
+                    path = (release / apps_path).resolve()
+                    if not path.is_relative_to(release):
+                        continue
+                    for alias, app in load(path, {}).get("apps", {}).items():
+                        name = app.get("id")
+                        if isinstance(name, str) and IDENTIFIER.fullmatch(name):
+                            rows["apps"][name] = {
+                                "title": str(app.get("name") or (source if plugin.name == alias else alias)),
+                                "description": str(interface.get("shortDescription") or ""),
+                                "source": str(source),
+                                "enabled": parent_enabled and tool_value(raw, ("apps", name, "enabled"), True),
+                            }
+            except (OSError, ValueError, AttributeError, TypeError):
+                continue
+        return rows
+
     @contextmanager
     def codex_rpc(self, codex, experimental=False, timeout=12):
         with subprocess.Popen([str(codex), "app-server"], cwd="/", stdin=subprocess.PIPE,
@@ -757,6 +832,9 @@ class Customization:
             actual = tool_value(raw, key, wanted)
             if actual != wanted:
                 changes.append((key, wanted))
+        overrides = skill_overrides(raw, expected["plugin_skills"])
+        if overrides != setting(raw, ("skills", "config"), []):
+            changes.append((("skills", "config"), overrides))
         wanted_sources = {}
         stale = set(previous.get("skills", [])) - expected["skills"].keys()
         for name, mode in expected["skills"].items():
@@ -1195,11 +1273,12 @@ def main():
             result = app.status()
             if args.with_peer:
                 result["peer_inventory"] = app.call_peer("inventory")
+                result["plugin_content"] = app.plugin_content()
             print(encode(result), end="")
         elif args.action == "inventory":
             result = app.status()
-            print(encode({key: result[key] for key in
-                          ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")}), end="")
+            keys = ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")
+            print(encode({**{key: result[key] for key in keys}, "plugin_content": app.plugin_content()}), end="")
         elif args.action in ("config-engines", "config-catalog"):
             result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)
             print(encode(result), end="")

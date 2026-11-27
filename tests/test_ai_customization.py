@@ -67,6 +67,31 @@ class CustomizationTest(unittest.TestCase):
         with self.assertRaisesRegex(ai.Error, "Codex app"):
             ai.validate(self.manifest)
 
+    def test_plugin_content_inventory_reports_native_policies(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"CODEX_HOME": folder}):
+            app = ai.Customization(DESKTOP, Path(folder))
+            release = app.codex / "plugins/cache/market/demo/1.0.0"
+            manifest = release / ".codex-plugin/plugin.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(ai.encode({"name": "demo", "skills": "./skills", "apps": "./.app.json",
+                                           "interface": {"displayName": "Demo App"}}))
+            (release / ".app.json").write_text(ai.encode({"apps": {"demo": {"id": "app_demo"}}}))
+            skill = release / "skills/example/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("---\nname: example\ndescription: Sample workflow\n---\n")
+            original = {"skills": {"config": [{"path": str(skill), "enabled": True},
+                                               {"name": "example", "enabled": True}]}}
+            overrides = ai.skill_overrides(original, {"example": False})
+            self.assertEqual(overrides, [{"path": str(skill), "enabled": True},
+                                         {"name": "example", "enabled": False}])
+            self.assertEqual(ai.skill_overrides({"skills": {"config": overrides}}, {"example": False}), overrides)
+            (app.codex / "config.toml").write_text(
+                '[[skills.config]]\nname = "example"\nenabled = false\n[apps.app_demo]\nenabled = false\n')
+            rows = app.plugin_content()
+            self.assertEqual(rows["apps"]["app_demo"]["title"], "Demo App")
+            self.assertFalse(rows["apps"]["app_demo"]["enabled"])
+            self.assertFalse(rows["plugin_skills"]["example"]["enabled"])
+
     def test_manual_skill_keeps_other_metadata(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder)
