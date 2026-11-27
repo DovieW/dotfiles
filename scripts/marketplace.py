@@ -377,7 +377,9 @@ def mcp_choices(server):
                             "package": identifier, "version": version, "arguments": args,
                             "env_vars": sorted(set(requirements))})
     registry = {"name": server["name"], "version": server["version"]} if "version" in server else None
-    return [{**choice, "registry": registry} for choice in choices] if registry else choices
+    description = server.get("description")
+    metadata = {"description": description} if isinstance(description, str) and description.strip() else {}
+    return [{**choice, "registry": registry, **metadata} for choice in choices] if registry else choices
 
 
 def mcp_configuration(home, choice):

@@ -4,6 +4,23 @@ import re
 
 
 REFERENCE_URL = "https://learn.chatgpt.com/docs/config-file/config-reference"
+HOOKS_URL = "https://learn.chatgpt.com/docs/hooks"
+HOOK_DESCRIPTIONS = {
+    "SessionStart": "Runs when Codex starts, resumes, clears, compacts, or forks a session.",
+    "SessionEnd": "Runs when a Codex session ends.",
+    "UserPromptSubmit": "Runs when the user submits a prompt, before Codex processes it.",
+    "PreModelRequest": "Runs before Codex sends a request to the model.",
+    "PostModelRequest": "Runs after Codex receives a model response.",
+    "PreToolUse": "Runs before a tool call. A matching handler can review and sometimes change or block the call.",
+    "PermissionRequest": "Runs when a tool call requests permission to proceed.",
+    "PostToolUse": "Runs after a tool call, with information about the call and its result.",
+    "PreCompact": "Runs before Codex compacts the conversation context.",
+    "PostCompact": "Runs after Codex compacts the conversation context.",
+    "SubagentStart": "Runs when Codex starts a subagent.",
+    "SubagentStop": "Runs when a subagent is about to stop.",
+    "Stop": "Runs when the main agent is about to finish its turn.",
+    "Interrupt": "Runs when a turn is interrupted.",
+}
 FEATURE_SOURCE = "codex-rs/features/src/lib.rs"
 SOURCE_RAW = "https://raw.githubusercontent.com/openai/codex/rust-v{}/{}"
 SOURCE_WEB = "https://github.com/openai/codex/blob/rust-v{}/{}"

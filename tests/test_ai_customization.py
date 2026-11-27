@@ -76,9 +76,10 @@ class CustomizationTest(unittest.TestCase):
             manifest = release / ".codex-plugin/plugin.json"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(ai.encode({"name": "demo", "skills": "./skills", "apps": "./.app.json",
-                                           "interface": {"displayName": "Demo App"}}))
+                                           "interface": {"displayName": "Demo App", "longDescription": "About the plugin"}}))
             (release / ".mcp.json").write_text(ai.encode({"mcpServers": {"demo_server": {}}}))
-            (release / ".app.json").write_text(ai.encode({"apps": {"demo": {"id": "app_demo"}}}))
+            (release / ".app.json").write_text(ai.encode({"apps": {"demo": {"id": "app_demo",
+                                                                            "description": "About this app"}}}))
             skill = release / "skills/example/SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: example\ndescription: Sample workflow\n---\n")
@@ -92,6 +93,9 @@ class CustomizationTest(unittest.TestCase):
                 '[[skills.config]]\nname = "example"\nenabled = false\n[apps.app_demo]\nenabled = false\n')
             rows = app.plugin_content()
             self.assertEqual(rows["apps"]["app_demo"]["title"], "Demo App")
+            self.assertEqual(rows["apps"]["app_demo"]["description"], "About this app")
+            self.assertEqual(rows["plugins"]["demo@market"]["description"], "About the plugin")
+            self.assertEqual(rows["plugin_skills"]["example"]["description"], "Sample workflow")
             self.assertFalse(rows["apps"]["app_demo"]["enabled"])
             self.assertFalse(rows["plugin_skills"]["example"]["enabled"])
             status = app.status(self.manifest)

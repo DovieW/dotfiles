@@ -31,6 +31,7 @@ from codex_config_help import (
     FEATURE_SOURCE, REFERENCE_URL, SCHEMA_SOURCE, SOURCE_RAW, SOURCE_WEB, feature_descriptions,
     reference_descriptions, reference_fields,
 )
+from context_sizes import connector_id
 
 ROOT = Path(__file__).resolve().parents[1]
 REL = "config/ai-customization"
@@ -63,12 +64,6 @@ class Error(Exception):
 
 def encode(value):
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
-
-
-def connector_id(name):
-    if re.fullmatch(r"asdk_app_[0-9a-f]{32}", name):
-        return "connector_" + name.removeprefix("asdk_app_")
-    return name
 
 
 def load(path, default=None):
@@ -328,6 +323,19 @@ def hook_entries(source, hooks):
                     continue
                 identity = digest(json.dumps([source, event, matcher, handler], sort_keys=True))
                 yield identity, event, group, handler
+
+
+def skill_frontmatter(path):
+    import yaml
+
+    try:
+        with path.open(encoding="utf-8") as stream:
+            text = stream.read(16384)
+        header, boundary, _ = text.removeprefix("---\n").partition("\n---")
+        meta = yaml.safe_load(header) if text.startswith("---\n") and boundary else None
+        return meta if isinstance(meta, dict) else {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return {}
 
 
 def schema_fields(schema):
@@ -917,7 +925,7 @@ class Customization:
         import yaml
 
         _, raw = self.config()
-        rows = {"plugin_skills": {}, "apps": {}}
+        rows = {"plugin_skills": {}, "apps": {}, "plugins": {}}
         for plugin in sorted((self.codex / "plugins/cache").glob("*/*")):
             try:
                 newest = max(plugin.glob("*/.codex-plugin/plugin.json"),
@@ -931,6 +939,11 @@ class Customization:
                 identity = f"{plugin.name}@{plugin.parent.name}"
                 interface = manifest.get("interface") or {}
                 source = interface.get("displayName") or manifest.get("name") or plugin.name
+                description = str(interface.get("longDescription") or manifest.get("description")
+                                  or interface.get("shortDescription") or "")
+                plugin_row = rows["plugins"][identity] = {"description": description, "source": str(source)}
+                if include_paths:
+                    plugin_row.update(skills={}, apps=[])
                 parent_enabled = setting(raw, ("plugins", identity, "enabled"), True)
                 skills_path = manifest.get("skills")
                 if isinstance(skills_path, str):
@@ -938,9 +951,7 @@ class Customization:
                     if directory.is_relative_to(release):
                         for skill in sorted(directory.glob("*/SKILL.md")):
                             try:
-                                with skill.open() as stream:
-                                    header = stream.read(16384).split("\n---", 1)[0].removeprefix("---\n")
-                                meta = yaml.safe_load(header)
+                                meta = skill_frontmatter(skill)
                                 name = meta.get("name")
                                 if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
                                     continue
@@ -953,6 +964,7 @@ class Customization:
                                 }
                                 if include_paths:
                                     rows["plugin_skills"][name]["path"] = str(skill)
+                                    plugin_row["skills"][name] = str(skill)
                             except (OSError, UnicodeError, AttributeError, yaml.YAMLError):
                                 continue
                 apps_path = manifest.get("apps")
@@ -960,22 +972,39 @@ class Customization:
                     path = (release / apps_path).resolve()
                     if not path.is_relative_to(release):
                         continue
-                    for alias, app in load(path, {}).get("apps", {}).items():
+                    apps = load(path, {}).get("apps", {})
+                    for alias, app in apps.items():
                         name = app.get("id")
                         if isinstance(name, str) and IDENTIFIER.fullmatch(name):
                             name = connector_id(name)
                             rows["apps"][name] = {
                                 "title": str(app.get("name") or (source if plugin.name == alias else alias)),
-                                "description": str(interface.get("shortDescription") or ""),
+                                "description": str(app.get("description") or (
+                                    f"About {source}\n{description}" if description and len(apps) > 1 else description)),
                                 "source": str(source),
                                 "enabled": parent_enabled and tool_value(raw, ("apps", name, "enabled"), True),
                             }
+                            if include_paths:
+                                plugin_row["apps"].append(name)
             except (OSError, ValueError, AttributeError, TypeError):
                 continue
         return rows
 
+    def integration_descriptions(self, status, catalog):
+        from marketplace_updates import MCP_RECEIPTS
+
+        skills = {}
+        for name in status["skills"]:
+            description = skill_frontmatter(self.skills / name / "SKILL.md").get("description")
+            if isinstance(description, str) and description.strip():
+                skills[name] = description
+        receipts = load(self.state / MCP_RECEIPTS, {})
+        return {"skills": skills, "mcp": {name: record["choice"]["description"] for name, record in receipts.items()
+                    if name in status["mcp"] and record.get("choice", {}).get("description")},
+                "plugins": {name: info["description"] for name, info in catalog["plugins"].items()}}
+
     def context_sizes(self, project, selected_model):
-        from context_sizes import estimate_context, tokenizer
+        from context_sizes import estimate_context, inline_context, tokenizer
 
         cwd = Path(project or ROOT).expanduser().resolve()
         need(cwd.is_dir(), "This project directory does not exist on the selected computer.")
@@ -1014,16 +1043,19 @@ class Customization:
             except (Error, KeyError):
                 notes.append("The tool catalog is incomplete. Missing counts are shown as unavailable.")
         catalog = self.plugin_content(include_paths=True)
+        status = self.status()
+        local_skills = [(name, self.skills / name / "SKILL.md", mode != "off") for name, mode in status["skills"].items()]
 
         def count(text):
             return len(encoding.encode_ordinary(text))
 
         rows, skill_upfront = estimate_context(
             prompt, skills, catalog["plugin_skills"], catalog["apps"], servers,
-            self.status(), native, count, self.codex, cwd,
+            status, native, count, self.codex, cwd, local_skills,
         )
         return {"profile": self.profile, "model": model, "encoding": encoding.name, "fallback": fallback,
-                "project": str(cwd), "rows": rows, "skill_upfront": skill_upfront, "notes": notes}
+                "project": str(cwd), "rows": rows, "tables": inline_context(rows, local_skills, catalog, status, native),
+                "skill_upfront": skill_upfront, "notes": notes}
 
     def integration_tools(self, target):
         path = tool_path(target)
@@ -1719,11 +1751,14 @@ def main():
                     catalog["apps"] = {connector_id(name): item for name, item in catalog["apps"].items()}
                 result["peer_inventory"] = peer
                 result["plugin_content"] = app.plugin_content()
+                result["descriptions"] = app.integration_descriptions(result, result["plugin_content"])
             print(encode(result), end="")
         elif args.action == "inventory":
             result = app.status()
             keys = ("profile", "skills", "mcp", "plugins", "plugin_mcp", "hook_entries")
-            print(encode({**{key: result[key] for key in keys}, "plugin_content": app.plugin_content()}), end="")
+            catalog = app.plugin_content()
+            print(encode({**{key: result[key] for key in keys}, "plugin_content": catalog,
+                          "descriptions": app.integration_descriptions(result, catalog)}), end="")
         elif args.action == "integration-tools":
             need(args.target is not None, "Select an integration.")
             if args.with_peer:

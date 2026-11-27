@@ -975,20 +975,24 @@ description, or plugin, and filter by this computer's on/off state.
 **MCP Servers** groups configured servers and servers supplied by plugins.
 **Plugins** is for whole-plugin controls.
 
-In **Context size**, choose a computer and project folder, then click
-**Measure**. Leave the model field empty to use the effective Codex model.
-The estimates use saved configuration and a locally rendered fresh session.
-Sort by **Upfront** to compare the initial instructions, skill entries, and
-tool definitions or deferred summaries. **Fully loaded** includes complete
-skill files and discoverable tool definitions. Skill reference text is counted
-separately. Double-click a row for the breakdown and unavailable-data notes.
-Codex can compact schemas when exposing tools. Tool calls, results, and chat
-history vary with use and fall outside these context estimates.
+The integration tabs show descriptions from their skill, app, plugin, or
+registry metadata. The Hooks tab describes the event using the Codex Hooks
+reference. Hover for the full description or click the cell to open it.
 
-The tokenizer and vocabulary are installed by AI Customization setup.
-Measurement is local to the selected computer and returns counts and labels.
-The footer identifies the tokenizer, including fallback use for models
-without a published mapping. No model request is needed to count tokens.
+Choose **Measure context…** and select a computer and project folder.
+Leave Model empty to use the effective Codex model. **Context size** shows
+upfront and fully loaded token estimates in the integration tables. The
+Instructions tab shows the effective instruction count for that project.
+Click a count for the breakdown, tokenizer, and any separately counted skill
+references. Click the context column header to sort by upfront size.
+
+The estimates use saved settings for a locally rendered fresh session.
+Plugin estimates combine measured skills, apps, and MCP servers. A **≥**
+marks a partial estimate when a component count is unavailable. Hooks show
+**Varies** because their context depends on runtime output. Codex can compact
+schemas when exposing tools. Tool results and conversation history vary with
+use and fall outside these estimates. AI Customization installs the local
+tokenizer and vocabulary. No model request is needed to count tokens.
 
 Select an app or MCP server and choose **Tools…** to get the live tool list
 from Codex and stage individual tool switches. Saved tool policies are still

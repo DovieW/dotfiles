@@ -53,3 +53,26 @@ class ContextSizesTest(unittest.TestCase):
             text = f"<skills_instructions>\n### Available skills\n- sample (file: {path})"
             _, entries, _, _, _ = context["startup_inputs"]([{"content": [{"text": text}]}])
             self.assertEqual(entries[path][0], "sample")
+
+    def test_inline_counts_preserve_identities_and_report_partial_plugin_totals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            local, bundled = root / "local/SKILL.md", root / "bundle/SKILL.md"
+            def measured(kind, identity, upfront, full):
+                return {"kind": kind, "id": identity, "name": "Same display title", "upfront": upfront, "full": full}
+            rows = [measured("Skill", str(local), 4, 12), measured("Skill", str(bundled), 2, 10),
+                    measured("App", "connector_other", 5, 17), measured("MCP server", "shared", 20, 60)]
+            local_skills = [("demo", local, True)]
+            status = {"mcp": {"shared": True}, "plugin_mcp": {"plugin@market/shared": True}, "plugins": {}}
+            catalog = {"plugin_skills": {"demo": {"path": str(bundled)}},
+                       "apps": {"connector_demo": {}, "connector_other": {}},
+                       "plugins": {"plugin@market": {"skills": {"demo": str(bundled)}, "apps": ["connector_demo"]}}}
+            result = context["inline_context"](rows, local_skills, catalog, status, {})
+            self.assertEqual(result["skills"]["demo"]["full"], 12)
+            self.assertEqual(result["plugin_skills"]["demo"]["full"], 10)
+            self.assertIsNone(result["apps"]["connector_demo"])
+            self.assertEqual(result["mcp"]["shared"]["upfront"], 20)
+            self.assertNotIn("plugin@market/shared", result["plugin_mcp"])
+            plugin = result["plugins"]["plugin@market"]
+            self.assertTrue(plugin["upfront_partial"] and plugin["full_partial"])
+            self.assertEqual((plugin["upfront"], plugin["full"]), (2, 10))

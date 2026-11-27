@@ -8,7 +8,7 @@ from pathlib import Path
 import stat
 import sys
 
-from PyQt6.QtCore import QProcess, Qt, QTimer, QUrl
+from PyQt6.QtCore import QProcess, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QWidgetAction,
 )
+
+from codex_config_help import HOOK_DESCRIPTIONS, HOOKS_URL
 
 APP_ID = "io.github.doview.ai-customization"
 BACKEND = Path(__file__).resolve().with_name("ai-customization")
@@ -35,6 +37,9 @@ SKILL_SOURCE = BACKEND.parents[1] / "config/ai-customization/skills"
 CONFIG_DESCRIPTION = 1
 CONFIG_EDITOR = 5
 NO_CONFIG_DESCRIPTION = "Codex has no published description for this setting."
+INTEGRATION_GROUPS = {title: group for title, (group, _) in TABLES.items()} | {
+    "Apps": "apps", "Plugin Skills": "plugin_skills", "Hooks": "hooks",
+}
 
 
 def config_description(note):
@@ -119,9 +124,12 @@ class ComboBox(QComboBox):
 
 
 class TokenCount(QTableWidgetItem):
-    def __init__(self, tokens):
-        super().__init__("Unavailable" if tokens is None else f"{tokens:,}")
-        self.tokens = tokens
+    def __init__(self, context, label=None):
+        upfront, full = context.get("upfront"), context.get("full")
+        counts = [f"{'≥' if context.get(field + '_partial') else ''}{count:,}" if count is not None else "—"
+                  for field, count in (("upfront", upfront), ("full", full))]
+        super().__init__(label or (" / ".join(counts) if upfront is not None or full is not None else "—"))
+        self.tokens = upfront
         self.setFlags(self.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
@@ -142,6 +150,11 @@ class Window(QWidget):
         self.installs = []
         self.removal_feedback = None
         self.catalog = {}
+        self.context_result = {}
+        self.context_options = (False, str(BACKEND.parents[1]), "")
+        self.context_process = QProcess(self)
+        self.context_process.finished.connect(self.context_finished)
+        self.context_process.errorOccurred.connect(self.context_error)
         self.catalog_rows = []
         self.catalog_refresh_pending = False
         self.catalog_process = QProcess(self)
@@ -172,7 +185,7 @@ class Window(QWidget):
             self.tables[title] = table
             if title == "Config":
                 self.tabs.addTab(self.config_panel(table), title)
-                self.tabs.addTab(self.instructions, "Instructions")
+                self.tabs.addTab(self.instructions_panel(), "Instructions")
             elif title == "Skills":
                 self.skill_tabs.addTab(table, "Local skills")
                 self.tabs.addTab(self.skill_tabs, title)
@@ -188,8 +201,11 @@ class Window(QWidget):
             else:
                 self.tabs.addTab(table, title)
             table.itemSelectionChanged.connect(self.update_entry_controls)
+            if title in INTEGRATION_GROUPS:
+                table.cellClicked.connect(lambda row, column, name=title: self.show_integration_detail(name, row, column))
+                table.horizontalHeader().setSectionsClickable(True)
+                table.horizontalHeader().sectionClicked.connect(lambda column, name=title: self.sort_context(name, column))
         self.tables["Skills"].cellDoubleClicked.connect(self.edit_skill_source)
-        self.tabs.addTab(self.context_panel(), "Context size")
         self.info = QLabel("Loading Codex customization…")
         self.info.setWordWrap(True)
         self.files = QLabel()
@@ -224,6 +240,8 @@ class Window(QWidget):
         self.remove_entry.clicked.connect(self.remove_selected_entry)
         self.tools_button = QPushButton("Tools…")
         self.tools_button.clicked.connect(self.open_integration_tools)
+        self.context_button = QPushButton("Measure context…")
+        self.context_button.clicked.connect(self.measure_context)
         header = QHBoxLayout()
         header.addWidget(QLabel("Edit scope"))
         header.addWidget(self.scope)
@@ -232,7 +250,7 @@ class Window(QWidget):
         header.addWidget(self.check_updates)
         footer = QHBoxLayout()
         for button in (self.preview, self.reload, self.adopt, self.restore, self.discard,
-                       self.add_entry, self.remove_entry, self.tools_button):
+                       self.add_entry, self.remove_entry, self.tools_button, self.context_button):
             footer.addWidget(button)
         footer.addStretch()
         footer.addWidget(self.apply)
@@ -247,124 +265,188 @@ class Window(QWidget):
         self.update_entry_controls()
         self.read()
 
-    def context_panel(self):
+    def instructions_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        self.context_host = ComboBox()
-        self.context_host.addItems(["This computer", "Other computer"])
-        self.context_project = QLineEdit(str(BACKEND.parents[1]))
-        self.context_project.setPlaceholderText("Project folder")
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self.choose_context_project)
-        self.context_model = QLineEdit()
-        self.context_model.setPlaceholderText("Configured model")
-        self.context_button = QPushButton("Measure")
-        self.context_button.clicked.connect(self.measure_context)
-        controls = QHBoxLayout()
-        for widget in (self.context_host, self.context_project, browse, self.context_model, self.context_button):
-            controls.addWidget(widget, 1 if widget is self.context_project else 0)
-        layout.addLayout(controls)
-        filters = QHBoxLayout()
-        self.context_filter = ComboBox()
-        self.context_filter.addItems(["All items", "Instructions", "Skill", "MCP server", "App"])
-        self.context_search = QLineEdit()
-        self.context_search.setPlaceholderText("Search by name")
-        filters.addWidget(self.context_search, 1)
-        filters.addWidget(self.context_filter)
-        layout.addLayout(filters)
-        self.context_table = QTableWidget(0, 5)
-        self.context_table.setHorizontalHeaderLabels(["Item", "Type", "Upfront", "Fully loaded", "References"])
-        self.context_table.verticalHeader().hide()
-        self.context_table.setAlternatingRowColors(True)
-        self.context_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.context_table.setSortingEnabled(True)
-        self.context_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.context_table.horizontalHeader().sortIndicatorChanged.connect(
-            lambda: QTimer.singleShot(0, self.filter_context))
-        self.context_table.sortItems(2, Qt.SortOrder.DescendingOrder)
-        self.context_table.cellDoubleClicked.connect(self.show_context_details)
-        self.context_search.textChanged.connect(self.filter_context)
-        self.context_filter.currentIndexChanged.connect(self.filter_context)
-        layout.addWidget(self.context_table)
-        self.context_note = QLabel("Measure saved settings for a fresh Codex session.")
-        self.context_note.setTextFormat(Qt.TextFormat.PlainText)
-        self.context_note.setWordWrap(True)
-        layout.addWidget(self.context_note)
-        self.context_process = QProcess(self)
-        self.context_process.finished.connect(self.context_finished)
-        self.context_process.errorOccurred.connect(self.context_error)
+        self.instructions_context = QPushButton("Context size · —")
+        self.instructions_context.setToolTip("Measure the effective instructions for a fresh Codex session.")
+        self.instructions_context.clicked.connect(self.show_instruction_context)
+        layout.addWidget(self.instructions_context, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.instructions, 1)
         return panel
 
-    def choose_context_project(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose a Codex working directory", self.context_project.text())
-        if path:
-            self.context_project.setText(path)
-
     def measure_context(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Measure context")
+        dialog.resize(590, 190)
+        remote, project_path, model_name = self.context_options
+        host = ComboBox()
+        host.addItems(["This computer", "Other computer"])
+        host.setCurrentIndex(int(remote))
+        project = QLineEdit(project_path)
+        browse = QPushButton("Browse…")
+        def choose_project():
+            selected = QFileDialog.getExistingDirectory(dialog, "Choose a Codex working directory", project.text())
+            if selected:
+                project.setText(selected)
+        browse.clicked.connect(choose_project)
+        model = QLineEdit(model_name)
+        model.setPlaceholderText("Configured model")
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Measure")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout = QVBoxLayout(dialog)
+        for label, widgets in (("Computer", (host,)), ("Project folder", (project, browse)), ("Model", (model,))):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(label))
+            for widget in widgets:
+                row.addWidget(widget, 1 if isinstance(widget, QLineEdit) else 0)
+            layout.addLayout(row)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        remote, project_path, model_name = host.currentIndex() == 1, project.text().strip(), model.text().strip()
+        self.context_options = (remote, project_path, model_name)
         self.context_button.setEnabled(False)
-        self.context_note.setText("Rendering Codex startup context and reading tool catalogs…")
-        args = ["context-sizes", "--project", self.context_project.text().strip()]
-        model = self.context_model.text().strip()
-        if model:
-            args.extend(["--model", model])
-        if self.context_host.currentIndex() == 1:
+        self.context_button.setText("Measuring context…")
+        args = ["context-sizes", "--project", project_path]
+        if model_name:
+            args.extend(["--model", model_name])
+        if remote:
             args.append("--with-peer")
         self.context_process.start(str(BACKEND), args)
 
     def context_error(self, _error):
         if self.context_process.state() == QProcess.ProcessState.NotRunning:
             self.context_button.setEnabled(True)
-            self.context_note.setText("Could not start the context measurement.")
+            self.context_button.setText("Measure context…")
+            self.info.setText("Could not start the context measurement.")
 
     def context_finished(self, code, _status):
         self.context_button.setEnabled(True)
+        self.context_button.setText("Measure context…")
         if code:
             error = bytes(self.context_process.readAllStandardError()).decode(errors="replace").strip()
-            self.context_note.setText(error or "Context measurement failed.")
+            self.info.setText(error or "Context measurement failed.")
             return
         try:
-            result = json.loads(bytes(self.context_process.readAllStandardOutput()))
+            self.context_result = json.loads(bytes(self.context_process.readAllStandardOutput()))
         except ValueError:
-            self.context_note.setText("Codex returned an invalid context measurement.")
+            self.info.setText("Codex returned an invalid context measurement.")
             return
-        table = self.context_table
-        table.setSortingEnabled(False)
-        table.setRowCount(len(result["rows"]))
-        for row, data in enumerate(result["rows"]):
-            item = self.cell(data["name"])
-            item.setToolTip(data["detail"])
-            table.setItem(row, 0, item)
-            table.setItem(row, 1, self.cell(data["kind"]))
-            for column, key in enumerate(("upfront", "full", "references"), 2):
-                count = TokenCount(data[key])
-                if key == "references" and data[key] is None:
-                    count.setText("—")
-                table.setItem(row, column, count)
-        table.setSortingEnabled(True)
-        self.filter_context()
+        for title in INTEGRATION_GROUPS:
+            table = self.tables[title]
+            for row in range(table.rowCount()):
+                self.set_context_cell(title, row)
+            self.restore_context_order(table)
+        self.instructions_context.setText(f"Context size · {self.token_text(self.instruction_count().get('upfront'))}")
+        self.instructions_context.setToolTip(self.context_details(self.instruction_count()))
+        self.context_button.setToolTip(self.context_label())
+        self.info.setText(f"Context estimates from {HOST_LABELS[self.context_result['profile']]} · {self.context_result['model']}")
+
+    def instruction_count(self):
+        return next((row for row in self.context_result.get("rows", []) if row["kind"] == "Instructions"), {})
+
+    def show_instruction_context(self):
+        if not self.context_result:
+            if self.context_process.state() == QProcess.ProcessState.NotRunning:
+                self.measure_context()
+            return
+        self.detail_dialog("Context size", "Effective instructions", self.context_details(self.instruction_count()))
+
+    @staticmethod
+    def token_text(count, partial=False):
+        return ("At least " if partial else "") + f"{count:,} tokens" if count is not None else "Unavailable"
+
+    def context_label(self):
+        result = self.context_result
+        if not result:
+            return "Measure saved settings for a fresh Codex session."
         encoding = result["encoding"] + (" (fallback)" if result["fallback"] else "")
-        label = f"Estimated tokens  ·  {HOST_LABELS[result['profile']]}  ·  {result['model']}  ·  {encoding}"
-        if result["skill_upfront"] is not None:
-            label += f"  ·  Skill catalog with overhead: {result['skill_upfront']:,} tokens"
-        self.context_note.setText("\n".join([label, result["project"], *result["notes"]]))
+        return f"{HOST_LABELS[result['profile']]} · {result['model']} · {encoding}\n{result['project']}"
 
-    def filter_context(self):
-        needle = self.context_search.text().strip().casefold()
-        kind = self.context_filter.currentText()
-        for row in range(self.context_table.rowCount()):
-            item = self.context_table.item(row, 0)
-            category = self.context_table.item(row, 1).text()
-            self.context_table.setRowHidden(row, needle not in item.text().casefold()
-                                           or (kind != "All items" and kind != category))
+    def context_details(self, record):
+        if not self.context_result:
+            return self.context_label()
+        parts = [self.context_label()]
+        for key, label in (("upfront", "Upfront"), ("full", "Fully loaded")):
+            parts.append(f"{label} · {self.token_text(record.get(key), record.get(key + '_partial', False))}")
+        if record.get("references") is not None:
+            parts.append(f"References · {self.token_text(record['references'])}")
+        if record.get("detail"):
+            parts.append(record["detail"])
+        parts.extend(self.context_result["notes"])
+        return "\n\n".join(parts)
 
-    def show_context_details(self, row, _column):
-        item = self.context_table.item(row, 0)
-        if item and item.toolTip():
-            box = QMessageBox(self)
-            box.setWindowTitle(item.text())
-            box.setText("Context estimate breakdown")
-            box.setDetailedText(item.toolTip())
-            box.exec()
+    def integration_columns(self, title, labels, widths):
+        table = self.tables[title]
+        table.clearContents()
+        if table.columnCount() == len(labels) + 2:
+            return
+        table.setColumnCount(len(labels) + 2)
+        table.setHorizontalHeaderLabels([*labels, "Description", "Context size"])
+        table.setWordWrap(False)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        header = table.horizontalHeader()
+        heading = table.horizontalHeaderItem(len(labels) + 1)
+        heading.setToolTip("Estimated tokens · upfront / fully loaded")
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(len(labels), QHeaderView.ResizeMode.Stretch)
+        for column, width in enumerate(widths):
+            header.resizeSection(column, width)
+        header.resizeSection(len(labels) + 1, 120)
+
+    def set_integration_description(self, title, row, text, url=None):
+        table = self.tables[title]
+        item = self.cell(" ".join(text.split()) if text else "—")
+        details = text or "No description is available from the integration’s metadata."
+        item.setToolTip(f"<p>{escape(details).replace(chr(10), '<br>')}</p>")
+        item.setData(Qt.ItemDataRole.UserRole, {"text": details, "url": url})
+        table.setItem(row, table.columnCount() - 2, item)
+
+    def set_context_cell(self, title, row):
+        table = self.tables[title]
+        name = table.item(row, 0)
+        if title == "Hooks":
+            detail = "Hook output can contribute context at runtime. The size depends on what the handler returns."
+            item = TokenCount({}, "Varies")
+        else:
+            key = name.data(Qt.ItemDataRole.UserRole) or name.text()
+            record = self.context_result.get("tables", {}).get(INTEGRATION_GROUPS[title], {}).get(key) or {}
+            detail = self.context_details(record)
+            item = TokenCount(record)
+        item.setToolTip(f"<p>{escape(detail).replace(chr(10), '<br>')}</p>")
+        item.setData(Qt.ItemDataRole.UserRole, detail)
+        table.setItem(row, table.columnCount() - 1, item)
+
+    def show_integration_detail(self, title, row, column):
+        table = self.tables[title]
+        if column not in (table.columnCount() - 2, table.columnCount() - 1):
+            return
+        key = table.item(row, 0).text()
+        data = table.item(row, column).data(Qt.ItemDataRole.UserRole)
+        if column == table.columnCount() - 2:
+            self.detail_dialog("Description", key, data["text"], data.get("url"))
+        else:
+            self.detail_dialog("Context size", key, data)
+
+    def sort_context(self, title, column):
+        table = self.tables[title]
+        if title == "Hooks" or column != table.columnCount() - 1:
+            return
+        header = table.horizontalHeader()
+        ascending = header.isSortIndicatorShown() and header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+        order = Qt.SortOrder.AscendingOrder if ascending else Qt.SortOrder.DescendingOrder
+        header.setSortIndicator(column, order)
+        header.setSortIndicatorShown(True)
+        table.sortItems(column, order)
+
+    @staticmethod
+    def restore_context_order(table):
+        header = table.horizontalHeader()
+        if header.isSortIndicatorShown():
+            table.sortItems(table.columnCount() - 1, header.sortIndicatorOrder())
 
     def content_panel(self, title, table):
         search = QLineEdit()
@@ -385,9 +467,8 @@ class Window(QWidget):
 
     def fill_content(self, title, group):
         table = self.tables[title]
-        table.clear()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["Name", "Plugin", "This computer", "Other computer", "Edit selected scope"])
+        self.integration_columns(title, ["Name", "Plugin", "This computer", "Other computer", "Edit selected scope"],
+                                 (140, 130, 105, 110, 150))
         local = self.data.get("plugin_content", {}).get(group, {})
         peer = self.data.get("peer_inventory", {}).get("plugin_content", {}).get(group, {})
         rows = sorted((peer | local).items(), key=lambda entry: entry[1]["title"].casefold())
@@ -407,8 +488,9 @@ class Window(QWidget):
             combo.currentIndexChanged.connect(
                 lambda index, g=group, n=name: self.set_option(g, n, choices[index]))
             table.setCellWidget(row, 4, combo)
-        table.resizeColumnsToContents()
-        table.horizontalHeader().setStretchLastSection(True)
+            self.set_integration_description(title, row, info.get("description", ""))
+            self.set_context_cell(title, row)
+        self.restore_context_order(table)
         self.filter_content(title)
 
     def filter_content(self, title):
@@ -468,8 +550,12 @@ class Window(QWidget):
         table = self.tables["Config"]
         key = table.item(row, 0).text()
         notes = self.catalog.get("settings", {}).get(key, {}).get("documentation", [])
+        text = "\n\n".join(f"{note['source']}\n{config_description(note)}" for note in notes) or NO_CONFIG_DESCRIPTION
+        self.detail_dialog("Codex setting", key, text, notes[0]["url"] if notes else None)
+
+    def detail_dialog(self, caption, key, text, url=None):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Codex setting")
+        dialog.setWindowTitle(caption)
         dialog.resize(660, 370)
         title = QLabel()
         title.setTextFormat(Qt.TextFormat.PlainText)
@@ -478,13 +564,12 @@ class Window(QWidget):
         title.setWordWrap(True)
         body = QPlainTextEdit()
         body.setReadOnly(True)
-        body.setPlainText("\n\n".join(f"{note['source']}\n{config_description(note)}" for note in notes)
-                          or NO_CONFIG_DESCRIPTION)
+        body.setPlainText(text)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dialog.reject)
-        if notes:
+        if url:
             source = buttons.addButton("Open documentation", QDialogButtonBox.ButtonRole.ActionRole)
-            source.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(notes[0]["url"])))
+            source.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
         layout = QVBoxLayout(dialog)
         layout.addWidget(title)
         layout.addWidget(body, 1)
@@ -880,10 +965,6 @@ class Window(QWidget):
             return
         paths = self.data["paths"]
         tab = self.active_table()
-        if tab == "Context size":
-            self.files.clear()
-            self.files.setToolTip("")
-            return
         if tab == "Hooks":
             prefix, keys = "Local files", ("hooks", "config")
         elif tab == "Instructions":
@@ -935,6 +1016,7 @@ class Window(QWidget):
         self.add_entry.setEnabled(self.data is not None and group is not None)
         self.remove_entry.setEnabled(self.data is not None and item is not None)
         title = self.active_table()
+        self.context_button.setVisible(title in INTEGRATION_GROUPS or title == "Instructions")
         if title in ("Apps", "Plugin Skills"):
             self.add_entry.setVisible(True)
             self.add_entry.setText("Browse Marketplace…")
@@ -1027,9 +1109,7 @@ class Window(QWidget):
         local = self.data.get("hook_entries", {})
         peer = self.data.get("peer_inventory", {})
         remote = peer.get("hook_entries", {})
-        table.clear()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["Event", "Handler", "File", "Installed on"])
+        self.integration_columns("Hooks", ["Event", "Handler", "File", "Installed on"], (130, 210, 95, 110))
         entries = sorted((local | remote).items(), key=lambda item: item[1]["event"])
         table.setRowCount(len(entries))
         for row, (identity, hook) in enumerate(entries):
@@ -1044,9 +1124,10 @@ class Window(QWidget):
             hosts = [HOST_LABELS[host] for host, entries in (
                 (self.data["profile"], local), (peer.get("profile"), remote)) if identity in entries]
             table.setItem(row, 3, self.cell(", ".join(hosts)))
-        for column in (0, 2, 3):
-            table.resizeColumnToContents(column)
-        table.horizontalHeader().setSectionResizeMode(1, table.horizontalHeader().ResizeMode.Stretch)
+            event = hook["event"]
+            description = HOOK_DESCRIPTIONS.get(event, "")
+            self.set_integration_description("Hooks", row, description, f"{HOOKS_URL}#{event.casefold()}" if description else None)
+            self.set_context_cell("Hooks", row)
 
     def managed_skills(self):
         return set().union(*(section.get("skills", {}) for section in
@@ -1295,10 +1376,11 @@ class Window(QWidget):
             keys = {key for host in scopes for key, enabled in
                     (shared_links | hosts[host].get("skill_links", {})).items() if enabled}
             links = [key.split("/") for key in sorted(keys)]
-        table.clear()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["Name", "This computer", "Desktop policy", "IdeaPad policy", "Edit selected scope"])
+        self.integration_columns(title, ["Name", "This computer", "Desktop policy", "IdeaPad policy", "Edit selected scope"],
+                                 (150, 115, 112, 112, 150))
         table.setRowCount(len(names))
+        lookup_group = "plugins" if group == "plugin_mcp" else group
+        descriptions = remote.get("descriptions", {}).get(lookup_group, {}) | self.data.get("descriptions", {}).get(lookup_group, {})
         for row, name in enumerate(names):
             item = self.cell(name)
             if group == "skills":
@@ -1307,6 +1389,8 @@ class Window(QWidget):
                              for parent, child in links
                              if name in (parent, child))
                 item.setToolTip("\n".join(notes))
+            else:
+                item.setToolTip(name)
             table.setItem(row, 0, item)
             state = label(local[name]) if name in local else "—"
             if group == "plugins" and name in local:
@@ -1315,6 +1399,12 @@ class Window(QWidget):
             for col, host in enumerate(("kubuntu-desktop", "kubuntu-laptop"), 2):
                 want = hosts[host].get(group, {}).get(name, shared.get(name))
                 self.show_policy(table, row, col, want, live.get(host, {}).get(name))
+            lookup_name = name.rsplit("/", 1)[0] if group == "plugin_mcp" else name
+            description = descriptions.get(lookup_name, "")
+            if description and group == "plugin_mcp":
+                description = f"About {lookup_name}\n{description}"
+            self.set_integration_description(title, row, description)
+            self.set_context_cell(title, row)
             staged = [HOST_LABELS[request["scope"]] for request in self.removals
                       if request["group"] == group and request["name"] == name]
             if staged:
@@ -1330,8 +1420,7 @@ class Window(QWidget):
             combo.currentIndexChanged.connect(
                 lambda index, g=group, n=name, modes=selections: self.set_option(g, n, modes[index]))
             table.setCellWidget(row, 4, combo)
-        table.resizeColumnsToContents()
-        table.horizontalHeader().setStretchLastSection(True)
+        self.restore_context_order(table)
 
     def set_option(self, group, name, value):
         section = self.section().setdefault(group, {})
@@ -1375,7 +1464,9 @@ class Window(QWidget):
             for host in self.draft["hosts"].values():
                 host.get("defaults", {}).pop(key, None)
 
-    def edit_skill_source(self, row, _column):
+    def edit_skill_source(self, row, column):
+        if column >= self.tables["Skills"].columnCount() - 2:
+            return
         selected = self.tables["Skills"].item(row, 0).text()
         source = SKILL_SOURCE / selected / "SKILL.md"
         if source.is_file():

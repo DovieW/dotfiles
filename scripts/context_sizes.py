@@ -8,6 +8,12 @@ import subprocess
 import sys
 
 
+def connector_id(name):
+    if re.fullmatch(r"asdk_app_[0-9a-f]{32}", name):
+        return "connector_" + name.removeprefix("asdk_app_")
+    return name
+
+
 def tokenizer(requirements, home, model):
     root = Path(os.environ.get("XDG_DATA_HOME", home / ".local/share")) / "dotfiles/context-tokenizer"
     version = f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -88,12 +94,13 @@ def instruction_details(text, codex, cwd, config, count):
     return "Complete files matched in the rendered prompt:\n" + "\n".join(found) if found else ""
 
 
-def estimate_context(prompt, native_skills, cached_skills, apps, servers, status, config, count, codex, cwd):
+def estimate_context(prompt, native_skills, cached_skills, apps, servers, status, config, count, codex, cwd,
+                     local_skills=()):
     instruction_text, entries, catalogs, summaries, inline = startup_inputs(prompt)
     rows = []
 
-    def row(kind, name, upfront, full, detail="", references=None):
-        rows.append({"kind": kind, "name": name, "upfront": upfront, "full": full,
+    def row(kind, name, upfront, full, detail="", references=None, identity=None):
+        rows.append({"kind": kind, "name": name, "id": identity or name, "upfront": upfront, "full": full,
                      "detail": detail, "references": references})
 
     if instruction_text:
@@ -108,6 +115,8 @@ def estimate_context(prompt, native_skills, cached_skills, apps, servers, status
               for item in native_skills if item.get("path") and Path(item["path"]).is_absolute()}
     for name, item in cached_skills.items():
         skills.setdefault(Path(item["path"]).resolve(), (item["title"], item["enabled"]))
+    for name, path, enabled in local_skills:
+        skills.setdefault(path.resolve(), (name, enabled))
     for path, (name, _) in entries.items():
         skills.setdefault(path, (name, True))
     catalog_total = count("\n".join(catalogs)) if catalogs else None
@@ -127,7 +136,7 @@ def estimate_context(prompt, native_skills, cached_skills, apps, servers, status
                 references = sum(count(p.read_text(encoding="utf-8", errors="replace")) for p in files)
             if not entry:
                 detail += "\nThe local guide is available. Its entry was absent from the rendered catalog."
-        row("Skill", name, upfront, full, detail, references)
+        row("Skill", name, upfront, full, detail, references, str(path))
 
     app_config = config.get("apps") or {}
     server_config = config.get("mcp_servers") or {}
@@ -154,6 +163,7 @@ def estimate_context(prompt, native_skills, cached_skills, apps, servers, status
             if app_id:
                 prefix, _, short_name = name.partition(".")
                 namespace = f"mcp__codex_apps__{prefix}"
+                app_id = connector_id(app_id)
                 app_settings = app_config.get(app_id, {})
                 known_apps.setdefault(app_id, (meta.get("connector_name") or prefix, app_settings.get("enabled", True)))
                 key = "App", app_id, namespace
@@ -177,7 +187,7 @@ def estimate_context(prompt, native_skills, cached_skills, apps, servers, status
             matches = [(namespace, tools) for (group, identity, namespace), tools in definitions.items()
                        if group == kind and identity == key]
             if not enabled:
-                row(kind, title, 0, 0, "Disabled in saved settings.")
+                row(kind, title, 0, 0, "Disabled in saved settings.", identity=key)
                 continue
             namespaces = {namespace for namespace, _ in matches}
             if kind == "MCP server":
@@ -197,5 +207,57 @@ def estimate_context(prompt, native_skills, cached_skills, apps, servers, status
             if upfront is None:
                 detail.append("The rendered input did not identify the upfront contribution.")
             detail.extend(f"{name}: ≈{size:,} tokens" for name, size in sorted(tools))
-            row(kind, title, upfront, full, "\n".join(detail))
+            row(kind, title, upfront, full, "\n".join(detail), identity=key)
     return rows, catalog_total
+
+
+def inline_context(rows, local_skills, catalog, status, native):
+    """Attach measured IDs to table rows and summarize measurable plugin contents."""
+    by_id = {(row["kind"], row["id"]): row for row in rows}
+    tables = {group: {} for group in ("skills", "plugin_skills", "mcp", "plugin_mcp", "apps", "plugins")}
+    for name, path, enabled in local_skills:
+        if enabled:
+            tables["skills"][name] = by_id.get(("Skill", str(path.resolve())))
+        else:
+            tables["skills"][name] = {"upfront": 0, "full": 0, "detail": "Disabled in saved settings."}
+    for name, data in catalog["plugin_skills"].items():
+        tables["plugin_skills"][name] = by_id.get(("Skill", str(Path(data["path"]).resolve())))
+    for name in catalog["apps"]:
+        tables["apps"][name] = by_id.get(("App", name))
+    configured = set(status["mcp"]) | set(native.get("mcp_servers", {}))
+    for name in configured:
+        tables["mcp"][name] = by_id.get(("MCP server", name))
+
+    server_owners = {}
+    for key in status["plugin_mcp"]:
+        server_owners.setdefault(key.rsplit("/", 1)[-1], []).append(key)
+    for key, enabled in status["plugin_mcp"].items():
+        plugin, server = key.rsplit("/", 1)
+        if not enabled or not status["plugins"].get(plugin, True):
+            tables["plugin_mcp"][key] = {"upfront": 0, "full": 0, "detail": "Disabled in saved settings."}
+        elif server not in configured and len(server_owners[server]) == 1:
+            tables["plugin_mcp"][key] = by_id.get(("MCP server", server))
+
+    for plugin, data in catalog["plugins"].items():
+        if not status["plugins"].get(plugin, True):
+            tables["plugins"][plugin] = {"upfront": 0, "full": 0, "detail": "Disabled in saved settings."}
+            continue
+        components = [(f"Skill · {name}", by_id.get(("Skill", str(Path(path).resolve()))))
+                      for name, path in data["skills"].items()]
+        components.extend((f"App · {name}", tables["apps"].get(name)) for name in data["apps"])
+        components.extend((f"MCP server · {key.rsplit('/', 1)[-1]}", tables["plugin_mcp"].get(key))
+                          for key in status["plugin_mcp"] if key.startswith(plugin + "/"))
+        if not components:
+            continue
+        totals = {}
+        for field in ("upfront", "full", "references"):
+            known = [item[field] for _, item in components if item and item.get(field) is not None]
+            totals[field] = sum(known) if known else None
+            if field != "references":
+                totals[f"{field}_partial"] = bool(known) and len(known) < len(components)
+        detail = ["Total across the plugin’s skills, apps, and MCP servers. Shared components can appear in more than one plugin."]
+        for label, row in components:
+            counts = [f"{row[field]:,}" if row and row.get(field) is not None else "—" for field in ("upfront", "full")]
+            detail.append(f"{label}  ·  {' / '.join(counts)}")
+        tables["plugins"][plugin] = {**totals, "detail": "\n".join(detail)}
+    return tables
