@@ -155,26 +155,36 @@ class CustomizationTest(unittest.TestCase):
         self.assertEqual(concrete["value"], "Set · value hidden")
         self.assertNotIn("private.", json.dumps(catalog))
 
-    def test_config_fingerprint_follows_cli_updates_and_adds_desktop_app(self):
+    def test_config_catalog_follows_installed_schema_and_hides_retired_keys(self):
         app = ai.Customization(DESKTOP)
-        with tempfile.TemporaryDirectory() as folder:
-            directory = Path(folder)
-            cli = directory / "codex"
-            desktop = directory / "bundled"
-            for version in ("first", "next"):
-                (directory / version).write_text(version)
-            cli.symlink_to(directory / "first")
-            with patch.object(app, "config_binaries", return_value={"CLI": cli, "Desktop app": desktop}):
-                first = app.config_fingerprint()
-                self.assertEqual(set(first[DESKTOP]), {"CLI"})
-                cli.unlink()
-                cli.symlink_to(directory / "next")
-                second = app.config_fingerprint()
-                self.assertNotEqual(first, second)
-                desktop.write_text("new desktop app")
-                third = app.config_fingerprint()
-                self.assertEqual(set(third[DESKTOP]), {"CLI", "Desktop app"})
-                self.assertEqual(second[DESKTOP]["CLI"], third[DESKTOP]["CLI"])
+        def installed(version, stage):
+            return {"profile": DESKTOP, "engines": {"CLI": {"version": version, "features": {
+                "past": {"stage": stage, "enabled": False},
+            }}}}
+
+        old = {"properties": {"mode": {"enum": ["first", "second"]}, "old_key": {"type": "boolean"}}}
+        new = {"properties": {
+            "mode": {"oneOf": [{"enum": ["second", "new"]}, {"deprecated": True, "enum": ["first"]}]},
+            "retired": {"deprecated": True, "enum": ["past"]},
+            "lists": {"type": "array", "items": {"enum": ["left", "right"]}},
+            "future": {"type": "boolean"},
+        }}
+        with patch.object(app, "config_engines", side_effect=[installed("1.0.0", "stable"),
+                                                              installed("2.0.0", "removed")]), \
+                patch.object(app, "config_schema", side_effect=[old, new]), \
+                patch.object(app, "config", return_value=("", {"old_key": False})):
+            first = app.config_catalog(with_peer=False)["settings"]
+            second = app.config_catalog(with_peer=False)["settings"]
+        cli = f"{DESKTOP}/CLI"
+        self.assertEqual(first["mode"]["options"][cli]["values"], ["first", "second"])
+        self.assertEqual(second["mode"]["options"][cli]["values"], ["second", "new"])
+        self.assertEqual(second["future"]["options"][cli]["values"], [True, False])
+        self.assertEqual(second["lists"]["options"][cli], {"multiple": True, "values": ["left", "right"]})
+        self.assertNotIn("lists[]", second)
+        self.assertNotIn("features.past", second)
+        self.assertNotIn("retired", second)
+        self.assertEqual(second["old_key"]["support"], {})
+        self.assertEqual(second["old_key"]["value"], "false")
 
     def test_skill_import_and_recoverable_remove(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(
@@ -196,6 +206,18 @@ class CustomizationTest(unittest.TestCase):
             self.assertFalse(path.exists())
             backup, = (app.state / "removed-skills").iterdir()
             self.assertEqual((backup / "SKILL.md").read_text(), "# Example")
+
+    def test_config_choice_edits_indexed_field_without_replacing_its_siblings(self):
+        raw = {"entries": [{"settings": {"mode": "old", "other": True}}, {"mode": "second"}]}
+        path = ("entries", 0, "settings", "mode")
+        key, result = ai.config_edit(raw, path, "new")
+        self.assertEqual(key, ("entries",))
+        self.assertEqual(result, [{"settings": {"mode": "new", "other": True}}, {"mode": "second"}])
+        self.assertEqual(raw["entries"][0]["settings"]["mode"], "old")
+        _, result = ai.config_edit(raw, path, None)
+        self.assertEqual(result[0]["settings"], {"other": True})
+        with self.assertRaisesRegex(ai.Error, "no longer exists"):
+            ai.config_edit(raw, ("entries", 3, "mode"), "new")
 
     @unittest.skipUnless((Path.home() / ".local/bin/codex").is_file(), "managed Codex is unavailable")
     def test_native_entry_changes_in_isolated_home(self):
@@ -237,6 +259,18 @@ class CustomizationTest(unittest.TestCase):
             edit("mcp", "fixture", "remove")
             self.assertFalse(app.status()["drift"])
             self.assertIn("# preserve", app.config()[0])
+
+            engines = {"engines": {"CLI": {"version": "1.0.0", "features": {}}}}
+            schema = {"properties": {"web_search": {"enum": ["disabled", "cached", "live"]}}}
+            with patch.object(app, "config_engines", return_value=engines), \
+                    patch.object(app, "config_schema", return_value=schema):
+                edit("config", "web_search", "add", {"path": ["web_search"], "choice": "cached"})
+                self.assertEqual(app.config()[1]["web_search"], "cached")
+                with self.assertRaisesRegex(ai.Error, "does not match"):
+                    app.edit_config_choice(["web_search"], "unknown")
+                self.assertEqual(app.config()[1]["web_search"], "cached")
+                edit("config", "web_search", "remove", {"path": ["web_search"]})
+                self.assertNotIn("web_search", app.config()[1])
 
             market = home / "market"
             plugin = market / "plugins/fixture/.codex-plugin/plugin.json"

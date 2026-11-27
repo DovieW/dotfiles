@@ -35,12 +35,13 @@ DEFAULTS = {"model", "model_reasoning_effort", "service_tier", "default_permissi
 MODES = ("automatic", "manual", "off")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.@-]{1,160}")
 ABSENT = object()
-ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks"}
+ENTRY_GROUPS = {"skills", "mcp", "plugins", "hooks", "config"}
 MAX_SKILL_BYTES = 5 * 1024 * 1024
 DESKTOP_CODEX = Path("/usr/lib/chatgpt/resources/codex")
 CODEX_SCHEMA = "https://raw.githubusercontent.com/openai/codex/rust-v{}/codex-rs/core/config.schema.json"
 CODEX_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.]+)?")
 PRIVATE_KEY = re.compile(r"secret|token|password|cookie|credentials|api.key|headers", re.I)
+RETIRED_STAGES = {"deprecated", "removed"}
 
 
 class Error(Exception):
@@ -187,13 +188,23 @@ def schema_fields(schema):
     """Collect named keys, including fields in dynamic tables and list items."""
     fields = {}
 
-    def walk(node, path, seen):
+    def walk(node, path, seen, alternative=False):
         if not isinstance(node, dict):
             return
         metadata = fields.setdefault(path, {}) if path else {}
-        for key in ("description", "default", "type"):
+        description = node.get("description", "")
+        if node.get("deprecated") is True or re.match(r"^(?:[\[*_]+)?deprecated\b", description, re.I):
+            if not alternative:
+                metadata["deprecated"] = True
+            return
+        for key in ("description", "default"):
             if key in node and node[key] is not None:
                 metadata.setdefault(key, node[key])
+        types = node.get("type", [])
+        for kind in [types] if isinstance(types, str) else types:
+            kinds = metadata.setdefault("type", [])
+            if kind not in kinds:
+                kinds.append(kind)
         for value in node.get("enum", [node["const"]] if "const" in node else []):
             options = metadata.setdefault("enum", [])
             if value not in options:
@@ -201,10 +212,10 @@ def schema_fields(schema):
         ref = node.get("$ref", "")
         if ref.startswith("#/") and ref not in seen:
             lookup = [part.replace("~1", "/").replace("~0", "~") for part in ref[2:].split("/")]
-            walk(setting(schema, lookup), path, seen | {ref})
+            walk(setting(schema, lookup), path, seen | {ref}, alternative)
         for key in ("anyOf", "oneOf", "allOf"):
             for variant in node.get(key, []):
-                walk(variant, path, seen)
+                walk(variant, path, seen, alternative or key != "allOf")
         for name, child in node.get("properties", {}).items():
             walk(child, (*path, name), seen)
         if isinstance(node.get("additionalProperties"), dict):
@@ -225,7 +236,83 @@ def user_fields(raw, path=()):
     elif isinstance(raw, list):
         for index, value in enumerate(raw):
             if isinstance(value, (list, dict)):
-                yield from user_fields(value, (*path, f"[{index}]"))
+                yield from user_fields(value, (*path, index))
+
+
+def path_matches(template, path):
+    return len(template) == len(path) and all(
+        expected == actual or expected == "<name>" and isinstance(actual, str)
+        or expected == "[]" and type(actual) is int
+        for expected, actual in zip(template, path))
+
+
+def accepts_choice(choices, value):
+    return any(type(value) is type(choice) and value == choice for choice in choices)
+
+
+def field_for_path(rows, path):
+    if path in rows:
+        return rows[path]
+    matches = ((key, row) for key, row in rows.items() if path_matches(key, path))
+    return min(matches, key=lambda pair: pair[0].count("<name>") + pair[0].count("[]"), default=(None, {}))[1]
+
+
+def config_edit(raw, path, value):
+    # The native writer addresses TOML keys. Edit indexed fields through their containing array.
+    first_index = next((i for i, part in enumerate(path) if type(part) is int), None)
+    if first_index is None:
+        return path, value
+    prefix = path[:first_index]
+    entries = copy.deepcopy(setting(raw, prefix))
+    current = entries
+    for part in path[first_index:-1]:
+        if type(part) is int:
+            need(isinstance(current, list) and part < len(current), "The selected list item no longer exists.")
+            current = current[part]
+        else:
+            need(isinstance(current, dict), "The selected field is not inside a table.")
+            if part not in current and value is None:
+                return prefix, entries
+            current = current.setdefault(part, {})
+    need(isinstance(current, dict) and isinstance(path[-1], str), "Select a field inside the list item.")
+    if value is None:
+        current.pop(path[-1], None)
+    else:
+        current[path[-1]] = value
+    return prefix, entries
+
+
+def choice_spec(fields, path, feature):
+    meta = fields.get(path, {})
+
+    def constants(field):
+        values = [v for v in field.get("enum", []) if type(v) in (str, bool, int, float)]
+        return values or ([True, False] if "boolean" in field.get("type", []) else [])
+
+    if "array" in meta.get("type", []):
+        items = constants(fields.get((*path, "[]"), {}))
+        if items:
+            return {"multiple": True, "values": items}
+    choices = constants(meta)
+    if not choices and feature:
+        choices = [True, False]
+    if not choices:
+        return None
+    return {"multiple": False, "values": choices}
+
+
+def active_config_fields(fields, features):
+    paths = fields.keys() | {("features", flag) for flag in features}
+    for path in paths:
+        feature = features.get(path[1], {}) if len(path) >= 2 and path[0] == "features" else {}
+        if feature.get("stage", "").casefold() in RETIRED_STAGES or any(
+            fields.get(path[:i], {}).get("deprecated") for i in range(1, len(path) + 1)
+        ):
+            continue
+        parent = choice_spec(fields, path[:-1], {}) if path[-1] == "[]" else None
+        if parent and parent["multiple"]:
+            continue  # The list itself has a multi-choice editor.
+        yield path, feature if len(path) == 2 else {}
 
 
 def config_value(path, value):
@@ -235,7 +322,8 @@ def config_value(path, value):
         return f"List · {len(value)} items"
     if isinstance(value, str) and (
         path[0] in {"mcp_servers", "model_providers", "hooks"} or
-        any(PRIVATE_KEY.search(part) or part in {"env", "env_vars", "url", "base_url"} for part in path)
+        any(isinstance(part, str) and (PRIVATE_KEY.search(part) or part in {"env", "env_vars", "url", "base_url"})
+            for part in path)
     ):
         return "Set · value hidden"
     return json.dumps(value, ensure_ascii=False) if isinstance(value, (bool, str, int, float)) else str(value)
@@ -244,7 +332,9 @@ def config_value(path, value):
 def field_path(path):
     name = ""
     for part in path:
-        if part.startswith("["):
+        if type(part) is int:
+            name += f"[{part}]"
+        elif part == "[]":
             name += part
         else:
             label = part if part == "<name>" or re.fullmatch(r"[A-Za-z0-9_-]+", part) else json.dumps(part)
@@ -299,17 +389,6 @@ class Customization:
     def config_binaries(self):
         return {"CLI": self.home / ".local/bin/codex", "Desktop app": DESKTOP_CODEX}
 
-    def config_fingerprint(self, with_peer=False):
-        local = {}
-        for surface, executable in self.config_binaries().items():
-            try:
-                stat = executable.stat()
-                local[surface] = [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
-            except OSError:
-                continue
-        peers = self.call_peer("config-fingerprint") if with_peer else {}
-        return {self.profile: local, **peers}
-
     def model_choices(self, executable):
         try:
             result = run([str(executable), "debug", "models"], cwd="/", timeout=8,
@@ -346,11 +425,10 @@ class Customization:
             pass
         return options
 
-    def config_engines(self):
-        fingerprint = self.config_fingerprint()[self.profile]
+    def config_engines(self, include_choices=True):
         engines = {}
         for surface, executable in self.config_binaries().items():
-            if surface not in fingerprint:
+            if not executable.is_file():
                 continue
             try:
                 result = run([str(executable), "--version"], cwd="/", timeout=3)
@@ -368,19 +446,20 @@ class Customization:
                     if len(parts) > 2 and parts[-1] in ("true", "false") and re.fullmatch(r"\w+", parts[0]):
                         engines[surface]["features"][parts[0]] = {
                             "stage": " ".join(parts[1:-1]), "enabled": parts[-1] == "true"}
-                engines[surface]["models"] = self.model_choices(executable)
-                constraints = self.config_constraints(executable)
-                engines[surface].update(constraints)
-                for model in engines[surface]["models"].values():
-                    model["tiers"] = [tier for tier in model["tiers"]
-                                      if tier not in constraints.get("blocked_tiers", [])]
+                if include_choices:
+                    engines[surface]["models"] = self.model_choices(executable)
+                    constraints = self.config_constraints(executable)
+                    engines[surface].update(constraints)
+                    for model in engines[surface]["models"].values():
+                        model["tiers"] = [tier for tier in model["tiers"]
+                                          if tier not in constraints.get("blocked_tiers", [])]
                 if surface == "Desktop app" and shutil.which("dpkg-query"):
                     package = run(["dpkg-query", "-W", "-f=${Version}", "chatgpt"], timeout=3)
                     if package.returncode == 0:
                         engines[surface]["package"] = package.stdout.decode().strip()
             except (OSError, subprocess.TimeoutExpired):
                 continue
-        return {"profile": self.profile, "engines": engines, "fingerprint": fingerprint}
+        return {"profile": self.profile, "engines": engines}
 
     def config_schema(self, version):
         need(CODEX_VERSION.fullmatch(version), "Invalid Codex version.")
@@ -404,13 +483,7 @@ class Customization:
             pass
         return data
 
-    def config_catalog(self, with_peer):
-        local = self.config_engines()
-        peer = self.call_peer("config-engines", timeout=40) if with_peer else {}
-        builds = {}
-        for workstation in (local, peer):
-            for surface, engine in workstation.get("engines", {}).items():
-                builds[f'{workstation["profile"]}/{surface}'] = engine
+    def config_rows(self, builds):
         schemas = {}
         rows = {}
         for identity, engine in builds.items():
@@ -423,30 +496,44 @@ class Customization:
             approvals = fields.get(("approval_policy",), {}).get("enum", [])
             allowed = engine.get("allowed_approvals")
             engine["approval_policies"] = approvals if allowed is None else [p for p in approvals if p in allowed]
-            for path in fields.keys() | {("features", flag) for flag in engine["features"]}:
-                row = rows.setdefault(path, {"support": {}, "metadata": fields.get(path, {})})
+            for path, feature in active_config_fields(fields, engine["features"]):
+                row = rows.setdefault(path, {"support": {}, "options": {}, "metadata": fields.get(path, {})})
                 if not row["metadata"]:
                     row["metadata"] = fields.get(path, {})
-                feature = engine["features"].get(path[1], {}) if len(path) == 2 and path[0] == "features" else {}
                 row["support"][identity] = feature
+                spec = choice_spec(fields, path, feature)
+                if spec:
+                    row["options"][identity] = spec
+        return rows
 
-        templates = [(key, row) for key, row in rows.items() if "<name>" in key or "[]" in key]
+    def config_catalog(self, with_peer):
+        local = self.config_engines()
+        peer = self.call_peer("config-engines", timeout=40) if with_peer else {}
+        builds = {f'{workstation["profile"]}/{surface}': engine
+                  for workstation in (local, peer)
+                  for surface, engine in workstation.get("engines", {}).items()}
+        rows = self.config_rows(builds)
+
         _, user = self.config()
         for path, value in user_fields(user):
             if path not in rows:
-                template = next((row for key, row in templates if len(key) == len(path) and all(
-                    expected == actual or expected == "<name>" or expected == "[]" and actual.startswith("[")
-                    for expected, actual in zip(key, path))), {})
-                rows[path] = {"support": template.get("support", {}), "metadata": template.get("metadata", {})}
+                template = field_for_path(rows, path)
+                rows[path] = dict(template) if template else {"support": {}, "metadata": {}}
             rows[path]["value"] = config_value(path, value)
+            for spec in rows[path].get("options", {}).values():
+                options = spec["values"]
+                if (spec["multiple"] and isinstance(value, list)
+                        and all(accepts_choice(options, item) for item in value)
+                        or not spec["multiple"] and accepts_choice(options, value)):
+                    rows[path]["choice"] = value
+                    break
 
         return {
             "builds": {identity: {key: data.get(key) for key in
                                  ("version", "schema", "package", "models", "permissions", "approval_policies")}
                        for identity, data in builds.items()},
-            "fingerprint": {entry["profile"]: entry.get("fingerprint", {}) for entry in (local, peer) if entry},
             "peer_available": bool(peer),
-            "settings": {field_path(path): info for path, info in rows.items()},
+            "settings": {field_path(path): {**info, "path": path} for path, info in rows.items()},
         }
 
     def instructions(self, manifest):
@@ -593,10 +680,10 @@ class Customization:
                     process.kill()
                     process.wait()
 
-    def write_config(self, original, changes):
+    def write_config(self, original, changes, codex=None):
         if not changes:
             return
-        codex = self.home / ".local/bin/codex"
+        codex = codex or self.home / ".local/bin/codex"
         need(codex.is_file(), "Codex CLI is unavailable.")
         edits = [{"keyPath": ".".join(json.dumps(part) for part in key), "value": value,
                   "mergeStrategy": "replace"} for key, value in changes]
@@ -764,6 +851,9 @@ class Customization:
         need(group in ENTRY_GROUPS and operation in ("add", "remove"), "Unknown entry action.")
         remove = operation == "remove"
         value = request.get("value")
+        if group == "config":
+            self.edit_config_choice(value["path"], None if remove else value["choice"])
+            return
         if group == "hooks":
             self.edit_hook(name, value, remove)
             return
@@ -809,6 +899,32 @@ class Customization:
             wanted = None if remove else value
             if existing != wanted:
                 self.write_config(original, [(key, wanted)])
+
+    def edit_config_choice(self, parts, value):
+        need(isinstance(parts, list) and parts and all(
+            type(part) is int and part >= 0 or isinstance(part, str) and part and part not in ("<name>", "[]")
+            for part in parts
+        ), "Enter a concrete setting path.")
+        path = tuple(parts)
+        need(isinstance(path[0], str), "Enter a setting key.")
+        policy = effective(self.manifest(), self.profile)
+        need(path not in {key for key, _ in tool_values(policy)},
+             "This setting is managed by Apply & Sync.")
+        engines = self.config_engines(include_choices=False)["engines"]
+        row = field_for_path(self.config_rows(engines), path)
+        supported = row.get("support", {})
+        specs = row.get("options", {})
+        need(supported and set(supported) == set(specs), "The installed Codex versions do not report choices for this setting.")
+        for spec in specs.values():
+            valid = (isinstance(value, list) and all(accepts_choice(spec["values"], item) for item in value)
+                     if spec["multiple"] else accepts_choice(spec["values"], value))
+            need(value is None or valid, "That choice does not match the installed Codex versions. Reload and retry.")
+        original, raw = self.config()
+        key, wanted = config_edit(raw, path, value)
+        existing = setting(raw, key)
+        if type(existing) is not type(wanted) or existing != wanted:
+            surface = "CLI" if "CLI" in supported else next(iter(supported))
+            self.write_config(original, [(key, wanted)], codex=self.config_binaries()[surface])
 
     def entry_result(self, request):
         try:
@@ -959,7 +1075,7 @@ def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
-                                           "config-engines", "config-catalog", "config-fingerprint"))
+                                           "config-engines", "config-catalog"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -981,8 +1097,6 @@ def main():
         elif args.action in ("config-engines", "config-catalog"):
             result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)
             print(encode(result), end="")
-        elif args.action == "config-fingerprint":
-            print(encode(app.config_fingerprint(args.with_peer)), end="")
         elif args.action in ("entry", "entry-local"):
             request = json.load(sys.stdin)
             if args.action == "entry-local":

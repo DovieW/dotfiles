@@ -7,12 +7,13 @@ from pathlib import Path
 import stat
 import sys
 
-from PyQt6.QtCore import QProcess, QTimer, Qt, QUrl
+from PyQt6.QtCore import QProcess, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QFileDialog, QHeaderView, QHBoxLayout, QInputDialog, QLabel, QMessageBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QHeaderView, QHBoxLayout,
+    QInputDialog, QLabel, QMenu, QMessageBox,
     QPlainTextEdit, QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QWidgetAction,
 )
 
 APP_ID = "io.github.doview.ai-customization"
@@ -70,6 +71,27 @@ def default_choices(builds, draft, scope, key):
             and all(value in options for options in choices[1:])]
 
 
+def config_choices(setting, profiles):
+    supported = [key for key in setting.get("support", {}) if key.split("/", 1)[0] in profiles]
+    if profiles - {key.split("/", 1)[0] for key in supported}:
+        return None
+    options = setting.get("options", {})
+    if not supported or any(key not in options for key in supported):
+        return None
+    first, *rest = [options[key] for key in supported]
+    if any(spec["multiple"] != first["multiple"] for spec in rest):
+        return None
+    values = [value for value in first["values"] if all(
+        any(type(value) is type(other) and value == other for other in spec["values"]) for spec in rest)]
+    return {"multiple": first["multiple"], "values": values} if values else None
+
+
+def choice_label(value):
+    if type(value) is bool:
+        return "On" if value else "Off"
+    return str(value)
+
+
 class Window(QWidget):
     def __init__(self):
         super().__init__()
@@ -85,11 +107,6 @@ class Window(QWidget):
         self.catalog_process = QProcess(self)
         self.catalog_process.finished.connect(self.finish_catalog)
         self.catalog_process.errorOccurred.connect(self.catalog_error)
-        self.catalog_watch = QProcess(self)
-        self.catalog_watch.finished.connect(self.check_catalog_update)
-        self.catalog_timer = QTimer(self)
-        self.catalog_timer.setInterval(20_000)
-        self.catalog_timer.timeout.connect(self.poll_catalog_update)
         self.process = QProcess(self)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
@@ -162,7 +179,6 @@ class Window(QWidget):
         layout.addLayout(footer)
         self.update_entry_controls()
         self.read()
-        self.catalog_timer.start()
 
     def config_panel(self, table):
         panel = QWidget()
@@ -171,7 +187,8 @@ class Window(QWidget):
         self.config_search.textChanged.connect(self.filter_config)
         self.config_filter = QComboBox()
         self.config_filter.addItems(["All settings", "Configured", "Managed", "Experimental",
-                                     "CLI", "Desktop app", "CLI only", "Desktop app only"])
+                                     "Has choices", "CLI", "Desktop app", "CLI only", "Desktop app only",
+                                     "Legacy or unknown"])
         self.config_filter.currentTextChanged.connect(self.filter_config)
         self.open_config = QPushButton("Open local config.toml")
         self.open_config.setEnabled(False)
@@ -197,13 +214,16 @@ class Window(QWidget):
         table = self.tables["Config"]
         terms = self.config_search.text().casefold().split()
         scope = self.config_filter.currentText()
-        for row, (text, configured, managed, experimental, surfaces) in enumerate(self.catalog_rows):
+        for row, (text, configured, managed, experimental, surfaces, choices) in enumerate(self.catalog_rows):
+            legacy = not surfaces and not managed
             matches = {
                 "Configured": configured, "Managed": managed, "Experimental": experimental,
+                "Has choices": choices, "Legacy or unknown": legacy,
                 "CLI": "CLI" in surfaces, "Desktop app": "Desktop app" in surfaces,
                 "CLI only": surfaces == {"CLI"}, "Desktop app only": surfaces == {"Desktop app"},
             }
-            table.setRowHidden(row, not (matches.get(scope, True) and all(term in text for term in terms)))
+            visible = matches.get(scope, True) and (not legacy or scope == "Legacy or unknown")
+            table.setRowHidden(row, not (visible and all(term in text for term in terms)))
 
     def catalog_error(self, _):
         if self.catalog_process.state() == QProcess.ProcessState.NotRunning:
@@ -215,24 +235,6 @@ class Window(QWidget):
             return
         self.catalog_refresh_pending = False
         self.catalog_process.start(str(BACKEND), ["config-catalog", "--with-peer"])
-
-    def poll_catalog_update(self):
-        if (self.isVisible() and self.catalog
-                and self.catalog_watch.state() == QProcess.ProcessState.NotRunning
-                and self.catalog_process.state() == QProcess.ProcessState.NotRunning):
-            self.catalog_watch.start(str(BACKEND), ["config-fingerprint", "--with-peer"])
-
-    def check_catalog_update(self, code, _):
-        output = bytes(self.catalog_watch.readAllStandardOutput())
-        self.catalog_watch.readAllStandardError()
-        if code:
-            return
-        try:
-            fingerprint = json.loads(output)
-        except ValueError:
-            return
-        if fingerprint != self.catalog.get("fingerprint"):
-            self.refresh_catalog()
 
     def finish_catalog(self, code, _):
         output = bytes(self.catalog_process.readAllStandardOutput())
@@ -359,6 +361,7 @@ class Window(QWidget):
         settings = self.catalog.get("settings", {})
         builds = self.catalog.get("builds", {})
         names = [*managed, *sorted(settings.keys() - managed.keys())]
+        profiles = set(self.draft["hosts"]) if self.target == "shared" else {self.target}
         table.clearContents()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["Setting", "This computer", "Known to", "Shared policy", "Edit selected scope"])
@@ -390,13 +393,17 @@ class Window(QWidget):
             table.setItem(row, 1, item)
             table.setItem(row, 2, self.cell(" · ".join(surface for surface in ("CLI", "Desktop app") if surface in surfaces)
                                             or "—"))
+            choices = config_choices(setting, profiles)
             if key in managed:
                 shared = self.draft["shared"]["defaults"][key]
                 table.setItem(row, 3, self.cell(shared))
                 table.setCellWidget(row, 4, self.default_editor(key))
+            elif choices:
+                table.setCellWidget(row, 4, self.config_option_editor(key, setting, choices))
             text = " ".join((key, description, str(actual or ""), *stages, *surfaces)).casefold()
             self.catalog_rows.append((text, actual is not None, key in managed,
-                                      bool(stages & {"experimental", "under development"}), surfaces))
+                                      bool(stages & {"experimental", "under development"}), surfaces,
+                                      choices is not None or key in managed))
         for column, width in ((0, 270), (1, 160), (2, 130), (3, 130), (4, 145)):
             header = table.horizontalHeader()
             if header.sectionSize(column) == header.defaultSectionSize():
@@ -426,6 +433,104 @@ class Window(QWidget):
                 for identity, info in builds.items()))
         self.filter_config()
         table.verticalScrollBar().setValue(scroll)
+
+    def config_option_editor(self, name, setting, choices):
+        path = setting["path"]
+        selected = setting.get("choice") if self.target == self.data["profile"] else None
+        if choices["multiple"]:
+            button = QPushButton("Choose values…")
+            menu = QMenu(button)
+            container = QWidget(menu)
+            layout = QVBoxLayout(container)
+            checks = []
+            for value in choices["values"]:
+                check = QCheckBox(choice_label(value), container)
+                check.setChecked(isinstance(selected, list) and value in selected)
+                layout.addWidget(check)
+                checks.append((value, check))
+            picker = QWidgetAction(menu)
+            picker.setDefaultWidget(container)
+            menu.addAction(picker)
+            menu.addAction("Replace with selected values…", lambda: self.change_config_option(
+                name, path, [value for value, check in checks if check.isChecked()]))
+            menu.addAction("Use Codex default…", lambda: self.change_config_option(name, path, None))
+            button.setMenu(menu)
+            return button
+
+        combo = QComboBox()
+        combo.addItem("Choose…")
+        index = 0
+        for value in choices["values"]:
+            combo.addItem(choice_label(value), value)
+            if type(value) is type(selected) and value == selected:
+                index = combo.count() - 1
+        if not self.tool_policy(path):
+            combo.addItem("Use Codex default")
+        combo.setCurrentIndex(index)
+
+        def choose(selected_index):
+            combo.setCurrentIndex(index)
+            if selected_index:
+                self.change_config_option(name, path, combo.itemData(selected_index))
+
+        combo.activated.connect(choose)
+        return combo
+
+    def tool_policy(self, path):
+        if len(path) == 3 and path[-1] == "enabled" and path[0] in ("mcp_servers", "plugins"):
+            group, name = {"mcp_servers": "mcp", "plugins": "plugins"}[path[0]], path[1]
+        elif len(path) == 5 and path[0] == "plugins" and path[2] == "mcp_servers" and path[-1] == "enabled":
+            group, name = "plugin_mcp", f"{path[1]}/{path[3]}"
+        else:
+            return None
+        profiles = set(self.draft["hosts"]) if self.target == "shared" else {self.target}
+        for manifest in (self.data["manifest"], self.draft):
+            if name in manifest["shared"].get(group, {}) or any(
+                name in manifest["hosts"][profile].get(group, {}) for profile in profiles
+            ):
+                return group, name
+        return None
+
+    def change_config_option(self, name, path, value):
+        path = list(path)
+        for index, part in enumerate(path):
+            if part == "<name>":
+                entered, ok = QInputDialog.getText(self, "Setting name", "Name for " + name)
+                if not ok or not entered.strip():
+                    return
+                path[index] = entered.strip()
+            elif part == "[]":
+                item, ok = QInputDialog.getInt(self, "List item", "Item number for " + name, 1, 1)
+                if not ok:
+                    return
+                path[index] = item - 1
+        policy = self.tool_policy(path)
+        if policy:
+            group, tool = policy
+            if value is None and group != "plugin_mcp":
+                QMessageBox.information(self, "Managed setting",
+                                        "Release the synced policy in its tool tab before using the Codex default.")
+                return
+            self.stage_policy(group, tool, "default" if value is None else value)
+            return
+        display = name
+        for original, concrete in zip(self.catalog["settings"][name]["path"], path):
+            if original == "<name>":
+                display = display.replace("<name>", json.dumps(concrete), 1)
+            elif original == "[]":
+                display = display.replace("[]", f"[{concrete}]", 1)
+        if value is None:
+            message = f"Use the Codex default for {display} on {self.scope.currentText()}?"
+        else:
+            summary = "[" + ", ".join(map(choice_label, value)) + "]" if isinstance(value, list) else choice_label(value)
+            message = f"Set {display} to {summary} on {self.scope.currentText()}?"
+        box = QMessageBox(QMessageBox.Icon.Question, "Change Codex configuration", message,
+                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() == QMessageBox.StandardButton.Yes:
+            self.launch("entry", {"scope": self.target, "operation": "remove" if value is None else "add",
+                                  "group": "config", "name": display, "value": {"path": path, "choice": value}})
 
     def default_editor(self, key):
         combo = QComboBox()
