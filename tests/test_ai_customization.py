@@ -116,6 +116,8 @@ class CustomizationTest(unittest.TestCase):
         cli_schema = {"properties": {
             "common": common,
             "cli_only": {"type": "boolean"},
+            "approval_policy": {"oneOf": [{"enum": ["on-request"]}, {"const": "never"},
+                                            {"type": "object"}, {"enum": ["on-request"]}]},
             "mcp_servers": {"additionalProperties": {"$ref": "#/definitions/Server"}},
         }, "definitions": {"Server": {"properties": {
             "url": {"type": "string"},
@@ -137,7 +139,7 @@ class CustomizationTest(unittest.TestCase):
                 patch.object(app, "call_peer", return_value=peer) as probe, \
                 patch.object(app, "config_schema", side_effect=[cli_schema, desktop_schema]) as schema:
             catalog = app.config_catalog(with_peer=True)
-        probe.assert_called_once_with("config-engines")
+        probe.assert_called_once_with("config-engines", timeout=40)
         self.assertEqual([call.args[0] for call in schema.call_args_list], ["2.0.0", "1.0.0-alpha.1"])
         cli, desktop = f"{DESKTOP}/CLI", f"{IDEAPAD}/Desktop app"
         fields = catalog["settings"]
@@ -145,12 +147,34 @@ class CustomizationTest(unittest.TestCase):
         self.assertNotIn("value", fields["cli_only"])
         self.assertEqual(set(fields["app_only"]["support"]), {desktop})
         self.assertEqual(fields["features.future"]["support"][cli]["stage"], "experimental")
+        self.assertEqual(catalog["builds"][cli]["approval_policies"], ["on-request", "never"])
         self.assertEqual(fields["unknown"]["value"], "true")
         self.assertIn("mcp_servers.<name>.args[].name", fields)
         concrete = fields['mcp_servers."test.example".url']
         self.assertEqual(set(concrete["support"]), {cli})
         self.assertEqual(concrete["value"], "Set · value hidden")
         self.assertNotIn("private.", json.dumps(catalog))
+
+    def test_config_fingerprint_follows_cli_updates_and_adds_desktop_app(self):
+        app = ai.Customization(DESKTOP)
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            cli = directory / "codex"
+            desktop = directory / "bundled"
+            for version in ("first", "next"):
+                (directory / version).write_text(version)
+            cli.symlink_to(directory / "first")
+            with patch.object(app, "config_binaries", return_value={"CLI": cli, "Desktop app": desktop}):
+                first = app.config_fingerprint()
+                self.assertEqual(set(first[DESKTOP]), {"CLI"})
+                cli.unlink()
+                cli.symlink_to(directory / "next")
+                second = app.config_fingerprint()
+                self.assertNotEqual(first, second)
+                desktop.write_text("new desktop app")
+                third = app.config_fingerprint()
+                self.assertEqual(set(third[DESKTOP]), {"CLI", "Desktop app"})
+                self.assertEqual(second[DESKTOP]["CLI"], third[DESKTOP]["CLI"])
 
     def test_skill_import_and_recoverable_remove(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(

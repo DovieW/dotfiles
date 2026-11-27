@@ -7,7 +7,7 @@ from pathlib import Path
 import stat
 import sys
 
-from PyQt6.QtCore import QProcess, Qt, QUrl
+from PyQt6.QtCore import QProcess, QTimer, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QFileDialog, QHeaderView, QHBoxLayout, QInputDialog, QLabel, QMessageBox,
@@ -37,6 +37,39 @@ def label(value):
             "off": "Off", "unmanaged": "Unmanaged", "default": "Plugin default"}.get(value, str(value))
 
 
+def host_defaults(draft, profile):
+    return draft["shared"]["defaults"] | draft["hosts"][profile].get("defaults", {})
+
+
+def default_choices(builds, draft, scope, key):
+    profiles = set(draft["hosts"]) if scope == "shared" else {scope}
+    if profiles - {identity.split("/", 1)[0] for identity in builds}:
+        return []
+    choices = []
+    for identity, engine in builds.items():
+        profile = identity.split("/", 1)[0]
+        if scope not in ("shared", profile):
+            continue
+        models = engine.get("models") or {}
+        if key == "model":
+            options = list(models)
+        elif key == "default_permissions":
+            options = engine.get("permissions")
+        elif key == "approval_policy":
+            options = engine.get("approval_policies")
+        else:
+            model = host_defaults(draft, profile)["model"]
+            capability = "tiers" if key == "service_tier" else "reasoning"
+            options = models.get(model, {}).get(capability)
+        if options is None or (not models and key == "model"):
+            return []
+        choices.append(options)
+    if not choices:
+        return []
+    return [value for value in dict.fromkeys(choices[0]) if isinstance(value, str)
+            and all(value in options for options in choices[1:])]
+
+
 class Window(QWidget):
     def __init__(self):
         super().__init__()
@@ -52,6 +85,11 @@ class Window(QWidget):
         self.catalog_process = QProcess(self)
         self.catalog_process.finished.connect(self.finish_catalog)
         self.catalog_process.errorOccurred.connect(self.catalog_error)
+        self.catalog_watch = QProcess(self)
+        self.catalog_watch.finished.connect(self.check_catalog_update)
+        self.catalog_timer = QTimer(self)
+        self.catalog_timer.setInterval(20_000)
+        self.catalog_timer.timeout.connect(self.poll_catalog_update)
         self.process = QProcess(self)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
@@ -124,6 +162,7 @@ class Window(QWidget):
         layout.addLayout(footer)
         self.update_entry_controls()
         self.read()
+        self.catalog_timer.start()
 
     def config_panel(self, table):
         panel = QWidget()
@@ -176,6 +215,24 @@ class Window(QWidget):
             return
         self.catalog_refresh_pending = False
         self.catalog_process.start(str(BACKEND), ["config-catalog", "--with-peer"])
+
+    def poll_catalog_update(self):
+        if (self.isVisible() and self.catalog
+                and self.catalog_watch.state() == QProcess.ProcessState.NotRunning
+                and self.catalog_process.state() == QProcess.ProcessState.NotRunning):
+            self.catalog_watch.start(str(BACKEND), ["config-fingerprint", "--with-peer"])
+
+    def check_catalog_update(self, code, _):
+        output = bytes(self.catalog_watch.readAllStandardOutput())
+        self.catalog_watch.readAllStandardError()
+        if code:
+            return
+        try:
+            fingerprint = json.loads(output)
+        except ValueError:
+            return
+        if fingerprint != self.catalog.get("fingerprint"):
+            self.refresh_catalog()
 
     def finish_catalog(self, code, _):
         output = bytes(self.catalog_process.readAllStandardOutput())
@@ -296,6 +353,7 @@ class Window(QWidget):
 
     def fill_config(self):
         table = self.tables["Config"]
+        scroll = table.verticalScrollBar().value()
         self.open_config.setEnabled(Path(self.data["paths"]["config"]).is_file())
         managed = self.data["actual_defaults"]
         settings = self.catalog.get("settings", {})
@@ -335,11 +393,7 @@ class Window(QWidget):
             if key in managed:
                 shared = self.draft["shared"]["defaults"][key]
                 table.setItem(row, 3, self.cell(shared))
-                editor = QLineEdit(self.section().get("defaults", {}).get(key, ""))
-                if self.target != "shared":
-                    editor.setPlaceholderText("Inherit " + shared)
-                editor.textEdited.connect(lambda text, k=key: self.set_default(k, text))
-                table.setCellWidget(row, 4, editor)
+                table.setCellWidget(row, 4, self.default_editor(key))
             text = " ".join((key, description, str(actual or ""), *stages, *surfaces)).casefold()
             self.catalog_rows.append((text, actual is not None, key in managed,
                                       bool(stages & {"experimental", "under development"}), surfaces))
@@ -350,8 +404,16 @@ class Window(QWidget):
         table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         if self.catalog:
             local = self.data["profile"]
-            local_builds = [f"{identity.split('/', 1)[1]} {info['version']}" for identity, info in builds.items()
-                            if identity.startswith(local + "/")]
+            local_builds = []
+            for identity, info in builds.items():
+                profile, surface = identity.split("/", 1)
+                if profile == local:
+                    if surface == "CLI":
+                        local_builds.append(f"CLI {info['version']}")
+                    elif info.get("package"):
+                        local_builds.append(f"ChatGPT Desktop {info['package']}")
+                    else:
+                        local_builds.append(f"Desktop engine {info['version']}")
             notices = [f"Schema unavailable for {identity.split('/', 1)[1]} {info['version']}"
                        for identity, info in builds.items() if not info["schema"]]
             if not self.catalog["peer_available"]:
@@ -359,9 +421,42 @@ class Window(QWidget):
             self.config_versions.setText("  ·  ".join(local_builds + list(dict.fromkeys(notices)))
                                          or "No Codex engines found")
             self.config_versions.setToolTip("\n".join(
-                f"{HOST_LABELS[identity.split('/', 1)[0]]} · {identity.split('/', 1)[1]} {info['version']}"
+                f"{HOST_LABELS[identity.split('/', 1)[0]]} · "
+                f"{'Desktop engine' if identity.endswith('/Desktop app') else 'CLI'} {info['version']}"
                 for identity, info in builds.items()))
         self.filter_config()
+        table.verticalScrollBar().setValue(scroll)
+
+    def default_editor(self, key):
+        combo = QComboBox()
+        current = self.section().get("defaults", {}).get(key, "")
+        choices = default_choices(self.catalog.get("builds", {}), self.draft, self.target, key)
+        if self.target != "shared":
+            inherited = self.draft["shared"]["defaults"][key]
+            combo.addItem(f"Inherit {inherited}", "")
+        for value in choices:
+            text = "default · Standard" if key == "service_tier" and value == "default" else value
+            combo.addItem(text, value)
+        index = combo.findData(current)
+        if index < 0:
+            combo.addItem(f"{current} · saved" if current else "No verified choices", current)
+            index = combo.count() - 1
+            combo.model().item(index).setEnabled(False)
+            combo.setToolTip("The saved value is outside the choices reported for this scope.")
+        combo.setCurrentIndex(index)
+        combo.setEnabled(bool(choices) or self.target != "shared" and bool(current))
+        combo.currentIndexChanged.connect(lambda index: self.choose_default(key, combo.itemData(index)))
+        return combo
+
+    def choose_default(self, key, value):
+        if value is None:
+            return
+        self.set_default(key, value)
+        if key == "model":
+            table = self.tables["Config"]
+            names = list(self.data["actual_defaults"])
+            for dependent in ("model_reasoning_effort", "service_tier"):
+                table.setCellWidget(names.index(dependent), 4, self.default_editor(dependent))
 
     def update_file_indicator(self):
         if self.data is None:
@@ -694,8 +789,22 @@ class Window(QWidget):
     def publish(self):
         if self.draft is not None:
             pending = self.data.get("pending")
+            base = pending["base"] if pending else self.data["manifest"]
+            builds = self.catalog.get("builds", {})
+            for profile in self.draft["hosts"]:
+                previous = host_defaults(base, profile)
+                chosen = host_defaults(self.draft, profile)
+                for key in ("model_reasoning_effort", "service_tier"):
+                    if previous["model"] == chosen["model"] and previous[key] == chosen[key]:
+                        continue
+                    choices = default_choices(builds, self.draft, profile, key)
+                    if choices and chosen[key] not in choices:
+                        QMessageBox.warning(self, "Choose a supported option",
+                                            f"{HOST_LABELS[profile]} reports different {key} choices for "
+                                            f"{chosen['model']}. Choose a supported value before applying.")
+                        return
             self.launch("publish", {
-                "base": pending["base"] if pending else self.data["manifest"],
+                "base": base,
                 "desired": self.draft, "resolve": self.resolve,
             })
 

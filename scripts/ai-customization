@@ -191,9 +191,13 @@ def schema_fields(schema):
         if not isinstance(node, dict):
             return
         metadata = fields.setdefault(path, {}) if path else {}
-        for key in ("description", "default", "type", "enum"):
+        for key in ("description", "default", "type"):
             if key in node and node[key] is not None:
                 metadata.setdefault(key, node[key])
+        for value in node.get("enum", [node["const"]] if "const" in node else []):
+            options = metadata.setdefault("enum", [])
+            if value not in options:
+                options.append(value)
         ref = node.get("$ref", "")
         if ref.startswith("#/") and ref not in seen:
             lookup = [part.replace("~1", "/").replace("~0", "~") for part in ref[2:].split("/")]
@@ -292,10 +296,61 @@ class Customization:
         text = path.read_text() if path.exists() else ""
         return text, tomllib.loads(text)
 
+    def config_binaries(self):
+        return {"CLI": self.home / ".local/bin/codex", "Desktop app": DESKTOP_CODEX}
+
+    def config_fingerprint(self, with_peer=False):
+        local = {}
+        for surface, executable in self.config_binaries().items():
+            try:
+                stat = executable.stat()
+                local[surface] = [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+            except OSError:
+                continue
+        peers = self.call_peer("config-fingerprint") if with_peer else {}
+        return {self.profile: local, **peers}
+
+    def model_choices(self, executable):
+        try:
+            result = run([str(executable), "debug", "models"], cwd="/", timeout=8,
+                         env=dict(os.environ, CODEX_HOME=str(self.codex)))
+            if result.returncode != 0:
+                return {}
+            return {
+                model["slug"]: {
+                    "reasoning": [level["effort"] for level in model.get("supported_reasoning_levels", [])],
+                    "tiers": ["default", *(tier["id"] for tier in model.get("service_tiers", []))],
+                }
+                for model in json.loads(result.stdout)["models"] if model.get("visibility") == "list"
+            }
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+            return {}
+
+    def config_constraints(self, executable):
+        options = {}
+        try:
+            with self.codex_rpc(executable, experimental=True, timeout=4) as request:
+                profiles = request("permissionProfile/list", {"cwd": "/"})
+                options["permissions"] = [item["id"] for item in profiles["data"] if item["allowed"]]
+                response = request("configRequirements/read")
+                requirements = response.get("requirements") or {}
+                options["allowed_approvals"] = requirements.get("allowedApprovalPolicies")
+                flags = requirements.get("featureRequirements") or {}
+                options["blocked_tiers"] = [
+                    tier for tier, flag in (("priority", "fast_mode"),
+                                           ("ultrafast", "ultrafast_mode" if response.get(
+                                               "supportsIndependentSpeedModes") else "fast_mode"))
+                    if flags.get(flag) is False
+                ]
+        except (Error, OSError, ValueError, KeyError):
+            pass
+        return options
+
     def config_engines(self):
+        fingerprint = self.config_fingerprint()[self.profile]
         engines = {}
-        for surface, executable in (("CLI", self.home / ".local/bin/codex"), ("Desktop app", DESKTOP_CODEX)):
-            if not executable.is_file():
+        for surface, executable in self.config_binaries().items():
+            if surface not in fingerprint:
                 continue
             try:
                 result = run([str(executable), "--version"], cwd="/", timeout=3)
@@ -313,9 +368,19 @@ class Customization:
                     if len(parts) > 2 and parts[-1] in ("true", "false") and re.fullmatch(r"\w+", parts[0]):
                         engines[surface]["features"][parts[0]] = {
                             "stage": " ".join(parts[1:-1]), "enabled": parts[-1] == "true"}
+                engines[surface]["models"] = self.model_choices(executable)
+                constraints = self.config_constraints(executable)
+                engines[surface].update(constraints)
+                for model in engines[surface]["models"].values():
+                    model["tiers"] = [tier for tier in model["tiers"]
+                                      if tier not in constraints.get("blocked_tiers", [])]
+                if surface == "Desktop app" and shutil.which("dpkg-query"):
+                    package = run(["dpkg-query", "-W", "-f=${Version}", "chatgpt"], timeout=3)
+                    if package.returncode == 0:
+                        engines[surface]["package"] = package.stdout.decode().strip()
             except (OSError, subprocess.TimeoutExpired):
                 continue
-        return {"profile": self.profile, "engines": engines}
+        return {"profile": self.profile, "engines": engines, "fingerprint": fingerprint}
 
     def config_schema(self, version):
         need(CODEX_VERSION.fullmatch(version), "Invalid Codex version.")
@@ -341,7 +406,7 @@ class Customization:
 
     def config_catalog(self, with_peer):
         local = self.config_engines()
-        peer = self.call_peer("config-engines") if with_peer else {}
+        peer = self.call_peer("config-engines", timeout=40) if with_peer else {}
         builds = {}
         for workstation in (local, peer):
             for surface, engine in workstation.get("engines", {}).items():
@@ -355,6 +420,9 @@ class Customization:
                 schemas[version] = schema_fields(schema) if schema else None
             fields = schemas[version] or {}
             engine["schema"] = schemas[version] is not None
+            approvals = fields.get(("approval_policy",), {}).get("enum", [])
+            allowed = engine.get("allowed_approvals")
+            engine["approval_policies"] = approvals if allowed is None else [p for p in approvals if p in allowed]
             for path in fields.keys() | {("features", flag) for flag in engine["features"]}:
                 row = rows.setdefault(path, {"support": {}, "metadata": fields.get(path, {})})
                 if not row["metadata"]:
@@ -373,8 +441,10 @@ class Customization:
             rows[path]["value"] = config_value(path, value)
 
         return {
-            "builds": {identity: {"version": data["version"], "schema": data["schema"]}
+            "builds": {identity: {key: data.get(key) for key in
+                                 ("version", "schema", "package", "models", "permissions", "approval_policies")}
                        for identity, data in builds.items()},
+            "fingerprint": {entry["profile"]: entry.get("fingerprint", {}) for entry in (local, peer) if entry},
             "peer_available": bool(peer),
             "settings": {field_path(path): info for path, info in rows.items()},
         }
@@ -479,52 +549,41 @@ class Customization:
             "instructions_outdated": installed_text != expected["instructions"],
         }
 
-    def write_config(self, original, changes):
-        if not changes:
-            return
-        codex = self.home / ".local/bin/codex"
-        need(codex.is_file(), "Codex CLI is unavailable.")
-        edits = [{"keyPath": ".".join(json.dumps(part) for part in key), "value": value,
-                  "mergeStrategy": "replace"} for key, value in changes]
+    @contextmanager
+    def codex_rpc(self, codex, experimental=False, timeout=12):
         with subprocess.Popen([str(codex), "app-server"], cwd="/", stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                               env=dict(os.environ, CODEX_HOME=str(self.codex))) as process:
             buffer = b""
-            try:
-                requests = (
-                    {"id": 0, "method": "initialize", "params": {
-                        "clientInfo": {"name": "dotfiles-ai-customization", "version": "1"}}},
-                    {"method": "initialized"},
-                    {"id": 2, "method": "config/read", "params": {"includeLayers": True}},
-                    {"id": 1, "method": "config/batchWrite", "params": {
-                        "edits": edits}},
-                )
-                for request in requests:
-                    if request.get("id") == 1:
-                        need(self.config()[0] == original,
-                             "Codex settings changed during apply. Reload and retry.")
-                    process.stdin.write((json.dumps(request) + "\n").encode())
-                    if "id" not in request:
+            next_id = 0
+
+            def request(method, params=None):
+                nonlocal buffer, next_id
+                payload = {"id": next_id, "method": method, "params": params or {}}
+                next_id += 1
+                process.stdin.write((json.dumps(payload) + "\n").encode())
+                deadline = time.monotonic() + timeout
+                while True:
+                    if b"\n" not in buffer:
+                        if not select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0]:
+                            raise Error("Codex configuration request timed out.")
+                        chunk = os.read(process.stdout.fileno(), 8192)
+                        need(chunk, "Codex configuration server stopped.")
+                        buffer += chunk
                         continue
-                    deadline = time.monotonic() + 12
-                    while True:
-                        if b"\n" not in buffer:
-                            if not select.select([process.stdout], [], [], max(0, deadline-time.monotonic()))[0]:
-                                raise Error("Codex configuration write timed out.")
-                            chunk = os.read(process.stdout.fileno(), 8192)
-                            need(chunk, "Codex configuration writer stopped.")
-                            buffer += chunk
-                            continue
-                        line, buffer = buffer.split(b"\n", 1)
-                        event = json.loads(line)
-                        if event.get("id") == request["id"]:
-                            need("result" in event, "Codex declined the write. Reload the window and retry.")
-                            if request["id"] == 2:
-                                for layer in event["result"]["layers"] or []:
-                                    if layer["name"]["type"] == "user":
-                                        requests[-1]["params"]["expectedVersion"] = layer["version"]
-                                        break
-                            break
+                    line, buffer = buffer.split(b"\n", 1)
+                    event = json.loads(line)
+                    if event.get("id") == payload["id"]:
+                        need("result" in event, f"Codex declined {method}.")
+                        return event["result"]
+
+            try:
+                init = {"clientInfo": {"name": "dotfiles-ai-customization", "version": "1"}}
+                if experimental:
+                    init["capabilities"] = {"experimentalApi": True}
+                request("initialize", init)
+                process.stdin.write(b'{"method":"initialized"}\n')
+                yield request
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -532,6 +591,24 @@ class Customization:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     process.kill()
+                    process.wait()
+
+    def write_config(self, original, changes):
+        if not changes:
+            return
+        codex = self.home / ".local/bin/codex"
+        need(codex.is_file(), "Codex CLI is unavailable.")
+        edits = [{"keyPath": ".".join(json.dumps(part) for part in key), "value": value,
+                  "mergeStrategy": "replace"} for key, value in changes]
+        with self.codex_rpc(codex) as request:
+            params = {"edits": edits}
+            layers = request("config/read", {"includeLayers": True})["layers"]
+            for layer in layers or []:
+                if layer["name"]["type"] == "user":
+                    params["expectedVersion"] = layer["version"]
+                    break
+            need(self.config()[0] == original, "Codex settings changed during apply. Reload and retry.")
+            request("config/batchWrite", params)
 
     def apply(self, manifest, source, revision, resolve=False, check=False):
         expected = self.instructions(manifest)
@@ -882,7 +959,7 @@ def main():
     parser = argparse.ArgumentParser(prog="dot ai")
     parser.add_argument("action", choices=("status", "inventory", "preview", "apply", "sync",
                                            "publish", "install", "discard-draft", "entry", "entry-local",
-                                           "config-engines", "config-catalog"))
+                                           "config-engines", "config-catalog", "config-fingerprint"))
     parser.add_argument("--profile", choices=tuple(HOSTS.values()))
     parser.add_argument("--revision")
     parser.add_argument("--check", action="store_true")
@@ -904,6 +981,8 @@ def main():
         elif args.action in ("config-engines", "config-catalog"):
             result = app.config_engines() if args.action == "config-engines" else app.config_catalog(args.with_peer)
             print(encode(result), end="")
+        elif args.action == "config-fingerprint":
+            print(encode(app.config_fingerprint(args.with_peer)), end="")
         elif args.action in ("entry", "entry-local"):
             request = json.load(sys.stdin)
             if args.action == "entry-local":

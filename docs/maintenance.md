@@ -904,15 +904,19 @@ settings from the exact installed CLI and desktop app engine schemas. It
 includes unset keys, feature stages, and settings recognized by only one
 engine. Hover over a setting to see the matching builds and schema details.
 In setting paths, `<name>` stands for a user-named table entry and `[]` for
-a list item. Reopen the window or choose **Reload** after updating Codex.
-The tab reads the installed versions again and caches each matching official
-schema. If a schema is unavailable, configured values and the engine's
-reported feature flags still appear.
+a list item. The open window checks both workstations for replaced Codex
+executables and refreshes after a package update. **Reload** also refreshes.
+The tab caches each matching official schema and shows the ChatGPT Desktop
+package version, with its bundled Codex engine version in the tooltip. If a
+schema is unavailable, configured values and reported feature flags still appear.
 
 On a computer where they use the same Codex home, the CLI and the desktop
 app share the user `config.toml`. Project layers, CLI profiles, and choices
 for a particular conversation can affect the settings Codex actually uses.
-The five managed defaults remain editable through **Apply & Sync**. Use
+The five managed defaults have dropdowns populated from the installed
+schemas, Codex model catalogs, and available permission profiles.
+Reasoning effort and service tier follow the selected model. Shared choices
+require support on both workstations. Edited defaults still use **Apply & Sync**. Use
 **Open local config.toml** for the other user settings. The catalog covers engine
 configuration. Desktop interface preferences are managed inside that app.
 
