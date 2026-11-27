@@ -8,9 +8,9 @@ import stat
 import sys
 
 from PyQt6.QtCore import QProcess, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QIcon
+from PyQt6.QtGui import QDesktopServices, QIcon, QWheelEvent
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
+    QAbstractItemView, QAbstractScrollArea, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QHBoxLayout,
     QInputDialog, QLabel, QMenu, QMessageBox,
     QPlainTextEdit, QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QWidgetAction,
@@ -92,6 +92,23 @@ def choice_label(value):
     return str(value)
 
 
+class ComboBox(QComboBox):
+    def wheelEvent(self, event):
+        parent = self.parentWidget()
+        while parent is not None and not isinstance(parent, QAbstractScrollArea):
+            parent = parent.parentWidget()
+        if parent is None:
+            event.ignore()
+            return
+        viewport = parent.viewport()
+        position = event.globalPosition()
+        wheel = QWheelEvent(viewport.mapFromGlobal(position), position, event.pixelDelta(), event.angleDelta(),
+                            event.buttons(), event.modifiers(), event.phase(), event.inverted(),
+                            device=event.pointingDevice())
+        QApplication.sendEvent(viewport, wheel)
+        event.setAccepted(wheel.isAccepted())
+
+
 class Window(QWidget):
     def __init__(self):
         super().__init__()
@@ -112,7 +129,7 @@ class Window(QWidget):
         self.process = QProcess(self)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
-        self.scope = QComboBox()
+        self.scope = ComboBox()
         self.scope.addItems(SCOPES)
         self.scope.currentTextChanged.connect(self.render)
         self.machine = QLabel()
@@ -207,7 +224,7 @@ class Window(QWidget):
     def content_panel(self, title, table):
         search = QLineEdit()
         search.setPlaceholderText(f"Search {title.lower()}")
-        state = QComboBox()
+        state = ComboBox()
         state.addItems(["All states", "Enabled here", "Disabled here"])
         self.filters[title] = search, state
         search.textChanged.connect(lambda: self.filter_content(title))
@@ -238,7 +255,7 @@ class Window(QWidget):
             table.setItem(row, 1, self.cell(info["source"]))
             table.setItem(row, 2, self.cell(label(local[name]["enabled"]) if name in local else "—"))
             table.setItem(row, 3, self.cell(label(peer[name]["enabled"]) if name in peer else "—"))
-            combo = QComboBox()
+            combo = ComboBox()
             choices = [None, True, False]
             combo.addItems(["Keep local" if self.target == "shared" else "Inherit", "On", "Off"])
             combo.setCurrentIndex(choices.index(self.section().get(group, {}).get(name)))
@@ -265,7 +282,7 @@ class Window(QWidget):
         self.config_search = QLineEdit()
         self.config_search.setPlaceholderText("Search settings")
         self.config_search.textChanged.connect(self.filter_config)
-        self.config_filter = QComboBox()
+        self.config_filter = ComboBox()
         self.config_filter.addItems(["All settings", "Configured", "Managed", "Experimental",
                                      "Has choices", "CLI", "Desktop app", "CLI only", "Desktop app only",
                                      "Legacy or unknown"])
@@ -556,7 +573,7 @@ class Window(QWidget):
             button.setMenu(menu)
             return button
 
-        combo = QComboBox()
+        combo = ComboBox()
         combo.addItem("Choose…")
         index = 0
         for value in choices["values"]:
@@ -631,7 +648,7 @@ class Window(QWidget):
                 self.launch("entry", request)
 
     def default_editor(self, key):
-        combo = QComboBox()
+        combo = ComboBox()
         current = self.section().get("defaults", {}).get(key, "")
         choices = default_choices(self.catalog.get("builds", {}), self.draft, self.target, key)
         if self.target != "shared":
@@ -776,7 +793,7 @@ class Window(QWidget):
                 name_item.setToolTip(info["description"])
                 rows.setItem(row, 0, name_item)
                 rows.setItem(row, 1, self.cell(label(info["enabled"])))
-                editor = QComboBox()
+                editor = ComboBox()
                 editor.addItems(["Keep local" if self.target == "shared" else "Inherit", "On", "Off"])
                 editor.setCurrentIndex(choices.index(self.section().get("tool_states", {}).get(key)))
                 editor.currentIndexChanged.connect(lambda index, k=key: edited.update({k: choices[index]}))
@@ -988,7 +1005,7 @@ class Window(QWidget):
             if name in {"node_repl", "_default"} or group == "skills" and local.get(name) == "unmanaged":
                 table.setItem(row, 4, self.cell("App-owned" if name == "node_repl" else "Unmanaged"))
                 continue
-            combo = QComboBox()
+            combo = ComboBox()
             selections = [None, *options]
             combo.addItems(["Keep local" if self.target == "shared" else "Inherit", *map(label, options)])
             combo.setCurrentIndex(selections.index(self.section().get(group, {}).get(name)))
