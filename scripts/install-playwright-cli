@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:---ensure}"
+case "$mode" in
+  --check|--ensure) ;;
+  *) echo "Usage: install-playwright-cli [--check|--ensure]" >&2; exit 2 ;;
+esac
+
+source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../config/playwright" && pwd)"
+export PATH="$HOME/.vite-plus/bin:$PATH"
+node_bin="$(node -p 'process.execPath')"
+version="$("$node_bin" -p 'require(process.argv[1]).dependencies["@playwright/cli"]' "$source_dir/package.json")"
+package_root="$HOME/.local/share/dotfiles/playwright-cli"
+release="$package_root/$version"
+cli="$release/node_modules/.bin/playwright-cli"
+launcher="$HOME/.local/bin/playwright-cli"
+export PLAYWRIGHT_BROWSERS_PATH="$package_root/browsers"
+export PLAYWRIGHT_SKIP_BROWSER_GC=1
+export NO_UPDATE_NOTIFIER=1
+
+installed() {
+  [[ -x "$cli" && -f "$release/node_modules/@playwright/cli/skills/playwright-cli/SKILL.md" ]] &&
+    cmp -s "$source_dir/package-lock.json" "$release/package-lock.json"
+}
+
+browsers_installed() {
+  "$node_bin" - "$release" <<'JS'
+const fs = require('node:fs');
+const { registry } = require(process.argv[2] + '/node_modules/playwright-core/lib/coreBundle.js');
+for (const browser of ['chromium', 'chromium-headless-shell']) {
+  try {
+    fs.accessSync(registry.registry.findExecutable(browser).executablePath(), fs.constants.X_OK);
+  } catch {
+    process.exit(1);
+  }
+}
+JS
+}
+
+if [[ -e "$launcher" || -L "$launcher" ]] && [[ "$(readlink "$launcher" || true)" != "$source_dir/playwright-cli" ]]; then
+  echo "A separate Playwright CLI launcher already exists at $launcher." >&2
+  exit 1
+fi
+
+if [[ "$mode" == --ensure ]]; then
+  mkdir -p -- "$package_root"
+  exec 9>"$package_root/install.lock"
+  flock 9
+  if ! installed; then
+    if [[ -e "$release" || -L "$release" ]]; then
+      echo "The existing Playwright CLI release at $release is incomplete or uses a different lockfile." >&2
+      exit 1
+    fi
+    stage="$(mktemp -d "$package_root/.install.XXXXXXXX")"
+    trap 'find "$stage" -depth -delete' EXIT
+    cp -- "$source_dir/package.json" "$source_dir/package-lock.json" "$stage/"
+    "$node_bin" "$(dirname "$node_bin")/npm" ci --prefix "$stage" --ignore-scripts --engine-strict --no-audit --no-fund
+    "$stage/node_modules/.bin/playwright-cli" --version
+    mv -T -- "$stage" "$release"
+    trap - EXIT
+    echo "CHANGED Installed Playwright CLI $version."
+  fi
+  if ! browsers_installed; then
+    "$cli" install-browser chromium
+    browsers_installed
+    echo "CHANGED Installed Playwright Chromium."
+  fi
+  if [[ "$(readlink "$package_root/current" || true)" != "$release" ]]; then
+    link="$package_root/.current.$BASHPID"
+    ln -s -- "$release" "$link"
+    mv -Tf -- "$link" "$package_root/current"
+    echo "CHANGED Selected Playwright CLI $version."
+  fi
+  if [[ ! -L "$launcher" ]]; then
+    mkdir -p -- "$(dirname "$launcher")"
+    ln -s -- "$source_dir/playwright-cli" "$launcher"
+    echo "CHANGED Linked Playwright CLI."
+  fi
+fi
+
+if ! installed || ! browsers_installed ||
+   [[ "$(readlink "$package_root/current" || true)" != "$release" || ! -x "$launcher" ]]; then
+  echo "Playwright CLI $version or its browsers are missing. Apply the playwright-cli tag." >&2
+  exit 1
+fi
+"$launcher" --version

@@ -4157,6 +4157,12 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         ) and not skipped.intersection({"all", "packages", "chrome-devtools"}):
             mode = "--check" if args.check else "--ensure"
             run([str(ROOT / "scripts/install-chrome-devtools"), mode], cwd=ROOT)
+        playwright_tags = {"all", "packages", "playwright-cli", "ai-customization"}
+        if features.get("playwright_cli") and (
+            not direct_tags or direct_tags & playwright_tags
+        ) and not skipped.intersection(playwright_tags):
+            mode = "--check" if args.check else "--ensure"
+            run([str(ROOT / "scripts/install-playwright-cli"), mode], cwd=ROOT)
         if features.get("ai_customization") and (
             not direct_tags or "ai-customization" in direct_tags
         ) and not skipped.intersection({"all", "ai-customization"}):
@@ -10781,6 +10787,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             chrome_devtools.returncode == 0,
             (chrome_devtools.stdout or chrome_devtools.stderr).strip(),
         )
+    if profile.get("features", {}).get("playwright_cli"):
+        playwright = run(
+            [str(ROOT / "scripts/install-playwright-cli"), "--check"],
+            capture=True,
+            check=False,
+        )
+        failures += not doctor_check(
+            "Playwright CLI",
+            playwright.returncode == 0,
+            (playwright.stdout or playwright.stderr).strip(),
+        )
     npm_packages = packages.get("npm", [])
     if npm_packages:
         if not command_exists("npm"):
@@ -13213,6 +13230,8 @@ def build_parser() -> argparse.ArgumentParser:
     ai.set_defaults(func=lambda args: run([
         str(ROOT / "scripts/ai-customization"), *args.arguments
     ], cwd=ROOT))
+    playwright = sub.add_parser("playwright", help="manage Playwright access to local Chrome")
+    playwright.add_argument("arguments", nargs=argparse.REMAINDER)
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--profile", required=True)
     bootstrap.add_argument("--device")
@@ -13588,8 +13607,9 @@ def update_dotfiles_before_run() -> bool:
 
 def main() -> int:
     try:
-        if sys.argv[1:2] == ["ai"]:
-            script = str(ROOT / "scripts/ai-customization")
+        local_commands = {"ai": "ai-customization", "playwright": "playwright-chrome"}
+        if len(sys.argv) > 1 and sys.argv[1] in local_commands:
+            script = str(ROOT / "scripts" / local_commands[sys.argv[1]])
             os.execv(script, [script, *sys.argv[2:]])
         # Propagate this marker to nested Ansible/direct invocations and the
         # refreshed process, so one user command checks the repository once.

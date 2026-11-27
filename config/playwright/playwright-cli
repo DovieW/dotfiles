@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+package_root="$HOME/.local/share/dotfiles/playwright-cli"
+export PATH="$HOME/.vite-plus/bin:$PATH"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$package_root/browsers}"
+if [[ ! -x "$package_root/current/node_modules/.bin/playwright-cli" ]]; then
+  printf 'Run dot apply with the playwright-cli tag to install Playwright CLI.\n' >&2
+  exit 1
+fi
+exec "$package_root/current/node_modules/.bin/playwright-cli" "$@"

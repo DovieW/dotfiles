@@ -27,6 +27,10 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 REL = "config/ai-customization"
+PACKAGE_SKILL_LABELS = {
+    "chrome-devtools-cli": "Google Chrome DevTools",
+    "playwright-cli": "Microsoft Playwright",
+}
 PREFS = "preferences.json"
 UPSTREAM = "refs/remotes/origin/master"
 HOSTS = {"dovie-desktop-linux": "kubuntu-desktop", "dovie-ideapad-linux": "kubuntu-laptop"}
@@ -576,12 +580,18 @@ class Customization:
         private = self.codex / "AGENTS.local.md"
         return effective(manifest, self.profile, private.read_text() if private.is_file() else "")
 
-    def skill_source(self, name, source):
-        if name != "chrome-devtools-cli":
-            return source / "skills" / name
+    def skill_package(self, name):
+        if name == "playwright-cli":
+            return self.home / ".local/share/dotfiles/playwright-cli/current/node_modules/@playwright/cli"
         launcher = self.home / ".local/bin/chrome-devtools"
-        package = next((p for p in launcher.resolve().parents if p.name == "chrome-devtools-mcp"), None)
-        need(package is not None, "Install the managed Chrome DevTools CLI before applying its skill.")
+        return next((p for p in launcher.resolve().parents if p.name == "chrome-devtools-mcp"), None)
+
+    def skill_source(self, name, source):
+        if name not in PACKAGE_SKILL_LABELS:
+            return source / "skills" / name
+        package = self.skill_package(name)
+        need(package is not None and (package / "package.json").is_file(),
+             f"Install {PACKAGE_SKILL_LABELS[name]} CLI before applying its skill.")
         return package / "skills" / name
 
     def skill_target(self, name):
@@ -642,11 +652,10 @@ class Customization:
                 available_skills[name] = "manual" if manual else "automatic"
             else:
                 available_skills.setdefault(name, "off")
-            if name == "chrome-devtools-cli":
-                launcher = (self.home / ".local/bin/chrome-devtools").resolve()
-                package = next((p for p in launcher.parents if p.name == "chrome-devtools-mcp"), None)
+            if name in PACKAGE_SKILL_LABELS:
+                package = self.skill_package(name)
                 installed = load(package / "package.json", {}) if package else {}
-                skill_sources[name] = "Google Chrome DevTools " + installed.get("version", "")
+                skill_sources[name] = f"{PACKAGE_SKILL_LABELS[name]} {installed.get('version', '')}".strip()
             else:
                 skill_sources[name] = "Dotfiles"
         return {
@@ -777,7 +786,8 @@ class Customization:
         available = self.config()[1]
         atomic(self.state / "applied.json", encode({
             "revision": revision, "instructions": digest(expected["instructions"]),
-            "chrome": status["skill_sources"].get("chrome-devtools-cli"),
+            "package_skills": {name: status["skill_sources"][name]
+                               for name in PACKAGE_SKILL_LABELS if name in status["skill_sources"]},
             "settings": {".".join(key): tool_value(available, key, wanted)
                          for key, wanted in tool_values(expected) if tool_available(available, key)},
             "skills": sorted(expected["skills"]),
@@ -1024,8 +1034,10 @@ class Customization:
         published = self.git("rev-parse", f"{ref}:{REL}").stdout.decode().strip()
         previous = load(self.state / "applied.json", {})
         status = self.status()
+        package_skills = {name: status["skill_sources"][name]
+                          for name in PACKAGE_SKILL_LABELS if name in status["skill_sources"]}
         if (previous.get("revision") != published or status["drift"] or status["instructions_outdated"]
-                or previous.get("chrome") != status["skill_sources"].get("chrome-devtools-cli")):
+                or previous.get("package_skills") != package_skills):
             archive = self.git("archive", ref, REL).stdout
             with tempfile.TemporaryDirectory() as temp, tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(temp, filter="data")

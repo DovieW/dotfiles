@@ -458,7 +458,46 @@ published SHA-256 manifest. Apply Ghostty, the font, and its configuration with:
 dot apply --profile kubuntu-laptop --tags packages
 ```
 
-## Chrome DevTools CLI
+## Browser automation
+
+Both Kubuntu profiles install Microsoft's Playwright CLI with a locked npm
+package, its matching Chromium build for headless tests, and the official skill
+with its references. The Chrome Toolkit skill routes routine browser work to
+Playwright and deep Chrome diagnostics to Chrome DevTools CLI. All three skills
+are Automatic in AI Customization by default. To apply just this toolchain, use
+`dot apply --profile kubuntu-laptop --tags playwright-cli,chrome-devtools,ai-customization`
+on the IdeaPad or select `kubuntu-desktop` on the desktop.
+
+For a temporary development session, use
+`playwright-cli -s=my-task open https://example.com --browser=chromium`. Use the
+same session name for subsequent commands and run `playwright-cli -s=my-task close`
+when finished.
+
+### Signed-in Chrome profiles
+
+1. Update Google Chrome from its Stable package feed and reopen it at a
+   convenient time. Background attachment requires Chrome 158.0.8127.2 or newer.
+2. Enable the [official Playwright Chrome extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm)
+   (0.5.0 or newer) in the intended profile. Open its popup to copy the
+   extension token. Find the profile directory name under Profile Path on
+   `chrome://version` if needed.
+3. With KDE Wallet unlocked, run `dot playwright chrome enroll` and paste the
+   token into the hidden terminal prompt. Repeat this on each machine and use
+   `--profile 'Profile 1'` on these commands for a profile other than `Default`.
+4. Check readiness with `dot playwright chrome status`. With a regular Chrome
+   window open for the selected profile, use
+   `dot playwright chrome attach --session my-task`. This opens a background tab
+   in that profile. Use `playwright-cli -s=my-task detach` to release the session.
+
+The helper checks the running browser, a regular window, the extension, and
+the wallet before launching attachment. If multiple Chrome profiles are open,
+close the other profile windows when convenient so the helper can verify the
+target. The token remains in this machine's wallet and is passed to the CLI
+only for attachment. The extension asks for interaction when selecting an
+existing tab. For details, see
+[Microsoft's extension documentation](https://github.com/microsoft/playwright/blob/main/packages/extension/README.md).
+
+### Chrome DevTools CLI
 
 The Kubuntu laptop and desktop profiles install Google's `chrome-devtools`
 CLI from the `chrome-devtools-mcp` npm package. Apply just the CLI setup with
@@ -964,6 +1003,6 @@ its own `node_repl` registration. The Hooks tab adds handlers to
 
 Edit custom skill sources under `config/ai-customization/skills/`, validate
 the skill, and commit and push the source through dotfiles. Avoid editing the
-generated copy under `~/.agents/skills`. Google's Chrome DevTools instructions
-are copied from the installed CLI package. Manual-only skills still appear for
+generated copy under `~/.agents/skills`. The official Chrome DevTools and
+Playwright skills are copied from their installed CLI packages. Manual-only skills still appear for
 explicit invocation, such as `$dovie-android-control`.

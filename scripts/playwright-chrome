@@ -1,0 +1,278 @@
+#!/usr/bin/python3
+"""Attach to the signed-in Chrome profile through Playwright's extension."""
+
+import argparse
+from contextlib import contextmanager
+import fcntl
+import getpass
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+import warnings
+
+
+ROOT = Path(__file__).resolve().parents[1]
+HOME = Path.home()
+CHROME = Path("/opt/google/chrome/chrome")
+CHROME_DATA = HOME / ".config/google-chrome"
+EXTENSION = "mmlmfjhmonkocbjadbfplnigmagldckm"
+MIN_CHROME = (158, 0, 8127, 2)
+TOKEN_ENV = "PLAYWRIGHT_MCP_EXTENSION_TOKEN"
+RUNTIME = Path(f"/run/user/{os.getuid()}")
+
+
+class Error(Exception):
+    pass
+
+
+def capture(*args, env=None):
+    return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL, timeout=5, env=env).strip()
+
+
+def version(value):
+    match = re.search(r"\b\d+(?:\.\d+){2,3}\b", value)
+    if not match:
+        raise Error("Could not identify the installed version.")
+    return tuple(map(int, match[0].split(".")))
+
+
+def extension_version(profile):
+    directory = CHROME_DATA / profile
+    for name in ("Secure Preferences", "Preferences"):
+        file = directory / name
+        if not file.is_file():
+            continue
+        extension = json.loads(file.read_text()).get("extensions", {}).get("settings", {}).get(EXTENSION)
+        if extension:
+            break
+    else:
+        raise Error("Install the official Playwright extension in the selected Chrome profile.")
+
+    if (extension.get("from_webstore") is not True or extension.get("disable_reasons")
+            or extension.get("state", 1) != 1):
+        raise Error("Enable the official Chrome Web Store Playwright extension in this profile.")
+    path = Path(extension.get("path", ""))
+    if path.parent != Path(EXTENSION):
+        raise Error("Could not verify the installed Playwright extension.")
+    manifest = json.loads((directory / "Extensions" / path / "manifest.json").read_text())
+    installed = manifest["version"]
+    if version(installed) < (0, 5, 0):
+        raise Error(f"Playwright extension {installed} needs an update for background attachment.")
+    return installed
+
+
+def running_browser():
+    try:
+        lock = os.readlink(CHROME_DATA / "SingletonLock")
+        host, _, pid = lock.rpartition("-")
+        if host != socket.gethostname() or not re.fullmatch(r"[1-9][0-9]*", pid):
+            raise Error("Could not verify the local Chrome process for this data directory.")
+        process = Path("/proc") / pid
+        live = (process / "exe").stat()
+        installed = CHROME.stat()
+        if live.st_uid != installed.st_uid or process.stat().st_uid != os.getuid():
+            raise Error("Could not verify the Chrome process owner.")
+        if (live.st_dev, live.st_ino) != (installed.st_dev, installed.st_ino):
+            raise Error("Reopen Chrome when convenient so the browser runs the installed version.")
+        args = (process / "cmdline").read_bytes().decode().split("\0")
+    except (FileNotFoundError, ProcessLookupError) as exc:
+        raise Error("Open a regular Chrome window in the selected profile before attaching.") from exc
+    if any(arg.startswith("--type=") for arg in args):
+        raise Error("Could not verify the main Chrome process.")
+    if any(arg.startswith("--user-data-dir") and arg != f"--user-data-dir={CHROME_DATA}" for arg in args):
+        raise Error("Chrome uses a different data directory.")
+    return int(pid)
+
+
+def desktop_env():
+    if not (RUNTIME / "bus").is_socket():
+        raise Error("The KDE desktop session is unavailable.")
+    env = os.environ.copy()
+    env.update(XDG_RUNTIME_DIR=str(RUNTIME), DBUS_SESSION_BUS_ADDRESS=f"unix:path={RUNTIME}/bus")
+    session = dict(line.split("=", 1) for line in capture("systemctl", "--user", "show-environment", env=env).splitlines()
+                   if "=" in line)
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY"):
+        env.pop(key, None)
+        if key in session:
+            env[key] = session[key]
+    return env
+
+
+def regular_chrome_window(pid, env):
+    # KWin exposes window metadata to its scripting interface. Query it without
+    # activating a window or reading any tab titles.
+    marker = f"dot-playwright-{uuid.uuid4().hex}"
+    kwin = ("qdbus6", "org.kde.KWin")
+    interface = "org.kde.kwin.Scripting"
+    now = str(int(time.time()))
+    with tempfile.TemporaryDirectory(prefix="dot-playwright-", dir=RUNTIME) as folder:
+        source = Path(folder) / "window.js"
+        source.write_text(
+            f"print('{marker} ' + workspace.windowList().some(w => w.pid === {pid} && "
+            "w.normalWindow && !w.transient && "
+            "/^google-chrome(-stable)?$/i.test(String(w.resourceClass))));\n"
+        )
+        script_id = capture(*kwin, "/Scripting", f"{interface}.loadScript", str(source), marker, env=env)
+        if not script_id.isdecimal():
+            raise Error("Could not query Chrome windows through KWin.")
+        try:
+            capture(*kwin, f"/Scripting/Script{script_id}", "org.kde.kwin.Script.run", env=env)
+            for _ in range(10):
+                journal = capture("journalctl", "--user", "--since", f"@{now}", "--no-pager", "-o", "cat",
+                                  "-u", "plasma-kwin_wayland.service", "-u", "plasma-kwin_x11.service", env=env)
+                if f"{marker} true" in journal:
+                    return True
+                if f"{marker} false" in journal:
+                    return False
+                time.sleep(0.1)
+            raise Error("KWin did not confirm whether Chrome has a regular window.")
+        finally:
+            capture(*kwin, "/Scripting", f"{interface}.unloadScript", marker, env=env)
+
+
+def check_browser(profile, env):
+    installed = capture(str(CHROME), "--version", env=env)
+    print(installed, flush=True)
+    if version(installed) < MIN_CHROME:
+        raise Error("Update Chrome Stable and reopen it for background attachment (minimum 158.0.8127.2).")
+    pid = running_browser()
+    profiles = json.loads((CHROME_DATA / "Local State").read_text()).get("profile", {})
+    # The window manager can identify the browser process but not its profile.
+    if profiles.get("last_active_profiles") != [profile] or not regular_chrome_window(pid, env):
+        raise Error("Background attachment requires a verified regular Chrome window for just the selected profile.")
+    return pid
+
+
+@contextmanager
+def wallet(profile, env):
+    os.environ["XDG_RUNTIME_DIR"] = env["XDG_RUNTIME_DIR"]
+    os.environ["DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
+    try:
+        import gi
+        gi.require_version("Secret", "1")
+        from gi.repository import GLib, Secret
+    except (ImportError, ValueError) as exc:
+        raise Error("Install the gir1.2-secret-1 package to use KDE Wallet.") from exc
+    try:
+        service = Secret.Service.get_sync(Secret.ServiceFlags.NONE, None)
+        collection = Secret.Collection.for_alias_sync(
+            service, Secret.COLLECTION_DEFAULT, Secret.CollectionFlags.NONE, None
+        )
+        if collection is None or collection.get_locked():
+            raise Error("Open KDE Wallet Manager and unlock kdewallet before using the Playwright token.")
+        schema = Secret.Schema.new("io.github.doview.dotfiles.PlaywrightChrome", Secret.SchemaFlags.NONE, {
+            "host": Secret.SchemaAttributeType.STRING,
+            "profile": Secret.SchemaAttributeType.STRING,
+        })
+        yield Secret, service, schema, {"host": socket.gethostname(), "profile": profile}
+    except GLib.Error as exc:
+        raise Error("KDE Wallet did not provide access to the Playwright token.") from exc
+
+
+def valid_token(token):
+    return bool(re.fullmatch(r"[A-Za-z0-9._~+/=-]{16,512}", token))
+
+
+def read_token(profile, env):
+    with wallet(profile, env) as (secret, service, schema, attrs):
+        # Omit UNLOCK so an agent never triggers a wallet prompt.
+        items = service.search_sync(schema, attrs, secret.SearchFlags.ALL, None)
+        if len(items) == 1 and not items[0].get_locked() and items[0].load_secret_sync(None):
+            value = items[0].get_secret().get_text()
+            if value and valid_token(value):
+                return value
+    raise Error("Enroll the token for this Chrome profile with dot playwright chrome enroll.")
+
+
+def enroll(profile, env):
+    if not sys.stdin.isatty():
+        raise Error("Run enrollment in a terminal so the token can be entered with echo disabled.")
+    with wallet(profile, env) as (secret, _, schema, attrs):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            token = getpass.getpass("Playwright extension token (hidden): ").strip()
+        token = token.removeprefix(f"{TOKEN_ENV}=").strip("\"'")
+        if not valid_token(token):
+            raise Error("Expected the token shown by the Playwright extension.")
+        if not secret.password_store_sync(schema, attrs, secret.COLLECTION_DEFAULT,
+                                          f"Playwright Chrome ({profile})", token, None):
+            raise Error("KDE Wallet could not save the token.")
+    print(f"Saved the Playwright token for {profile} in this computer's KDE Wallet.")
+
+
+def attach(profile, session, env):
+    launcher = str(HOME / ".local/bin/playwright-cli")
+    config = ROOT / "config/playwright/chrome-attach.json"
+    attach_env = {key: value for key, value in env.items()
+                  if not key.startswith(("PLAYWRIGHT_MCP_", "PWTEST_"))
+                  and key not in {"DEBUG", "NODE_DEBUG", "NODE_OPTIONS", "PWDEBUG", "PLAYWRIGHT_DEBUG"}}
+    # The pinned CLI layers a global Playwright config underneath --config.
+    # Give this invocation its dedicated config root and verified Chrome data directory.
+    attach_env.update(PWTEST_CLI_GLOBAL_CONFIG=str(config.parent),
+                      PLAYWRIGHT_MCP_USER_DATA_DIR=str(CHROME_DATA),
+                      PLAYWRIGHT_MCP_PROFILE_DIR_NAME=profile)
+    lock = RUNTIME / f"dot-playwright-attach-{session}.lock"
+    with os.fdopen(os.open(lock, os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_RDWR, 0o600), "w") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        sessions = json.loads(capture(launcher, "list", "--json", env=attach_env))["browsers"]
+        if any(browser["name"] == session for browser in sessions):
+            raise Error(f"Session {session} is already open. Reuse your session or choose a different name.")
+        pid = check_browser(profile, env)
+        attach_env[TOKEN_ENV] = read_token(profile, env)
+        if running_browser() != pid:
+            raise Error("Chrome changed while checking attachment. Try again once the profile is open.")
+        command = [launcher, "attach", "--extension=chrome", f"--session={session}",
+                   "--no-tab-group", f"--config={config}"]
+        result = subprocess.run(command, env=attach_env, text=True, capture_output=True, timeout=45)
+        if result.returncode:
+            raise Error("Playwright could not attach in the background. Check the extension token and profile.")
+        # Playwright can include URLs in output. Keep the token out of the terminal and agent logs.
+        for output, dest in ((result.stdout, sys.stdout), (result.stderr, sys.stderr)):
+            dest.write(output.replace(attach_env[TOKEN_ENV], "[redacted]"))
+
+
+def main():
+    cli = argparse.ArgumentParser(prog="dot playwright", description=__doc__)
+    commands = cli.add_subparsers(dest="browser", required=True)
+    actions = commands.add_parser("chrome").add_subparsers(dest="action", required=True)
+    for action in ("status", "enroll", "attach"):
+        command = actions.add_parser(action)
+        command.add_argument("--profile", default="Default", metavar="DIRECTORY")
+        if action == "attach":
+            command.add_argument("--session", required=True, metavar="NAME")
+    args = cli.parse_args()
+    try:
+        if not re.fullmatch(r"Default|Profile [1-9][0-9]*", args.profile):
+            raise Error("Use the Chrome profile directory name, such as Default or Profile 1.")
+        if args.action == "attach" and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", args.session):
+            raise Error("Use a session name of up to 64 letters, digits, hyphens, or underscores.")
+        env = desktop_env()
+        installed = extension_version(args.profile)
+        if args.action == "enroll":
+            enroll(args.profile, env)
+        elif args.action == "attach":
+            attach(args.profile, args.session, env)
+        else:
+            print(f"Playwright extension {installed} is enabled for {args.profile}.", flush=True)
+            check_browser(args.profile, env)
+            read_token(args.profile, env)
+            print("Chrome is ready for background attachment. A token is enrolled in KDE Wallet.")
+        return 0
+    except Error as exc:
+        print(f"dot playwright: {exc}", file=sys.stderr)
+    except (getpass.GetPassWarning, EOFError, KeyboardInterrupt):
+        print("dot playwright: Token enrollment or attachment was interrupted.", file=sys.stderr)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError, RuntimeError) as exc:
+        print(f"dot playwright: Could not complete the local Chrome check ({type(exc).__name__}).", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

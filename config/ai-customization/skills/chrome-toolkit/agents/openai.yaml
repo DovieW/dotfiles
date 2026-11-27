@@ -1,0 +1,6 @@
+interface:
+  display_name: "Chrome Toolkit"
+  short_description: "Browser automation, debugging, and performance"
+  default_prompt: "Use $chrome-toolkit to investigate a browser workflow."
+policy:
+  allow_implicit_invocation: true

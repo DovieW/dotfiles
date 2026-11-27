@@ -563,6 +563,17 @@
       when: dot_profile_data.features.chrome_devtools_cli | default(false)
       tags: [packages, chrome-devtools]
 
+    - name: Ensure Playwright CLI and its test browser
+      ansible.builtin.command:
+        argv:
+          - "{{ dot_repo }}/scripts/install-playwright-cli"
+          - "{{ '--check' if ansible_check_mode else '--ensure' }}"
+      register: dot_playwright
+      changed_when: "'CHANGED ' in dot_playwright.stdout"
+      check_mode: false
+      when: dot_profile_data.features.playwright_cli | default(false)
+      tags: [packages, playwright-cli, ai-customization]
+
     - name: Set up AI Customization
       ansible.builtin.command:
         argv: >-
