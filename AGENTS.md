@@ -41,9 +41,10 @@ delete wallet data, or store an unlock password in scripts.
 ## AI Customization on the IdeaPad
 
 After deploying changes to AI Customization, reopen its running window in the
-IdeaPad's existing KDE session and verify that the new window loaded. Preserve
-any unsaved edits first. If the window needs the user's attention before it can
-be reopened, report what is blocking the restart.
+IdeaPad's existing KDE session without stealing focus or sending mouse or
+keyboard input. Verify that the new window loaded in the background. Preserve
+unsaved edits. If a background reopen cannot be done safely, leave the window
+running and report what is blocking it.
 
 ## Tailscale names in configuration
 
