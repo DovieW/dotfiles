@@ -6,12 +6,13 @@ from pathlib import Path
 import sys
 
 from PyQt6.QtCore import QProcess, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
     QLineEdit, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+APP_ID = "io.github.doview.ai-customization"
 BACKEND = Path(__file__).resolve().with_name("ai-customization")
 SCOPES = {"Both computers": "shared", "Desktop": "kubuntu-desktop", "IdeaPad": "kubuntu-laptop"}
 TABLES = {
@@ -372,7 +373,10 @@ class Window(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("AI Customization")
+    app.setApplicationName(APP_ID)
+    app.setApplicationDisplayName("AI Customization")
+    app.setDesktopFileName(APP_ID)
+    app.setWindowIcon(QIcon.fromTheme("preferences-system"))
     window = Window()
     window.show()
     return app.exec()

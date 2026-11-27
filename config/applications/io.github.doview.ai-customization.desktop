@@ -8,3 +8,4 @@ Terminal=false
 Categories=Settings;
 Keywords=Codex;AI;Skills;MCP;Plugins;Hooks;
 StartupNotify=true
+StartupWMClass=io.github.doview.ai-customization
