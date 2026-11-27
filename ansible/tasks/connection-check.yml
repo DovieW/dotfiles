@@ -82,7 +82,7 @@
       {{ lookup('ansible.builtin.file', dot_repo + '/config/applications/io.github.doview.instant-wifi-connect.desktop')
          | replace('Exec=instant-wifi-connect',
                    'Exec=' + ansible_facts['user_dir'] + '/.local/bin/instant-wifi-connect') }}
-      {% if ansible_facts.product_name == '83JM' %}X-KDE-Shortcuts=F24{% endif %}
+      {% if ansible_facts.product_name == '83JM' %}X-KDE-Shortcuts=Go{% endif %}
     dest: "{{ ansible_facts['user_dir'] }}/.local/share/applications/io.github.doview.instant-wifi-connect.desktop"
     mode: "0644"
   register: dot_instant_connect_launcher
@@ -95,3 +95,25 @@
     - dot_instant_connect_launcher.changed
     - not ansible_check_mode
     - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
+
+- name: Replace the previous Instant Connect shortcut in the running Plasma session
+  when:
+    - ansible_facts.product_name == '83JM'
+    - not ansible_check_mode
+    - ansible_facts.env.DISPLAY is defined or ansible_facts.env.WAYLAND_DISPLAY is defined
+  vars:
+    dot_instant_connect_accel: [busctl, --user, call, org.kde.kglobalaccel, /kglobalaccel, org.kde.KGlobalAccel]
+    dot_instant_connect_action: ['4', io.github.doview.instant-wifi-connect.desktop, _launch, 'Instant Connect', 'Instant Connect']
+  block:
+    - name: Read the current Instant Connect shortcut
+      ansible.builtin.command:
+        argv: "{{ dot_instant_connect_accel + ['shortcut', 'as'] + dot_instant_connect_action }}"
+      register: dot_instant_connect_old_shortcut
+      changed_when: false
+      failed_when: false
+
+    - name: Migrate the previous F24 binding to Go
+      ansible.builtin.command:
+        argv: "{{ dot_instant_connect_accel + ['setShortcut', 'asaiu'] + dot_instant_connect_action + ['1', '16777431', item] }}"
+      loop: ['4', '8']
+      when: dot_instant_connect_old_shortcut.stdout | trim == 'ai 1 16777287'

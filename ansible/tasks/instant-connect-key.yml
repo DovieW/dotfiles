@@ -24,7 +24,7 @@
   when: >-
     dot_instant_connect_key.changed or
     (dot_instant_connect_live_key.rc == 0 and
-      (['KEYBOARD_KEY_0d=f24', 'KEYBOARD_KEY_13f=f24']
+      (['KEYBOARD_KEY_0d=connect', 'KEYBOARD_KEY_13f=connect']
        | difference(dot_instant_connect_live_key.stdout_lines) | length > 0))
   block:
     - name: Compile the IdeaPad airplane key remap
